@@ -1,0 +1,309 @@
+#!/bin/sh
+#
+# Copyright (C) 2026 Julian Pawlowski
+# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
+# openid-connect-watch - says when single sign-on needs attention.
+#
+# This package hooks into interfaces of the core package that OPNsense is free
+# to change at any time: the SSO parts under OPNsense/Auth, session handling,
+# the dispatcher and the login page itself. When one of them moves, the login
+# button can disappear - or, at worst, the login page can stop loading.
+#
+# So two things are checked, and the order is deliberate:
+#
+#   1. LIVE PROBE. The login page is actually fetched and checked for the form,
+#      the SSO button and a clean closing tag. This is the check that matters -
+#      it answers the only question that counts: can I still get in tomorrow?
+#   2. FINGERPRINT. A sha256 over exactly those core files this package hangs
+#      off. If it differs from the recorded one, the ground has moved and the
+#      code wants reading through - even if everything still works today.
+#
+# The anchor is written on the FIRST run on this machine rather than built into
+# the package: the same package has to run on any OPNsense, and a fingerprint
+# over core files is only ever true for one of them.
+#
+# A version number alone is no trigger: OPNsense moves often without touching
+# these files. Then there is nothing to do, and there should be no mail either.
+#
+#   openid-connect-watch --digest   print the fingerprint
+#   openid-connect-watch --check    check; on a finding, mail and syslog
+#   openid-connect-watch --status   show the state, without mail
+#   openid-connect-watch --anchor   record today's state as the anchor
+#   openid-connect-watch --test     force a message (to test the mail path)
+#
+# Findings go to the system log always, and to root by mail where the machine
+# has a mail transport at all - see the note above RECIPIENT below.
+#
+# Source: https://github.com/jpawlowski/opnsense-openid-connect
+set -u
+
+PKG=os-openid-connect
+STATE=/var/db/openid-connect
+
+# There is nothing to configure here, on purpose.
+#
+# Findings go to the system log under this name, which every OPNsense can do and
+# which is where somebody looking for them will look. They are also mailed to
+# root - the address every daemon on a FreeBSD machine writes to, and the one an
+# MTA already knows how to redirect. A setting of our own would only be a second
+# place to say what /etc/mail/aliases and the mail plugin's own configuration
+# already say, and a firewall does not need two.
+#
+# Mail is best effort and says so: OPNsense ships no mail transport at all, so
+# it depends on os-postfix or another package having been installed.
+RECIPIENT=root
+LOGTAG=openid-connect-watch
+
+ANCHOR="$STATE/core.digest"
+ANCHOR_VERSION="$STATE/core.version"
+
+# The core files this package hangs off. A change to any of them can affect
+# single sign-on.
+TOUCHPOINTS="
+/usr/local/www/authgui.inc
+/usr/local/opnsense/mvc/app/library/OPNsense/Auth/AuthenticationFactory.php
+/usr/local/opnsense/mvc/app/library/OPNsense/Auth/Base.php
+/usr/local/opnsense/mvc/app/library/OPNsense/Auth/IAuthConnector.php
+/usr/local/opnsense/mvc/app/library/OPNsense/Auth/Local.php
+/usr/local/opnsense/mvc/app/library/OPNsense/Auth/SSOProviders/Provider.php
+/usr/local/opnsense/mvc/app/library/OPNsense/Auth/SSOProviders/ISSOContainer.php
+/usr/local/opnsense/mvc/app/library/OPNsense/Mvc/Session.php
+/usr/local/opnsense/mvc/app/library/OPNsense/Mvc/Dispatcher.php
+/usr/local/opnsense/mvc/app/library/OPNsense/Mvc/Router.php
+/usr/local/opnsense/mvc/app/library/OPNsense/Core/SanitizeFilter.php
+/usr/local/opnsense/mvc/app/controllers/OPNsense/Base/ApiControllerBase.php
+/usr/local/opnsense/mvc/app/models/OPNsense/Base/Menu/MenuItem.php
+"
+
+digest() {
+    for f in $TOUCHPOINTS; do
+        [ -f "$f" ] && echo "$f"
+    done | sort | xargs sha256 -r | sha256 -q
+}
+
+# Fetches the login page over the loopback and judges it. Sets PROBE_DETAIL and
+# returns: 0 = well, 1 = login page broken, 2 = page loads but no SSO button.
+PROBE_DETAIL=""
+probe() {
+    port=$(/usr/local/sbin/pluginctl -g system.webgui.port 2>/dev/null)
+    [ -n "$port" ] || port=443
+    page=$(mktemp -t openid-connect-probe) || return 1
+
+    if ! fetch -q -T 15 -o "$page" --no-verify-peer --no-verify-hostname \
+            "https://127.0.0.1:$port/" 2>/dev/null; then
+        PROBE_DETAIL="The login page could not be fetched over https://127.0.0.1:$port/."
+        rm -f "$page"; return 1
+    fi
+    if grep -qiE 'fatal error|uncaught .*(exception|error)|stack trace' "$page"; then
+        PROBE_DETAIL="The login page answers, but carries a PHP error message."
+        rm -f "$page"; return 1
+    fi
+    if ! grep -q 'name="usernamefld"' "$page"; then
+        PROBE_DETAIL="The login page has no field for the username."
+        rm -f "$page"; return 1
+    fi
+    if ! grep -q '</html>' "$page"; then
+        PROBE_DETAIL="The login page breaks off halfway (no clean closing tag)."
+        rm -f "$page"; return 1
+    fi
+    if ! grep -q '/api/openidconnect/auth/login' "$page"; then
+        PROBE_DETAIL="The login page loads cleanly, but the single sign-on button is missing."
+        rm -f "$page"; return 2
+    fi
+
+    PROBE_DETAIL="Login page in order: form present, single sign-on button present."
+    rm -f "$page"; return 0
+}
+
+note() {
+    logger -t "$LOGTAG" "$1"
+}
+
+anchor() {
+    mkdir -p "$STATE" && chmod 700 "$STATE"
+    digest > "$ANCHOR"
+    opnsense-version -v > "$ANCHOR_VERSION"
+    chmod 600 "$ANCHOR" "$ANCHOR_VERSION"
+}
+
+# The mail transport, if this machine has one. OPNsense ships none: /usr/local
+# is where os-postfix puts its sendmail, /usr/sbin where a base one would be.
+mailer() {
+    for candidate in /usr/local/sbin/sendmail /usr/sbin/sendmail; do
+        [ -x "$candidate" ] && { echo "$candidate"; return 0; }
+    done
+    return 1
+}
+
+send() {
+    subject=$1
+    body=$2
+    host=$(hostname)
+
+    sendmail=$(mailer) || {
+        # Not a failure of this machine, and not something to fail silently over
+        # either: the finding is already in the log, which is the channel that
+        # always works. Say once where the mail did not go.
+        note "no mail transport is installed, so this was not mailed - install os-postfix to receive it, or read the log"
+        return 0
+    }
+
+    # Set the sender explicitly (-f) rather than letting the MTA guess. Without
+    # it postfix takes $myorigin, and if that is a name which does not resolve,
+    # the far end rejects the mail: it sits in the queue and nobody finds out.
+    "$sendmail" -t -f "root@$host" <<EOF
+To: $RECIPIENT
+From: openid-connect-watch <root@$host>
+Subject: [$host] $subject
+
+$body
+
+--
+Written by /usr/local/sbin/openid-connect-watch on $host. It reports to root;
+where that mail goes is the mail transport's own configuration.
+Package source: https://github.com/jpawlowski/opnsense-openid-connect
+
+Way out: signing in locally with a username and password always remains
+possible - the login form is rendered before the single sign-on button. When in
+doubt, "pkg delete $PKG" removes single sign-on and leaves the interface intact.
+EOF
+}
+
+if ! pkg info -e "$PKG" 2>/dev/null; then
+    [ "${1:-}" = "--digest" ] && { digest; exit 0; }
+    echo "Package $PKG is not installed." >&2
+    exit 1
+fi
+
+have_version=$(opnsense-version -v 2>/dev/null)
+have_digest=$(digest)
+want_digest=$(cat "$ANCHOR" 2>/dev/null)
+want_version=$(cat "$ANCHOR_VERSION" 2>/dev/null)
+
+case "${1:---check}" in
+--digest)
+    digest
+    ;;
+
+--anchor)
+    anchor
+    printf 'Anchored: OPNsense %s, fingerprint %s\n' "$have_version" "$have_digest"
+    ;;
+
+--status)
+    probe; probe_rc=$?
+    printf 'Package     %s\n' "$(pkg query '%n-%v' "$PKG")"
+    printf 'Bundles     %s\n' "$(pkg annotate -Sq "$PKG" bundled_library)"
+    printf 'Built from  %s\n' "$(pkg annotate -Sq "$PKG" built_from)"
+    printf 'Anchored at %s\n' "${want_version:-not yet}"
+    printf 'Running     %s\n' "$have_version"
+    printf 'Live probe  %s\n' "$PROBE_DETAIL"
+    printf 'Mail        %s\n' "$(mailer >/dev/null 2>&1 \
+        && echo "to $RECIPIENT through $(mailer)" \
+        || echo 'no transport installed - findings go to the log only')"
+    printf 'Fingerprint of the core interfaces\n'
+    printf '  anchored  %s\n' "${want_digest:-not yet}"
+    printf '  found     %s\n' "$have_digest"
+    if [ -z "$want_digest" ]; then
+        printf 'Verdict     no anchor yet - the next --check writes one'
+    elif [ "$want_digest" = "$have_digest" ]; then
+        printf 'Verdict     core unchanged'
+    else
+        printf 'Verdict     core has moved - read through'
+    fi
+    [ "$probe_rc" -ne 0 ] && printf ', CHECK THE LOGIN'
+    printf '\n'
+    ;;
+
+--test)
+    probe
+    send "openid-connect-watch: test message" \
+"This is a test. There is no finding.
+
+  Package:     $(pkg query '%n-%v' "$PKG")
+  Anchored at: ${want_version:-not yet}
+  Running:     $have_version
+  Live probe:  $PROBE_DETAIL"
+    note "test message from openid-connect-watch sent to $RECIPIENT"
+    ;;
+
+--check)
+    probe; probe_rc=$?
+
+    if [ "$probe_rc" -eq 1 ]; then
+        note "The login page of the web interface is not in order: $PROBE_DETAIL Please look before somebody locks themselves out"
+        send "openid-connect-watch: the login page is not in order" \
+"$PROBE_DETAIL
+
+  Package:     $(pkg query '%n-%v' "$PKG")
+  Anchored at: ${want_version:-not yet}
+  Running:     $have_version
+
+This is the case this watchdog exists for. The likeliest cause is a change in
+the core package that the single sign-on module no longer fits.
+
+First aid over the console or SSH:
+
+    pkg delete $PKG
+
+Single sign-on is then gone and signing in works with a username and password
+again."
+        exit 1
+    fi
+
+    if [ "$probe_rc" -eq 2 ]; then
+        note "The login page loads, but the single sign-on button is missing - signing in with a username and password still works"
+        send "openid-connect-watch: the single sign-on button is missing" \
+"$PROBE_DETAIL
+
+  Package:     $(pkg query '%n-%v' "$PKG")
+  Anchored at: ${want_version:-not yet}
+  Running:     $have_version
+
+Nobody is locked out - the login form is there. Only the way through the
+identity provider is missing."
+        exit 1
+    fi
+
+    if [ -z "$want_digest" ]; then
+        # First run on this machine: write the anchor, report nothing.
+        anchor
+        note "openid-connect-watch anchored itself on this machine (OPNsense $have_version); from now on it reports changes to the core package that may affect signing in"
+        exit 0
+    fi
+
+    if [ "$want_digest" = "$have_digest" ]; then
+        # The version may have changed as long as our interfaces did not. Note
+        # it and move on.
+        if [ "$want_version" != "$have_version" ]; then
+            note "OPNsense is now $have_version (anchored at $want_version), but the single sign-on interfaces are unchanged and the login page is in order - nothing to do"
+            opnsense-version -v > "$ANCHOR_VERSION"
+        fi
+        exit 0
+    fi
+
+    note "OPNsense changed files that single sign-on hangs off (now $have_version, anchored at $want_version). The login page is in order, but the code wants reading through"
+    send "openid-connect-watch: the core moved underneath the module" \
+"OPNsense changed files that the single sign-on module hangs off. The login page
+has been checked and is in order, so there is no hurry. The code does want
+reading through before the next upgrade.
+
+  Package:     $(pkg query '%n-%v' "$PKG")
+  Anchored at: $want_version
+  Running:     $have_version
+
+  Fingerprint of the core interfaces
+    anchored: $want_digest
+    now:      $have_digest
+
+Next steps on the host:
+
+    openid-connect-watch --status     shows the state
+    openid-connect-watch --anchor     re-anchor after reading through"
+    ;;
+
+*)
+    echo "Usage: $0 [--check|--status|--digest|--anchor|--test]" >&2
+    exit 2
+    ;;
+esac

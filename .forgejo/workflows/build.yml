@@ -1,0 +1,164 @@
+name: Check and build the package
+
+# Every push is checked and built as a trial run; a v* tag builds the package
+# for real and attaches it to a release. The version is therefore stated in
+# exactly one place - the tag - and nowhere in the source.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # without the history `git describe` sees no tags
+          fetch-depth: 0
+
+      - name: Provide PHP
+        run: |
+          php -v >/dev/null 2>&1 && exit 0
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends php-cli
+
+      - name: Run the tests
+        # Syntax for every language in the tree, the behaviour checks, and the
+        # package that gets built - the same ./tests/run.sh anyone can run
+        # locally, so a failure here reads the same as a failure there.
+        run: ./tests/run.sh
+
+      - name: Commit messages
+        # The release note is generated from these, so a message that cannot be
+        # read is a note that cannot be written. The same check runs locally
+        # through packaging/hooks/commit-msg; this is the one nobody can skip.
+        # --pushed works out the range from the event the forge left behind,
+        # which Forgejo and GitHub write to the same place in the same shape.
+        run: python3 packaging/commit-lint.py --pushed
+
+      - name: Bundled library against its origin
+        # Deliberately not blocking: when upstream moves that should be
+        # visible, but it should not hold up an urgent release.
+        continue-on-error: true
+        run: python3 packaging/vendor-check.py
+
+  release:
+    needs: check
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build the package
+        id: build
+        run: |
+          set -eu
+          python3 packaging/build.py
+          path=$(find packaging/dist -name '*.pkg' | head -1)
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+          echo "file=$(basename "$path")" >> "$GITHUB_OUTPUT"
+          echo "checksum=$(sha256sum "$path" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Create the release and attach the package
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          BASE: ${{ github.server_url }}/${{ github.repository }}
+          PATH_PKG: ${{ steps.build.outputs.path }}
+          FILE: ${{ steps.build.outputs.file }}
+          CHECKSUM: ${{ steps.build.outputs.checksum }}
+          # An RSA or ED25519 private key in PEM form, or unset. `pkg add` verifies
+          # nothing about a file handed to it directly, so a package that changes how a
+          # firewall authenticates should travel with something to check it against.
+          # Without the secret the release is built and attached exactly as before, with
+          # the checksum file alone.
+          SIGNING_KEY: ${{ secrets.PKG_SIGNING_KEY }}
+        run: |
+          set -eu
+          # The attachment's address is fixed as soon as the tag and the file
+          # name are, so the note can be something to copy rather than showing
+          # a placeholder.
+          URL="$BASE/releases/download/$TAG/$FILE"
+
+          # Written out of the commits this tag contains, so that what an
+          # installation has to know before it upgrades is whatever somebody
+          # already wrote down when they made the change.
+          python3 packaging/release-notes.py \
+            --tag "$TAG" \
+            --file "$FILE" \
+            --url "$URL" \
+            --checksum "$CHECKSUM" \
+            --commit-url "$BASE/commit/" \
+            --built-from "$GITHUB_SHA" \
+            ${SIGNING_KEY:+--signed} > "$RUNNER_TEMP/notes.md"
+          note=$(cat "$RUNNER_TEMP/notes.md")
+
+          # a tag that carries a suffix is not a finished version
+          prerelease=false
+          case "$TAG" in *-*) prerelease=true ;; esac
+
+          # The run has to be repeatable: deleting a tag leaves a release DRAFT
+          # behind in Forgejo, and a second attempt would otherwise fail on
+          # create. So look first.
+          existing=$(curl -sS -H "Authorization: token $TOKEN" \
+                       "$API/releases/tags/$TAG" | jq -r '.id // empty')
+
+          if [ -n "$existing" ]; then
+            id=$existing
+            curl -sS -X PATCH "$API/releases/$id" \
+              -H "Authorization: token $TOKEN" -H 'Content-Type: application/json' \
+              -d "$(jq -n --arg t "$TAG" --arg b "$note" --argjson p "$prerelease" \
+                    '{name:$t, body:$b, draft:false, prerelease:$p}')" > /dev/null
+            echo "Release $TAG already existed, refreshed."
+          else
+            id=$(curl -sS -X POST "$API/releases" \
+                  -H "Authorization: token $TOKEN" -H 'Content-Type: application/json' \
+                  -d "$(jq -n --arg t "$TAG" --arg b "$note" --argjson p "$prerelease" \
+                        '{tag_name:$t, name:$t, body:$b, draft:false, prerelease:$p}')" \
+                | jq -r '.id // empty')
+            echo "Release $TAG created."
+          fi
+          test -n "$id"
+
+          # A release for tag X carries exactly what was built from X - so
+          # EVERYTHING previous goes, not only same-named files. Otherwise a
+          # file from an earlier run survives under its old name.
+          previous=$(curl -sS -H "Authorization: token $TOKEN" "$API/releases/$id/assets" \
+                     | jq -r '.[].id')
+          for a in $previous; do
+            curl -sS -X DELETE -H "Authorization: token $TOKEN" "$API/releases/$id/assets/$a"
+            echo "  removed earlier attachment $a"
+          done
+
+          curl -sS -X POST "$API/releases/$id/assets?name=$FILE" \
+            -H "Authorization: token $TOKEN" \
+            -F "attachment=@$PATH_PKG" > /dev/null
+
+          # The checksum travels as a file of its own as well: one that is read by a
+          # machine rather than copied out of a paragraph by hand.
+          printf '%s  %s\n' "$CHECKSUM" "$FILE" > "$PATH_PKG.sha256"
+          curl -sS -X POST "$API/releases/$id/assets?name=$FILE.sha256" \
+            -H "Authorization: token $TOKEN" \
+            -F "attachment=@$PATH_PKG.sha256" > /dev/null
+
+          if [ -n "${SIGNING_KEY:-}" ]; then
+            umask 077
+            printf '%s\n' "$SIGNING_KEY" > "$RUNNER_TEMP/release.key"
+            openssl dgst -sha256 -sign "$RUNNER_TEMP/release.key" \
+              -out "$PATH_PKG.sig" "$PATH_PKG"
+            rm -f "$RUNNER_TEMP/release.key"
+            curl -sS -X POST "$API/releases/$id/assets?name=$FILE.sig" \
+              -H "Authorization: token $TOKEN" \
+              -F "attachment=@$PATH_PKG.sig" > /dev/null
+            echo "signed with the release key"
+          else
+            echo "no release key configured, attaching the checksum alone"
+          fi
+
+          echo "$FILE attached (sha256 $CHECKSUM)."

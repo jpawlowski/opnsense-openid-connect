@@ -1,0 +1,28 @@
+/*
+ * Copyright (C) 2026 Julian Pawlowski - BSD-2-Clause, see LICENSE at the repository root.
+ *
+ * Styles for the single sign-on button on the login page. Core emits one
+ * .login-sso-link-container per provider, directly after the login form, so everything
+ * here hangs off that container. clear:both keeps it clear of the floated Login button.
+ *
+ * The icon is painted in currentColor rather than a fixed white, so it follows whatever
+ * the active theme paints button text in. {{icon}} is replaced with the icon's address.
+ */
+.login-sso-link-container { clear: both; margin-top: 14px; }
+.login-sso-link-container + .login-sso-link-container { margin-top: 8px; }
+.login-sso-link-container .btn {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 7px 12px;
+}
+.login-sso-mark { display: inline-block; width: 24px; height: 24px; flex: 0 0 24px; }
+.login-sso-mark-tinted {
+    background-color: currentColor;
+    -webkit-mask: url("{{icon}}") no-repeat center;
+    mask: url("{{icon}}") no-repeat center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+}

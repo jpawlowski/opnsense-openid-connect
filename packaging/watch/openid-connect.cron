@@ -1,0 +1,19 @@
+#
+# Copyright (C) 2026 Julian Pawlowski
+# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
+#
+# Nightly run of the single sign-on watchdog.
+#
+# cron(8) reads this directory on FreeBSD 13 and later, and it is how the
+# OPNsense plugins that schedule anything schedule it. periodic(8) would be the
+# other way, but nothing in OPNsense - neither the core package nor any plugin -
+# puts anything under /usr/local/etc/periodic. Whether periodic runs at all on a
+# given firewall therefore depends on base defaults nobody here maintains, which
+# is a poor thing for a watchdog to depend on.
+#
+# Nothing is written to stdout: the watchdog reports for itself over syslog and
+# mail, and cron would send every silent run to root.
+SHELL=/bin/sh
+PATH=/etc:/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin
+#minute	hour	mday	month	wday	who	command
+1	3	*	*	*	root	/usr/local/sbin/openid-connect-watch --check >/dev/null 2>&1

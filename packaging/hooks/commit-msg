@@ -1,0 +1,15 @@
+#!/bin/sh
+#
+# Copyright (C) 2026 Julian Pawlowski
+# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
+#
+# Stops a commit message that the release note could not read. Install it once
+# per clone - hooks are not part of what git clones:
+#
+#     git config core.hooksPath packaging/hooks
+#
+# The same check runs in the pipeline over everything a push brings, so a clone
+# without this hook is caught, only later and by somebody else.
+set -eu
+
+exec python3 "$(dirname "$0")/../commit-lint.py" --message "$1"

@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<!--
+    Copyright (C) 2026 Julian Pawlowski
+    All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
+
+    The privilege that reads a provider's discovery document, so that a provider URL can
+    be checked while it is being typed. It makes this firewall fetch an address somebody
+    chose, which is why it is a privilege of its own rather than something the login
+    endpoints share.
+
+    The endpoints under api/openidconnect/auth/ are deliberately NOT listed. They answer before
+    anyone is signed in and decline the session check themselves; what protects them is
+    the state and the nonce this firewall issued, not a privilege.
+
+    Without this file the endpoint below is reachable by administrators alone, because
+    core denies a page no ACL entry matches. That works, but it leaves the rule implicit
+    and nowhere to be seen under System > Access > Groups.
+-->
+<acl>
+    <page-system-openidconnect-discovery>
+        <name>System: Access: Servers: OpenID Connect discovery</name>
+        <patterns>
+            <pattern>api/openidconnect/discovery/*</pattern>
+        </patterns>
+    </page-system-openidconnect-discovery>
+</acl>

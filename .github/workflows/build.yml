@@ -1,0 +1,149 @@
+name: Check and build the package
+
+# The same pipeline as .forgejo/workflows/build.yml, for the mirror on GitHub.
+# Each forge ignores the other's directory, so both run on their own side and
+# neither has to know about the other.
+#
+# The checks are the same commands on both, deliberately: ./tests/run.sh and
+# commit-lint.py, which is also what anyone runs by hand. Only the release step
+# differs, because the two forges do not offer releases the same way - Forgejo
+# through its API, GitHub through the gh CLI that its runners already carry.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # without the history `git describe` sees no tags
+          fetch-depth: 0
+
+      - name: Provide PHP
+        run: |
+          php -v >/dev/null 2>&1 && exit 0
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends php-cli
+
+      - name: Run the tests
+        # Syntax for every language in the tree, the behaviour checks, and the
+        # package that gets built - the same ./tests/run.sh anyone can run
+        # locally, so a failure here reads the same as a failure there.
+        run: ./tests/run.sh
+
+      - name: Commit messages
+        # The release note is generated from these, so a message that cannot be
+        # read is a note that cannot be written. The same check runs locally
+        # through packaging/hooks/commit-msg; this is the one nobody can skip.
+        # --pushed works out the range from the event the forge left behind,
+        # which GitHub and Forgejo write to the same place in the same shape.
+        run: python3 packaging/commit-lint.py --pushed
+
+      - name: Bundled library against its origin
+        # Deliberately not blocking: when upstream moves that should be
+        # visible, but it should not hold up an urgent release.
+        continue-on-error: true
+        run: python3 packaging/vendor-check.py
+
+  release:
+    needs: check
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      # the one thing this pipeline writes
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build the package
+        id: build
+        run: |
+          set -eu
+          python3 packaging/build.py
+          path=$(find packaging/dist -name '*.pkg' | head -1)
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+          echo "file=$(basename "$path")" >> "$GITHUB_OUTPUT"
+          echo "checksum=$(sha256sum "$path" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Create the release and attach the package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          BASE: ${{ github.server_url }}/${{ github.repository }}
+          PATH_PKG: ${{ steps.build.outputs.path }}
+          FILE: ${{ steps.build.outputs.file }}
+          CHECKSUM: ${{ steps.build.outputs.checksum }}
+          # An RSA or ED25519 private key in PEM form, or unset. `pkg add` verifies
+          # nothing about a file handed to it directly, so a package that changes how a
+          # firewall authenticates should travel with something to check it against.
+          # Without the secret the release is built and attached exactly as before, with
+          # the checksum file alone.
+          SIGNING_KEY: ${{ secrets.PKG_SIGNING_KEY }}
+        run: |
+          set -eu
+          # The attachment's address is fixed as soon as the tag and the file
+          # name are, so the note can be something to copy rather than showing
+          # a placeholder.
+          URL="$BASE/releases/download/$TAG/$FILE"
+
+          # Written out of the commits this tag contains, so that what an
+          # installation has to know before it upgrades is whatever somebody
+          # already wrote down when they made the change.
+          python3 packaging/release-notes.py \
+            --tag "$TAG" \
+            --file "$FILE" \
+            --url "$URL" \
+            --checksum "$CHECKSUM" \
+            --commit-url "$BASE/commit/" \
+            --built-from "$GITHUB_SHA" \
+            ${SIGNING_KEY:+--signed} > "$RUNNER_TEMP/notes.md"
+
+          # The checksum travels as a file of its own as well: one that is read
+          # by a machine rather than copied out of a paragraph by hand.
+          printf '%s  %s\n' "$CHECKSUM" "$FILE" > "$PATH_PKG.sha256"
+          assets="$PATH_PKG $PATH_PKG.sha256"
+
+          if [ -n "${SIGNING_KEY:-}" ]; then
+            umask 077
+            printf '%s\n' "$SIGNING_KEY" > "$RUNNER_TEMP/release.key"
+            openssl dgst -sha256 -sign "$RUNNER_TEMP/release.key" \
+              -out "$PATH_PKG.sig" "$PATH_PKG"
+            rm -f "$RUNNER_TEMP/release.key"
+            assets="$assets $PATH_PKG.sig"
+            echo "signed with the release key"
+          else
+            echo "no release key configured, attaching the checksum alone"
+          fi
+
+          # The run has to be repeatable: a tag deleted and pushed again finds
+          # the release still there, so look first and edit rather than fail.
+          prerelease=""
+          case "$TAG" in *-*) prerelease="--prerelease" ;; esac
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" \
+              --draft=false $prerelease
+            echo "Release $TAG already existed, refreshed."
+          else
+            gh release create "$TAG" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" \
+              $prerelease
+            echo "Release $TAG created."
+          fi
+
+          # --clobber so that a re-run replaces what an earlier one attached
+          # rather than refusing; a release for tag X carries what was built
+          # from X and nothing older.
+          # shellcheck disable=SC2086
+          gh release upload "$TAG" $assets --clobber
+
+          echo "$FILE attached (sha256 $CHECKSUM)."
