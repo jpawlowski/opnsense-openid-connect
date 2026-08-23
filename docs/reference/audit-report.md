@@ -28,9 +28,9 @@ flowchart LR
 | Stage | Result | Evidence |
 |---|---:|---|
 | Syntax | **passed** | all files parse |
-| Behaviour | **passed** | 405 checks passed |
+| Behaviour | **passed** | 447 checks passed |
 | Commit/release convention | **passed** | 62 checks passed |
-| Package/archive/supply chain | **passed** | 337 checks passed |
+| Package/archive/supply chain | **passed** | 344 checks passed |
 
 ## Current findings
 
@@ -74,11 +74,12 @@ No host-independent check currently fails.
 | Matching by e-mail address | 6 | 0 |
 | Creating an account on first sight | 9 | 0 |
 | Administrator approval admission policy | 23 | 0 |
+| Authentication strength requirements | 16 | 0 |
 | Separating identity claims from protocol claims | 5 | 0 |
 | Strict provider discovery | 12 | 0 |
 | Bounded HTTPS transport | 8 | 0 |
 | Strict endpoint responses and logout binding | 4 | 0 |
-| Login transactions, PKCE and mix-up protection | 16 | 0 |
+| Login transactions, PKCE and mix-up protection | 23 | 0 |
 | ID token claim validation | 7 | 0 |
 | Back-channel logout token claims | 4 | 0 |
 | Whom a token was issued for | 3 | 0 |
@@ -93,9 +94,9 @@ No host-independent check currently fails.
 | Telling a local path from an address | 5 | 0 |
 | Reading group names out of any shape a provider sends | 6 | 0 |
 | Keeping the exact configured issuer | 4 | 0 |
-| Defaults when a field is left empty | 77 | 0 |
+| Defaults when a field is left empty | 84 | 0 |
 | Telling an address this firewall may fetch from one it may not | 12 | 0 |
-| What the settings form refuses | 78 | 0 |
+| What the settings form refuses | 90 | 0 |
 | local WebGUI authorization | 8 | 0 |
 | A message the convention accepts | 6 | 0 |
 | A pull request becomes one release-note commit | 5 | 0 |
@@ -113,9 +114,9 @@ No host-independent check currently fails.
 | Permissions and ownership | 2 | 0 |
 | The nightly run, and what is left behind when it goes | 12 | 0 |
 | What ships with it | 7 | 0 |
-| No address, host or mailbox of the builder's travels along | 157 | 0 |
-| Everything is in English and says who wrote it | 75 | 0 |
-| Every other file of ours says the same | 48 | 0 |
+| No address, host or mailbox of the builder's travels along | 160 | 0 |
+| Everything is in English and says who wrote it | 77 | 0 |
+| Every other file of ours says the same | 50 | 0 |
 
 ## Evidence not collected by this run
 
