@@ -485,7 +485,7 @@ def start_vm(arguments):
         run(
             "ssh", "-F", str(config), "opnsense-e2e",
             "grep -q '[[:space:]]provider\\.localhost' /etc/hosts || "
-            "printf '10.0.2.2\\tprovider.localhost\\n' >> /etc/hosts",
+            "printf '10.0.2.2\\tprovider.opnsense.test\\n' >> /etc/hosts",
             quiet=True,
         )
         webgui_config = (

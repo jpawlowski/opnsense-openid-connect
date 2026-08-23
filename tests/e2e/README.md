@@ -60,8 +60,9 @@ official GitHub release once and then resolves its registry digest before starti
     tests/e2e/local.sh --provider pocketid --canary
 
 The matrix wrapper reports all provider failures rather than hiding later results after the first failure. Provider
-stacks use a per-run CA and TLS proxy. `provider.localhost` resolves to the Mac for the browser and is pinned to QEMU's
-host gateway inside OPNsense; `opnsense.localhost` is mapped to Docker Desktop's host gateway for logout callbacks.
+stacks use a per-run CA and TLS proxy. `provider.opnsense.test` is mapped to the Mac only for the browser and is pinned
+to QEMU's host gateway inside OPNsense. The reserved `.test` suffix avoids the special loopback handling that HTTP
+clients apply to `.localhost`; `opnsense.localhost` still maps to Docker Desktop's host gateway for logout callbacks.
 
 ## Prepared lab or CI runner
 

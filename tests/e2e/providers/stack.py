@@ -58,7 +58,7 @@ def docker_run(name, network, image_reference, *arguments, environment=None, vol
     command_line.extend(arguments)
     command_line.append(image_reference)
     command_line.extend(command or [])
-    run(*command_line)
+    run(*command_line, quiet=True)
 
 
 def create_certificate(work, host):
@@ -268,7 +268,10 @@ http {{
         (str(work / "server.crt"), "/tls/server.crt", "ro"),
         (str(work / "server.key"), "/tls/server.key", "ro"),
     ]
-    docker_run(name, state["network"], image("nginx"), "-p", f"127.0.0.1:{state['port']}:8443", volumes=volumes)
+    # OPNsense reaches the Mac through QEMU's 10.0.2.2 host gateway, which is
+    # not a loopback connection. The per-run TLS name and random credentials
+    # still prevent this disposable service from becoming a reusable endpoint.
+    docker_run(name, state["network"], image("nginx"), "-p", f"{state['port']}:8443", volumes=volumes)
     state["containers"].append(name)
 
 

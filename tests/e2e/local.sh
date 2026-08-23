@@ -63,9 +63,10 @@ E2E_OPNSENSE_SSH=$(printf '%s' "$vm" | node -e 'let d="";process.stdin.on("data"
 E2E_OPNSENSE_SSH_CONFIG=$(printf '%s' "$vm" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).ssh_config))')
 E2E_OPNSENSE_USERNAME=${E2E_OPNSENSE_USERNAME:-root}
 E2E_OPNSENSE_PASSWORD=${E2E_OPNSENSE_PASSWORD:-opnsense}
-E2E_PROVIDER_HOST=${E2E_PROVIDER_HOST:-provider.localhost}
+E2E_PROVIDER_HOST=${E2E_PROVIDER_HOST:-provider.opnsense.test}
+E2E_PROVIDER_BROWSER_IP=${E2E_PROVIDER_BROWSER_IP:-127.0.0.1}
 export E2E_OPNSENSE_URL E2E_OPNSENSE_SSH E2E_OPNSENSE_SSH_CONFIG
-export E2E_OPNSENSE_USERNAME E2E_OPNSENSE_PASSWORD E2E_PROVIDER_HOST
+export E2E_OPNSENSE_USERNAME E2E_OPNSENSE_PASSWORD E2E_PROVIDER_HOST E2E_PROVIDER_BROWSER_IP
 
 # Arguments originate in the strict case statement above and contain no shell
 # metacharacters; word splitting preserves the underlying runner's POSIX CLI.

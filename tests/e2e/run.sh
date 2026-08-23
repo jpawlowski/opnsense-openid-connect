@@ -59,7 +59,7 @@ if [ -z "${E2E_PROVIDER_HOST:-}" ]; then
   if [ -n "${E2E_KEYCLOAK_URL:-}" ]; then
     E2E_PROVIDER_HOST=$(node -e 'console.log(new URL(process.argv[1]).hostname)' "$E2E_KEYCLOAK_URL")
   else
-    E2E_PROVIDER_HOST=provider.localhost
+    E2E_PROVIDER_HOST=provider.opnsense.test
   fi
 fi
 export E2E_KEEP E2E_PROVIDER_HOST

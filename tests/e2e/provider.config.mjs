@@ -5,6 +5,9 @@
 
 import { defineConfig } from '@playwright/test';
 
+const browserIp = process.env.E2E_PROVIDER_BROWSER_IP;
+const providerHost = process.env.E2E_PROVIDER_HOST;
+
 export default defineConfig({
   testDir: '.',
   testMatch: 'provider.spec.mjs',
@@ -21,5 +24,8 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     actionTimeout: 15_000,
     navigationTimeout: 45_000,
+    launchOptions: browserIp && providerHost ? {
+      args: [`--host-resolver-rules=MAP ${providerHost} ${browserIp}`],
+    } : {},
   },
 });

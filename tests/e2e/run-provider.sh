@@ -89,6 +89,8 @@ chmod 600 "$state_file"
 e2e_scp_to "$work_dir/ca.crt" "$remote_ca"
 e2e_scp_to "$script_dir/remote-cleanup.php" "$remote_cleanup"
 e2e_ssh "chmod 600 '$remote_ca' '$remote_cleanup'; certctl rehash"
+provider_readiness=$(jq -r .readiness "$state_file")
+e2e_ssh "fetch -qo- '${provider_url}${provider_readiness}' >/dev/null"
 
 python3 "$repository/packaging/build.py" --version 0.0.0.e2e >/dev/null
 package="$repository/packaging/dist/os-openid-connect-0.0.0.e2e.pkg"
