@@ -152,6 +152,7 @@ Start with these fields:
 | WebGUI transport | native HTTPS required by default; an HTTP backend needs an explicit trusted-proxy exception with exact custom public HTTPS origins |
 | Username claim | keep the profile default unless the provider guide differs |
 | Claims source | Automatic normally; force ID Token or UserInfo only when needed |
+| Required authentication | Provider policy only by default; optionally require verified MFA or phishing-resistant context and method claims |
 | Admission policy | Administrator approval for named profiles; Strict for Generic |
 | Identity manager | after saving, map exact issuer/`sub` identities to existing local accounts and review pending approvals |
 | Login button wording | localized OPNsense sentence, provider label only or an exact custom text; fixed global services use their familiar short name |

@@ -35,6 +35,31 @@ or consent for administrators.
 4. Optional for a tenant/workforce configuration: define app roles or filtered
    group claims and assign only intended firewall administrators.
 
+## Optional authentication-strength enforcement
+
+This is available only with **One specific Entra tenant**. Authentication
+context identifiers `c1` through `c25` are defined inside a tenant and cannot
+carry one trustworthy meaning across Organizations, Consumers or Common.
+
+1. Create or select a Conditional Access authentication context in Entra.
+2. Attach a Conditional Access policy whose grant control requires the intended
+   authentication strength: multifactor authentication, or a phishing-resistant
+   strength based on FIDO2 security keys, Passkeys, Windows Hello for Business or
+   certificate-based authentication.
+3. Configure the app registration to include the optional `amr` claim in its ID
+   Token. The plugin requests and verifies `acrs`, but still requires the ID Token
+   to report the method that satisfied it.
+4. In OPNsense select **Required authentication** and the same `c1`-`c25` value.
+   Run **Test sign-in** before offering the provider on the login page.
+
+OPNsense accepts the result only when the signature-verified ID Token contains
+both the requested `acrs` context and suitable `amr` evidence. MFA requires
+`mfa`. Phishing-resistant authentication accepts Entra's documented `fido`,
+`hwk` or `x509` methods. A context without method evidence is refused, even if
+Entra completed an otherwise valid login. Conditional Access requires a
+compatible Entra license; Microsoft currently documents it as an Entra ID P1
+capability.
+
 ## Enter or change these OPNsense values
 
 | Field | Value |
@@ -47,6 +72,7 @@ or consent for administrators.
 | Authorization response mode | Query |
 | Scopes | `openid,email,profile` |
 | Authentication method | Follow the provider |
+| Required authentication | Provider policy only, unless the tenant context above is configured |
 | Admission policy | Strict/controlled username matching for one tenant; Administrator approval for broad or personal audiences |
 
 Tenant-independent Microsoft Discovery publishes the issuer template
@@ -93,4 +119,6 @@ References: [Microsoft OIDC account authorities](https://learn.microsoft.com/en-
 [supported account types](https://learn.microsoft.com/en-us/entra/identity-platform/v2-supported-account-types),
 [multitenant issuer validation](https://learn.microsoft.com/en-us/entra/identity-platform/access-tokens),
 [ID Token claims](https://learn.microsoft.com/en-us/entra/identity-platform/id-token-claims-reference),
+[authentication context](https://learn.microsoft.com/en-us/entra/identity-platform/developer-guide-conditional-access-authentication-context),
+[optional claims and AMR values](https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims-reference),
 and [group claims](https://learn.microsoft.com/en-us/entra/identity/hybrid/connect/how-to-connect-fed-group-claims).

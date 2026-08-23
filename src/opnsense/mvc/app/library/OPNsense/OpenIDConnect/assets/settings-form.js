@@ -1058,10 +1058,16 @@
             var automatic = ['username', 'verified_email', 'either'].indexOf(admission) !== -1;
             var groupClaim = (field('openidconnect_group_claim').value || '').trim() !== '';
             var provider = field('openidconnect_provider_profile').value || 'general';
+            var authentication = field('openidconnect_required_authentication').value || '';
+            var authenticationRequired = authentication !== '';
             var buttonTextMode = field('openidconnect_button_text_mode').value || 'localized';
             var buttonTextCustomizable = (options.fixedButtonProfiles || []).indexOf(provider) === -1;
             row('openidconnect_tls_offloading').toggle(options.webGuiProtocol === 'http');
             row('openidconnect_microsoft_audience').toggle(provider === 'entra');
+            row('openidconnect_acr_request').toggle(authenticationRequired && provider !== 'entra');
+            row('openidconnect_acr_values').toggle(authenticationRequired && provider !== 'entra');
+            row('openidconnect_amr_values').toggle(authenticationRequired);
+            row('openidconnect_entra_auth_context').toggle(authenticationRequired && provider === 'entra');
             row('openidconnect_create_users').toggle(automatic);
             row('openidconnect_default_groups').toggle(automatic && creates);
             row('openidconnect_assignable_groups').toggle(groupClaim);
@@ -1081,8 +1087,46 @@
         $(field('openidconnect_origin_policy')).on('change', update);
         $(field('openidconnect_bootstrap_mode')).on('change', update);
         $(field('openidconnect_provider_profile')).on('change', update);
+        $(field('openidconnect_required_authentication')).on('change', update);
         $(field('openidconnect_button_text_mode')).on('change', update);
         update();
+    }
+
+    function authenticationRequirementPresets() {
+        var requirement = field('openidconnect_required_authentication');
+        var profile = field('openidconnect_provider_profile');
+        var requestMode = field('openidconnect_acr_request');
+        var contexts = field('openidconnect_acr_values');
+        var methods = field('openidconnect_amr_values');
+        var presets = options.authenticationRequirementPresets || {};
+        if (!requirement || !profile || !requestMode || !contexts || !methods) {
+            return;
+        }
+
+        function selectedPreset() {
+            var provider = ['okta', 'entra'].indexOf(profile.value) !== -1 ? profile.value : 'general';
+            return ((presets[provider] || {})[requirement.value || '']) || null;
+        }
+
+        function apply(force) {
+            var preset = selectedPreset();
+            if (!preset) {
+                return;
+            }
+            if (force || requestMode.value === '') {
+                requestMode.value = preset.request === 'entra_context' ? '' : (preset.request || '');
+            }
+            if (force || contexts.value.trim() === '') {
+                contexts.value = preset.acr || '';
+            }
+            if (force || methods.value.trim() === '') {
+                methods.value = preset.amr || '';
+            }
+        }
+
+        $(requirement).on('change', function () { apply(true); });
+        $(profile).on('change', function () { apply(true); });
+        apply(false);
     }
 
     function webGuiTransportNotice() {
@@ -1328,6 +1372,7 @@
         addSections();
         applicationCodeAvailability();
         var updateProfileDecorations = providerPresets();
+        authenticationRequirementPresets();
         conditionalFields();
         webGuiTransportNotice();
         endpointPreview();

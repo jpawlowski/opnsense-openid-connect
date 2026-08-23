@@ -25,7 +25,7 @@ class RelyingParty
     private const USERINFO_MAX_BYTES = 1048576;
     private const PROTOCOL_CLAIMS = [
         'iss', 'aud', 'exp', 'iat', 'nbf', 'jti', 'nonce', 'at_hash', 'c_hash',
-        'azp', 'sid', 'typ', 'auth_time', 'acr', 'amr',
+        'azp', 'sid', 'typ', 'auth_time', 'acr', 'acrs', 'amr',
     ];
     private const HOST_HEADER = '/^(?:[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?'
         . '(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?)*\.?'
@@ -131,6 +131,7 @@ class RelyingParty
         $nonce = self::randomValue(32);
         $verifier = self::randomValue(64);
         $challenge = JwtVerifier::base64UrlEncode(hash('sha256', $verifier, true));
+        $authenticationRequirement = $this->settings->authenticationRequirement();
 
         $transaction = [
             'created' => time(),
@@ -144,6 +145,9 @@ class RelyingParty
             'code_verifier' => $verifier,
             'metadata' => $metadata->toArray(),
         ];
+        if ($authenticationRequirement !== null) {
+            $transaction['authentication_requirement'] = $authenticationRequirement->toArray();
+        }
         if ($formPost) {
             TransactionRegistry::store($state, $transaction);
         } else {
@@ -164,6 +168,9 @@ class RelyingParty
         $parameters['max_age'] = (string)$this->settings->maximumAuthenticationAge();
         if ($this->settings->responseMode() === 'form_post') {
             $parameters['response_mode'] = 'form_post';
+        }
+        if ($authenticationRequirement !== null) {
+            $parameters = array_replace($parameters, $authenticationRequirement->authorizationParameters());
         }
 
         $this->settings->trace(sprintf(
@@ -209,6 +216,18 @@ class RelyingParty
             || !hash_equals($this->redirectUri, (string)$transaction['redirect_uri'])) {
             throw new ProtocolException('The login transaction no longer matches this provider');
         }
+        $frozenRequirement = null;
+        if (array_key_exists('authentication_requirement', $transaction)) {
+            if (!is_array($transaction['authentication_requirement'])) {
+                throw new ProtocolException('The login transaction carries an invalid authentication requirement');
+            }
+            $frozenRequirement = AuthenticationRequirement::fromArray($transaction['authentication_requirement']);
+        }
+        $currentRequirement = $this->settings->authenticationRequirement();
+        if (($frozenRequirement === null) !== ($currentRequirement === null)
+            || ($frozenRequirement !== null && !$frozenRequirement->equals($currentRequirement))) {
+            throw new ProtocolException('The authentication requirement changed while the login was pending');
+        }
 
         $responseIssuer = $parameters['iss'] ?? null;
         if ($responseIssuer !== null
@@ -245,6 +264,13 @@ class RelyingParty
             $issuerValidator
         );
         $this->idTokenClaims = $verified['claims'];
+        if ($frozenRequirement !== null) {
+            $frozenRequirement->assertSatisfied($this->idTokenClaims);
+            $this->settings->trace(sprintf(
+                'the verified ID Token satisfies the %s authentication requirement',
+                str_replace('-', ' ', $frozenRequirement->tier())
+            ));
+        }
 
         return $this->claimsForAccount($accessToken);
     }

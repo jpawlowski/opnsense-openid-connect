@@ -10,6 +10,8 @@ The implementation targets these normative parts:
 - OAuth 2.0 Authorization Server Issuer Identification (RFC 9207)
 - PKCE (RFC 7636), always `S256`, following OAuth 2.0 Security BCP (RFC 9700)
 - OAuth 2.0 Token Revocation (RFC 7009), when advertised
+- REFEDS Multi-Factor Authentication Profile for its exact MFA context
+- OpenID Connect Extended Authentication Profile `phr` and `phrh` contexts
 - OIDC RP-Initiated Logout 1.0, Front-Channel Logout 1.0 and Back-Channel
   Logout 1.0
 - JWS asymmetric algorithms `RS*`, `PS*`, and `ES*` listed in the README
@@ -42,6 +44,9 @@ must not be disabled to emulate support.
 - [Proof Key for Code Exchange (RFC 7636)](https://www.rfc-editor.org/rfc/rfc7636.html)
 - [OAuth 2.0 Security Best Current Practice (RFC 9700)](https://www.rfc-editor.org/rfc/rfc9700.html)
 - [OAuth 2.0 Token Revocation (RFC 7009)](https://www.rfc-editor.org/rfc/rfc7009.html)
+- [REFEDS Multi-Factor Authentication Profile](https://refeds.org/profile/mfa)
+- [OpenID Connect Extended Authentication Profile ACR Values 1.0](https://openid.net/specs/openid-connect-eap-acr-values-1_0.html)
+- [Authentication Method Reference Values (RFC 8176)](https://www.rfc-editor.org/rfc/rfc8176.html)
 - [OpenID Connect RP-Initiated Logout 1.0](https://openid.net/specs/openid-connect-rpinitiated-1_0.html)
 - [OpenID Connect Front-Channel Logout 1.0](https://openid.net/specs/openid-connect-frontchannel-1_0.html)
 - [OpenID Connect Back-Channel Logout 1.0](https://openid.net/specs/openid-connect-backchannel-1_0.html)
@@ -53,6 +58,7 @@ must not be disabled to emulate support.
 | forged/replayed callback | random server-bound state, nonce and PKCE; state consumed before processing; bounded one-time server index for `form_post` under SameSite=Lax |
 | authorization-server mix-up | frozen exact issuer/endpoints, distinct callback per provider, RFC 9207 when advertised |
 | forged ID Token | asymmetric JWKS signature, algorithm allow-list, key metadata/curve/use checks, minimum 2048-bit RSA |
+| provider ignores or misinterprets a requested authentication strength | an enabled requirement needs exact signed `acr`/`acrs` context and bounded `amr` evidence frozen into the login transaction; missing or mismatched evidence is refused before account lookup |
 | token for another client | exact `aud` and `azp` rules |
 | stale/future token | strict integer `exp`, `iat`, optional `nbf`, 60-second clock tolerance |
 | UserInfo substitution | access token over TLS, credential redirects forbidden, exact ID Token/UserInfo `sub` binding |

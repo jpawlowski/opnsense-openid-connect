@@ -35,6 +35,7 @@ the OPNsense classes (`tests/stubs/`):
 | | |
 |---|---|
 | `settings.php` | reading a settings field: list parsing, the shapes a group claim arrives in, Microsoft account audiences and issuer rules, finding the issuer in whatever was typed, every default, which addresses may be fetched, and what the settings form refuses |
+| `authentication-strength.php` | provider-aware MFA and phishing-resistant requests, exact `acr`/`acrs` plus `amr` enforcement, Microsoft authentication contexts, and transaction serialization |
 | `redirects.php` | choosing the address the provider returns to — the allow list, near-miss names, the empty-list fallback, a Host header that is not a host name, and whom a token was issued for |
 | `claims.php` | reading claims from the id_token as well as UserInfo, and keeping protocol claims out |
 | `exchange.php` | discovery, bounded HTTPS, PKCE, one-time transactions, mix-up protection, ID Token claims and logout-token claims |
