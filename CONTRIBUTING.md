@@ -82,11 +82,11 @@ are not acceptable; the complete community standard is in
 [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
 
 Every issue, pull request, review or comment an agent writes in a person's name
-ends with exactly one matching notice as its own final paragraph:
+ends with exactly one matching italic notice as its own final paragraph:
 
-    AI notice: An AI agent wrote this text on my behalf; I am responsible for its content.
+*An AI agent wrote this text on my behalf; I am responsible for its content.*
 
-    KI-Hinweis: Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.
+*Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.*
 
 Code, commands, paths, URLs and link destinations, closing references such as
 `Fixes #123`, template boilerplate, exact `None` values and those notices do not

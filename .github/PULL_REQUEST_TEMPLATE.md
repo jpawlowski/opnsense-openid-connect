@@ -50,8 +50,8 @@ A breaking pull request must use: `BREAKING CHANGE: <operator instruction>`.
 None
 
 <!--
-Agent-authored text must add exactly one of these as its own final paragraph:
+Agent-authored text must add exactly one of these italic notices as its own final paragraph:
 
-AI notice: An AI agent wrote this text on my behalf; I am responsible for its content.
-KI-Hinweis: Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.
+*An AI agent wrote this text on my behalf; I am responsible for its content.*
+*Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.*
 -->

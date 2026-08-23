@@ -8,8 +8,12 @@ body:
         Keep the complete issue to at most **175 counted prose words**. Code, commands, paths, URLs, closing references
         and the AI notice do not count. English and German are accepted; prefer English when in doubt.
 
-        Agent-authored text must end with the exact English or German AI notice required by `CONTRIBUTING.md`. Put it
-        after the answer under `To decide`, separated as its own final paragraph.
+        Agent-authored text must end with one exact italic notice after the answer under `To decide`, separated as its
+        own final paragraph:
+
+        *An AI agent wrote this text on my behalf; I am responsible for its content.*
+
+        *Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.*
   - type: dropdown
     id: area
     attributes:

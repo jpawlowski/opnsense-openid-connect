@@ -166,6 +166,12 @@ def main():
         "fix(ci): reject empty pull request bodies", f"{agent_body}\n\nAfterthought.",
         "owner/repo", "2026-01-02T00:00:00Z", older_issue,
     )["valid"], False)
+    legacy_notice = "AI notice: An AI agent wrote this text on my behalf; I am responsible for its content."
+    check("a non-italic legacy notice is refused", lint.validate_pull_request(
+        "fix(ci): reject empty pull request bodies",
+        pull_request_body(issue="Fixes #42", notice=legacy_notice),
+        "owner/repo", "2026-01-02T00:00:00Z", older_issue,
+    )["valid"], False)
 
     group("The workflows keep edits and automation safe")
     build = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
