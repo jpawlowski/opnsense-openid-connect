@@ -33,8 +33,8 @@ PULL_REQUEST_LIMIT = 125
 ISSUE_HEADINGS = ("TL;DR", "Where", "Now", "Want", "To decide")
 PULL_REQUEST_HEADINGS = ("Issue", "Change", "Resolution", "Validation", "Upgrade impact")
 AI_NOTICES = (
-    "AI notice: An AI agent wrote this text on my behalf; I am responsible for its content.",
-    "KI-Hinweis: Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.",
+    "*An AI agent wrote this text on my behalf; I am responsible for its content.*",
+    "*Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.*",
 )
 KNOWN_HEADINGS = set(ISSUE_HEADINGS + PULL_REQUEST_HEADINGS)
 
@@ -151,7 +151,7 @@ def notice_problems(body):
     visible = visible_text(body)
     exact = [(notice, visible.count(notice)) for notice in AI_NOTICES]
     count = sum(amount for _, amount in exact)
-    mentions_notice = "AI notice:" in visible or "KI-Hinweis:" in visible
+    mentions_notice = "AI agent wrote this text" in visible or "KI-Agent hat diesen Text" in visible
     if not count and not mentions_notice:
         return [], False
 
