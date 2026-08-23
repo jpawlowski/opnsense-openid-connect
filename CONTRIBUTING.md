@@ -49,6 +49,18 @@ overwritten. GitHub's Sync fork button and a current fork `main` are optional:
 create and push the topic branch through `origin`, but derive and refresh it
 from the canonical ref.
 
+Concurrent local agents use separate linked worktrees and topic branches.
+Cloud sessions already run in isolated checkouts and do not add another
+worktree. Claude Code cloud exposes `CLAUDE_CODE_REMOTE=true`; Codex cloud uses
+the repository-defined `AGENT_EXECUTION=codex-cloud`, and GitHub Copilot coding
+agent is recognized from its scoped `GITHUB_COPILOT_GIT_TOKEN` by the adapter
+under `.github/hooks/`. Regardless of vendor, a checkout without `origin` is
+treated as an isolated snapshot: it can test and create a handoff commit, but
+cannot claim remote freshness or a successful push. Do not place a personal
+access token in a cloud setup script. Use the platform's existing pull request
+update facility, or hand a commit and patch to the agent that owns the
+pull-request branch. Do not open a replacement pull request for the same work.
+
 Before opening a pull request, an agent validates the exact proposed title and
 body locally:
 
@@ -169,8 +181,10 @@ as the change needs.
     git config commit.template "$(git rev-parse --show-toplevel)/.gitmessage"
     git config core.hooksPath packaging/hooks
 
-A Codex or Claude task applies both settings automatically when it starts;
-other contributors run the commands once per clone. Both agents read the same
+A local Codex or Claude task applies both settings automatically when its host
+supports repository hooks; other contributors run the commands once per clone.
+Cloud agents still follow `AGENTS.md`, and Claude cloud also runs the shared
+configuration through its repository settings. The agents read the same
 tracked hook configuration and implementation under `.agents/`. The template
 puts the expected shape and the available types into the commit editor; its
 guidance consists only of comments and does not become part of the commit. The
@@ -178,15 +192,20 @@ hook refuses a message the release note could not read, before the commit
 exists rather than after. Neither Git config nor hooks are part of what Git
 clones, so the pipeline remains authoritative.
 
-For parallel agents, Git's ordinary repository configuration would be shared
-between linked worktrees. The agent hook therefore enables worktree-specific
-configuration and stores the absolute template path separately for each tree.
+For parallel local agents, Git's ordinary repository configuration would be
+shared between linked worktrees. The agent hook therefore enables
+worktree-specific configuration and stores the absolute template path
+separately for each tree.
 It also serializes periodic fetches of the selected canonical ref, keeps local
 `main` as a safe fast-forward mirror, and reports lag and overlap with work
 already in progress. It never rebases, merges, or pushes an agent branch
 automatically. Before publishing, an agent runs:
 
     python3 .agents/hooks/fast_gate.py refresh
+
+When no remote exists, the command reports a snapshot handoff instead of a safe
+`main` mirror. The cloud platform must update the existing pull request, or the
+agent must provide its commit and patch to the integrating session.
 
 For a pull request, the pipeline checks its title, description and linked issue
 instead. On `main` and tag pushes it checks the commits that arrived, so the

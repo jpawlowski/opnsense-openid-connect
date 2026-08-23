@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "bash": "python3 .agents/hooks/fast_gate.py initialize",
+        "cwd": ".",
+        "env": {"AGENT_EXECUTION": "copilot-cloud"},
+        "timeoutSec": 30
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "bash": "python3 .agents/hooks/fast_gate.py stop",
+        "cwd": ".",
+        "env": {"AGENT_EXECUTION": "copilot-cloud"},
+        "timeoutSec": 120
+      }
+    ],
+    "SessionEnd": [
+      {
+        "type": "command",
+        "bash": "python3 .agents/hooks/fast_gate.py cleanup",
+        "cwd": ".",
+        "env": {"AGENT_EXECUTION": "copilot-cloud"},
+        "timeoutSec": 3
+      }
+    ]
+  }
+}

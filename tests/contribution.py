@@ -194,6 +194,34 @@ def main():
         "owner/repo", "2026-01-02T00:00:00Z", older_issue,
     )["valid"], False)
 
+    group("Pull-request events follow current GitHub metadata")
+    current = {
+        "number": 18,
+        "title": "fix(contribution): validate current labels",
+        "body": pull_request_body(),
+        "created_at": "2026-01-02T00:00:00Z",
+    }
+    responses = [
+        {**current, "labels": [{"name": "change: feature"}, {"name": "area: contribution"}]},
+        {**current, "labels": [{"name": "change: fix"}, {"name": "area: contribution"}]},
+    ]
+    reads = []
+    pauses = []
+
+    def current_request(repository, number):
+        reads.append((repository, number))
+        return responses[min(len(reads) - 1, len(responses) - 1)]
+
+    live = lint.validate_pull_request_event({
+        "number": 18,
+        "repository": {"full_name": "owner/repo"},
+        "pull_request": {"number": 18, "title": "stale invalid title", "body": ""},
+    }, request_reader=current_request, issue_reader=older_issue, pause=pauses.append)
+    check("the immutable event body is replaced by current pull-request metadata", live["valid"], True)
+    check("the linter waits for the separate classifier to reconcile labels", reads,
+          [("owner/repo", 18), ("owner/repo", 18)])
+    check("label polling is short and bounded", pauses, [lint.PULL_REQUEST_POLL_DELAY])
+
     group("The workflows keep edits and automation safe")
     build = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
     issue_workflow = (ROOT / ".github" / "workflows" / "issue-hygiene.yml").read_text(encoding="utf-8")
@@ -247,6 +275,15 @@ def main():
     check("parallel agents refresh one shared remote view without automatic integration",
           all("origin/main" in text and "worktree" in text.lower()
               and ("never" in text.lower() or "without changing" in text.lower())
+              for text in (contribution_skill, agents, contributing)), True)
+    check("cloud agents keep one existing pull request and never invent credentials",
+          all("existing pull request" in text.lower()
+              and "personal" in text.lower() and "token" in text.lower()
+              and "patch" in text.lower() for text in (contribution_skill, agents, contributing)), True)
+    check("Codex, Claude and Copilot cloud contexts have explicit recognition paths",
+          all("AGENT_EXECUTION=codex-cloud" in text
+              and "CLAUDE_CODE_REMOTE" in text
+              and "GITHUB_COPILOT_GIT_TOKEN" in text
               for text in (contribution_skill, agents, contributing)), True)
     check("both paths use the permission-neutral Development link",
           all("Development link" in text and "Fixes #N" in text

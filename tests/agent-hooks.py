@@ -37,7 +37,7 @@ def local_config(repository, key, scope="--worktree"):
 
 
 def main():
-    group("Codex and Claude share their hooks")
+    group("Codex, Claude and Copilot share their hook implementation")
     shared = ROOT / ".agents" / "hooks.json"
     codex = ROOT / ".codex" / "hooks.json"
     claude = ROOT / ".claude" / "settings.json"
@@ -59,6 +59,16 @@ def main():
     ]
     check("every command uses the shared implementation",
           all("/.agents/hooks/fast_gate.py\"" in command for command in commands))
+    stop_timeout = configuration["hooks"]["Stop"][0]["hooks"][0]["timeout"]
+    check("the Stop hook allows two bounded fetches and the test gate", stop_timeout, 120)
+    copilot = json.loads((ROOT / ".github" / "hooks" / "agent-hygiene.json").read_text(encoding="utf-8"))
+    copilot_hooks = [hook for hooks in copilot["hooks"].values() for hook in hooks]
+    check("Copilot's schema adapter uses only the shared implementation",
+          all(".agents/hooks/fast_gate.py" in hook["bash"] for hook in copilot_hooks), True)
+    check("Copilot receives the same bounded Stop timeout", copilot["hooks"]["Stop"][0]["timeoutSec"], 120)
+    adapter_readme = (ROOT / ".github" / "hooks" / "README.md").read_text(encoding="utf-8")
+    check("the strict Copilot adapter has an adjacent copyright exception",
+          "Copyright (C) 2026 Julian Pawlowski" in adapter_readme and "strict hook" in adapter_readme, True)
 
     group("An agent task prepares its clone")
     hook = load_hook()
@@ -70,6 +80,7 @@ def main():
         hook.synchronize_repository = lambda repository, max_age: (
             hook.configure_repository(repository) or {
                 "base_main": "base", "base_name": "origin/main", "warning": "", "fetched": False,
+                "remote_available": True, "execution": "local",
             }
         )
         hook.state_paths = lambda event: (state, state.with_suffix(".log"))
@@ -110,7 +121,31 @@ def main():
     check("URI-style SSH canonical URLs are recognized",
           hook.github_repository("ssh://git@github.com/jpawlowski/opnsense-openid-connect.git"),
           hook.CANONICAL_REPOSITORY)
+    check("Claude's documented cloud marker is recognized",
+          hook.execution_context(ROOT, {"CLAUDE_CODE_REMOTE": "true"}), "claude-cloud")
+    check("the repository-defined Codex cloud marker is recognized",
+          hook.execution_context(ROOT, {"AGENT_EXECUTION": "codex-cloud"}), "codex-cloud")
+    check("the repository-defined Copilot cloud marker is recognized",
+          hook.execution_context(ROOT, {"AGENT_EXECUTION": "copilot-cloud"}), "copilot-cloud")
+    check("Copilot's documented scoped Git token is recognized",
+          hook.execution_context(ROOT, {"GITHUB_COPILOT_GIT_TOKEN": "present"}), "copilot-cloud")
     with tempfile.TemporaryDirectory() as temporary:
+        snapshot = pathlib.Path(temporary) / "snapshot"
+        subprocess.run(("git", "init", "-b", "main", "-q", str(snapshot)), check=True)
+        subprocess.run(("git", "config", "user.name", "Test"), cwd=snapshot, check=True)
+        subprocess.run(("git", "config", "user.email", "test"), cwd=snapshot, check=True)
+        (snapshot / "base.txt").write_text("base\n", encoding="utf-8")
+        subprocess.run(("git", "add", "base.txt"), cwd=snapshot, check=True)
+        subprocess.run(("git", "commit", "-q", "-m", "test: seed"), cwd=snapshot, check=True)
+        topology = hook.ensure_remote_topology(snapshot)
+        check("a remote-less cloud checkout is an isolated snapshot", topology["remote_available"], False)
+        check("snapshot recognition never fabricates an origin",
+              subprocess.run(("git", "remote"), cwd=snapshot, check=True, capture_output=True,
+                             text=True).stdout, "")
+        synchronized = hook.synchronize_repository(snapshot, 0, required=True)
+        check("a snapshot refresh reports that remote freshness is unavailable",
+              "cannot be verified" in synchronized["warning"], True)
+
         direct = pathlib.Path(temporary) / "direct"
         subprocess.run(("git", "init", "-q", str(direct)), check=True)
         subprocess.run((
@@ -195,6 +230,8 @@ def main():
             "fetch_remotes": ("upstream", "origin"),
             "identity": "fork-test",
             "fork": True,
+            "remote_available": True,
+            "execution": "local",
         }
         synchronized = hook.synchronize_repository(worktree, 0, required=True)
         upstream_head = subprocess.run(
@@ -288,6 +325,30 @@ def main():
         ).stdout.strip(), agent_head)
         lag = hook.branch_lag(worktree, refused["base_main"], refused["base_name"])
         check("a stale topic branch is reported without rewriting it", "commit(s) behind origin/main" in lag, True)
+
+    group("Explicit refresh reports the truth about local main")
+    with tempfile.TemporaryDirectory() as temporary:
+        state = pathlib.Path(temporary) / "state.json"
+        state.write_text(json.dumps({
+            "passed": "same", "failed": None, "base_main": "abc", "seen_main": "abc",
+        }), encoding="utf-8")
+        hook = load_hook()
+        hook.synchronize_repository = lambda repository, max_age, required=False: {
+            "base_main": "abcdef1234567890",
+            "base_name": "origin/main",
+            "warning": "local main has commits outside origin/main and was not changed",
+            "remote_available": True,
+            "execution": "local",
+        }
+        hook.state_paths = lambda event: (state, state.with_suffix(".log"))
+        hook.main_progress = lambda *arguments: ""
+        emitted = []
+        hook.emit = emitted.append
+        hook.refresh({})
+        message = emitted[0]["systemMessage"]
+        check("a refused main fast-forward surfaces its warning", "was not changed" in message, True)
+        check("a refused main fast-forward is not called a safe mirror",
+              "safe fast-forward mirror" in message, False)
 
 
 if __name__ == "__main__":

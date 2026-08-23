@@ -36,7 +36,7 @@ separation is not decoration — keep it.
     python3 packaging/build.py --check                does it still build
     python3 packaging/release-notes.py --tag vX.Y.Z   what a release would say
     python3 packaging/commit-lint.py --range main..HEAD
-    python3 .agents/hooks/fast_gate.py refresh           refresh remote main before publishing
+    python3 .agents/hooks/fast_gate.py refresh        refresh remote main before publishing
     python3 packaging/contribution-lint.py --help     what an issue or PR may contain
 
 Installed integration and destructive browser E2E are deliberate manual runs;
@@ -47,10 +47,11 @@ file being edited.
 
 ## Parallel agent work
 
-Every concurrent agent uses its own linked worktree and topic branch. No two
-agents write the same worktree or branch. One integrating agent owns a pull
-request branch; supporting agents hand over commits instead of editing or
-pushing that branch themselves.
+Every concurrent local agent uses its own linked worktree and topic branch. No
+two local agents write the same worktree or branch. Cloud sessions already have
+an isolated checkout and must not create another linked worktree merely to
+satisfy this rule. One integrating agent owns a pull-request branch; supporting
+agents hand over commits or patches instead of editing or pushing that branch.
 
 The shared startup hook identifies the canonical base from the `origin` fetch
 URL. A direct clone uses `origin/main`; a GitHub fork keeps `origin` for
@@ -61,6 +62,18 @@ pull-request update, or review handoff, run the explicit refresh command above.
 Start from the reported canonical ref, rebase an unpublished branch, do not
 routinely rewrite a published branch, and request a new review after a head
 change. Never push an automatic `main` synchronization to a contributor fork.
+
+Claude Code cloud sets `CLAUDE_CODE_REMOTE=true`. Codex cloud may use the
+repository-defined `AGENT_EXECUTION=codex-cloud`; GitHub Copilot cloud exposes
+its scoped `GITHUB_COPILOT_GIT_TOKEN` and uses the adapter under
+`.github/hooks/`. Independently, the hook treats a checkout without `origin` as
+an isolated snapshot. Such a snapshot may test and commit, but cannot prove
+remote freshness or shell push access. Do not add a personal token or invent a
+writable remote. Update the existing pull request through the platform
+integration when it offers that operation; otherwise hand the commit and patch
+to the integrating agent and say explicitly that nothing was pushed. Never open
+a replacement pull request just because a cloud snapshot cannot update the
+existing branch.
 
 ## Rules that are not preferences
 

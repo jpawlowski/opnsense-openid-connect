@@ -75,12 +75,14 @@ the work signal.
 
 ## Pull requests
 
-### Parallel local work
+### Execution context and parallel local work
 
-Use one topic branch and one linked worktree per agent session. Never let two
-agents write the same worktree or branch. When several agents support one pull
-request, exactly one agent owns its publishing branch; the others hand over
-focused commits for that agent to integrate.
+Use one topic branch and one linked worktree per concurrent local agent session.
+Never let two local agents write the same worktree or branch. A cloud session
+already has an isolated checkout and does not create another worktree merely to
+satisfy this rule. When several agents support one pull request, exactly one
+agent owns its publishing branch; the others hand over focused commits or
+patches for that agent to integrate.
 
 The startup hook compares the `origin` fetch URL with the canonical repository.
 For a direct clone, it treats `origin/main` as the source of truth and adds no
@@ -96,10 +98,30 @@ to a fork. GitHub's Sync fork button is not required. Start new work from the
 reported canonical ref, not from a possibly stale fork `main`. If the hook
 reports lag or overlapping paths, integrate deliberately before publishing.
 
+Claude Code cloud identifies itself with `CLAUDE_CODE_REMOTE=true`. In Codex
+cloud, set the repository-defined `AGENT_EXECUTION=codex-cloud` in the cloud
+environment. GitHub Copilot cloud exposes a scoped `GITHUB_COPILOT_GIT_TOKEN`;
+its `.github/hooks/` adapter sets `AGENT_EXECUTION=copilot-cloud` while calling
+the same shared hook implementation. The shared hook also recognizes the
+behavior that matters without a vendor marker: a checkout without `origin` is
+an isolated snapshot, not a direct canonical clone. Do not fabricate a remote,
+install a personal token, or describe a snapshot-only commit as pushed.
+
+Cloud sessions start from the existing pull request's current head branch when
+the task is a pull-request update. Use the platform's existing-PR update action
+or authenticated Git proxy when available. If the platform exposes neither a
+writable branch nor an update action, run the tests, create a focused commit,
+and hand its hash plus a patch to the integrating agent. Never create a second
+issue, branch, or pull request merely to escape that limitation.
+
 Immediately before a push, pull request update, or review handoff, require a
 fresh remote view:
 
     python3 .agents/hooks/fast_gate.py refresh
+
+In a remote-less snapshot this command reports that freshness cannot be
+verified instead of pretending that `main` is current. That report changes the
+handoff path above; it is not permission to hide the limitation.
 
 Rebase an unpublished private branch onto the reported `origin/main` or
 `upstream/main`. Do not routinely rewrite a published branch; merge the
@@ -110,7 +132,8 @@ review.
 ### Publishing
 
 Resolve the publishing path before pushing. Query the upstream repository's
-viewer permission. With write access, push a topic branch there.
+viewer permission with `gh` locally or with the cloud platform's GitHub tools.
+With write access, push a topic branch there.
 Without write access, reuse or create a personal fork and push the branch to
 that writable head. In either case, open the pull request against
 `jpawlowski/opnsense-openid-connect:main`.
@@ -120,6 +143,10 @@ is optional and is not part of the contribution procedure.
 
     gh repo view jpawlowski/opnsense-openid-connect \
         --json viewerPermission --jq .viewerPermission
+
+Do not install or inject a personal access token solely to make that command
+work in a cloud sandbox. A cloud Git proxy or connector is the publishing
+authority; without one, use the commit-and-patch handoff instead.
 
 The title is the squash commit and a release-note entry. Choose it before
 opening the pull request:

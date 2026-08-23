@@ -21,6 +21,7 @@ RELEVANT_PATHS = (
     ".claude",
     ".codex",
     ".forgejo/workflows",
+    ".github/hooks",
     ".github/workflows",
     "LICENSE",
     "packaging",
@@ -34,6 +35,10 @@ LOCK_TIMEOUT = 5
 CANONICAL_REPOSITORY = "jpawlowski/opnsense-openid-connect"
 CANONICAL_FETCH_URL = f"https://github.com/{CANONICAL_REPOSITORY}.git"
 READ_ONLY_PUSH_URL = "disabled://canonical-upstream-is-read-only"
+SNAPSHOT_WARNING = (
+    "No Git remote is available in this isolated checkout; remote freshness and push access cannot be verified. "
+    "Use the cloud platform's existing-PR update path or hand a commit or patch to the integrating agent."
+)
 
 
 def event_input():
@@ -89,11 +94,39 @@ def github_repository(url):
     return "/".join(parts).lower()
 
 
+def execution_context(repository, environment=None):
+    """Identify cloud execution without depending on undocumented vendor state."""
+    environment = os.environ if environment is None else environment
+    configured = environment.get("AGENT_EXECUTION", "").strip().lower()
+    if configured in ("codex-cloud", "claude-cloud", "copilot-cloud", "cloud"):
+        return configured
+    if environment.get("CLAUDE_CODE_REMOTE", "").strip().lower() == "true":
+        return "claude-cloud"
+    if environment.get("GITHUB_COPILOT_GIT_TOKEN") or environment.get("GITHUB_COPILOT_API_TOKEN"):
+        return "copilot-cloud"
+    if not git_value(repository, "remote", "get-url", "origin"):
+        return "isolated-snapshot"
+    return "local"
+
+
 def ensure_remote_topology(repository):
     """Choose the canonical base without confusing a contributor fork with it."""
     origin_url = git_value(repository, "remote", "get-url", "origin")
+    execution = execution_context(repository)
+    if not origin_url:
+        return {
+            "base_remote": "",
+            "base_ref": "",
+            "base_name": "checkout snapshot",
+            "fetch_remotes": (),
+            "identity": f"snapshot\0{execution}",
+            "fork": False,
+            "remote_available": False,
+            "execution": execution,
+        }
+
     identity = github_repository(origin_url)
-    if not origin_url or identity in (None, CANONICAL_REPOSITORY):
+    if identity in (None, CANONICAL_REPOSITORY):
         return {
             "base_remote": "origin",
             "base_ref": "refs/remotes/origin/main",
@@ -101,6 +134,8 @@ def ensure_remote_topology(repository):
             "fetch_remotes": ("origin",),
             "identity": f"origin\0{origin_url}",
             "fork": False,
+            "remote_available": True,
+            "execution": execution,
         }
 
     upstream_url = git_value(repository, "remote", "get-url", "upstream")
@@ -126,6 +161,8 @@ def ensure_remote_topology(repository):
         "fetch_remotes": ("upstream", "origin"),
         "identity": f"upstream\0{origin_url}\0{CANONICAL_FETCH_URL}",
         "fork": True,
+        "remote_available": True,
+        "execution": execution,
     }
 
 
@@ -242,6 +279,25 @@ def synchronize_repository(repository, max_age, required=False):
         path = sync_state_path(repository)
         state = load_json(path)
         now = time.time()
+        if not topology["remote_available"]:
+            base_main = str(state.get("snapshot_base") or git_value(repository, "rev-parse", "HEAD"))
+            state.update({
+                "attempted_at": now,
+                "topology": topology["identity"],
+                "snapshot_base": base_main,
+            })
+            save_json(path, state)
+            return {
+                "fetched": False,
+                "old_base": base_main,
+                "base_main": base_main,
+                "base_name": topology["base_name"],
+                "fork": False,
+                "warning": SNAPSHOT_WARNING,
+                "remote_available": False,
+                "execution": topology["execution"],
+            }
+
         last_attempt = float(state.get("attempted_at", 0))
         old_base = git_value(repository, "rev-parse", "--verify", topology["base_ref"])
         fetched = False
@@ -287,6 +343,8 @@ def synchronize_repository(repository, max_age, required=False):
             "base_name": topology["base_name"],
             "fork": topology["fork"],
             "warning": "; ".join(warnings),
+            "remote_available": True,
+            "execution": topology["execution"],
         }
 
 
@@ -385,6 +443,14 @@ def emit(value):
     sys.stdout.write("\n")
 
 
+def informational(message):
+    if not message:
+        return {}
+    if execution_context(REPOSITORY) == "copilot-cloud":
+        return {"additionalContext": message}
+    return {"systemMessage": message}
+
+
 def initialize(event):
     synchronization = synchronize_repository(REPOSITORY, START_FETCH_TTL)
     state_path, _ = state_paths(event)
@@ -403,11 +469,16 @@ def initialize(event):
 
     branch = git_value(REPOSITORY, "symbolic-ref", "--short", "HEAD")
     branch_warning = ""
-    if branch in ("", "main"):
+    if synchronization["execution"] == "local" and branch in ("", "main"):
         branch_warning = "Agent changes need their own topic branch and worktree; do not edit main or a detached HEAD."
+    elif not synchronization["remote_available"] and branch in ("", "main"):
+        branch_warning = (
+            "This cloud or bundled snapshot may remain detached, but its commit is only a handoff artifact until "
+            "the platform updates the existing pull request or an integrating agent applies it."
+        )
     lag_warning = branch_lag(REPOSITORY, synchronization["base_main"], synchronization["base_name"])
     notice = messages(synchronization["warning"], branch_warning, lag_warning)
-    emit({"systemMessage": notice} if notice else {})
+    emit(informational(notice))
 
 
 def cleanup(event):
@@ -444,7 +515,7 @@ def stop(event):
             "seen_main": synchronization["base_main"],
         }
         save_state(state_path, state)
-        emit({"systemMessage": synchronization["warning"]} if synchronization["warning"] else {})
+        emit(informational(synchronization["warning"]))
         return
 
     progress = main_progress(
@@ -454,7 +525,7 @@ def stop(event):
     save_state(state_path, state)
 
     if current == state["passed"]:
-        emit({"systemMessage": notice} if notice else {})
+        emit(informational(notice))
         return
 
     if current == state.get("failed"):
@@ -475,7 +546,7 @@ def stop(event):
         state.update({"passed": current, "failed": None})
         save_state(state_path, state)
         log_path.unlink(missing_ok=True)
-        emit({"systemMessage": notice} if notice else {})
+        emit(informational(notice))
         return
 
     state["failed"] = current
@@ -498,9 +569,11 @@ def refresh(event):
     )
     save_state(state_path, state)
     base = synchronization["base_main"][:12] if synchronization["base_main"] else "unavailable"
-    emit({"systemMessage": messages(
-        f"{synchronization['base_name']} is {base}; local main is a safe fast-forward mirror.", progress,
-    )})
+    if synchronization["warning"]:
+        status = f"{synchronization['base_name']} is {base}; {synchronization['warning']}"
+    else:
+        status = f"{synchronization['base_name']} is {base}; local main is a safe fast-forward mirror."
+    emit(informational(messages(status, progress)))
 
 
 def main():

@@ -20,6 +20,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -56,6 +57,14 @@ CHANGE_BY_COMMIT = {
 CHANGE_LABELS = set(CHANGE_BY_COMMIT.values())
 ISSUE_TYPE_LABELS = {"type: bug", "type: change", "type: docs", "type: question"}
 BREAKING_LABEL = "impact: breaking"
+LABEL_PROBLEM_PREFIXES = (
+    "pull request labels must contain",
+    "pull request `area:*` labels must match",
+    "issue `type:*` labels do not belong",
+    f"`{BREAKING_LABEL}` must match",
+)
+PULL_REQUEST_POLL_ATTEMPTS = 6
+PULL_REQUEST_POLL_DELAY = 2
 
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 FENCED_CODE = re.compile(r"^\s*(```|~~~).*?^\s*\1\s*$", re.M | re.S)
@@ -207,9 +216,9 @@ def repository_from_remote():
     return match.group("repo") if match else ""
 
 
-def github_issue(repository, number):
+def github_resource(repository, path, description):
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
-    request = Request(f"{api}/repos/{repository}/issues/{number}")
+    request = Request(f"{api}/repos/{repository}/{path.lstrip('/')}")
     request.add_header("Accept", "application/vnd.github+json")
     request.add_header("User-Agent", "opnsense-openid-connect-contribution-lint")
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
@@ -219,9 +228,19 @@ def github_issue(repository, number):
         with urlopen(request, timeout=15) as response:
             return json.load(response)
     except HTTPError as error:
-        raise ValueError(f"issue #{number} could not be read (HTTP {error.code})") from error
+        raise ValueError(f"{description} could not be read (HTTP {error.code})") from error
     except URLError as error:
-        raise ValueError(f"issue #{number} could not be read ({error.reason})") from error
+        raise ValueError(f"{description} could not be read ({error.reason})") from error
+
+
+def github_issue(repository, number):
+    return github_resource(repository, f"issues/{number}", f"issue #{number}")
+
+
+def github_pull_request(repository, number):
+    # Pull requests share GitHub's issue endpoint, including current title,
+    # body and labels. Using it keeps the workflow's permission metadata-only.
+    return github_resource(repository, f"issues/{number}", f"pull request #{number}")
 
 
 def instant(value):
@@ -350,6 +369,35 @@ def validate_pull_request(title, body, repository="", created_at="", issue_reade
     }
 
 
+def validate_pull_request_event(event, request_reader=github_pull_request, issue_reader=github_issue,
+                                pause=time.sleep):
+    """Validate live PR metadata, waiting briefly for the separate label workflow."""
+    payload = event.get("pull_request") or {}
+    repository = (event.get("repository") or {}).get("full_name") or ""
+    number = event.get("number") or payload.get("number")
+    if not repository or not number:
+        raise ValueError("the pull request event needs a repository and number")
+
+    result = None
+    for attempt in range(PULL_REQUEST_POLL_ATTEMPTS):
+        request = request_reader(repository, int(number))
+        result = validate_pull_request(
+            request.get("title") or "",
+            request.get("body") or "",
+            repository,
+            request.get("created_at") or payload.get("created_at") or "",
+            issue_reader=issue_reader,
+            labels=request.get("labels") or [],
+        )
+        waiting_for_labels = any(
+            problem.startswith(LABEL_PROBLEM_PREFIXES) for problem in result["problems"]
+        )
+        if not waiting_for_labels or attempt + 1 == PULL_REQUEST_POLL_ATTEMPTS:
+            return result
+        pause(PULL_REQUEST_POLL_DELAY)
+    return result
+
+
 def print_result(result):
     if result["valid"]:
         print(f"{result['word_count']} counted prose words (limit {result['limit']}); contribution is in shape.")
@@ -380,15 +428,7 @@ def main():
             result = validate_issue((event.get("issue") or {}).get("body") or "")
         elif args.pull_request_event:
             event = event_payload()
-            request = event.get("pull_request") or {}
-            repository = ((event.get("repository") or {}).get("full_name") or args.repository or "")
-            result = validate_pull_request(
-                request.get("title") or "",
-                request.get("body") or "",
-                repository,
-                request.get("created_at") or "",
-                labels=request.get("labels") or [],
-            )
+            result = validate_pull_request_event(event)
         else:
             if not args.body_file:
                 raise ValueError("--title also requires --body-file")
