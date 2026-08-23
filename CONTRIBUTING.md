@@ -106,9 +106,8 @@ exists rather than after. Neither Git config nor hooks are part of what Git
 clones, so the pipeline remains authoritative.
 
 For a pull request, the pipeline checks its title, description and linked issue
-instead. On
-`main` and tag pushes it checks the commits that arrived, so the protected
-branch cannot contain a message the release note cannot read.
+instead. On `main` and tag pushes it checks the commits that arrived, so the
+protected branch cannot contain a message the release note cannot read.
 
     python3 packaging/commit-lint.py --range main..HEAD    # by hand, any time
 
