@@ -25,14 +25,6 @@
       "release_tag": "strip-v",
       "capabilities": ["groups", "rp_logout", "userinfo_json"]
     },
-    "dex": {
-      "image": "ghcr.io/dexidp/dex",
-      "tag": "v2.45.1",
-      "digest": "sha256:8499afd690c437f52301efd2b05b2455da5bd2dfc20332cd697dc9937f808462",
-      "release_repository": "dexidp/dex",
-      "release_tag": "as-is",
-      "capabilities": ["path_issuer"]
-    },
     "pocketid": {
       "image": "ghcr.io/pocket-id/pocket-id",
       "tag": "v2.14.0",

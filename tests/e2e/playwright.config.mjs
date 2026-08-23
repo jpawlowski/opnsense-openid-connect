@@ -15,6 +15,19 @@ const use = {
   navigationTimeout: 30_000,
 };
 
+const resolverRules = [];
+if (process.env.E2E_PROVIDER_BROWSER_IP && process.env.E2E_PROVIDER_HOST) {
+  resolverRules.push(`MAP ${process.env.E2E_PROVIDER_HOST} ${process.env.E2E_PROVIDER_BROWSER_IP}`);
+}
+if (process.env.E2E_OPNSENSE_BROWSER_IP && process.env.E2E_OPNSENSE_URL) {
+  resolverRules.push(`MAP ${new URL(process.env.E2E_OPNSENSE_URL).hostname} ${process.env.E2E_OPNSENSE_BROWSER_IP}`);
+}
+if (resolverRules.length) {
+  use.launchOptions = {
+    args: [`--host-resolver-rules=${resolverRules.join(',')}`],
+  };
+}
+
 if (process.env.E2E_ZAP_PROXY) {
   use.proxy = {
     server: process.env.E2E_ZAP_PROXY,

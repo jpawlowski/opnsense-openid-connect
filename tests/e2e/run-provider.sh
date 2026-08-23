@@ -18,19 +18,20 @@ while [ "$#" -gt 0 ]; do
     *) printf 'unknown provider-run argument: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
-case "$provider" in authentik|authelia|dex|pocketid) ;; *) exit 2 ;; esac
+case "$provider" in authentik|authelia|pocketid) ;; *) exit 2 ;; esac
 
 : "${E2E_OPNSENSE_URL:?Set the HTTPS origin of the disposable OPNsense instance}"
 : "${E2E_OPNSENSE_SSH:?Set the certificate-authenticated SSH target}"
 : "${E2E_OPNSENSE_PASSWORD:?Set the local WebGUI password}"
 : "${E2E_PROVIDER_HOST:?Set a provider host reachable from OPNsense and this runner}"
+E2E_OPNSENSE_HOST=$(node -e 'console.log(new URL(process.argv[1]).hostname)' "$E2E_OPNSENSE_URL")
+export E2E_OPNSENSE_HOST
 
 for command in docker curl jq openssl python3 ssh scp npm node; do command -v "$command" >/dev/null; done
 
 case "$provider" in
   authentik) provider_port=${E2E_AUTHENTIK_PORT:-28443} ;;
   authelia) provider_port=${E2E_AUTHELIA_PORT:-38443} ;;
-  dex) provider_port=${E2E_DEX_PORT:-48443} ;;
   pocketid) provider_port=${E2E_POCKETID_PORT:-58443} ;;
 esac
 

@@ -19,7 +19,7 @@ import urllib.request
 
 HERE = pathlib.Path(__file__).resolve().parent
 SAFE_ID = re.compile(r"^[a-f0-9]{8}$")
-PROVIDERS = {"authentik", "authelia", "dex", "pocketid"}
+PROVIDERS = {"authentik", "authelia", "pocketid"}
 
 
 def run(*arguments, capture=False, quiet=False):
@@ -49,7 +49,7 @@ def bcrypt(password):
 def docker_run(name, network, image_reference, *arguments, environment=None, volumes=None, command=None):
     command_line = [
         "docker", "run", "-d", "--name", name, "--network", network,
-        "--add-host", "opnsense.localhost:host-gateway",
+        "--add-host", f"{os.environ['E2E_OPNSENSE_HOST']}:host-gateway",
     ]
     for key, value in sorted((environment or {}).items()):
         command_line.extend(["-e", f"{key}={value}"])
@@ -119,7 +119,7 @@ def start_authelia(state, canary):
     password_hash = bcrypt(state["password"])
     client_hash = bcrypt(state["client_secret"])
     run("openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:3072",
-        "-out", str(work / "oidc.key"))
+        "-out", str(work / "oidc.key"), quiet=True)
     write(work / "users.yml", (
         f"users:\n  {state['username']}:\n    displayname: OIDC E2E\n"
         f"    password: '{password_hash}'\n    email: {state['username']}@example.com\n"
@@ -177,47 +177,13 @@ identity_providers:
 """
     write(work / "configuration.yml", config)
     volumes = [(str(work), "/config", "rw")]
-    docker_run(name, state["network"], image("authelia", canary), environment={"X_AUTHELIA_CONFIG": "/config/configuration.yml"},
-               volumes=volumes)
+    docker_run(
+        name, state["network"], image("authelia", canary),
+        environment={"X_AUTHELIA_CONFIG": "/config/configuration.yml"}, volumes=volumes,
+    )
     state["upstream"] = f"http://{name}:9091"
     state["readiness"] = "/api/health"
     state["issuer"] = issuer
-    state["containers"].append(name)
-
-
-def start_dex(state, canary):
-    work = pathlib.Path(state["work_dir"])
-    name = f"{state['prefix']}-dex"
-    password_hash = bcrypt(state["password"])
-    state["issuer"] = f"{state['url']}/dex"
-    config = f"""issuer: {state['issuer']}
-storage:
-  type: sqlite3
-  config:
-    file: /data/dex.db
-web:
-  http: 0.0.0.0:5556
-oauth2:
-  skipApprovalScreen: true
-staticClients:
-  - id: {state['client_id']}
-    name: OPNsense E2E
-    secret: {state['client_secret']}
-    redirectURIs:
-      - {state['callback']}
-enablePasswordDB: true
-staticPasswords:
-  - email: {state['username']}@example.com
-    hash: '{password_hash}'
-    username: {state['username']}
-    userID: 00000000-0000-4000-8000-{state['run_id']}0000
-"""
-    write(work / "dex.yml", config)
-    volumes = [(str(work / "dex.yml"), "/etc/dex/config.yml", "ro"), (str(work), "/data", "rw")]
-    docker_run(name, state["network"], image("dex", canary), environment={}, volumes=volumes,
-               command=["dex", "serve", "/etc/dex/config.yml"])
-    state["upstream"] = f"http://{name}:5556"
-    state["readiness"] = "/dex/.well-known/openid-configuration"
     state["containers"].append(name)
 
 
@@ -261,7 +227,9 @@ http {{
 }}
 """
     # nginx needs a map before connection_upgrade can be referenced.
-    config = config.replace("http {\n", "http {\n  map $http_upgrade $connection_upgrade { default upgrade; '' close; }\n")
+    config = config.replace(
+        "http {\n", "http {\n  map $http_upgrade $connection_upgrade { default upgrade; '' close; }\n",
+    )
     write(work / "nginx.conf", config, 0o644)
     volumes = [
         (str(work / "nginx.conf"), "/etc/nginx/nginx.conf", "ro"),
@@ -287,11 +255,13 @@ def wait_ready(state):
                     continue
             if state["provider"] == "authentik":
                 admin = urllib.request.Request(
-                    f"https://127.0.0.1:{state['port']}/api/v3/core/users/",
+                    f"https://127.0.0.1:{state['port']}/api/v3/flows/instances/"
+                    "?search=default-provider-authorization-implicit-consent",
                     headers={"Host": host_header, "Authorization": f"Bearer {state['admin_token']}"},
                 )
                 with urllib.request.urlopen(admin, timeout=2, context=context) as response:
-                    if response.status != 200:
+                    flows = json.load(response)
+                    if response.status != 200 or not flows.get("results"):
                         continue
             return
         except (OSError, urllib.error.URLError):
