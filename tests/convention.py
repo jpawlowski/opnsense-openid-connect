@@ -283,10 +283,8 @@ def main():
           "id-token: write" in workflow and "attestations: write" in workflow, True)
     check("the provenance statement covers the exact package built by this job",
           "subject-path: ${{ steps.build.outputs.path }}" in workflow, True)
-    check("release immutability is required before the package is built",
-          workflow.index("Require immutable GitHub releases")
-          < workflow.index("Build the package")
-          < workflow.index("Publish the complete immutable GitHub release"), True)
+    check("the release job requires no repository-administration API access",
+          "immutable-releases" not in workflow, True)
     check("provenance is created before any release is published",
           workflow.index("Attest package build provenance")
           < workflow.index("Publish the complete immutable GitHub release"), True)
