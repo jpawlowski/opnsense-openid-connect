@@ -77,6 +77,7 @@ def main():
     check("a type nobody agreed on", len(refusals("wibble: something")), 1)
     check("nothing after the colon", len(refusals("fix: ")) >= 1, True)
     check("a full stop at the end", len(refusals("fix: something.")), 1)
+    check("an upper-case subject", len(refusals("fix: Something")), 1)
     check("a body glued to the subject", len(refusals("fix: something\nand more")), 1)
     check(
         "a first line longer than a first line should be",

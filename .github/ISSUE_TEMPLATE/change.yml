@@ -1,0 +1,52 @@
+name: Change proposal / Änderungsvorschlag
+description: Propose a focused improvement in English or German.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep the complete issue to at most **175 counted prose words**. Code, commands, paths, URLs, closing references
+        and the AI notice do not count. English and German are accepted; prefer English when in doubt.
+
+        Agent-authored text must end with the exact English or German AI notice required by `CONTRIBUTING.md`. Put it
+        after the answer under `To decide`, separated as its own final paragraph.
+  - type: textarea
+    id: tldr
+    attributes:
+      label: TL;DR
+      description: Summarize the proposed outcome in one or two sentences.
+      placeholder: What should change, in the shortest useful form?
+    validations:
+      required: true
+  - type: textarea
+    id: where
+    attributes:
+      label: Where
+      description: Name the affected workflow, component or audience.
+      placeholder: Where would the change apply?
+    validations:
+      required: true
+  - type: textarea
+    id: now
+    attributes:
+      label: Now
+      description: State the relevant current behaviour or limitation.
+      placeholder: What is the situation now?
+    validations:
+      required: true
+  - type: textarea
+    id: want
+    attributes:
+      label: Want
+      description: State the desired observable outcome without implementation detail.
+      placeholder: What outcome do you want?
+    validations:
+      required: true
+  - type: textarea
+    id: to_decide
+    attributes:
+      label: To decide
+      description: Name one decision and recommend a high-level direction.
+      placeholder: Which single decision is needed, and what direction do you suggest?
+    validations:
+      required: true

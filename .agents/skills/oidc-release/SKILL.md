@@ -84,8 +84,8 @@ published tag. A new package always gets a new version.
 
 Release notes come from the squashed commits between tags. Pull request titles
 therefore follow Conventional Commits and their descriptions carry any
-`BREAKING CHANGE:` instruction; `commit-lint.py --pull-request` checks the exact
-message GitHub will create before merge.
+`BREAKING CHANGE:` instruction; `contribution-lint.py --pull-request-event`
+checks the exact message GitHub will create before merge.
 
 ## After
 

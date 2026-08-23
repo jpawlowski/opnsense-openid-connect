@@ -29,8 +29,8 @@ flowchart LR
 |---|---:|---|
 | Syntax | **passed** | all files parse |
 | Behaviour | **passed** | 405 checks passed |
-| Commit/release convention | **passed** | 62 checks passed |
-| Package/archive/supply chain | **passed** | 337 checks passed |
+| Commit/release convention | **passed** | 63 checks passed |
+| Package/archive/supply chain | **passed** | 343 checks passed |
 
 ## Current findings
 
@@ -99,13 +99,21 @@ No host-independent check currently fails.
 | local WebGUI authorization | 8 | 0 |
 | A message the convention accepts | 6 | 0 |
 | A pull request becomes one release-note commit | 5 | 0 |
-| A message it refuses | 6 | 0 |
+| A message it refuses | 7 | 0 |
 | What git writes itself is left alone | 3 | 0 |
 | Reading a message | 8 | 0 |
 | What a release note makes of them | 8 | 0 |
 | Tags bound the release note | 14 | 0 |
 | A release is attested and published only once | 10 | 0 |
 | Every type reaches a section of the note | 2 | 0 |
+| Only authored prose counts | 4 | 0 |
+| Issue structure and limit | 6 | 0 |
+| Pull-request structure and title | 10 | 0 |
+| Breaking changes and agent attribution | 9 | 0 |
+| The workflows keep edits and automation safe | 10 | 0 |
+| Issue-event output remains a soft hygiene result | 2 | 0 |
+| Codex and Claude share their hooks | 5 | 0 |
+| An agent task prepares its clone | 5 | 0 |
 | A version pkg can carry | 5 | 0 |
 | The archive is shaped the way pkg expects | 5 | 0 |
 | The manifest says what it must | 23 | 0 |
@@ -115,7 +123,7 @@ No host-independent check currently fails.
 | What ships with it | 7 | 0 |
 | No address, host or mailbox of the builder's travels along | 157 | 0 |
 | Everything is in English and says who wrote it | 75 | 0 |
-| Every other file of ours says the same | 48 | 0 |
+| Every other file of ours says the same | 54 | 0 |
 
 ## Evidence not collected by this run
 
