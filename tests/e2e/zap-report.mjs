@@ -4,6 +4,7 @@
  */
 
 import { writeFile } from 'node:fs/promises';
+import { request } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 
 for (const name of ['E2E_ZAP_API', 'E2E_OPNSENSE_URL', 'E2E_APPLICATION_CODE']) {
@@ -29,11 +30,29 @@ async function query(path, parameters = {}) {
   for (const [name, value] of Object.entries(parameters)) {
     url.searchParams.set(name, value);
   }
-  const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-  if (!response.ok) {
-    throw new Error(`ZAP API ${path} answered with HTTP ${response.status}`);
-  }
-  return response.json();
+  return new Promise((resolve, reject) => {
+    const apiRequest = request(url, {
+      headers: { Host: process.env.E2E_ZAP_API_HOST || '127.0.0.1:8080' },
+      timeout: 10_000,
+    }, response => {
+      const chunks = [];
+      response.on('data', chunk => chunks.push(chunk));
+      response.on('end', () => {
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          reject(new Error(`ZAP API ${path} answered with HTTP ${response.statusCode}`));
+          return;
+        }
+        try {
+          resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        } catch (error) {
+          reject(new Error(`ZAP API ${path} returned invalid JSON`, { cause: error }));
+        }
+      });
+    });
+    apiRequest.on('timeout', () => apiRequest.destroy(new Error(`ZAP API ${path} timed out`)));
+    apiRequest.on('error', reject);
+    apiRequest.end();
+  });
 }
 
 async function waitForPassiveScan() {
@@ -59,17 +78,27 @@ function isApiOnly(path) {
   return apiOnlyRoots.some(root => path.startsWith(root));
 }
 
-async function responseStatusOf(alert) {
+async function responseFactsOf(alert) {
   const messageId = String(alert.messageId || '');
   if (!/^\d+$/.test(messageId)) {
-    return null;
+    return {};
   }
   const message = (await query('/JSON/core/view/message/', { id: messageId })).message || {};
-  const match = String(message.responseHeader || '').match(/^HTTP\/\d(?:\.\d)?\s+(\d{3})\b/m);
-  return match ? Number.parseInt(match[1], 10) : null;
+  const headers = String(message.responseHeader || '');
+  const status = headers.match(/^HTTP\/\d(?:\.\d)?\s+(\d{3})\b/m);
+  const value = name => {
+    const match = headers.match(new RegExp(`^${name}:\\s*(.+)$`, 'im'));
+    return match ? match[1].trim() : '';
+  };
+  return {
+    status: status ? Number.parseInt(status[1], 10) : null,
+    contentType: value('Content-Type').toLowerCase(),
+    cacheControl: value('Cache-Control').toLowerCase(),
+    contentSecurityPolicy: value('Content-Security-Policy').toLowerCase(),
+  };
 }
 
-function classify(alert, responseStatus) {
+function classify(alert, response) {
   const id = String(alert.pluginId || '');
   const reference = String(alert.alertRef || id);
   const path = pathOf(alert.url);
@@ -81,14 +110,25 @@ function classify(alert, responseStatus) {
     return ['expected', 'non-HTML API response'];
   }
   if (id === '10019' && isApiOnly(path)
-      && responseStatus >= 300 && responseStatus < 400) {
+      && response.status >= 300 && response.status < 400) {
     return ['expected', 'core authentication redirect without a response media type'];
+  }
+  if (id === '10020' && response.contentType !== ''
+      && !response.contentType.includes('text/html')) {
+    return ['expected', 'anti-clickjacking headers do not apply to this non-HTML response'];
+  }
+  if (id === '10020' && response.contentSecurityPolicy.includes("frame-ancestors 'none'")) {
+    return ['expected', 'the response is protected by CSP frame-ancestors'];
   }
   if (id === '10020' && path.includes('/auth/frontchannel/')) {
     return ['expected', 'front-channel logout must be frameable by the provider'];
   }
-  if (id === '10015' && (path.includes('/auth/icon') || path.includes('/auth/builtinicon/'))) {
+  if (id === '10015' && response.cacheControl.includes('public')
+      && (path.includes('/auth/icon') || path.includes('/auth/builtinicon/'))) {
     return ['expected', 'validated login icons are deliberately cacheable'];
+  }
+  if (id === '10015' && response.cacheControl.includes('no-store')) {
+    return ['expected', 'the private response explicitly forbids storage'];
   }
   if (reference === '10055-4' && path.includes('/auth/frontchannel/')) {
     return ['expected', 'front-channel logout deliberately uses frame-ancestors *'];
@@ -151,10 +191,8 @@ const relevantAlerts = alerts
   .filter(alert => pathOf(alert.url).startsWith(pluginRoot))
   .filter(alert => headerRuleIds.has(String(alert.pluginId || '')));
 const findings = await Promise.all(relevantAlerts.map(async alert => {
-  const responseStatus = String(alert.pluginId || '') === '10019' && isApiOnly(pathOf(alert.url))
-    ? await responseStatusOf(alert)
-    : null;
-  const [outcome, reason] = classify(alert, responseStatus);
+  const response = await responseFactsOf(alert);
+  const [outcome, reason] = classify(alert, response);
   return {
     outcome,
     rule: String(alert.alertRef || alert.pluginId || ''),

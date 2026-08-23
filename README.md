@@ -99,17 +99,35 @@ OpenID Connect.
 
 ## Install
 
-Download a package and its checksum from a release, verify it, then install it:
+Download the package on an administrator workstation and verify that GitHub's
+attested workflow for this repository built those exact bytes:
+
+```sh
+gh attestation verify /tmp/os-openid-connect-<version>.pkg \
+  -R jpawlowski/opnsense-openid-connect \
+  --signer-workflow jpawlowski/opnsense-openid-connect/.github/workflows/build.yml \
+  --deny-self-hosted-runners
+```
+
+Then copy the verified package to the firewall, compare it with the checksum
+shown by the immutable release, and install it:
 
 ```sh
 sha256 -c <expected-checksum> /tmp/os-openid-connect-<version>.pkg
 pkg add /tmp/os-openid-connect-<version>.pkg
 ```
 
-Direct `pkg add` does not establish publisher trust. Releases may therefore be
-unsigned until a project release key exists; in that case verify the checksum
-against a trusted copy of the release page, or build from a reviewed commit.
-This is documented in [packaging/README.md](packaging/README.md).
+GitHub's keyless Sigstore attestation binds the package digest to this public
+repository, the exact release-workflow path and source commit. Verification
+also refuses provenance issued on a self-hosted runner. Published releases are
+immutable, so their tag and assets cannot later be replaced. Direct `pkg add`
+understands neither proof; verification deliberately happens before the file
+reaches `pkg`. An optional detached RSA signature remains available for an
+offline installation once a project release key is configured. This is
+documented in [packaging/README.md](packaging/README.md).
+
+The beta remains a manually installed package. It does not register a package
+repository and does not opt the firewall into automatic `pkg install` updates.
 
 No restart is required. To remove the plugin:
 
@@ -137,7 +155,7 @@ Start with these fields:
 | Admission policy | Administrator approval for named profiles; Strict for Generic |
 | Identity manager | after saving, map exact issuer/`sub` identities to existing local accounts and review pending approvals |
 | Login button wording | localized OPNsense sentence, provider label only or an exact custom text; fixed global services use their familiar short name |
-| Icon URL | named profiles start with a package-owned SVG; replace it only for installation-specific branding |
+| Icon URL | every profile starts with a package-owned SVG, including a neutral OIDC mark for Generic; replace it only for installation-specific branding |
 
 The form displays the exact URLs to register. For application code `main` they
 have this shape:

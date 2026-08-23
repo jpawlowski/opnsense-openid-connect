@@ -51,17 +51,34 @@ on any machine. Which is exactly why an ordinary Linux CI runner can do it.
 
 ## Checking a package before installing it
 
-`pkg` verifies **nothing** about a file handed to it directly: signatures are a
-property of a repository, and this package does not come from one. So a release
-carries two things beside the package, and it is worth using them — this is the
-module that decides who gets into the web interface.
+`pkg` verifies **nothing** about a file handed to it directly: native signatures
+are a property of a repository, and this beta does not come from one. Every
+published package instead receives a keyless GitHub/Sigstore build-provenance
+attestation. It binds the exact package digest to this repository, its workflow
+and source commit; GitHub also locks the published tag and release assets.
+
+On an administrator workstation with GitHub CLI:
+
+    gh attestation verify /tmp/<file> \
+      -R jpawlowski/opnsense-openid-connect \
+      --signer-workflow jpawlowski/opnsense-openid-connect/.github/workflows/build.yml \
+      --deny-self-hosted-runners
+
+Only then copy the verified package to the firewall. GitHub CLI and Sigstore
+verification are deliberately not installed as runtime dependencies on
+OPNsense. Restricting the signer path and runner type prevents an unrelated
+workflow or a self-hosted runner in the same repository from satisfying the
+documented publisher check.
+
+The checksum remains useful for transfer integrity and can be checked directly
+on the firewall before installation:
 
     fetch -o /tmp/<file>.sha256 <url>.sha256
     sha256 -c $(cut -d' ' -f1 /tmp/<file>.sha256) /tmp/<file>
 
 A checksum next to the file it describes proves only that the download did not
-break. Where a release key is configured, a detached signature is attached as
-well, and that is the one that says who built it:
+break. Where a separate offline release key is configured, a detached RSA
+signature is attached as an additional verification path:
 
     fetch -o /tmp/<file>.sig <url>.sig
     openssl dgst -sha256 -verify packaging/release-key.pub \
@@ -74,8 +91,8 @@ well, and that is the one that says who built it:
 
 The public half belongs in this repository, where anyone can see it change. The
 private half goes into the forge's secrets as `PKG_SIGNING_KEY` and nowhere
-else. Without that secret the pipeline attaches the checksum alone and says so
-in its log — a release is never held up for want of a key.
+else. Without that secret the release still has mandatory GitHub build
+provenance, release immutability and its checksum.
 
 ## Installing
 
@@ -92,6 +109,24 @@ missing.
 
 Settings survive either way: they live in `/conf/config.xml` under
 `<system><authserver>` and belong to no package.
+
+During the beta there is intentionally no third-party `pkg` repository and no
+automatic `pkg install` update path. Native repository fingerprints can be
+introduced later without making that infrastructure part of the authentication
+plugin's first release boundary.
+
+Release immutability is a one-time GitHub repository setting, not something the
+package can switch on. After the attesting workflow has reached the publishing
+branch and before creating the next tag, a repository administrator enables and
+checks it with:
+
+    gh api --method PUT \
+      repos/jpawlowski/opnsense-openid-connect/immutable-releases
+    gh api repos/jpawlowski/opnsense-openid-connect/immutable-releases
+
+It intentionally remains off while an older asset-replacing release workflow is
+still present on the publishing branch. GitHub applies the setting only to
+releases published after it was enabled.
 
 ## Taking it back
 

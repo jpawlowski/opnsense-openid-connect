@@ -444,7 +444,7 @@ class AuthController extends ApiControllerBase
         return $answer['body'];
     }
 
-    /** Serve the reviewed SVG which a named provider profile selects by default. */
+    /** Serve the reviewed SVG which a provider profile selects by default. */
     public function builtiniconAction(string $profile = '')
     {
         $path = OpenIDConnect::providerIconPath($profile);

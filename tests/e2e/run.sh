@@ -207,11 +207,13 @@ zap_port=$(docker port "$zap_container" 8080/tcp | sed -n '1s/.*://p')
 test -n "$zap_port"
 E2E_ZAP_PROXY="http://127.0.0.1:${zap_port}"
 E2E_ZAP_API=$E2E_ZAP_PROXY
+E2E_ZAP_API_HOST='127.0.0.1:8080'
 E2E_ZAP_REPORT="$work_dir/security-headers.json"
-export E2E_ZAP_PROXY E2E_ZAP_API E2E_ZAP_REPORT
+export E2E_ZAP_PROXY E2E_ZAP_API E2E_ZAP_API_HOST E2E_ZAP_REPORT
 
 attempt=0
-until curl -fsS "${E2E_ZAP_API}/JSON/core/view/version/" >/dev/null 2>&1; do
+until curl -fsS -H "Host: ${E2E_ZAP_API_HOST}" \
+  "${E2E_ZAP_API}/JSON/core/view/version/" >/dev/null 2>&1; do
   attempt=$((attempt + 1))
   if [ "$(docker inspect -f '{{.State.Running}}' "$zap_container")" != "true" ]; then
     docker logs "$zap_container" >&2
@@ -224,7 +226,8 @@ done
 # Low thresholds make redirects and error responses visible to the focused
 # rules. The report applies endpoint-aware exceptions afterwards.
 for scanner in 10015 10019 10020 10021 10038 10055; do
-  curl -fsS "${E2E_ZAP_API}/JSON/pscan/action/setScannerAlertThreshold/?id=${scanner}&alertThreshold=LOW" \
+  curl -fsS -H "Host: ${E2E_ZAP_API_HOST}" \
+    "${E2E_ZAP_API}/JSON/pscan/action/setScannerAlertThreshold/?id=${scanner}&alertThreshold=LOW" \
     | jq -e '.Result == "OK"' >/dev/null
 done
 

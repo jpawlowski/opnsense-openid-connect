@@ -17,9 +17,9 @@ $loginUri = '/api/openidconnect/auth/login?provider=example';
  */
 Checks::group('Where the login button gets its icon');
 Checks::that(
-    'nothing configured, nothing shown',
+    'the Generic profile default never leaves this firewall',
     inspect($container, 'iconAddress', connector([]), 'example'),
-    ''
+    '/api/openidconnect/auth/builtinicon/general'
 );
 Checks::that(
     'a path on this firewall is used as it stands',
@@ -80,7 +80,8 @@ Checks::that('a button carries the login address', str_contains($button, 'href="
 Checks::that('a button reuses the localized OPNsense login sentence',
     str_contains($button, 'Login using Example Provider'), true);
 Checks::that('a button brings its styles', str_contains($button, '.login-sso-link-container'), true);
-Checks::that('no icon configured, no icon element', preg_match('/<(span|img)[^>]*login-sso-mark/', $button), 0);
+Checks::that('the Generic profile contributes its neutral icon',
+    str_contains($button, 'mask: url("/api/openidconnect/auth/builtinicon/general")'), true);
 
 $renamed = inspect($container, 'entryMarkup', connector([
     'openidconnect_button_provider_label' => 'Company SSO',

@@ -20,7 +20,7 @@ at their profile defaults.
 
 - [Architecture and trust boundaries](reference/architecture.md)
 - [Security, conformance and threat model](reference/security.md)
-- [Pre-release audit report](reference/audit-report.md)
+- [Automated implementation audit](reference/audit-report.md)
 - [Comparison with the commercial OPNsense package](reference/commercial-comparison.md)
 
 Project-wide security reporting and support information remain in the

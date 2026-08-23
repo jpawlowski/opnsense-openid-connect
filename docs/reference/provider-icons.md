@@ -6,11 +6,11 @@ theme-specific path, but that address is not portable between installations or
 versions and may require an administrator token. The plugin therefore does not
 guess a favicon or fetch branding while applying a provider profile.
 
-Every named provider profile starts with a small package-owned SVG at
+Every provider profile starts with a small package-owned SVG at
 `/api/openidconnect/auth/builtinicon/{profile}`. The icon is available before
 login, contains no script or external resource and needs no outbound request.
-**Generic OpenID Connect** remains unbranded because the plugin cannot infer
-which product is behind a generic issuer.
+**Generic OpenID Connect** uses a neutral `OIDC` letter mark rather than
+guessing which product is behind a generic issuer.
 
 ## Installation-specific branding
 

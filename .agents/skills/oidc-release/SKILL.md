@@ -15,6 +15,7 @@ So the work is in what is already committed.
 
     ./tests/run.sh
     python3 packaging/release-notes.py --tag vX.Y.Z
+    gh api repos/jpawlowski/opnsense-openid-connect/immutable-releases
 
 The last one prints the note the tag *would* produce — read it as an operator
 would. Things worth catching there:
@@ -28,6 +29,11 @@ would. Things worth catching there:
   address the provider reports*" does.
 - **Does anything land under "Other"?** Then a message was not readable, which
   `commit-lint.py` should have refused.
+- **Does the GitHub API say immutable releases are enabled?** Do not push a tag
+  until it does. The workflow checks the published result too, but by then the
+  release boundary has already been crossed. Once this attesting workflow is on
+  the publishing branch, an administrator can enable the policy with
+  `gh api --method PUT repos/jpawlowski/opnsense-openid-connect/immutable-releases`.
 
 ## The tag is the version
 
@@ -60,9 +66,14 @@ The GitHub release attaches:
 - a `.sha256` beside it
 - a `.sig`, when a `PKG_SIGNING_KEY` secret exists — without it the pipeline
   says so in its log and carries on
+- a keyless Sigstore build-provenance attestation bound to the exact package,
+  repository workflow and commit
 
-A re-run refreshes the note and first removes every previous attachment, so a
-removed signing key cannot leave an obsolete signature behind.
+The workflow creates an unpublished draft, uploads and checks its complete asset
+set, then publishes exactly once. Repository release immutability locks the tag
+and assets at that boundary and creates GitHub's separate release attestation.
+A re-run may discard an incomplete draft, but it must refuse an already
+published tag. A new package always gets a new version.
 
 Release notes come from the squashed commits between tags. Pull request titles
 therefore follow Conventional Commits and their descriptions carry any
@@ -71,8 +82,14 @@ message GitHub will create before merge.
 
 ## After
 
-Check the release page: the note reads as intended, the three assets are there,
-and the install line in the note points at the file that is actually attached.
+Check the release page: the note reads as intended, the expected assets are
+there, GitHub labels the release immutable, and the install line points at the
+file that is actually attached. Verify provenance once as a consumer would:
+
+    gh attestation verify os-openid-connect-<version>.pkg \
+      -R jpawlowski/opnsense-openid-connect \
+      --signer-workflow jpawlowski/opnsense-openid-connect/.github/workflows/build.yml \
+      --deny-self-hosted-runners
 
 Then install it once on a real OPNsense if anything touched the login path —
 `tests/` deliberately covers none of what only exists inside OPNsense, and
@@ -81,7 +98,6 @@ login page is still whole.
 
 ## If a release came out wrong
 
-Delete the tag, fix the commits, tag again. The workflow is written to be
-repeatable for exactly this. What cannot be undone is a release somebody has
-already installed — so a version that was wrong gets a new number, never a
-quietly replaced file.
+An unpublished draft may be deleted and the same run retried. Once published,
+fix the commits and use a new version. Never delete and reuse a released tag:
+GitHub intentionally locks it and the workflow intentionally refuses it.
