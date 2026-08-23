@@ -105,6 +105,30 @@
             && !!policy && policy.value === 'custom' && effectiveOrigins().length > 0;
     }
 
+    function sectorOriginOptions() {
+        var select = field('openidconnect_sector_origin');
+        if (!select) {
+            return;
+        }
+        var selected = select.value || storedValue(select);
+        $(select).empty().append($('<option>').attr('value', '').text(options.sectorOffLabel || 'Off'));
+        effectiveOrigins().forEach(function (origin) {
+            $(select).append($('<option>').attr('value', origin).text(origin));
+        });
+        select.value = effectiveOrigins().indexOf(selected) === -1 ? '' : selected;
+
+        function update() {
+            selected = select.value;
+            $(select).empty().append($('<option>').attr('value', '').text(options.sectorOffLabel || 'Off'));
+            effectiveOrigins().forEach(function (origin) {
+                $(select).append($('<option>').attr('value', origin).text(origin));
+            });
+            select.value = effectiveOrigins().indexOf(selected) === -1 ? '' : selected;
+        }
+        $(field('openidconnect_redirect_urls')).on('input change', update);
+        $(field('openidconnect_origin_policy')).on('change', update);
+    }
+
     function currentServerId() {
         var id = field('id');
         var value = id ? id.value : '';
@@ -785,6 +809,7 @@
                 application_code: field('openidconnect_app_code').value,
                 display_name: field('name') ? field('name').value : '',
                 origins: effectiveOrigins().join(','),
+                sector_origin: field('openidconnect_sector_origin').value,
                 post_logout_redirect: $(field('openidconnect_logout_redirect')).is(':checked') ? '1' : '0',
                 logout_channel: channel.val()
             };
@@ -794,6 +819,21 @@
             var appCode = field('openidconnect_app_code');
             if (appCode && applicationCodeConflict(appCode.value)) {
                 $(appCode).trigger('input').trigger('focus');
+                return;
+            }
+            var sectorOrigin = field('openidconnect_sector_origin').value;
+            var enabled = $(field('openidconnect_enabled')).is(':checked');
+            if (sectorOrigin && (currentServerId() === null || enabled || options.savedServerEnabled
+                || sectorOrigin !== options.savedSectorOrigin
+                || appCode.value !== options.savedApplicationCode)) {
+                BootstrapDialog.show({
+                    title: download
+                        ? (options.setupLabel || 'Download provider setup')
+                        : (options.setupGuideLabel || 'Open setup guide'),
+                    message: $('<div>').text(options.setupPairwiseSaveHelp ||
+                        'Save this server as a disabled draft before generating pairwise-subject setup.').html(),
+                    type: BootstrapDialog.TYPE_WARNING
+                });
                 return;
             }
             button.prop('disabled', true);
@@ -1365,6 +1405,7 @@
         if (options.originPolicy === 'opnsense' || options.originPolicy === 'custom') {
             $(field('openidconnect_origin_policy')).val(options.originPolicy);
         }
+        sectorOriginOptions();
         withDiscoveryTest();
         withSignInTest();
         withApprovalManager();
