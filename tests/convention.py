@@ -111,6 +111,12 @@ def main():
     check("a footer alone is enough to be breaking", footed.breaking, True)
     check("with no bang needed", footed.heading(), "Breaking")
 
+    commented = commits.Commit(
+        "chore: add a template\n\n<!--\nBREAKING CHANGE: replace this instruction.\n-->\nNone"
+    )
+    check("a footer example inside an HTML comment is inert", commented.breaking, False)
+    check("and contributes no operator instruction", commented.breaking_detail, "")
+
     group("What a release note makes of them")
     written = [
         commits.Commit("feat(api): an endpoint"),
