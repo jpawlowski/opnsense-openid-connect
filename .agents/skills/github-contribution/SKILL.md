@@ -69,11 +69,11 @@ it does not replace waiting for a late review or checking the reviewed commit.
 ## Agent notice
 
 Every issue, pull request, review, or comment written by an agent in a person's
-name ends with exactly one matching notice as its own final paragraph:
+name ends with exactly one matching italic notice as its own final paragraph:
 
-    AI notice: An AI agent wrote this text on my behalf; I am responsible for its content.
+*An AI agent wrote this text on my behalf; I am responsible for its content.*
 
-    KI-Hinweis: Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.
+*Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.*
 
 Use only the notice matching the contribution's language. The notice discloses
 authorship; the person publishing remains responsible for the content.
