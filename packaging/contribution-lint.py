@@ -36,7 +36,7 @@ AI_NOTICES = (
     "AI notice: An AI agent wrote this text on my behalf; I am responsible for its content.",
     "KI-Hinweis: Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.",
 )
-KNOWN_HEADINGS = set(ISSUE_HEADINGS + PULL_REQUEST_HEADINGS)
+KNOWN_HEADINGS = set(ISSUE_HEADINGS + PULL_REQUEST_HEADINGS + ("Suggested area",))
 
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 FENCED_CODE = re.compile(r"^\s*(```|~~~).*?^\s*\1\s*$", re.M | re.S)
@@ -53,7 +53,8 @@ TECHNICAL_TOKEN = re.compile(
     r"|(?<!\w)[\w.-]+(?:[/\\][\w.@+~-]+)+(?!\w)"
     r"|\b(?:[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+|[a-z]+[A-Z][A-Za-z0-9]*)\b"
     r"|\b[A-Z][A-Z0-9_]{1,}\b"
-    r"|\b[A-Za-z0-9_-]+\.(?:php|py|js|mjs|json|ya?ml|md|sh|xml|inc|conf|pkg)\b",
+    r"|\b[A-Za-z0-9_-]+\.(?:php|py|js|mjs|json|ya?ml|md|sh|xml|inc|conf|pkg)\b"
+    r"|\b(?:type|area):\s*[a-z][a-z-]*\b",
 )
 PLACEHOLDER = re.compile(r"^(?:todo|tbd|n/?a|no response|replace this.*)$", re.I)
 ISSUE_REFERENCE = re.compile(r"^Fixes\s+#(?P<number>[1-9]\d*)$", re.I)
@@ -82,6 +83,8 @@ def without_authored_markup(text):
     for line in text.splitlines():
         heading = HEADING.fullmatch(line)
         if heading and heading.group(2).strip() in KNOWN_HEADINGS:
+            continue
+        if PLACEHOLDER.fullmatch(re.sub(r"[*_~]", "", line.strip())):
             continue
         if line.strip() == "None":
             continue

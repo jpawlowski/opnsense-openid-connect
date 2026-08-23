@@ -35,7 +35,9 @@ function fixture() {
   return {
     state,
     github: {rest: {issues}, paginate: async (method, arguments_) => method(arguments_)},
-    context: {repo: {owner: "owner", repo: "repo"}, payload: {issue: {number: 7, state: "open"}}},
+    context: {repo: {owner: "owner", repo: "repo"}, payload: {
+      issue: {number: 7, state: "open", body: "", labels: []},
+    }},
   };
 }
 
@@ -65,4 +67,17 @@ closed.context.payload.issue.state = "closed";
 await hygiene.reconcile({...closed, result: invalid});
 assert.equal(closed.state.calls.length, 0, "a closed invalid issue is not newly nagged");
 
-console.log("4 issue hygiene checks passed");
+const suggested = fixture();
+suggested.context.payload.issue.body = "### Suggested area\n\narea: contribution\n\n### TL;DR\n\nShort.";
+await hygiene.reconcile({...suggested, result: valid});
+assert(suggested.state.labels.has("area: contribution"), "an allow-listed suggestion becomes an area label");
+
+const maintained = fixture();
+maintained.context.payload.issue.body = suggested.context.payload.issue.body;
+maintained.context.payload.issue.labels = [{name: "area: oidc"}];
+await hygiene.reconcile({...maintained, result: valid});
+assert(!maintained.state.calls.some(([name, arguments_]) =>
+  name === "addLabels" && arguments_.labels.includes("area: contribution")),
+"automation does not overwrite a maintainer-assigned area");
+
+console.log("6 issue hygiene checks passed");

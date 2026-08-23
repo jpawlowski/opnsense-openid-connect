@@ -1,6 +1,6 @@
 name: Bug report / Fehlerbericht
 description: Report observable incorrect behaviour in English or German.
-labels: [bug]
+labels: ["type: bug"]
 body:
   - type: markdown
     attributes:
@@ -10,6 +10,17 @@ body:
 
         Agent-authored text must end with the exact English or German AI notice required by `CONTRIBUTING.md`. Put it
         after the answer under `To decide`, separated as its own final paragraph.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Suggested area
+      description: Suggest one area. Repository automation or a maintainer confirms the label.
+      options:
+        - "area: oidc"
+        - "area: opnsense"
+        - "area: ui"
+        - "area: packaging"
+        - "area: contribution"
   - type: textarea
     id: tldr
     attributes:

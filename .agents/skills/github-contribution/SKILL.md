@@ -27,6 +27,16 @@ and length but does not close an issue or grant permission to start work.
 
 ## Pull requests
 
+Resolve the publishing path before pushing. Query the upstream repository's
+viewer permission. With write access, push a topic branch there.
+Without write access, reuse or create a personal fork and push the branch to
+that writable head. In either case, open the pull request against
+`jpawlowski/opnsense-openid-connect:main`.
+For a cross-repository head, identify it as `<fork-owner>:<branch>`.
+
+    gh repo view jpawlowski/opnsense-openid-connect \
+        --json viewerPermission --jq .viewerPermission
+
 The title is the squash commit and a release-note entry. Choose it before
 opening the pull request:
 
@@ -40,7 +50,9 @@ are `feat`, `fix`, `perf`, `refactor`, `docs`, `build`, `ci`, `test`, `chore`,
 Put exactly `Fixes #N` under `Issue`. Do not repeat the issue's problem. Describe
 the change under `Change`, how it resolves the issue under `Resolution`, actual
 checks under `Validation`, and any operator action under `Upgrade impact`. Keep
-counted pull-request prose to 125 words.
+counted pull-request prose to 125 words. The closing reference creates the
+Development link even from a fork; do not depend on the write-only manual
+Development picker.
 
 Before publishing, save the proposed body and validate the exact title and body:
 
@@ -50,7 +62,9 @@ Before publishing, save the proposed body and validate the exact title and body:
         --repository jpawlowski/opnsense-openid-connect
 
 Do not open the pull request until this passes. A title or body edit triggers
-the required check again after publication.
+the required check again after publication. A first-time fork contribution may
+wait for a maintainer to approve its workflow; treat that as pending review,
+not as a reason to recreate the pull request.
 
 ## Review before merge
 

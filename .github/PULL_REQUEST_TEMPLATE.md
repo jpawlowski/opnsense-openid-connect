@@ -16,11 +16,16 @@ operator instruction below.
 Describe the problem in the issue. Here, describe only the change and how it
 resolves the issue. English and German are accepted; prefer English when in
 doubt.
+
+Target `jpawlowski/opnsense-openid-connect:main`. Without repository write
+access, push the head branch to a personal fork. `Fixes #N` creates the same
+Development link from either kind of head; the manual picker requires write
+access. A first-time fork workflow may wait for maintainer approval.
 -->
 
 ## Issue
 
-<!-- Use exactly `Fixes #N`. A human-authored direct contribution may use exactly `None`. -->
+<!-- Use exactly `Fixes #N`. A human-authored PR without a preceding issue may use exactly `None`. -->
 
 ## Change
 

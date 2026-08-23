@@ -8,16 +8,21 @@ PHPUnit, no network, no OPNsense. See [`tests/README.md`](tests/README.md).
 
 ## Pull requests
 
-GitHub is the source of truth. Work on a branch and open a pull request there;
-the Forgejo repository is a read-only code mirror and accepts no contributions.
+GitHub is the source of truth; the Forgejo repository is a read-only code
+mirror and accepts no contributions. With write access, push a topic branch to
+this repository. Without write access, push it to a personal fork and open the
+pull request against `jpawlowski/opnsense-openid-connect:main`. Both paths use a
+branch, and every pull request targets `main`.
 
 Pull requests are squash-merged, so their title and description become the one
 commit that reaches `main`. Give the title the Conventional Commit shape below,
 at most 100 characters. The description does not restate the problem: put that
 in an issue, then describe the change and how it resolves that issue. An
 agent-authored pull request must close exactly one same-repository issue which
-was opened first with `Fixes #N`. A human-authored direct contribution may use
-`None` instead.
+was opened first with `Fixes #N`. A human-authored pull request without a
+preceding issue may use `None` instead. `Fixes #N` creates the Development link
+for every pull-request author, including authors working from forks; the manual
+Development picker is only a convenience for maintainers with write access.
 
 Use the template sections, check an actual validation or say `Not run: <reason>`,
 and keep the pull-request body to at most 125 counted prose words. When
@@ -25,6 +30,10 @@ applicable, put the exact `BREAKING CHANGE:` operator instruction under upgrade
 impact. Intermediate branch commits may be ordinary work in progress; the
 pipeline judges the future squash commit shown by the pull request. A title or
 description edit triggers that check again.
+
+GitHub may hold the workflow of a first-time fork contributor for maintainer
+approval. That is an expected security review, not a failed check; do not close
+and recreate the pull request while it waits.
 
 Before opening a pull request, an agent validates the exact proposed title and
 body locally:
@@ -48,6 +57,22 @@ Keep the complete issue to at most 175 counted prose words. The last field names
 one decision and suggests a direction at a high level; implementation detail
 belongs in the eventual change. Suspected vulnerabilities go through a private
 security advisory, never a public issue.
+
+### Labels and triage
+
+New issues and pull requests use a small label vocabulary. Exactly one `type:*`
+label says what the contribution is: `bug`, `change`, `docs`, or `question`.
+Up to two `area:*` labels locate it in `oidc`, `opnsense`, `ui`, `packaging`, or
+`contribution`. The issue forms set the initial type and let any author suggest
+an area; the workflow applies only a known area when no area has been assigned.
+Maintainers may correct that suggestion.
+
+`needs revision` belongs to the hygiene workflow. Maintainers use `needs decision`,
+`needs reproduction`, or `blocked` only while that action is needed; `help wanted`
+and `good first issue` are deliberate invitations. `accessibility` records an
+impact, while `duplicate` and `not planned` record a reasoned close. There are no
+priority or agent-authorship labels. Contributors without triage access make
+their classification through the forms rather than applying labels directly.
 
 English and German are accepted; prefer English when in doubt. Replies follow
 the language of the issue or pull request, and use English for a mixed-language

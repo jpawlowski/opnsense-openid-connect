@@ -63,6 +63,12 @@ def main():
           lint.prose_words(sample), ["Three", "visible", "words", "and", "two"])
     check("a custom link label remains prose", lint.count_prose("[read this](https://example.net)"), 2)
     check("an unknown heading is authored prose", lint.count_prose("## Additional context\nUseful detail"), 4)
+    area_suggestion = "### Suggested area\n\narea: contribution\n\n" + issue_body()
+    check("the form's allow-listed area suggestion is boilerplate",
+          lint.count_prose(area_suggestion), lint.count_prose(issue_body()))
+    check("the optional area precedes the five required fields", lint.validate_issue(area_suggestion)["valid"], True)
+    no_area = "### Suggested area\n\n_No response_\n\n" + issue_body()
+    check("an unanswered optional area is boilerplate", lint.count_prose(no_area), lint.count_prose(issue_body()))
     check("the breaking prefix is free but its instruction counts",
           lint.prose_words("BREAKING CHANGE: set the provider again"),
           ["set", "the", "provider", "again"])
@@ -190,6 +196,14 @@ def main():
           all("current head" in text.lower() for text in (contribution_skill, agents, contributing)), True)
     check("high and medium Codex findings are explicitly merge-blocking",
           all("P0, P1 and P2" in text for text in (contribution_skill, agents, contributing)), True)
+    check("human and agent guidance distinguishes upstream branches from forks",
+          all("without write access" in text.lower() and "opnsense-openid-connect:main" in text
+              for text in (contribution_skill, contributing)), True)
+    check("the agent resolves permission before choosing its push target",
+          "viewerPermission" in contribution_skill and "<fork-owner>:<branch>" in contribution_skill, True)
+    check("both paths use the permission-neutral Development link",
+          all("Development link" in text and "Fixes #N" in text
+              for text in (contribution_skill, contributing)), True)
     rules_readme = (ROOT / ".github" / "rulesets" / "README.md").read_text(encoding="utf-8")
     json.loads((ROOT / ".github" / "rulesets" / "main.json").read_text(encoding="utf-8"))
     check("the strict ruleset import has a documented adjacent copyright exception",
@@ -201,8 +215,10 @@ def main():
         for name in ("bug.yml", "change.yml")
     ]
     field_ids = [re.findall(r"^\s+id:\s+(\S+)$", form, re.M) for form in forms]
-    check("both issue forms use the same five fields in the same order",
-          field_ids, [["tldr", "where", "now", "want", "to_decide"]] * 2)
+    check("both issue forms offer an area before the same five required fields",
+          field_ids, [["area", "tldr", "where", "now", "want", "to_decide"]] * 2)
+    check("the forms apply the canonical type labels",
+          ['labels: ["type: bug"]' in forms[0], 'labels: ["type: change"]' in forms[1]], [True, True])
     config = (ROOT / ".github" / "ISSUE_TEMPLATE" / "config.yml").read_text(encoding="utf-8")
     check("blank issues are disabled and security reports stay private",
           "blank_issues_enabled: false" in config and "/security/advisories/new" in config)
