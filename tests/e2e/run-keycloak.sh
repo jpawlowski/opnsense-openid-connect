@@ -295,11 +295,19 @@ case "$opnsense_host" in
     ;;
 esac
 # shellcheck disable=SC2086 -- the optional argument is one URL-validated host mapping
+# Docker Desktop's route to QEMU's loopback forwarding can leave response bytes on a pooled ZAP origin connection.
+# Closing only that passive-proxy hop keeps concurrent WebGUI assets from being mistaken for a later HTTP status line.
 docker run -d --name "$zap_container" -p 127.0.0.1::8080 $zap_host_args \
   "$zap_image" zap.sh -daemon -host 0.0.0.0 -port 8080 \
   -config api.disablekey=true \
   -config 'api.addrs.addr.name=.*' \
-  -config api.addrs.addr.regex=true >/dev/null
+  -config api.addrs.addr.regex=true \
+  -config 'replacer.full_list(0).description=Close OPNsense origin connections' \
+  -config 'replacer.full_list(0).enabled=true' \
+  -config 'replacer.full_list(0).matchtype=REQ_HEADER' \
+  -config 'replacer.full_list(0).matchstr=Connection' \
+  -config 'replacer.full_list(0).regex=false' \
+  -config 'replacer.full_list(0).replacement=close' >/dev/null
 zap_port=$(docker port "$zap_container" 8080/tcp | sed -n '1s/.*://p')
 test -n "$zap_port"
 E2E_ZAP_PROXY="http://127.0.0.1:${zap_port}"

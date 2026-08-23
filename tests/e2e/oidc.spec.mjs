@@ -767,7 +767,7 @@ test('real OPNsense login, session binding and logout interoperability', async (
     const editor = manager.locator('.oidc-binding-editor');
     await expect(editor).toContainText('exact sub');
     await expect(editor).toContainText('federation and subject-mode mappings');
-    await editor.locator('input[type="text"]').fill(manualSubject);
+    await editor.getByRole('textbox', { name: 'Paste the exact sub claim' }).fill(manualSubject);
     await editor.locator('select').selectOption({ label: 'Create a new local account…' });
     await editor.locator('.oidc-account-creation input').fill(inlineUsername);
     await editor.getByRole('button', { name: 'Save binding' }).click();
@@ -775,7 +775,8 @@ test('real OPNsense login, session binding and logout interoperability', async (
     await expect(manualRow).toHaveCount(1);
     await expect(manualRow).toContainText(inlineUsername);
     await manualRow.getByRole('button', { name: 'Edit' }).click();
-    await manager.locator('.oidc-binding-editor input[type="text"]').fill(editedSubject);
+    await manager.locator('.oidc-binding-editor')
+      .getByRole('textbox', { name: 'Paste the exact sub claim' }).fill(editedSubject);
     await manager.locator('.oidc-binding-editor select').selectOption({
       label: process.env.E2E_TEST_USERNAME,
     });
