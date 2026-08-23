@@ -77,6 +77,7 @@ def main():
     check("a type nobody agreed on", len(refusals("wibble: something")), 1)
     check("nothing after the colon", len(refusals("fix: ")) >= 1, True)
     check("a full stop at the end", len(refusals("fix: something.")), 1)
+    check("an upper-case subject", len(refusals("fix: Something")), 1)
     check("a body glued to the subject", len(refusals("fix: something\nand more")), 1)
     check(
         "a first line longer than a first line should be",
@@ -226,11 +227,25 @@ def main():
     check("a CI snapshot carries the package and its checksum",
           "packaging/dist/*.pkg" in workflow and "packaging/dist/*.pkg.sha256" in workflow, True)
     check("the provenance action is pinned", workflow.count(attest_sha), 1)
+    check("only a GitHub tag push can enter the publication job",
+          "github.event_name == 'push'" in workflow
+          and "startsWith(github.ref, 'refs/tags/v')" in workflow
+          and "github.server_url == 'https://github.com'" in workflow, True)
     check("the attestation receives only its required identity permissions",
           "id-token: write" in workflow and "attestations: write" in workflow, True)
+    check("the provenance statement covers the exact package built by this job",
+          "subject-path: ${{ steps.build.outputs.path }}" in workflow, True)
+    check("provenance is created before any release is published",
+          workflow.index("Attest package build provenance")
+          < workflow.index("Publish the complete immutable GitHub release"), True)
     check("assets enter a draft before its one-way publication",
           workflow.index("gh release create") < workflow.index("gh release upload")
           < workflow.index('gh release edit "$TAG" --draft=false'), True)
+    check("the draft is bound to the already existing tag",
+          'gh release create "$TAG" --verify-tag --draft' in workflow, True)
+    check("publication inventories the complete asset set before becoming immutable",
+          "Draft release is missing expected asset" in workflow
+          and "Draft release contains an unexpected asset" in workflow, True)
     check("a published release is never refreshed",
           "already published and must never be replaced" in workflow
           and "delete-asset" not in workflow and "--clobber" not in workflow, True)

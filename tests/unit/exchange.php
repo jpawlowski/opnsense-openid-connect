@@ -227,6 +227,18 @@ Checks::throws(
     'issuer changed'
 );
 
+$sameIssuer = new RelyingParty(
+    $endpointSettings,
+    $endpointController,
+    new HttpClient(fn() => jsonAnswer(metadata()))
+);
+$sameIssuer->requireIssuer('https://id.example.net');
+Checks::that(
+    'stored grants remain usable only after the exact session issuer is rediscovered',
+    $sameIssuer->issuer(),
+    'https://id.example.net'
+);
+
 $noProviderLogout = new RelyingParty($endpointSettings, $endpointController, new HttpClient());
 $metadataProperty->setValue($noProviderLogout, $endpointMetadata);
 $noProviderLogout->signOut('id-token', null);

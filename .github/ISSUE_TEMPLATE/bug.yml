@@ -1,0 +1,52 @@
+name: Bug report / Fehlerbericht
+description: Report observable incorrect behaviour in English or German.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep the complete issue to at most **175 counted prose words**. Code, commands, paths, URLs, closing references
+        and the AI notice do not count. English and German are accepted; prefer English when in doubt.
+
+        Agent-authored text must end with the exact English or German AI notice required by `CONTRIBUTING.md`. Put it
+        after the answer under `To decide`, separated as its own final paragraph.
+  - type: textarea
+    id: tldr
+    attributes:
+      label: TL;DR
+      description: Summarize the observed problem in one or two sentences.
+      placeholder: What is wrong, in the shortest useful form?
+    validations:
+      required: true
+  - type: textarea
+    id: where
+    attributes:
+      label: Where
+      description: Name the affected screen, flow, component or version.
+      placeholder: Where can the problem be observed?
+    validations:
+      required: true
+  - type: textarea
+    id: now
+    attributes:
+      label: Now
+      description: State current behaviour and concise reproduction or evidence.
+      placeholder: What happens now, and how can it be reproduced?
+    validations:
+      required: true
+  - type: textarea
+    id: want
+    attributes:
+      label: Want
+      description: State the expected observable behaviour without implementation detail.
+      placeholder: What should happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: to_decide
+    attributes:
+      label: To decide
+      description: Name one decision and recommend a high-level direction.
+      placeholder: Which single decision is needed, and what direction do you suggest?
+    validations:
+      required: true

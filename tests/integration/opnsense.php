@@ -24,6 +24,30 @@ use OPNsense\Auth\SSOProviders\OpenIDConnectContainer;
 use phpseclib3\Crypt\EC;
 use phpseclib3\Crypt\RSA;
 
+$evidencePath = null;
+foreach ($argv as $argument) {
+    if (str_starts_with($argument, '--evidence=')) {
+        $evidencePath = substr($argument, strlen('--evidence='));
+    }
+}
+if ($evidencePath !== null) {
+    $evidenceDirectory = dirname($evidencePath);
+    if (
+        $evidencePath === ''
+        || !str_starts_with($evidencePath, '/')
+        || !is_dir($evidenceDirectory)
+        || !is_writable($evidenceDirectory)
+        || is_dir($evidencePath)
+    ) {
+        fwrite(STDERR, "FAIL: --evidence requires a writable absolute output path\n");
+        exit(1);
+    }
+    if ((is_file($evidencePath) || is_link($evidencePath)) && !unlink($evidencePath)) {
+        fwrite(STDERR, "FAIL: stale audit evidence could not be removed\n");
+        exit(1);
+    }
+}
+
 require_once('/usr/local/etc/inc/legacy_bindings.inc');
 
 $library = '/usr/local/opnsense/mvc/app/library/OPNsense/OpenIDConnect/';
@@ -35,15 +59,133 @@ require_once '/usr/local/opnsense/mvc/app/library/OPNsense/Auth/SSOProviders/Ope
 require_once '/usr/local/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/PrivateApiControllerBase.php';
 require_once '/usr/local/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/ApprovalController.php';
 
+$identityValue = static function (string $command, string $pattern): ?string {
+    if (!function_exists('shell_exec')) {
+        return null;
+    }
+    $value = shell_exec($command);
+    if (!is_string($value)) {
+        return null;
+    }
+    $value = trim($value);
+    return preg_match($pattern, $value) === 1 ? $value : null;
+};
+$packageVersion = null;
+$sourceRevision = null;
+$opnsenseVersion = null;
+if ($evidencePath !== null) {
+    $packageVersion = $identityValue(
+        "pkg query '%v' os-openid-connect 2>/dev/null",
+        '/^[0-9A-Za-z._,+-]{1,128}$/D'
+    );
+    $sourceRevision = $identityValue(
+        "pkg annotate -Sq os-openid-connect built_from 2>/dev/null",
+        '/^[0-9a-f]{40}(?:\\.dirty)?$/D'
+    );
+    $opnsenseVersion = $identityValue('opnsense-version -v 2>/dev/null', '/^[0-9A-Za-z._,+-]{1,128}$/D');
+}
+
 $checks = 0;
-$check = static function (bool $condition, string $message) use (&$checks): void {
+$capabilities = [];
+$writeEvidence = static function (string $status) use (
+    &$capabilities,
+    &$checks,
+    $evidencePath,
+    $packageVersion,
+    $sourceRevision,
+    $opnsenseVersion,
+    $argv
+): void {
+    if ($evidencePath === null) {
+        return;
+    }
+
+    $limitations = [];
+    if ($packageVersion === null) {
+        $limitations[] = 'installed package version could not be determined';
+    }
+    if ($sourceRevision === null) {
+        $limitations[] = 'installed package could not be bound to a source revision';
+    } elseif (str_ends_with($sourceRevision, '.dirty')) {
+        $limitations[] = 'installed package was built from a dirty source tree';
+    }
+    if ($opnsenseVersion === null) {
+        $limitations[] = 'OPNsense version could not be determined';
+    }
+    $evidence = [
+        'schema' => 'opnsense-openid-connect.audit-evidence/v1',
+        'tier' => 'installed-integration',
+        'generated_at' => gmdate('Y-m-d\\TH:i:s\\Z'),
+        'subject' => [
+            'package' => array_filter([
+                'name' => 'os-openid-connect',
+                'version' => $packageVersion,
+            ], static fn ($value): bool => $value !== null),
+            'source' => array_filter([
+                'revision' => $sourceRevision,
+            ], static fn ($value): bool => $value !== null),
+            'opnsense' => array_filter([
+                'version' => $opnsenseVersion,
+            ], static fn ($value): bool => $value !== null),
+        ],
+        'execution' => [
+            'status' => $status,
+            'network' => in_array('--network', $argv, true) ? 'included' : 'not-requested',
+            'checks_passed' => $checks,
+        ],
+        'capabilities' => array_map(
+            static fn (string $id): array => ['id' => $id, 'status' => 'passed'],
+            array_keys($capabilities)
+        ),
+        'limitations' => $limitations,
+    ];
+
+    $directory = dirname($evidencePath);
+    if (!is_dir($directory) || !is_writable($directory) || is_dir($evidencePath)) {
+        throw new RuntimeException('the evidence output path is not writable');
+    }
+    $previousUmask = umask(0077);
+    $temporary = tempnam($directory, '.openidconnect-audit-');
+    umask($previousUmask);
+    if ($temporary === false) {
+        throw new RuntimeException('could not create the evidence file');
+    }
+    try {
+        $json = json_encode($evidence, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+        if (file_put_contents($temporary, $json, LOCK_EX) === false || !chmod($temporary, 0600)) {
+            throw new RuntimeException('could not write the evidence file');
+        }
+        if (!rename($temporary, $evidencePath)) {
+            throw new RuntimeException('could not publish the evidence file');
+        }
+    } finally {
+        if (is_file($temporary)) {
+            unlink($temporary);
+        }
+    }
+};
+$check = static function (bool $condition, string $message) use (&$checks, $writeEvidence): void {
     if (!$condition) {
         fwrite(STDERR, "FAIL: {$message}\n");
+        try {
+            $writeEvidence('failed');
+        } catch (\Throwable $e) {
+            fwrite(STDERR, "FAIL: audit evidence could not be written\n");
+        }
         exit(1);
     }
     $checks++;
     echo "ok: {$message}\n";
 };
+$validated = static function (string $capability) use (&$capabilities): void {
+    $capabilities[$capability] = true;
+};
+try {
+    $writeEvidence('running');
+} catch (\Throwable $e) {
+    fwrite(STDERR, "FAIL: audit evidence could not be written\n");
+    exit(1);
+}
 
 $verifier = new class(new HttpClient()) extends JwtVerifier {
     public function signature(string $algorithm, array $jwk, string $payload, string $signature): bool
@@ -66,6 +208,7 @@ $ec = EC::createKey('secp256r1');
 $ecJwk = json_decode($ec->getPublicKey()->toString('JWK'), true, 16, JSON_THROW_ON_ERROR);
 $ecSignature = $ec->withHash('sha256')->withSignatureFormat('IEEE')->sign($payload);
 $check($verifier->signature('ES256', $ecJwk, $payload, $ecSignature), 'ES256 IEEE signature through OPNsense phpseclib');
+$validated('runtime-jws-crypto');
 
 $jti = JwtVerifier::base64UrlEncode(random_bytes(24));
 $check(SessionRegistry::acceptLogoutToken('https://runtime.example.com/', $jti, time() + 60), 'first logout token is accepted');
@@ -96,6 +239,7 @@ foreach (['.openidconnect-sessions', '.openidconnect-logout-tokens', '.openidcon
     $path = rtrim((string)ini_get('session.save_path'), '/') . '/' . $file;
     $check(is_file($path) && (fileperms($path) & 0777) === 0600, $file . ' has mode 0600');
 }
+$validated('runtime-state-registries');
 
 $unprivilegedProbe = 'openidconnect-acl-probe-' . bin2hex(random_bytes(8));
 $check(
@@ -147,6 +291,7 @@ try {
 } catch (\Throwable $e) {
     $check(true, 'the identity manager refuses a user-config-readonly mutation');
 }
+$validated('runtime-core-acl');
 
 /* Exercise the connector against the real core configuration object without saving a
  * temporary protocol change to config.xml. */
@@ -197,6 +342,7 @@ $check(
 if (is_string($previousLocale) && $previousLocale !== '') {
     setlocale(LC_ALL, $previousLocale);
 }
+$validated('runtime-login-presentation');
 $originalProtocol = (string)($system->webgui->protocol ?? 'https');
 $system->webgui->protocol = 'http';
 $nativeHttp = new OpenIDConnect();
@@ -214,6 +360,7 @@ $offloadedHttp->setProperties([
 ]);
 $check($offloadedHttp->isWebGuiTransportReady(), 'real OPNsense config accepts complete explicit TLS offloading');
 $system->webgui->protocol = $originalProtocol;
+$validated('runtime-transport-policy');
 
 if (in_array('--network', $argv, true)) {
     foreach ([
@@ -244,6 +391,13 @@ if (in_array('--network', $argv, true)) {
     );
     $check(hash_equals($personalIssuer, $microsoftConsumers->issuer()),
         'Microsoft consumers fixed personal-account issuer');
+    $validated('public-provider-discovery');
 }
 
+try {
+    $writeEvidence('passed');
+} catch (\Throwable $e) {
+    fwrite(STDERR, "FAIL: audit evidence could not be written\n");
+    exit(1);
+}
 echo "{$checks} OPNsense integration checks passed.\n";

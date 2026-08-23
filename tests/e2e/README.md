@@ -70,6 +70,22 @@ containers. The package remains installed because it is the system under test.
 Set `E2E_KEEP=1` only on an isolated machine when failed resources must remain
 for diagnosis; then remove them manually afterwards.
 
+To retain machine-readable evidence for the security audit, supply an absolute
+path outside the disposable working directory before starting the Keycloak
+run:
+
+    export E2E_AUDIT_EVIDENCE=/secure/audit/browser-e2e.json
+    tests/e2e/run.sh --provider keycloak
+
+The runner removes an older file at that exact path before starting and writes
+a mode-`0600` replacement only after both Playwright and passive ZAP complete
+successfully. The evidence uses schema
+`opnsense-openid-connect.audit-evidence/v1`, binds the result to the Git
+revision, deterministic package SHA-256 and audit-harness SHA-256, and records
+only versioned test subjects and passed capability slugs. It never includes
+target/provider hosts, usernames, realm names, subjects, cookies, request data,
+tokens or secrets.
+
 ## Passive response-header validation
 
 ZAP is not used as a spider and performs no active scan. Playwright remains

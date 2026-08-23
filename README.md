@@ -36,8 +36,8 @@ cryptographic primitives.
 
 The exact supported standards and intentionally unsupported optional extensions
 are listed in [the security and conformance document](docs/reference/security.md).
-The complete pre-release review and remaining release gates are in the
-[audit report](docs/reference/audit-report.md).
+The generated, evidence-backed security validation is in the
+[security validation report](docs/reference/audit-report.md).
 
 ## Local identity and privileges
 

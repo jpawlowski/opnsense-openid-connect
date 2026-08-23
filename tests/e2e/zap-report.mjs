@@ -161,6 +161,7 @@ function classify(alert, response) {
 }
 
 await waitForPassiveScan();
+const zapVersion = String((await query('/JSON/core/view/version/')).version || '');
 
 const observedUrls = (await query('/JSON/core/view/urls/', { baseurl: origin })).urls || [];
 const observedPaths = new Set(observedUrls.map(pathOf).filter(path => path.startsWith(pluginRoot)));
@@ -205,8 +206,12 @@ const findings = await Promise.all(relevantAlerts.map(async alert => {
 
 const blocking = findings.filter(finding => finding.outcome === 'blocking');
 const summary = {
+  zapVersion,
   observedPluginPaths: observedPaths.size,
   requiredResponseClasses: requiredClasses.length,
+  validatedResponseClasses: requiredClasses
+    .filter(([, matches]) => [...observedPaths].some(matches))
+    .map(([name]) => name),
   missingResponseClasses: missingClasses,
   blockingFindings: blocking,
   expectedExceptions: findings.filter(finding => finding.outcome === 'expected'),

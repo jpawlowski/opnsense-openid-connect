@@ -2,15 +2,29 @@
 
     ./tests/run.sh
 
-The audit report is generated completely from this command. Refresh it after a
-meaningful test run with:
+The security validation report is generated from a versioned control catalog
+and machine-readable evidence. Refresh its host-independent statements with:
 
     python3 tests/update-audit-report.py --update
 
 `--check` runs the same suite without changing the report and fails when the
-report is stale. A failing suite is recorded as failed, including stages not
-reached because the runner stops at the first failing stage. Historical manual
-claims are not carried forward without current machine-readable evidence.
+report is stale. A failing suite makes generation fail and leaves the existing
+report untouched; CI already presents the failure. The report contains only
+positive security properties whose complete evidence requirement is met. It
+has no finding backlog, audit IDs or test-count dashboard.
+
+Installed and browser evidence is optional but required for statements that
+cannot be proven on the host alone. Keep a sanitized result under
+`tests/evidence/*.json`, or pass it explicitly with a repeatable
+`--evidence /absolute/path.json` option. The generator accepts it only when it
+is bound to a clean source revision and none of that statement's implementation
+or validation files have changed since the recorded run.
+
+Each evidence tier inventories its capability names in
+`tests/audit-controls.json`. Generation fails if an evidence producer and that
+inventory diverge, if a control names an unknown capability, or if a produced
+capability has no control. This keeps a newly programmed check from becoming
+unused evidence silently.
 
 This is the fast, host-independent gate used by hand, by an agent Stop hook and
 by the pipeline, so a failure looks the same in all three places. Nothing in it
@@ -82,6 +96,20 @@ the real session directory, logout replay index, one-time form-post index and
 administrator-approval registry. `--network` additionally checks exact
 Discovery against the public providers whose metadata is available without an
 account. It is not part of the host-independent CI command.
+
+An installed run can explicitly produce sanitized machine-readable audit
+evidence alongside its unchanged human output:
+
+    php tests/integration/opnsense.php --evidence=/tmp/openid-connect-integration.json
+
+The output path must be absolute. The mode-`0600` JSON names only the validated
+runtime capabilities and, where `pkg` and `opnsense-version` expose them, binds
+them to the installed package version, its `built_from` source revision and the
+OPNsense version. Missing identity fields remain visible as limitations. It
+contains no firewall address, hostname, configured account, claims or other
+runtime values. Add `--network` to the same command only when public Discovery
+requests are intended. The report generator accepts retained integration
+evidence only when all three identities are present and valid.
 
 For a disposable firewall, [`e2e/run.sh`](e2e/README.md) goes further: it
 creates an isolated Keycloak realm in pinned official containers, installs the

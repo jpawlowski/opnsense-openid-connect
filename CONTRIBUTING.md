@@ -12,11 +12,55 @@ GitHub is the source of truth. Work on a branch and open a pull request there;
 the Forgejo repository is a read-only code mirror and accepts no contributions.
 
 Pull requests are squash-merged, so their title and description become the one
-commit that reaches `main`. Give the title the Conventional Commit shape below.
-Use the description for context and, when applicable, the exact `BREAKING
-CHANGE:` instruction an installation needs before upgrading. Intermediate
-branch commits may be ordinary work in progress; the pipeline judges the future
-squash commit shown by the pull request.
+commit that reaches `main`. Give the title the Conventional Commit shape below,
+at most 100 characters. The description does not restate the problem: put that
+in an issue, then describe the change and how it resolves that issue. An
+agent-authored pull request must close exactly one same-repository issue which
+was opened first with `Fixes #N`. A human-authored direct contribution may use
+`None` instead.
+
+Use the template sections, check an actual validation or say `Not run: <reason>`,
+and keep the pull-request body to at most 125 counted prose words. When
+applicable, put the exact `BREAKING CHANGE:` operator instruction under upgrade
+impact. Intermediate branch commits may be ordinary work in progress; the
+pipeline judges the future squash commit shown by the pull request. A title or
+description edit triggers that check again.
+
+Before opening a pull request, an agent validates the exact proposed title and
+body locally:
+
+    python3 packaging/contribution-lint.py \
+        --title "fix(auth): keep local login available" \
+        --body-file /path/to/pr-body.md \
+        --repository jpawlowski/opnsense-openid-connect
+
+## Issues and public conversation
+
+Bug and Change forms ask for `TL;DR`, `Where`, `Now`, `Want`, and `To decide`.
+Keep the complete issue to at most 175 counted prose words. The last field names
+one decision and suggests a direction at a high level; implementation detail
+belongs in the eventual change. Suspected vulnerabilities go through a private
+security advisory, never a public issue.
+
+English and German are accepted; prefer English when in doubt. Replies follow
+the language of the issue or pull request, and use English for a mixed-language
+conversation. Be concise, friendly, factual and focused. Insults, threats,
+sarcasm directed at another person, and speculation about competence or motives
+are not acceptable; the complete community standard is in
+[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+
+Every issue, pull request, review or comment an agent writes in a person's name
+ends with exactly one matching notice as its own final paragraph:
+
+    AI notice: An AI agent wrote this text on my behalf; I am responsible for its content.
+
+    KI-Hinweis: Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.
+
+Code, commands, paths, URLs and link destinations, closing references such as
+`Fixes #123`, template boilerplate, exact `None` values and those notices do not
+count toward the prose limits. Visible custom link text and any additional prose
+do count. Undisclosed agent use under a human account cannot be detected
+reliably; the publisher remains responsible for it.
 
 ## Commit messages
 
@@ -43,21 +87,26 @@ interface, and a change that turns a login which worked into one that does not
 has to arrive with a sentence saying so. Mark it, and say in the footer what to
 set — not that something changed, but what to do about it.
 
-The subject is a sentence, lower case after the colon, no full stop. Everything
-else — how long, how much prose, whether there is a body at all — is yours.
+The subject is a sentence, lower case after the colon, no full stop. A pull
+request title is at most 100 characters; ordinary commit bodies remain as long
+as the change needs.
 
 ### Local commit setup
 
     git config commit.template "$(git rev-parse --show-toplevel)/.gitmessage"
     git config core.hooksPath packaging/hooks
 
-Run both once per clone. The template puts the expected shape and the available
-types into the commit editor; its guidance consists only of comments and does
-not become part of the commit. The hook refuses a message the release note
-could not read, before the commit exists rather than after. Neither Git config
-nor hooks are part of what Git clones, so the pipeline remains authoritative.
+A Codex or Claude task applies both settings automatically when it starts;
+other contributors run the commands once per clone. Both agents read the same
+tracked hook configuration and implementation under `.agents/`. The template
+puts the expected shape and the available types into the commit editor; its
+guidance consists only of comments and does not become part of the commit. The
+hook refuses a message the release note could not read, before the commit
+exists rather than after. Neither Git config nor hooks are part of what Git
+clones, so the pipeline remains authoritative.
 
-For a pull request, the pipeline checks its title and description instead. On
+For a pull request, the pipeline checks its title, description and linked issue
+instead. On
 `main` and tag pushes it checks the commits that arrived, so the protected
 branch cannot contain a message the release note cannot read.
 
@@ -91,10 +140,11 @@ setting and what is not, and why a refusal says only one thing. It is written
 for an agent working here, and reads as well for a person.
 
 `.agents/skills/` holds the procedures worth following exactly rather than from
-memory: changing a setting or protocol behavior, depending on something new in
-OPNsense core, and cutting a release. Each one is a checklist of the places
-that go stale silently, which is most of the work. `.claude/skills` points to
-the same directory so Claude and other agents use one canonical copy.
+memory: making a public contribution, changing a setting or protocol behavior,
+depending on something new in OPNsense core, and cutting a release. Each one is
+a checklist of the places that go stale silently, which is most of the work.
+`.claude/skills` points to the same directory so Claude and other agents use one
+canonical copy.
 
 ## Protocol changes
 

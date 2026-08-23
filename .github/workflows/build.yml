@@ -8,10 +8,16 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
+    types: [opened, edited, synchronize, reopened]
   workflow_dispatch: {}
 
 permissions:
   contents: read
+  issues: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -41,8 +47,11 @@ jobs:
 
       - name: Pull request title and description
         if: github.event_name == 'pull_request'
-        # A squash merge turns these into the one commit the release note reads.
-        run: python3 packaging/commit-lint.py --pull-request
+        # A squash merge turns these into the one commit the release note reads;
+        # the same command also refuses empty template sections and excess prose.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 packaging/contribution-lint.py --pull-request-event
 
       - name: Commit messages
         if: github.event_name != 'pull_request'

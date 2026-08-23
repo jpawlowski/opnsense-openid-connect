@@ -1,0 +1,243 @@
+/*
+ * Copyright (C) 2026 Julian Pawlowski
+ * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
+ */
+
+import { expect, request as playwrightRequest, test } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+
+for (const name of [
+  'E2E_PROVIDER_STATE_FILE', 'E2E_OPNSENSE_URL', 'E2E_OPNSENSE_USERNAME', 'E2E_OPNSENSE_PASSWORD',
+]) {
+  if (!process.env[name]) throw new Error(`${name} is required; start through tests/e2e/run.sh`);
+}
+
+const state = JSON.parse(await readFile(process.env.E2E_PROVIDER_STATE_FILE, 'utf8'));
+const origin = new URL(process.env.E2E_OPNSENSE_URL).origin;
+const providerOrigin = new URL(state.url).origin;
+const callbackPath = `/api/openidconnect/auth/callback/${state.application_code}`;
+
+async function localLogin(page) {
+  await page.goto(origin);
+  await page.getByRole('textbox', { name: 'Username:' }).fill(process.env.E2E_OPNSENSE_USERNAME);
+  await page.getByRole('textbox', { name: 'Password:' }).fill(process.env.E2E_OPNSENSE_PASSWORD);
+  await page.getByRole('button', { name: 'Login' }).click();
+  await expect(page).toHaveURL(/\/ui\/core\/dashboard/);
+}
+
+async function setFlatList(page, name, values) {
+  await page.locator(`input[name="${name}"]`).evaluate((element, entries) => {
+    element.value = entries.join(',');
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  }, values);
+}
+
+async function setGroupList(page, name, values) {
+  const input = page.locator(`input[name="${name}"]`);
+  await input.evaluate((element, entries) => {
+    element.value = entries.join(',');
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  }, values);
+  const picker = input.locator('xpath=following-sibling::select[1]');
+  if (await picker.count()) await picker.selectOption(values, { force: true });
+}
+
+async function apiContext(extraHTTPHeaders = {}) {
+  return playwrightRequest.newContext({ ignoreHTTPSErrors: true, extraHTTPHeaders });
+}
+
+async function checkedJson(response, description) {
+  if (!response.ok()) throw new Error(`${description} failed (${response.status()}): ${await response.text()}`);
+  return response.json();
+}
+
+async function checked(response, description) {
+  if (!response.ok()) throw new Error(`${description} failed (${response.status()}): ${await response.text()}`);
+}
+
+async function provisionAuthentik(blueprintPath) {
+  const api = await apiContext({ Authorization: `Bearer ${state.admin_token}` });
+  const user = await checkedJson(await api.post(`${providerOrigin}/api/v3/core/users/`, {
+    data: {
+      username: state.username, name: 'OIDC E2E', email: `${state.username}@example.com`,
+      is_active: true, type: 'internal', path: 'users',
+    },
+  }), 'authentik user creation');
+  await checked(await api.post(`${providerOrigin}/api/v3/core/users/${user.pk}/set_password/`, {
+    data: { password: state.password },
+  }), 'authentik password creation');
+  const blueprint = await readFile(blueprintPath);
+  const imported = await api.post(`${providerOrigin}/api/v3/managed/blueprints/import/`, {
+    multipart: { file: { name: 'opnsense-authentik-blueprint.yaml', mimeType: 'application/yaml', buffer: blueprint } },
+  });
+  const importResult = await checkedJson(imported, 'authentik Blueprint import');
+  expect(importResult.success).toBeTruthy();
+  const list = await checkedJson(await api.get(`${providerOrigin}/api/v3/providers/oauth2/`, {
+    params: { search: `opnsense-${state.application_code}` },
+  }), 'authentik provider lookup');
+  const provider = list.results.find(candidate => candidate.name.includes(state.application_code));
+  expect(provider).toBeTruthy();
+  state.client_id = provider.client_id;
+  state.client_secret = provider.client_secret;
+  state.issuer = `${providerOrigin}/application/o/opnsense-${state.application_code}/`;
+  await api.dispose();
+}
+
+async function provisionPocketId() {
+  const headers = { 'X-API-KEY': state.admin_token };
+  const api = await apiContext(headers);
+  const group = await checkedJson(await api.post(`${providerOrigin}/api/user-groups`, {
+    data: { name: `e2e-${state.run_id}`, friendlyName: 'OPNsense E2E' },
+  }), 'Pocket ID group creation');
+  const client = await checkedJson(await api.post(`${providerOrigin}/api/oidc/clients`, {
+    data: {
+      id: state.client_id, name: state.server_name, description: 'Disposable OPNsense browser E2E',
+      callbackURLs: [`${origin}${callbackPath}`], logoutCallbackURLs: [`${origin}/`],
+      isPublic: false, pkceEnabled: true, requiresReauthentication: false,
+      requiresPushedAuthorizationRequests: false, skipConsent: true, credentials: {},
+      isGroupRestricted: true, accessTokenDurationMinutes: 5, refreshTokenDurationMinutes: 60,
+    },
+  }), 'Pocket ID client creation');
+  await checkedJson(await api.post(`${providerOrigin}/api/oidc/clients/${client.id}/secrets`, {
+    data: { secret: state.client_secret },
+  }), 'Pocket ID client secret creation');
+  await checkedJson(await api.put(`${providerOrigin}/api/oidc/clients/${client.id}/allowed-user-groups`, {
+    data: { userGroupIds: [group.id] },
+  }), 'Pocket ID group restriction');
+  const signup = await checkedJson(await api.post(`${providerOrigin}/api/signup-tokens`, {
+    data: { ttl: '1h', usageLimit: 1, userGroupIds: [group.id] },
+  }), 'Pocket ID signup token creation');
+  state.signup_token = signup.token;
+  await api.dispose();
+}
+
+async function enrollPocketIdPasskey(browser) {
+  const context = await browser.newContext({ ignoreHTTPSErrors: true });
+  const page = await context.newPage();
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('WebAuthn.enable');
+  const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', {
+    options: {
+      protocol: 'ctap2', transport: 'internal', hasResidentKey: true,
+      hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true,
+    },
+  });
+  await page.goto(`${providerOrigin}/signup?token=${encodeURIComponent(state.signup_token)}`);
+  await page.getByRole('textbox', { name: /username/i }).fill(state.username);
+  const email = page.getByRole('textbox', { name: /email/i });
+  if (await email.count()) await email.fill(`${state.username}@example.com`);
+  const first = page.getByRole('textbox', { name: /first name/i });
+  if (await first.count()) await first.fill('OIDC');
+  const last = page.getByRole('textbox', { name: /last name/i });
+  if (await last.count()) await last.fill('E2E');
+  await page.getByRole('button', { name: /sign up|continue|create/i }).click();
+  const addPasskey = page.getByRole('button', { name: /add passkey|create passkey|continue/i });
+  if (await addPasskey.count()) await addPasskey.click();
+  await expect.poll(async () => (
+    await cdp.send('WebAuthn.getCredentials', { authenticatorId })
+  ).credentials.length).toBeGreaterThan(0);
+  return { context, page, cdp };
+}
+
+async function configureServer(page) {
+  await page.goto(`${origin}/system_authservers.php?act=new`);
+  await page.locator('select[name="type"]').selectOption('openidconnect');
+  await page.locator('input[name="name"]').fill(state.server_name);
+  await page.locator('input[name="openidconnect_app_code"]').fill(state.application_code);
+  await page.locator('select[name="openidconnect_provider_profile"]').selectOption(state.profile);
+  await page.locator('select[name="openidconnect_bootstrap_mode"]').selectOption('username');
+  await page.locator('input[name="openidconnect_create_users"]').check();
+  await setGroupList(page, 'openidconnect_default_groups', ['admins']);
+  await page.locator('input[name="openidconnect_logout_menu"]').check();
+  await page.locator('input[name="openidconnect_logout_redirect"]').check();
+  await setFlatList(page, 'openidconnect_scopes', state.provider === 'authelia'
+    ? ['openid', 'email', 'profile', 'groups'] : ['openid', 'email', 'profile']);
+
+  if (state.provider === 'authentik') {
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download provider setup' }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/-authentik-blueprint\.yaml$/);
+    await provisionAuthentik(await download.path());
+    await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click();
+  }
+  await page.locator('input[name="openidconnect_provider_url"]').fill(state.issuer);
+  await page.locator('input[name="openidconnect_client_id"]').fill(state.client_id);
+  await page.locator('input[name="openidconnect_client_secret"]').fill(state.client_secret);
+  const discovery = page.waitForResponse(response => (
+    new URL(response.url()).pathname === '/api/openidconnect/discovery/probe'
+  ));
+  await page.getByRole('button', { name: 'Test discovery' }).click();
+  expect((await discovery).ok()).toBeTruthy();
+  await expect(page.getByRole('dialog').locator('.oidc-discovery-result .alert-success')).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: '×' }).click();
+  await page.locator('input[name="openidconnect_enabled"]').check();
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).toHaveURL(/\/system_authservers\.php$/);
+}
+
+async function passwordLogin(page) {
+  const username = page.getByRole('textbox', { name: /username|email address|username or email/i }).first();
+  await expect(username).toBeVisible();
+  await username.fill(state.provider === 'dex' ? `${state.username}@example.com` : state.username);
+  const continueButton = page.getByRole('button', { name: /continue|next/i });
+  if (state.provider === 'authentik' && await continueButton.count()) await continueButton.click();
+  const password = page.getByRole('textbox', { name: /password/i }).or(page.locator('input[type="password"]')).first();
+  await expect(password).toBeVisible();
+  await password.fill(state.password);
+  await page.getByRole('button', { name: /sign in|log in|login/i }).click();
+}
+
+async function providerLogin(page) {
+  await page.goto(origin);
+  const before = (await page.context().cookies(origin)).find(cookie => cookie.name === 'PHPSESSID')?.value;
+  let authorization;
+  page.on('request', request => {
+    if (new URL(request.url()).origin === providerOrigin && new URL(request.url()).searchParams.has('code_challenge')) {
+      authorization = new URL(request.url());
+    }
+  });
+  await page.getByRole('link', { name: `Login using ${state.server_name}` }).click();
+  if (state.provider !== 'pocketid') {
+    await passwordLogin(page);
+  } else {
+    const passkey = page.getByRole('button', { name: /passkey|sign in|log in/i }).first();
+    if (await passkey.count()) await passkey.click();
+  }
+  await expect(page).toHaveURL(/\/ui\/core\/dashboard/);
+  const after = (await page.context().cookies(origin)).find(cookie => cookie.name === 'PHPSESSID')?.value;
+  expect(authorization.searchParams.get('code_challenge_method')).toBe('S256');
+  expect(authorization.searchParams.get('state')).toBeTruthy();
+  expect(authorization.searchParams.get('nonce')).toBeTruthy();
+  expect(after).toBeTruthy();
+  expect(after).not.toBe(before);
+}
+
+test(`real OPNsense login through ${state.provider}`, async ({ browser }) => {
+  if (state.provider === 'pocketid') await provisionPocketId();
+  const admin = await browser.newContext({ ignoreHTTPSErrors: true });
+  const adminPage = await admin.newPage();
+  await localLogin(adminPage);
+  await configureServer(adminPage);
+
+  const localFallback = await browser.newContext({ ignoreHTTPSErrors: true });
+  await localLogin(await localFallback.newPage());
+  await localFallback.close();
+
+  let pocket;
+  let user;
+  if (state.provider === 'pocketid') {
+    pocket = await enrollPocketIdPasskey(browser);
+    user = pocket.context;
+  } else {
+    user = await browser.newContext({ ignoreHTTPSErrors: true });
+  }
+  const userPage = state.provider === 'pocketid' ? pocket.page : await user.newPage();
+  if (state.provider === 'pocketid') await userPage.goto(`${providerOrigin}/logout`);
+  await providerLogin(userPage);
+  await expect(userPage.locator('body')).toContainText(state.username);
+  await userPage.getByRole('link', { name: /Logout/ }).click();
+  await expect(userPage).toHaveTitle(/Login/);
+  await user.close();
+  await admin.close();
+});

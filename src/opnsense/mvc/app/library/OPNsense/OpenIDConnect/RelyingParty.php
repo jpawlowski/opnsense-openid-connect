@@ -438,7 +438,10 @@ class RelyingParty
     public function requireIssuer(string $expected): void
     {
         $metadata = $this->discoverMetadata();
-        if (!$this->responseIssuerMatches($expected)) {
+        $matches = $this->settings->discoveryIssuerTemplate() === null
+            ? hash_equals($metadata->issuer(), $expected)
+            : $this->settings->acceptsMicrosoftIssuerValue($expected);
+        if (!$matches) {
             throw new ProtocolException('The configured issuer changed since this session was created');
         }
         $this->metadata = $metadata;

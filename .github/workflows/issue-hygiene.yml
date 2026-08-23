@@ -1,0 +1,40 @@
+name: Issue hygiene
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: issue-hygiene-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      # v6.1.0, pinned to the commit used by the build workflow as well.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Count and check the issue body
+        env:
+          RESULT_FILE: ${{ runner.temp }}/issue-hygiene.json
+        run: python3 packaging/contribution-lint.py --issue-event --result-file "$RESULT_FILE"
+
+      # v9.0.0 uses Node 24. The immutable commit prevents a moving tag from
+      # changing code with permission to label and comment on issues.
+      - name: Reconcile the hygiene label and bot comment
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          RESULT_FILE: ${{ runner.temp }}/issue-hygiene.json
+        with:
+          script: |
+            const fs = require('fs');
+            const result = JSON.parse(fs.readFileSync(process.env.RESULT_FILE, 'utf8'));
+            const {reconcile} = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/issue-hygiene.js`);
+            await reconcile({github, context, result});

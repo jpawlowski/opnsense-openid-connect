@@ -36,6 +36,7 @@ separation is not decoration — keep it.
     python3 packaging/build.py --check                does it still build
     python3 packaging/release-notes.py --tag vX.Y.Z   what a release would say
     python3 packaging/commit-lint.py --range main..HEAD
+    python3 packaging/contribution-lint.py --help     what an issue or PR may contain
 
 Installed integration and destructive browser E2E are deliberate manual runs;
 they never belong in an automatic agent Stop hook. See `tests/README.md`.
@@ -89,6 +90,11 @@ Commit messages follow Conventional Commits because the release note is written
 out of them; see `CONTRIBUTING.md`. A change that can turn a login that worked
 into one that does not is marked `!` with a `BREAKING CHANGE:` footer saying
 what to set — not that something changed.
+
+Before an agent creates or writes to a public GitHub issue, pull request, review
+or comment, read the complete `github-contribution` skill. Its issue-first rule,
+language matching, short-body limits, tone and authorship notice apply to every
+public message written in a contributor's name.
 
 ## What this deliberately does not do
 
