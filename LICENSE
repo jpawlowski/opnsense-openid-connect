@@ -24,15 +24,5 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
----
-
-This package bundles one third-party file:
-
-  src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/OpenIDConnectClient.php
-  Copyright MITRE 2020, Michael Jett — Apache License 2.0
-  https://github.com/jumbojett/OpenID-Connect-PHP
-  Licence text: src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/LICENSE.jumbojett
-  Provenance and update rules: packaging/VENDOR.md
-
 Parts of this plugin are written against, and follow the shape of, the OPNsense
 authentication and MVC interfaces (Copyright (C) Deciso B.V., BSD-2-Clause).

@@ -1,3 +1,8 @@
 work/
 .vscode/
 __pycache__/
+node_modules/
+output/
+.playwright-cli/
+test-results/
+playwright-report/

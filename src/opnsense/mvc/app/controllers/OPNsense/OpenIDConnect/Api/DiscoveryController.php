@@ -8,115 +8,231 @@
 namespace OPNsense\OpenIDConnect\Api;
 
 use OPNsense\Auth\OpenIDConnect;
-use OPNsense\Base\ApiControllerBase;
-use OPNsense\OpenIDConnect\RelyingParty;
+use OPNsense\OpenIDConnect\HttpClient;
+use OPNsense\OpenIDConnect\JwtVerifier;
+use OPNsense\OpenIDConnect\ProviderMetadata;
 
-/**
- * Reads a provider's discovery document and reports what it says, so that a provider URL
- * can be checked while it is being typed rather than at the next login attempt.
- *
- * A read, so GET: no CSRF dance, and nothing but the address travels - in particular not
- * the client secret, which this has no use for. It makes the firewall fetch an address
- * someone else chose, so it is behind a session and behind a privilege of its own; see
- * models/OPNsense/OpenIDConnect/ACL/ACL.xml.
- */
-class DiscoveryController extends ApiControllerBase
+/** Authenticated, CSRF-protected preflight of an issuer's discovery metadata. */
+class DiscoveryController extends PrivateApiControllerBase
 {
-    private const WELL_KNOWN = '.well-known/openid-configuration';
-
-    /** a discovery document is a few kilobytes; anything larger is not one */
-    private const MAX_BYTES = 262144;
-
-    /**
-     * @return array what the provider offers, or why it could not be asked
-     */
     public function probeAction()
     {
         $this->response->setContentType('application/json', 'UTF-8');
-
-        $given = trim((string)$this->request->get('url'));
-        if (!OpenIDConnect::isFetchableUrl($given)) {
-            return ['status' => 'error', 'message' => gettext('That is not an http or https address.')];
+        $given = trim((string)$this->request->getPost('url', null, ''));
+        try {
+            $profile = (string)$this->request->getPost('profile', null, 'general');
+            $microsoftAudience = (string)$this->request->getPost('microsoft_audience', null, 'tenant');
+            $profile = in_array($profile, OpenIDConnect::PROVIDER_PROFILES, true) ? $profile : 'general';
+            $microsoftAudience = in_array($microsoftAudience, OpenIDConnect::MICROSOFT_AUDIENCES, true)
+                ? $microsoftAudience : 'tenant';
+            $template = $profile === 'entra' && $microsoftAudience !== 'tenant'
+                ? ($microsoftAudience === 'consumers'
+                    ? 'https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0'
+                    : 'https://login.microsoftonline.com/{tenantid}/v2.0')
+                : null;
+            $metadata = ProviderMetadata::discover($given, new HttpClient(), $template);
+            $responseMode = (string)$this->request->getPost('response_mode', null, 'query');
+            $tokenAuth = (string)$this->request->getPost('token_auth', null, '');
+            $claimsSource = (string)$this->request->getPost('claims_source', null, 'auto');
+            $responseMode = in_array($responseMode, OpenIDConnect::RESPONSE_MODES, true) ? $responseMode : 'query';
+            $tokenAuth = in_array($tokenAuth, array_merge(OpenIDConnect::TOKEN_AUTH_METHODS, ['']), true)
+                ? $tokenAuth : '';
+            $claimsSource = in_array($claimsSource, OpenIDConnect::CLAIMS_SOURCES, true)
+                ? $claimsSource : 'auto';
+            $checks = $this->checks(
+                $metadata,
+                $profile,
+                $responseMode,
+                $tokenAuth,
+                $claimsSource
+            );
+            $warnings = count(array_filter(
+                $checks,
+                static fn(array $check): bool => $check['status'] === 'warning'
+            ));
+            return [
+                'status' => 'ok',
+                'overall' => $warnings === 0 ? 'success' : 'warning',
+                'headline' => $warnings === 0
+                    ? gettext('Discovery document accepted')
+                    : sprintf(gettext('Discovery document accepted with %d warning(s)'), $warnings),
+                'checks' => $checks,
+                /* Keep a plain-text representation for API clients predating the status table. */
+                'summary' => implode("\n", array_map(
+                    static fn(array $check): string => sprintf('%s: %s', $check['label'], $check['value']),
+                    $checks
+                )),
+            ];
+        } catch (\Throwable $e) {
+            return ['status' => 'error', 'message' => gettext('Discovery was not accepted: ') . $e->getMessage()];
         }
-
-        $document = $this->fetch($this->wellKnownFor($given));
-        if (!is_array($document)) {
-            return ['status' => 'error', 'message' => $document];
-        }
-
-        return ['status' => 'ok', 'summary' => $this->summarise($document)];
     }
 
-    private function wellKnownFor(string $given): string
+    /** @return array<int,array{label:string,value:string,status:string,note:string}> */
+    private function checks(
+        ProviderMetadata $metadata,
+        string $profile,
+        string $responseMode,
+        string $tokenAuth,
+        string $claimsSource
+    ): array
     {
-        $marker = strpos($given, self::WELL_KNOWN);
-
-        return $marker === false ? rtrim($given, '/') . '/' . self::WELL_KNOWN : $given;
-    }
-
-    /**
-     * @return array|string the decoded document, or a sentence saying what went wrong
-     */
-    private function fetch(string $url)
-    {
-        $answer = RelyingParty::fetchOverWeb($url, self::MAX_BYTES);
-
-        /* an answer over the size is a transfer curl gave up on, and says so in plain words */
-        if (!$answer['ok']) {
-            return sprintf(gettext('The firewall could not reach it: %s'), $answer['problem']);
-        }
-        if ($answer['status'] !== 200) {
-            return sprintf(gettext('The provider answered with HTTP %s.'), $answer['status']);
-        }
-
-        $document = json_decode($answer['body'], true);
-        if (!is_array($document) || empty($document['issuer'])) {
-            return gettext('The answer is not an OpenID Connect discovery document.');
-        }
-
-        return $document;
-    }
-
-    /**
-     * Reports the things this plugin actually depends on, rather than everything the
-     * document happens to contain.
-     */
-    private function summarise(array $document): string
-    {
-        $list = function (string $key) use ($document): array {
-            $value = $document[$key] ?? [];
-
-            return is_array($value) ? $value : [];
+        $list = static function ($value): array {
+            return is_array($value) ? array_values(array_filter($value, 'is_string')) : [];
         };
+        $algorithms = array_values(array_intersect(
+            $list($metadata->get('id_token_signing_alg_values_supported', [])),
+            JwtVerifier::ALGORITHMS
+        ));
+        $authMethods = array_values(array_intersect(
+            $list($metadata->get('token_endpoint_auth_methods_supported', ['client_secret_basic'])),
+            ['client_secret_basic', 'client_secret_post']
+        ));
+        $responseModes = $list($metadata->get('response_modes_supported', []));
+        $advertisedAuth = $list($metadata->get(
+            'token_endpoint_auth_methods_supported',
+            ['client_secret_basic']
+        ));
+        $pkceAdvertised = in_array(
+            'S256',
+            $list($metadata->get('code_challenge_methods_supported', [])),
+            true
+        );
+        $userInfo = $metadata->userInfoEndpoint();
+        $profileLabels = OpenIDConnect::providerProfileOptions();
 
-        $algorithms = array_intersect($list('id_token_signing_alg_values_supported'), RelyingParty::SIGNING_ALGORITHMS);
-        $lines = [
-            sprintf(gettext('Issuer: %s'), $document['issuer']),
-            sprintf(gettext('Scopes: %s'), implode(', ', $list('scopes_supported')) ?: gettext('not stated')),
-            sprintf(gettext('Claims: %s'), implode(', ', $list('claims_supported')) ?: gettext('not stated')),
-            sprintf(
-                gettext('Usable signatures: %s'),
-                implode(', ', $algorithms) ?: gettext('none this firewall accepts')
+        $checks = [
+            $this->check(
+                gettext('Exact issuer'),
+                $metadata->issuer(),
+                'success',
+                gettext('The issuer and Discovery document match exactly.')
             ),
-            sprintf(
-                gettext('PKCE: %s'),
-                in_array('S256', $list('code_challenge_methods_supported'), true)
-                    ? gettext('S256 offered') : gettext('not offered')
+            $this->check(
+                gettext('Provider profile'),
+                $profileLabels[$profile] ?? $profile,
+                'info',
+                gettext('Provider-specific defaults never relax protocol validation.')
             ),
-            sprintf(
-                gettext('Sign-out endpoint: %s'),
-                empty($document['end_session_endpoint']) ? gettext('none') : gettext('offered')
+            $this->check(
+                gettext('Authorization endpoint'),
+                $metadata->authorizationEndpoint(),
+                'success',
+                gettext('A valid HTTPS authorization endpoint is available.')
             ),
-            sprintf(
-                gettext('Revocation endpoint: %s'),
-                empty($document['revocation_endpoint']) ? gettext('none') : gettext('offered')
+            $this->check(
+                gettext('Token endpoint'),
+                $metadata->tokenEndpoint(),
+                'success',
+                gettext('A valid HTTPS token endpoint is available.')
+            ),
+            $this->check(
+                gettext('UserInfo endpoint'),
+                $userInfo ?? gettext('Not offered'),
+                $userInfo !== null ? 'success' : ($claimsSource === 'userinfo' ? 'warning' : 'info'),
+                $userInfo !== null
+                    ? gettext('UserInfo can supply identity claims when configured or needed.')
+                    : ($claimsSource === 'userinfo'
+                        ? gettext('The selected claims source requires UserInfo, but the provider does not offer it.')
+                        : gettext('UserInfo is optional for the selected claims source.'))
+            ),
+            $this->check(
+                gettext('ID Token signatures'),
+                implode(', ', $algorithms) ?: gettext('None supported'),
+                $algorithms === [] ? 'warning' : 'success',
+                $algorithms === []
+                    ? gettext('No supported asymmetric ID Token signature is advertised.')
+                    : gettext('At least one supported asymmetric signature is advertised.')
+            ),
+            $this->check(
+                gettext('Client authentication'),
+                implode(', ', $authMethods) ?: gettext('None supported'),
+                $authMethods === [] ? 'warning' : 'success',
+                $authMethods === []
+                    ? gettext('No supported token endpoint authentication method is advertised.')
+                    : gettext('At least one confidential-client authentication method is usable.')
+            ),
+            $this->check(
+                gettext('PKCE'),
+                $pkceAdvertised ? 'S256' : gettext('S256 not advertised'),
+                $pkceAdvertised ? 'success' : 'warning',
+                $pkceAdvertised
+                    ? gettext('The provider explicitly advertises the required S256 method.')
+                    : gettext('This client still sends PKCE S256; the provider must accept it despite omitting metadata.')
             ),
         ];
 
-        if ($algorithms === []) {
-            $lines[] = gettext('Warning: a login would be refused, no acceptable signature algorithm.');
+        if ($responseModes === []) {
+            $checks[] = $this->check(
+                gettext('Authorization response mode'),
+                $responseMode,
+                'info',
+                gettext('The provider does not advertise response modes; the selected mode is tested during sign-in.')
+            );
+        } else {
+            $modeSupported = in_array($responseMode, $responseModes, true);
+            $checks[] = $this->check(
+                gettext('Authorization response mode'),
+                $responseMode,
+                $modeSupported ? 'success' : 'warning',
+                $modeSupported
+                    ? gettext('The selected response mode is advertised.')
+                    : gettext('The selected response mode is not advertised.')
+            );
         }
 
-        return implode("\n", $lines);
+        $selectedAuth = $tokenAuth === '' ? gettext('Follow the provider') : $tokenAuth;
+        $selectedAuthUsable = $tokenAuth === '' ? $authMethods !== [] : in_array($tokenAuth, $advertisedAuth, true);
+        $checks[] = $this->check(
+            gettext('Selected authentication method'),
+            $selectedAuth,
+            $selectedAuthUsable ? 'success' : 'warning',
+            $selectedAuthUsable
+                ? gettext('The configured choice can use the provider metadata.')
+                : gettext('The selected client authentication method is not advertised.')
+        );
+
+        $checks[] = $this->check(
+            gettext('Authorization response issuer'),
+            $metadata->authorizationResponseIssuerSupported()
+                ? gettext('Advertised') : gettext('Not advertised'),
+            $metadata->authorizationResponseIssuerSupported() ? 'success' : 'info',
+            $metadata->authorizationResponseIssuerSupported()
+                ? gettext('The provider advertises RFC 9207 issuer identification.')
+                : gettext('The distinct callback and frozen metadata still protect this provider from mix-up.')
+        );
+        $checks[] = $this->check(
+            gettext('Provider sign-out'),
+            $metadata->endSessionEndpoint() === null ? gettext('Not offered') : gettext('Offered'),
+            'info',
+            $metadata->endSessionEndpoint() === null
+                ? gettext('Provider sign-out is optional; local logout still works.')
+                : gettext('RP-initiated provider sign-out is available.')
+        );
+        $checks[] = $this->check(
+            gettext('Token revocation'),
+            $metadata->revocationEndpoint() === null ? gettext('Not offered') : gettext('Offered'),
+            'info',
+            $metadata->revocationEndpoint() === null
+                ? gettext('Token revocation is optional and will be skipped.')
+                : gettext('Tokens can be revoked during provider-aware logout.')
+        );
+
+        if ($profile === 'entra' && !str_contains($metadata->issuer(), '/v2.0')) {
+            $checks[] = $this->check(
+                gettext('Microsoft Entra issuer profile'),
+                gettext('Tenant-specific v2.0 issuer expected'),
+                'warning',
+                gettext('Do not use common, organizations, consumers or v1 metadata with this profile.')
+            );
+        }
+
+        return $checks;
+    }
+
+    /** @return array{label:string,value:string,status:string,note:string} */
+    private function check(string $label, string $value, string $status, string $note): array
+    {
+        return compact('label', 'value', 'status', 'note');
     }
 }

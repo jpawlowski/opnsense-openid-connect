@@ -3,18 +3,25 @@
     Copyright (C) 2026 Julian Pawlowski
     All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
 
-    The privilege that reads a provider's discovery document, so that a provider URL can
-    be checked while it is being typed. It makes this firewall fetch an address somebody
-    chose, which is why it is a privilege of its own rather than something the login
-    endpoints share.
+    Identity management extends core's existing System: Authentication Servers
+    privilege. Core's default pluggable ACL merge replaces duplicate identifiers, so
+    ACL.php deliberately appends this API pattern instead.
+
+    Discovery reads a provider document so an exact issuer can be checked while it is
+    being typed. It makes this firewall fetch an address somebody chose, which is why it
+    is a privilege of its own. Provider setup is separate too: it performs no network
+    request, but only a delegated server administrator should generate security
+    configuration intended for another system. The sign-in test starts the same
+    provider redirect as a login, but only after an authenticated, CSRF-protected
+    request and without granting a local session at its callback.
 
     The endpoints under api/openidconnect/auth/ are deliberately NOT listed. They answer before
     anyone is signed in and decline the session check themselves; what protects them is
     the state and the nonce this firewall issued, not a privilege.
 
-    Without this file the endpoint below is reachable by administrators alone, because
-    core denies a page no ACL entry matches. That works, but it leaves the rule implicit
-    and nowhere to be seen under System > Access > Groups.
+    Without this file these endpoints are reachable by administrators alone, because
+    core denies a page no ACL entry matches. That works, but it leaves most of the rule
+    implicit and nowhere to be seen under System > Access > Groups.
 -->
 <acl>
     <page-system-openidconnect-discovery>
@@ -23,4 +30,22 @@
             <pattern>api/openidconnect/discovery/*</pattern>
         </patterns>
     </page-system-openidconnect-discovery>
+    <page-system-openidconnect-setup>
+        <name>System: Access: Servers: OpenID Connect provider setup</name>
+        <patterns>
+            <pattern>api/openidconnect/setup/*</pattern>
+        </patterns>
+    </page-system-openidconnect-setup>
+    <page-system-openidconnect-test>
+        <name>System: Access: Servers: OpenID Connect sign-in test</name>
+        <patterns>
+            <pattern>api/openidconnect/test/*</pattern>
+        </patterns>
+    </page-system-openidconnect-test>
+    <page-system-authservers>
+        <name>System: Authentication Servers</name>
+        <patterns>
+            <pattern>api/openidconnect/approval/*</pattern>
+        </patterns>
+    </page-system-authservers>
 </acl>

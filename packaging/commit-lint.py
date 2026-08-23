@@ -7,6 +7,7 @@
     python3 packaging/commit-lint.py --message .git/COMMIT_EDITMSG   # one, before it exists
     python3 packaging/commit-lint.py --range origin/main..HEAD       # every one in a range
     python3 packaging/commit-lint.py --pushed                        # whatever a push brought
+    python3 packaging/commit-lint.py --pull-request                   # the future squash commit
 
 The shape itself lives in commits.py, next door, so that what is enforced here
 and what is read there cannot drift apart.
@@ -34,6 +35,30 @@ def exists(repo, ref):
     ).returncode == 0
 
 
+def forge_event():
+    """Read the GitHub-compatible event payload both for GitHub and Forgejo."""
+    where = os.environ.get("GITHUB_EVENT_PATH", "")
+    if not where or not pathlib.Path(where).is_file():
+        return {}
+    try:
+        return json.loads(pathlib.Path(where).read_text(encoding="utf-8"))
+    except ValueError:
+        return {}
+
+
+def pull_request_message(event):
+    """The commit GitHub creates when the configured squash merge is used."""
+    request = event.get("pull_request") or {}
+    title = request.get("title") or ""
+    body = request.get("body") or ""
+    if not isinstance(title, str) or not title.strip():
+        raise ValueError("the event carries no pull request title")
+    if not isinstance(body, str):
+        raise ValueError("the pull request description is not text")
+
+    return f"{title.strip()}\n\n{body.strip()}".rstrip()
+
+
 def pushed_span(repo):
     """What a push brought, worked out from what the forge left lying around.
 
@@ -46,13 +71,7 @@ def pushed_span(repo):
     """
     head = os.environ.get("GITHUB_SHA") or "HEAD"
 
-    event = {}
-    where = os.environ.get("GITHUB_EVENT_PATH", "")
-    if where and pathlib.Path(where).is_file():
-        try:
-            event = json.loads(pathlib.Path(where).read_text())
-        except ValueError:
-            event = {}
+    event = forge_event()
 
     candidates = [
         ((event.get("pull_request") or {}).get("base") or {}).get("sha") or "",
@@ -96,6 +115,11 @@ def main():
     source.add_argument("--message", help="a file holding one message, as the hook is given")
     source.add_argument("--range", dest="span", help="a commit range, as the pipeline has")
     source.add_argument("--pushed", action="store_true", help="whatever this push brought")
+    source.add_argument(
+        "--pull-request",
+        action="store_true",
+        help="the title and description that will become the squash commit",
+    )
     parser.add_argument("--repo", default=".", help="where the repository is")
     args = parser.parse_args()
 
@@ -104,6 +128,13 @@ def main():
         # git keeps the commentary in the file it hands over; it is not the message
         text = "\n".join(line for line in text.splitlines() if not line.startswith("#"))
         entries = [commits.Commit(text)]
+    elif args.pull_request:
+        try:
+            entries = [commits.Commit(pull_request_message(forge_event()))]
+        except ValueError as problem:
+            print(f"cannot read pull request: {problem}", file=sys.stderr)
+            return 1
+        print("judging the future squash commit")
     else:
         span = pushed_span(args.repo) if args.pushed else args.span
         print(f"judging {span}")

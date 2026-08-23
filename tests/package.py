@@ -30,15 +30,13 @@ VERSION = "0.0.0.test"
 
 REQUIRED_KEYS = [
     "name", "origin", "version", "comment", "desc", "maintainer",
-    "www", "abi", "arch", "prefix", "flatsize", "categories", "annotations",
+    "www", "abi", "arch", "prefix", "flatsize", "categories", "licenselogic",
+    "licenses", "annotations",
 ]
 
 EXECUTABLES = {
     "/usr/local/sbin/openid-connect-watch",
 }
-
-# The one file that is not ours. Everything else must say who wrote it.
-BUNDLED = "OpenIDConnectClient.php"
 
 # Nothing here names anything of the builder's, on purpose: a check written as a list of
 # the names to keep out is itself a list of those names, published with the package. So it
@@ -70,6 +68,19 @@ URL_HOST = re.compile(r"https?://([a-z0-9._-]*)", re.I)
 # RFC 2606 and RFC 6761 keep these reserved precisely so that writing does not have to
 # borrow somebody's real name.
 EXAMPLE_HOST = re.compile(r"(^|\.)(example\.(com|net|org)|example|invalid|test|localhost)$", re.I)
+PROTOCOL_HOSTS = {
+    "schemas.openid.net", "goauthentik.io", "version-2026-8.goauthentik.io",
+    # XML namespace carried by the package-owned SVG provider marks.
+    "www.w3.org",
+    # Public issuers and useful public-service defaults used by named provider profiles.
+    # `login` is the prefix the deliberately literal Microsoft issuer regex looks like
+    # to URL_HOST.
+    "login", "login.microsoftonline.com", "accounts.google.com",
+    "appleid.apple.com", "www.linkedin.com", "slack.com",
+    "api.login.yahoo.com", "orcid.org", "gitlab.com",
+    # Prefixes captured before a {region} placeholder, not complete hostnames.
+    "cognito-idp.", "oauth.id.",
+}
 
 MAIL = re.compile(r"\b[a-z0-9._%%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b", re.I)
 
@@ -180,8 +191,15 @@ def main():
     check("the version is the one asked for", manifest["version"], VERSION)
     check("nothing is tied to an architecture", (manifest["abi"], manifest["arch"]), ("*", "*"))
     check("it names its licence", manifest["annotations"].get("license"), "BSD-2-Clause")
-    check("it records the bundled library",
-          "jumbojett" in manifest["annotations"].get("bundled_library", ""))
+    check("pkg sees one native licence", manifest.get("licenselogic"), "single")
+    check("pkg sees the BSD two-clause licence", manifest.get("licenses"), ["BSD2CLAUSE"])
+    check("it records the runtime cryptography provider",
+          manifest["annotations"].get("runtime_crypto"), "OPNsense phpseclib3")
+    check("it identifies the source revision honestly",
+          bool(re.fullmatch(r"(?:[0-9a-f]{40}|unknown)(?:\.dirty)?",
+                            manifest["annotations"].get("built_from", ""))), True)
+    check("it bundles no third-party OIDC client",
+          "bundled_library" not in manifest["annotations"])
 
     group("Every file is accounted for")
     listed = set(manifest["files"])
@@ -213,16 +231,52 @@ def main():
           [n for n in contents if "/periodic/" in n], [])
     # pkg removes what it installed; the anchor is written at runtime under /var/db
     # and would otherwise outlive the package
+    install = manifest.get("scripts", {}).get("post-install", "")
     deinstall = manifest.get("scripts", {}).get("post-deinstall", "")
+    check("installing invalidates core's pluggable ACL cache",
+          "/var/lib/php/tmp/opnsense_acl_cache.json" in install)
+    check("uninstalling invalidates core's pluggable ACL cache",
+          "/var/lib/php/tmp/opnsense_acl_cache.json" in deinstall)
     check("uninstalling takes the watchdog's anchor with it",
           "/var/db/openid-connect" in deinstall)
+    check("uninstalling takes the OIDC session index with it",
+          "/var/lib/php/sessions/.openidconnect-sessions" in deinstall)
+    check("uninstalling takes the logout replay index with it",
+          "/var/lib/php/sessions/.openidconnect-logout-tokens" in deinstall)
+    check("uninstalling takes the form-post transaction index with it",
+          "/var/lib/php/sessions/.openidconnect-transactions" in deinstall)
+    check("uninstalling takes pending identity hints with it",
+          "/var/lib/php/sessions/.openidconnect-pending-identities" in deinstall)
     check("but an upgrade keeps it", "PKG_UPGRADE" in deinstall)
 
     group("What ships with it")
-    check("the bundled library's licence text is included",
-          any(n.endswith("LICENSE.jumbojett") for n in contents))
+    check("no Jumbojett library or licence is included",
+          [n for n in contents if n.endswith(("OpenIDConnectClient.php", "LICENSE.jumbojett"))], [])
     check("no documentation is installed onto the firewall",
           [n for n in contents if n.endswith(".md")], [])
+    provider_icons = {
+        pathlib.PurePosixPath(n).name
+        for n in contents
+        if "/OPNsense/OpenIDConnect/assets/provider-icons/" in n and n.endswith(".svg")
+    }
+    check("every named provider has one package-owned icon", provider_icons, {
+        "apple.svg", "auth0.svg", "authentik.svg", "authelia.svg", "cognito.svg",
+        "dex.svg", "duo.svg", "entra.svg", "fusionauth.svg", "gitlab.svg",
+        "google.svg", "ibm_verify.svg", "jumpcloud.svg", "keycloak.svg",
+        "linkedin.svg", "okta.svg", "onelogin.svg", "oracle_idcs.svg", "orcid.svg",
+        "ping.svg", "pocketid.svg", "slack.svg", "wso2.svg", "yahoo.svg",
+        "zitadel.svg",
+    })
+    unsafe_icons = []
+    for name in sorted(n for n in contents if n.endswith(".svg")):
+        svg = contents[name].decode("utf-8", "replace")
+        if (len(contents[name]) > 262144 or "<svg" not in svg.lower() or re.search(
+            r"<(?:script|foreignObject|iframe|object|embed)\b|\bon[a-z]+\s*=|"
+            r"(?:href|src)\s*=\s*['\"]\s*(?:https?:|//)|"
+            r"url\s*\(\s*['\"]?\s*(?:https?:|//)", svg, re.I
+        )):
+            unsafe_icons.append(name)
+    check("package-owned SVG icons are small and self-contained", unsafe_icons, [])
     # the os- name is what puts it on the firmware page; a version file would
     # additionally register it in system.firmware.plugins, and every plugin sync
     # would then try to pkg install it out of a repository that does not have it
@@ -238,8 +292,6 @@ def main():
     check("the manifest declares where the package comes from", declared_host != "")
 
     for name, blob in sorted(contents.items()):
-        if name.endswith(BUNDLED) or name.endswith("LICENSE.jumbojett"):
-            continue
         text = blob.decode("utf-8", "replace")
         short = pathlib.Path(name).name
 
@@ -254,7 +306,8 @@ def main():
                        - {declared_host.lower()})
         # an address that turns up as a host is judged by the address check above, which
         # knows which ones are allowed to be there
-        hosts = [h for h in hosts if not EXAMPLE_HOST.search(h) and not IS_ADDRESS.fullmatch(h)]
+        hosts = [h for h in hosts if h not in PROTOCOL_HOSTS
+                 and not EXAMPLE_HOST.search(h) and not IS_ADDRESS.fullmatch(h)]
         check(f"{short} names no host but the declared one", hosts, [])
 
         mails = sorted({m.lower() for m in MAIL.findall(text)
@@ -265,8 +318,6 @@ def main():
 
     group("Everything is in English and says who wrote it")
     for name, blob in sorted(contents.items()):
-        if name.endswith(BUNDLED) or name.endswith("LICENSE.jumbojett"):
-            continue
         text = blob.decode("utf-8", "replace")
         german = sorted(set(m.group(0).lower() for m in re.finditer(GERMAN, text)))
         check(f"{pathlib.Path(name).name} is English", german, [])

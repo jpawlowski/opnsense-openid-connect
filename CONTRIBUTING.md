@@ -6,6 +6,18 @@ Syntax for every language in the tree, the behaviour checks, what a commit
 message may be, and checks on the package that gets built. No Composer, no
 PHPUnit, no network, no OPNsense. See [`tests/README.md`](tests/README.md).
 
+## Pull requests
+
+GitHub is the source of truth. Work on a branch and open a pull request there;
+the Forgejo repository is a read-only code mirror and accepts no contributions.
+
+Pull requests are squash-merged, so their title and description become the one
+commit that reaches `main`. Give the title the Conventional Commit shape below.
+Use the description for context and, when applicable, the exact `BREAKING
+CHANGE:` instruction an installation needs before upgrading. Intermediate
+branch commits may be ordinary work in progress; the pipeline judges the future
+squash commit shown by the pull request.
+
 ## Commit messages
 
 The release note of a version is written out of the commits that version
@@ -38,11 +50,13 @@ else — how long, how much prose, whether there is a body at all — is yours.
 
     git config core.hooksPath packaging/hooks
 
-Once per clone; hooks are not part of what git clones. It refuses a message the
-release note could not read, before the commit exists rather than after.
+Once per clone, when every local commit should already have the final shape;
+hooks are not part of what git clones. It refuses a message the release note
+could not read, before the commit exists rather than after.
 
-The same check runs in the pipeline over everything a push brings, so a clone
-without the hook is caught anyway — only later, and by somebody else.
+For a pull request, the pipeline checks its title and description instead. On
+`main` and tag pushes it checks the commits that arrived, so the protected
+branch cannot contain a message the release note cannot read.
 
     python3 packaging/commit-lint.py --range main..HEAD    # by hand, any time
 
@@ -59,28 +73,29 @@ tag does not exist yet.
 
 ## Releasing
 
-Tag it. The version lives in the tag and nowhere else, the pipeline builds the
-package, writes the note out of the commits and attaches both — see
+Tag the reviewed commit on GitHub. The version lives in the tag and nowhere
+else, the pipeline builds the package, writes the note out of the commits and
+attaches both — see
 [`packaging/README.md`](packaging/README.md).
 
     git tag -a v1.2.3 -m "..." && git push --tags
 
 ## Where the rules are written down
 
-[`CLAUDE.md`](CLAUDE.md) has the map of the tree, the commands, and the rules
+[`AGENTS.md`](AGENTS.md) has the map of the tree, the commands, and the rules
 that are not preferences — what may never change about a login, what is a
 setting and what is not, and why a refusal says only one thing. It is written
 for an agent working here, and reads as well for a person.
 
-`.claude/skills/` holds the procedures worth following exactly rather than from
-memory: changing a setting, updating the bundled library, depending on
-something new in OPNsense core, and cutting a release. Each one is a checklist
-of the places that go stale silently, which is most of the work.
+`.agents/skills/` holds the procedures worth following exactly rather than from
+memory: changing a setting or protocol behavior, depending on something new in
+OPNsense core, and cutting a release. Each one is a checklist of the places
+that go stale silently, which is most of the work. `.claude/skills` points to
+the same directory so Claude and other agents use one canonical copy.
 
-## The bundled library
+## Protocol changes
 
-`OpenIDConnectClient.php` is taken from upstream **unaltered**, and everything
-this project wants differently lives as an override in `RelyingParty.php`.
-Before changing that file, read [`packaging/VENDOR.md`](packaging/VENDOR.md) —
-it says what the overrides assume, including the two assumptions that are about
-behaviour rather than signatures and would therefore break in silence.
+The OpenID Connect implementation is intentionally small and lives under
+`OPNsense/OpenIDConnect`. Add a behaviour test for every protocol decision and
+run the real cryptographic fixtures on OPNsense before release. Cryptographic
+primitives remain the responsibility of OPNsense's phpseclib runtime.

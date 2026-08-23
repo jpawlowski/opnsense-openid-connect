@@ -1,0 +1,40 @@
+{
+  "description": "Run the fast host-independent gate after relevant Codex changes.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/fast_gate.py\" initialize",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/fast_gate.py\" stop",
+            "statusMessage": "Running the fast host-independent checks",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/fast_gate.py\" cleanup",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

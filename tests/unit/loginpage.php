@@ -6,6 +6,7 @@
  */
 
 use OPNsense\Auth\SSOProviders\OpenIDConnectContainer;
+use OPNsense\Auth\OpenIDConnect;
 
 $container = new OpenIDConnectContainer();
 $loginUri = '/api/openidconnect/auth/login?provider=example';
@@ -24,6 +25,16 @@ Checks::that(
     'a path on this firewall is used as it stands',
     inspect($container, 'iconAddress', connector(['openidconnect_icon_url' => '/ui/themes/x/mark.svg']), 'example'),
     '/ui/themes/x/mark.svg'
+);
+Checks::that(
+    'a named profile package icon never leaves this firewall',
+    inspect(
+        $container,
+        'iconAddress',
+        connector(['openidconnect_icon_url' => OpenIDConnect::providerIconUrl('keycloak')]),
+        'example'
+    ),
+    '/api/openidconnect/auth/builtinicon/keycloak'
 );
 Checks::that(
     'a data uri is passed through',
@@ -66,9 +77,45 @@ Checks::that(
 
 $button = inspect($container, 'entryMarkup', connector([]), 'Example Provider', $loginUri);
 Checks::that('a button carries the login address', str_contains($button, 'href="' . htmlspecialchars($loginUri, ENT_QUOTES) . '"'), true);
-Checks::that('a button names the provider', str_contains($button, 'Login with Example Provider'), true);
+Checks::that('a button reuses the localized OPNsense login sentence',
+    str_contains($button, 'Login using Example Provider'), true);
 Checks::that('a button brings its styles', str_contains($button, '.login-sso-link-container'), true);
 Checks::that('no icon configured, no icon element', preg_match('/<(span|img)[^>]*login-sso-mark/', $button), 0);
+
+$renamed = inspect($container, 'entryMarkup', connector([
+    'openidconnect_button_provider_label' => 'Company SSO',
+]), 'Technical server name', $loginUri);
+Checks::that('the localized sentence may name something other than Descriptive name',
+    str_contains($renamed, 'Login using Company SSO'), true);
+$labelOnly = inspect($container, 'entryMarkup', connector([
+    'openidconnect_button_text_mode' => 'label_only',
+    'openidconnect_button_provider_label' => 'Company SSO',
+]), 'Technical server name', $loginUri);
+Checks::that('provider-label-only wording omits the OPNsense sentence',
+    str_contains($labelOnly, '>Company SSO</a>'), true);
+Checks::that('provider-label-only wording contains no login prefix',
+    str_contains($labelOnly, 'Login using'), false);
+$customText = inspect($container, 'entryMarkup', connector([
+    'openidconnect_button_text_mode' => 'custom',
+    'openidconnect_button_custom_text' => 'Continue through the identity portal',
+]), 'Technical server name', $loginUri);
+Checks::that('custom wording replaces the complete visible string',
+    str_contains($customText, '>Continue through the identity portal</a>'), true);
+$globalService = inspect($container, 'entryMarkup', connector([
+    'openidconnect_provider_profile' => 'google',
+    'openidconnect_button_text_mode' => 'custom',
+    'openidconnect_button_custom_text' => 'Anything else',
+]), 'Internal Google server row', $loginUri);
+Checks::that('a global public service always uses its conventional short label',
+    str_contains($globalService, '>Google</a>'), true);
+
+$_GET['url'] = '/ui/dashboard';
+$targeted = inspect($container, 'entryMarkup', connector([
+    'openidconnect_button_text_mode' => 'label_only',
+]), 'Example Provider', $loginUri);
+Checks::that('custom-rendered wording preserves the local page target core normally adds',
+    str_contains($targeted, 'redir=%2Fui%2Fdashboard'), true);
+unset($_GET['url']);
 
 $tinted = inspect($container, 'entryMarkup', connector(['openidconnect_icon_url' => '/mark.svg']), 'x', $loginUri);
 Checks::that('a single colour icon is drawn as a mask', str_contains($tinted, 'mask: url("/mark.svg")'), true);
@@ -82,22 +129,6 @@ $original = inspect(
     $loginUri
 );
 Checks::that('an original colour icon is an image', str_contains($original, '<img class="login-sso-mark" src="/mark.svg"'), true);
-
-$custom = inspect(
-    $container,
-    'entryMarkup',
-    connector([
-            'openidconnect_custom_button' => '<a href="%url%" title="%name%"><img src="%icon%"></a>',
-            'openidconnect_icon_url' => '/mark.svg',
-        ]),
-    'Example',
-    $loginUri
-);
-Checks::that(
-    'a custom button gets its placeholders filled',
-    $custom,
-    '<a href="' . $loginUri . '" title="Example"><img src="/mark.svg"></a>'
-);
 
 /* a provider name is written by whoever configures the server, but it still ends up in a
    page served before anyone has signed in, so it is escaped rather than trusted */

@@ -69,7 +69,7 @@ well, and that is the one that says who built it:
 
 **Setting the key up**, once, on a machine that is not the build host:
 
-    openssl genpkey -algorithm ED25519 -out release.key
+    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out release.key
     openssl pkey -in release.key -pubout -out packaging/release-key.pub
 
 The public half belongs in this repository, where anyone can see it change. The
@@ -154,7 +154,7 @@ It checks two things, and the order is deliberate:
 1. **Live probe** — the login page is actually fetched and checked for the
    form, the SSO button, a clean closing tag and PHP errors. This is the check
    that matters.
-2. **Fingerprint** — a `sha256` over the thirteen core files this module hangs
+2. **Fingerprint** — a `sha256` over the core files this module hangs
    off. If it differs, the ground has moved.
 
 A mere version change deliberately triggers nothing: OPNsense moves often
