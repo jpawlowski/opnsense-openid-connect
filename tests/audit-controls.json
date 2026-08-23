@@ -439,7 +439,7 @@
       "controls": [
         {
           "slug": "generic-public-refusals",
-          "claim": "Public protocol failures reveal only a random reference, while approval and WebGUI authorization refusals create no authenticated session.",
+          "claim": "Missing, unusable and approval-pending accounts receive the same public refusal, while protocol and WebGUI authorization failures reveal no account-admission detail and create no authenticated session.",
           "implementation": [
             "src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/AuthController.php"
           ],

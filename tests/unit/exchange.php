@@ -470,7 +470,7 @@ Checks::throws(
 
 Checks::group('Back-channel logout token claims');
 $logoutClaims = [
-    'iss' => 'https://id.example.net', 'aud' => 'client-id', 'iat' => $now,
+    'iss' => 'https://id.example.net', 'aud' => 'client-id', 'iat' => $now, 'exp' => $now + 300,
     'sid' => 'provider-session', 'jti' => 'logout-once',
     'events' => ['http://schemas.openid.net/event/backchannel-logout' => []],
 ];

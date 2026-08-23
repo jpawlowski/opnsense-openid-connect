@@ -775,19 +775,19 @@ test('real OPNsense login, session binding and logout interoperability', async (
   await userPage.goto(origin);
   await userPage.getByRole('link', { name: `Login using ${process.env.E2E_SERVER_NAME}` }).click();
   const providerUsername = userPage.getByRole('textbox', { name: 'Username' });
-  const approvalRequired = userPage.getByRole('heading', { name: 'Administrator approval required' });
-  await expect(providerUsername.or(approvalRequired))
+  const genericRefusal = userPage.getByText('There is no local account for this user, or it may not be used.');
+  await expect(providerUsername.or(genericRefusal))
     .toBeVisible();
   if (await providerUsername.isVisible()) {
     await providerUsername.fill(process.env.E2E_TEST_USERNAME);
     await userPage.getByRole('textbox', { name: 'Password' }).fill(process.env.E2E_TEST_PASSWORD);
     await userPage.getByRole('button', { name: 'Sign In' }).click();
   }
-  await expect(approvalRequired).toBeVisible();
+  await expect(genericRefusal).toBeVisible();
   const approvalCallbackResponse = await approvalCallbackPromise;
-  expectStandaloneHtmlHeaders(approvalCallbackResponse);
-  await expect(userPage.locator('.oidc-approval-required')).toContainText('No WebGUI session was created.');
-  await expect(userPage.locator('.oidc-approval-required .reference code')).toHaveText(/^[a-f0-9]{20}$/);
+  expect(approvalCallbackResponse.status()).toBe(403);
+  await expect(userPage.locator('body')).not.toContainText('Administrator approval required');
+  await expect(userPage.locator('body')).not.toContainText(/Approval request|[a-f0-9]{20}/);
 
   await adminPage.goto(`${origin}/system_authservers.php`);
   await adminPage.getByRole('row', { name: new RegExp(process.env.E2E_SERVER_NAME) })

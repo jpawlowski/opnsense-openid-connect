@@ -525,7 +525,7 @@ class OpenIDConnect extends Base implements IAuthConnector
                     'automatic matching is an explicit, less restrictive choice.'
                 ),
                 'type' => 'dropdown',
-                'default' => 'strict',
+                'default' => $this->legacyBootstrapDefault(),
                 'options' => [
                     'strict' => gettext('Strict: pre-linked subjects only'),
                     'approval' => gettext('Administrator approval for unknown identities'),
@@ -2796,11 +2796,21 @@ class OpenIDConnect extends Base implements IAuthConnector
     }
     public function bootstrapMode(): string
     {
+        if ($this->legacyBootstrapDefault() === 'either') {
+            return 'either';
+        }
         return $this->choice(
             'openidconnect_bootstrap_mode',
             self::BOOTSTRAP_MODES,
-            $this->profileDefault('openidconnect_bootstrap_mode', 'strict')
+            $this->profileDefault('openidconnect_bootstrap_mode', $this->legacyBootstrapDefault())
         );
+    }
+
+    /** Existing beta configurations predate the admission-policy field and matched either local identifier. */
+    private function legacyBootstrapDefault(): string
+    {
+        return !array_key_exists('openidconnect_bootstrap_mode', $this->settings)
+            && trim((string)($this->settings['refid'] ?? '')) !== '' ? 'either' : 'strict';
     }
 
     /** @return string[] addresses the provider may send the browser back to */

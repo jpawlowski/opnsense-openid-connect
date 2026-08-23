@@ -95,7 +95,7 @@ result.
 ```mermaid
 flowchart TD
     accTitle: Browser-visible OpenID Connect outcomes
-    accDescr: A validated callback can produce a test result, an authorized WebGUI session, an approval request, an access refusal or a generic logged failure.
+    accDescr: A validated callback can produce a test result, an authorized WebGUI session, a uniform account refusal, an access refusal or a generic logged failure.
 
     subgraph CallbackProcessing["Protocol and transaction"]
         Callback["OpenID Connect callback"]
@@ -117,8 +117,7 @@ flowchart TD
 
     subgraph NoSessionOutcomes["No-session browser outcomes"]
         AuthenticationRefusal(["Authentication too old<br/>HTTP 403; no session"])
-        Approval(["Administrator approval required<br/>HTTP 403; no session"])
-        AccountRefusal(["Account cannot be used<br/>HTTP 403; no session"])
+        AccountRefusal(["Account cannot be used<br/>Same HTTP 403 for every reason; no session"])
         AccessDenied(["WebGUI access denied<br/>HTTP 403; no session"])
         Failure(["Generic browser error with reference<br/>Precise reason only in logs; no session"])
     end
@@ -130,8 +129,7 @@ flowchart TD
     Purpose -->|"Login"| Recent
     Recent -->|"No"| AuthenticationRefusal
     Recent -->|"Yes"| Identity
-    Identity -->|"Unknown; approval policy"| Approval
-    Identity -->|"No usable account"| AccountRefusal
+    Identity -->|"No usable account; unknown approval identities are queued privately"| AccountRefusal
     Identity -->|"Yes"| WebGuiAccess
     WebGuiAccess -->|"No"| AccessDenied
     WebGuiAccess -->|"Yes"| Session
@@ -148,7 +146,6 @@ flowchart TD
     class Callback entry;
     class ProtocolValid,Purpose,Recent,Identity,WebGuiAccess decision;
     class TestResult,Session,Redirect success;
-    class Approval warning;
     class AuthenticationRefusal,AccountRefusal,AccessDenied,Failure denied;
 
     style CallbackProcessing fill:#F8FAFC,stroke:#A0AEC0,color:#202A30;

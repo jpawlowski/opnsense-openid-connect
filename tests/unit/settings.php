@@ -184,6 +184,21 @@ Checks::that(
     '0'
 );
 Checks::that('identity bootstrap is strict unless asked for', connector([])->bootstrapMode(), 'strict');
+Checks::that(
+    'a saved beta configuration keeps its earlier matching behaviour',
+    connector(['refid' => 'legacy-server'])->bootstrapMode(),
+    'either'
+);
+Checks::that(
+    'an explicit strict policy overrides the saved beta fallback',
+    connector(['refid' => 'legacy-server', 'openidconnect_bootstrap_mode' => 'strict'])->bootstrapMode(),
+    'strict'
+);
+Checks::that(
+    'the settings form preserves the saved beta fallback until an admission policy is chosen',
+    connector(['refid' => 'legacy-server'])->getConfigurationOptions()['openidconnect_bootstrap_mode']['default'],
+    'either'
+);
 Checks::that('provider profile is standards-based unless named', connector([])->providerProfile(), 'general');
 $profileOptions = OpenIDConnect::providerProfileOptions();
 Checks::that('the generic provider profile is always first', array_key_first($profileOptions), 'general');

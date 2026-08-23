@@ -213,6 +213,11 @@ $validated('runtime-jws-crypto');
 $jti = JwtVerifier::base64UrlEncode(random_bytes(24));
 $check(SessionRegistry::acceptLogoutToken('https://runtime.example.com/', $jti, time() + 60), 'first logout token is accepted');
 $check(!SessionRegistry::acceptLogoutToken('https://runtime.example.com/', $jti, time() + 60), 'replayed logout token is refused');
+SessionRegistry::releaseLogoutToken('https://runtime.example.com/', $jti);
+$check(
+    SessionRegistry::acceptLogoutToken('https://runtime.example.com/', $jti, time() + 60),
+    'a failed logout can release its replay marker for a provider retry'
+);
 
 $sessionId = bin2hex(random_bytes(16));
 SessionRegistry::record($sessionId, 'runtime', 'https://runtime.example.com/', 'subject', 'sid', time() + 60);

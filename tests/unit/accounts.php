@@ -50,6 +50,19 @@ Checks::that(
 
 Checks::group('Stable issuer and subject bindings');
 directory($ok);
+$legacy = connector(['refid' => 'server-written-before-admission-policies']);
+Checks::that(
+    'a saved beta configuration can still bootstrap the account it matched before the field existed',
+    $legacy->localAccountFor(claims(['sub' => 'legacy-subject', 'preferred_username' => 'mikah'])),
+    'mikah'
+);
+Checks::that(
+    'the compatibility match immediately creates a stable issuer and subject binding',
+    $legacy->localAccountFor(claims(['sub' => 'legacy-subject', 'preferred_username' => 'someone-else'])),
+    'mikah'
+);
+
+directory($ok);
 $stable = accountConnector([]);
 Checks::that(
     'an explicitly allowed first match creates the binding',

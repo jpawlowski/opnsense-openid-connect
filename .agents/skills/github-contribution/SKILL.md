@@ -52,6 +52,20 @@ Before publishing, save the proposed body and validate the exact title and body:
 Do not open the pull request until this passes. A title or body edit triggers
 the required check again after publication.
 
+## Review before merge
+
+Keep an agent-authored pull request in draft until its intended change and
+validation are complete. Before merging, wait for Codex to review the current
+head commit; compare the reviewed commit shown by Codex with the pull request's
+current head. A review of an older head does not count. Request another review
+after a code push when GitHub does not start one automatically.
+
+Every P0, P1 and P2 finding blocks the merge until it is fixed or technically
+rebutted in its review thread. Answer or track every P3 finding. Do not dismiss
+or silently resolve a finding: document its disposition in the thread, then
+resolve it. The ruleset's required thread resolution is the hard backstop, but
+it does not replace waiting for a late review or checking the reviewed commit.
+
 ## Agent notice
 
 Every issue, pull request, review, or comment written by an agent in a person's

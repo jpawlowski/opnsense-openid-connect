@@ -100,8 +100,10 @@ def main():
     check("retained hidden template guidance does not disturb sections", lint.validate_pull_request(
         "fix(ci): reject empty pull request bodies", commented
     )["valid"], True)
-
     untouched = (ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md").read_text(encoding="utf-8")
+    template_commit = lint.commits.Commit("fix: ordinary change\n\n" + untouched)
+    check("the template's example footer cannot mark every squash commit as breaking",
+          template_commit.breaking, False)
     old_title = lint.validate_pull_request("Add CODEOWNERS file for repository ownership", untouched)
     new_title = lint.validate_pull_request("chore: add CODEOWNERS file for repository ownership", untouched)
     check("the original title from PR 7 fails", old_title["valid"], False)
@@ -182,6 +184,17 @@ def main():
     check("the pull-request template exposes every release-note type",
           [kind for kind in lint.commits.TYPES
            if not re.search(rf"\b{re.escape(kind)}\b", pull_request_template)], [])
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    check("agent and contributor rules wait for a review of the current head",
+          all("current head" in text.lower() for text in (contribution_skill, agents, contributing)), True)
+    check("high and medium Codex findings are explicitly merge-blocking",
+          all("P0, P1 and P2" in text for text in (contribution_skill, agents, contributing)), True)
+    rules_readme = (ROOT / ".github" / "rulesets" / "README.md").read_text(encoding="utf-8")
+    json.loads((ROOT / ".github" / "rulesets" / "main.json").read_text(encoding="utf-8"))
+    check("the strict ruleset import has a documented adjacent copyright exception",
+          "Copyright (C) 2026 Julian Pawlowski" in rules_readme
+          and "strict import schema" in rules_readme, True)
 
     forms = [
         (ROOT / ".github" / "ISSUE_TEMPLATE" / name).read_text(encoding="utf-8")

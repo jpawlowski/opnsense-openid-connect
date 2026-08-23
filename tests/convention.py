@@ -220,7 +220,8 @@ def main():
     check("CI snapshots expire and are not built for pull requests or tags",
           workflow.count("retention-days: 14") == 1
           and "github.ref == 'refs/heads/main'" in workflow
-          and workflow.count("github.event_name == 'workflow_dispatch'") == 2, True)
+          and workflow.count("github.event_name == 'workflow_dispatch'") == 2
+          and workflow.count("!startsWith(github.ref, 'refs/tags/')") == 2, True)
     check("the read-only Forgejo mirror does not publish a second snapshot",
           "github.server_url == 'https://github.com'" in workflow
           and "forgejo/upload-artifact@" not in workflow, True)

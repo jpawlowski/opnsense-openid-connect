@@ -67,14 +67,14 @@ must not be disabled to emulate support.
 | session fixation | fail-closed PHP session ID regeneration with old ID removal after elevation |
 | identity reassignment after rename | persistent exact `(issuer, sub)` to numeric UID binding |
 | unverified e-mail takeover | strict admission by default; automatic e-mail admission requires a unique verified address unless unsafe matching is explicitly selected |
-| any global social account reaches the firewall | unknown identities are refused; Administrator approval queues an exact issuer/subject without a session, with bounded 0600 storage and no unauthenticated config write |
+| any global social account reaches the firewall | unknown identities are refused with the same public response as every unusable account; Administrator approval privately queues an exact issuer/subject without a session, with bounded 0600 storage and no unauthenticated config write |
 | unauthorized identity rebinding | the manager API extends core's System: Authentication Servers ACL, repeats that privilege check in the controller and applies `user-config-readonly` to every mutation; operations target one exact saved server and use record IDs to detect concurrent changes |
 | Microsoft multitenant issuer substitution | Microsoft-only authority modes require GUID `tid`, exact tenant issuer, selected organizations/consumers population and matching signing-key issuer |
 | provider grants excessive privilege | no group claim by default, explicit assignable local groups, root denied |
-| logout forgery/replay | signed logout token, issuer/audience/event/time/`jti`, replay cache, exact `sid`/`sub` lookup |
+| logout forgery/replay | signed logout token, issuer/audience/event/time/`jti`, replay cache, exact `sid`/`sub` lookup, bounded session-lock retry and retryable failure without consuming the replay marker |
 | credential leakage by HTTP redirect | POST and credential-bearing GET redirects rejected |
 | resource exhaustion | response limits, field/key/claim limits, connection/total timeouts, bounded transaction/session/replay indexes and at most 100 deduplicated pending identities |
-| account/configuration enumeration | generic public errors with random log reference |
+| account/configuration enumeration | every missing, disabled, expired, privileged or approval-pending account receives the same public refusal; precise reasons remain in the log |
 | third-party content or administrator text on login page | named profiles use reviewed package-owned SVGs; custom remote icons are proxied by the firewall with content-type/size checks and an SVG sandbox; provider labels and custom wording are bounded plain text and HTML-escaped; no raw custom markup reaches the page |
 | authorization codes, state, identity details or failure references retained or leaked by the browser | private responses use `no-store`, `no-referrer`, `nosniff` and a deny-by-default CSP; successful package-owned or proxied icons are the only cacheable plugin responses |
 
@@ -88,7 +88,7 @@ been returned.
 | Response class | Cache, referrer and MIME policy | Content and framing policy |
 |---|---|---|
 | Public login, callback, logout, back-channel logout and protocol errors | `Cache-Control: no-store`, legacy `Pragma: no-cache`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff` | deny-by-default CSP with `frame-ancestors 'none'` and `base-uri 'none'` |
-| Sign-in test, administrator-approval and WebGUI-access-denied pages | same private policy; cross-site `form_post` results also remove the temporary session's `Set-Cookie` | self-contained HTML; only inline styling is allowed, with all other sources, framing, base-URL changes and form submission denied |
+| Sign-in-test and WebGUI-access-denied pages | same private policy; cross-site `form_post` results also remove the temporary session's `Set-Cookie` | self-contained HTML; only inline styling is allowed, with all other sources, framing, base-URL changes and form submission denied |
 | Front-channel logout | private policy | `default-src 'none'; frame-ancestors *` is an intentional exception because the provider must load this endpoint in an iframe |
 | Successful package-owned or proxied login icon | `Cache-Control: public, max-age=86400`, `no-referrer`, `nosniff` | sandboxed image response; package assets are reviewed and self-contained; remote responses cannot execute as page markup |
 | Missing, failed or rejected login icon | `no-store`, `no-referrer`, `nosniff`, explicit plain-text type | sandboxed deny-by-default CSP with framing denied |

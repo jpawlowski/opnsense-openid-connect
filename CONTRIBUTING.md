@@ -34,6 +34,13 @@ body locally:
         --body-file /path/to/pr-body.md \
         --repository jpawlowski/opnsense-openid-connect
 
+Keep the pull request in draft while it is changing. Before merge, wait for
+Codex to review the current head commit, not an earlier revision. P0, P1 and P2
+findings block merge until fixed or technically rebutted in their thread; P3
+findings are answered or tracked. Document the disposition before resolving a
+thread. The required-thread rule prevents unresolved findings from merging,
+while this wait prevents a late Codex review from arriving only after merge.
+
 ## Issues and public conversation
 
 Bug and Change forms ask for `TL;DR`, `Where`, `Now`, `Want`, and `To decide`.

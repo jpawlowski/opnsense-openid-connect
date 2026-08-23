@@ -82,9 +82,11 @@ file being edited.
 ## Style
 
 Comments explain **why**, not what — this project's comments are long on
-purpose and are not clutter to remove. English throughout, a copyright line on
-every file, no host, address or mailbox of whoever wrote it (`tests/package.py`
-checks all three, and deliberately names none of them).
+purpose and are not clutter to remove. English throughout, a copyright line in
+every file whose format permits one, no host, address or mailbox of whoever
+wrote it (`tests/package.py` checks all three, and deliberately names none of
+them). A strict-schema machine-import file may omit the line only when an
+adjacent human-readable file carries the notice and documents the exception.
 
 Commit messages follow Conventional Commits because the release note is written
 out of them; see `CONTRIBUTING.md`. A change that can turn a login that worked
@@ -95,6 +97,11 @@ Before an agent creates or writes to a public GitHub issue, pull request, review
 or comment, read the complete `github-contribution` skill. Its issue-first rule,
 language matching, short-body limits, tone and authorship notice apply to every
 public message written in a contributor's name.
+
+Do not merge a pull request until Codex has reviewed its current head commit.
+P0, P1 and P2 findings block the merge until fixed or technically rebutted in
+their thread; P3 findings are answered or tracked. Every review thread records
+its disposition before it is resolved.
 
 ## What this deliberately does not do
 
