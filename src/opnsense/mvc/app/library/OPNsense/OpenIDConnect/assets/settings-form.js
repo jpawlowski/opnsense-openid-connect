@@ -900,6 +900,72 @@
         update();
     }
 
+    function withSharedSignalsSetup() {
+        var secret = field('openidconnect_ssf_push_secret');
+        var issuer = field('openidconnect_ssf_issuer');
+        if (!secret || !issuer) {
+            return;
+        }
+        $(secret).attr({
+            type: 'password', autocomplete: 'new-password', autocapitalize: 'none', spellcheck: 'false'
+        });
+        var generate = $('<button class="btn btn-default btn-sm" type="button">')
+            .css({ marginLeft: '6px' })
+            .text(options.ssfGenerateSecretLabel || 'Generate secret')
+            .on('click', function () {
+                generate.prop('disabled', true);
+                $.ajax({ type: 'POST', url: '/api/openidconnect/ssfsetup/secret' })
+                    .done(function (answer) {
+                        if (answer && answer.status === 'ok' && /^[A-Za-z0-9_-]{43}$/.test(answer.secret || '')) {
+                            $(secret).val(answer.secret).trigger('input');
+                        }
+                    })
+                    .always(function () { generate.prop('disabled', false); });
+            });
+        $(secret).after(generate);
+
+        var probe = $('<button class="btn btn-default btn-sm" type="button">')
+            .css({ marginLeft: '6px' })
+            .text(options.ssfTestLabel || 'Test Shared Signals')
+            .on('click', function () {
+                probe.prop('disabled', true);
+                $.ajax({
+                    type: 'POST',
+                    url: '/api/openidconnect/ssfsetup/probe',
+                    data: { issuer: issuer.value }
+                }).done(function (answer) {
+                    BootstrapDialog.show({
+                        title: options.ssfTestLabel || 'Test Shared Signals',
+                        message: $('<div>').text(answer && answer.status === 'ok'
+                            ? (options.ssfDiscoveryAccepted || 'Shared Signals discovery accepted.')
+                            : ((answer && answer.message) || 'unknown error')).html(),
+                        type: answer && answer.status === 'ok'
+                            ? BootstrapDialog.TYPE_SUCCESS : BootstrapDialog.TYPE_DANGER
+                    });
+                }).fail(function (xhr) {
+                    BootstrapDialog.show({
+                        title: options.ssfTestLabel || 'Test Shared Signals',
+                        message: $('<div>').text(xhr.responseText || 'request failed').html(),
+                        type: BootstrapDialog.TYPE_DANGER
+                    });
+                }).always(function () { probe.prop('disabled', false); });
+            });
+        $(issuer).after(probe);
+
+        var authorization = $('<div class="help-block oidc-ssf-authorization">');
+        row('openidconnect_ssf_push_secret').find('td').last().append(authorization);
+        function updateAuthorization() {
+            authorization.empty();
+            if (secret.value) {
+                authorization.append($('<span>').text(
+                    (options.ssfAuthorizationLabel || 'Authorization header') + ': '
+                )).append($('<code>').text('Bearer ' + secret.value));
+            }
+        }
+        $(secret).on('input change', updateAuthorization);
+        updateAuthorization();
+    }
+
     function providerSetupResult(provider, answer, includeDownload) {
         /* inlineCode keeps menu paths and literal values scannable without creating an
          * HTML input surface for provider responses or translated strings. */
@@ -1079,6 +1145,12 @@
                 [options.backchannelEndpointLabel || 'Back-channel logout URI', base + 'backchannel/' + encodeURIComponent(code)],
                 [options.frontchannelEndpointLabel || 'Front-channel logout URI', base + 'frontchannel/' + encodeURIComponent(code)]
             ];
+            if ($(field('openidconnect_ssf_enabled')).is(':checked')) {
+                destinations.push([
+                    options.ssfEndpointLabel || 'Shared Signals push URI',
+                    origin + '/api/openidconnect/ssf/push/' + encodeURIComponent(code)
+                ]);
+            }
             var sectorOrigin = field('openidconnect_sector_origin').value;
             if (sectorOrigin) {
                 destinations.push([
@@ -1096,6 +1168,7 @@
         $(field('openidconnect_redirect_urls')).on('input change', update);
         $(field('openidconnect_origin_policy')).on('change', update);
         $(field('openidconnect_sector_origin')).on('change', update);
+        $(field('openidconnect_ssf_enabled')).on('change', update);
         update();
     }
 
@@ -1121,6 +1194,10 @@
             row('openidconnect_assignable_groups').toggle(groupClaim);
             row('openidconnect_allow_all_groups').toggle(groupClaim);
             row('openidconnect_logout_redirect').toggle($(field('openidconnect_logout_menu')).is(':checked'));
+            var sharedSignals = $(field('openidconnect_ssf_enabled')).is(':checked');
+            row('openidconnect_ssf_issuer').toggle(sharedSignals);
+            row('openidconnect_ssf_audience').toggle(sharedSignals);
+            row('openidconnect_ssf_push_secret').toggle(sharedSignals);
             row('openidconnect_button_text_mode').toggle(buttonTextCustomizable);
             row('openidconnect_button_provider_label').toggle(
                 buttonTextCustomizable && buttonTextMode !== 'custom'
@@ -1132,6 +1209,7 @@
         $(field('openidconnect_create_users')).on('change', update);
         $(field('openidconnect_group_claim')).on('input change', update);
         $(field('openidconnect_logout_menu')).on('change', update);
+        $(field('openidconnect_ssf_enabled')).on('change', update);
         $(field('openidconnect_origin_policy')).on('change', update);
         $(field('openidconnect_bootstrap_mode')).on('change', update);
         $(field('openidconnect_provider_profile')).on('change', update);
@@ -1418,6 +1496,7 @@
         withSignInTest();
         withApprovalManager();
         withProviderSetup();
+        withSharedSignalsSetup();
         addSections();
         applicationCodeAvailability();
         var updateProfileDecorations = providerPresets();

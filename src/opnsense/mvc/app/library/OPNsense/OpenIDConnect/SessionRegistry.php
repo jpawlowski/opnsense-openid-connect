@@ -16,6 +16,7 @@ final class SessionRegistry
 {
     private const INDEX = '/var/lib/php/sessions/.openidconnect-sessions';
     private const LOGOUT_REPLAYS = '/var/lib/php/sessions/.openidconnect-logout-tokens';
+    private const SIGNAL_REPLAYS = '/var/lib/php/sessions/.openidconnect-security-events';
     private const MAX_BYTES = 1048576;
     private const MAX_RECORDS = 2048;
     private const SESSION_LOCK_ATTEMPTS = 40;
@@ -27,17 +28,28 @@ final class SessionRegistry
         string $issuer,
         string $subject,
         string $sid,
-        int $expires
+        int $expires,
+        ?int $created = null
     ): void {
         if (!self::validSessionId($sessionId) || $issuer === '' || $subject === '') {
             throw new ProtocolException('The authenticated session cannot be indexed safely');
         }
-        self::change(function (array &$records) use ($sessionId, $provider, $issuer, $subject, $sid, $expires): void {
+        $created ??= time();
+        self::change(function (array &$records) use (
+            $sessionId,
+            $provider,
+            $issuer,
+            $subject,
+            $sid,
+            $expires,
+            $created
+        ): void {
             $records[$sessionId] = [
                 'provider' => substr($provider, 0, 255),
                 'issuer' => $issuer,
                 'sub' => $subject,
                 'sid' => $sid,
+                'created' => $created,
                 'expires' => $expires,
             ];
             while (count($records) > self::MAX_RECORDS) {
@@ -80,6 +92,52 @@ final class SessionRegistry
                     } else {
                         $incomplete = true;
                     }
+                }
+            }
+        });
+        if ($incomplete) {
+            throw new ProtocolException('A matching local session could not be invalidated');
+        }
+        return $terminated;
+    }
+
+    /** End only this connector's sessions that already existed when a security event occurred. */
+    public static function terminateForSecurityEvent(
+        string $provider,
+        string $issuer,
+        string $subject,
+        int $cutoff
+    ): int {
+        if ($provider === '' || $issuer === '' || $subject === '') {
+            return 0;
+        }
+        $terminated = 0;
+        $incomplete = false;
+        self::change(function (array &$records) use (
+            $provider,
+            $issuer,
+            $subject,
+            $cutoff,
+            &$terminated,
+            &$incomplete
+        ): void {
+            foreach ($records as $sessionId => $record) {
+                if (!is_array($record)
+                    || !is_string($record['provider'] ?? null) || !hash_equals($provider, $record['provider'])
+                    || !is_string($record['issuer'] ?? null) || !hash_equals($issuer, $record['issuer'])
+                    || !is_string($record['sub'] ?? null) || !hash_equals($subject, $record['sub'])) {
+                    continue;
+                }
+                /* Records from releases predating this field are necessarily older than this event. */
+                $created = is_int($record['created'] ?? null) ? $record['created'] : 0;
+                if ($created > $cutoff + JwtVerifier::CLOCK_TOLERANCE) {
+                    continue;
+                }
+                if (self::destroySessionFile((string)$sessionId)) {
+                    unset($records[$sessionId]);
+                    $terminated++;
+                } else {
+                    $incomplete = true;
                 }
             }
         });
@@ -138,11 +196,60 @@ final class SessionRegistry
         );
     }
 
+    /** Atomically remember one received SET for a day; only a digest reaches disk. */
+    public static function acceptSecurityEvent(
+        string $provider,
+        string $issuer,
+        string $audience,
+        string $jti
+    ): bool {
+        $key = self::securityEventKey($provider, $issuer, $audience, $jti);
+        $accepted = false;
+        self::changeFile(
+            self::signalReplayPath(),
+            static function (array &$records) use ($key, &$accepted): void {
+                if (isset($records[$key])) {
+                    return;
+                }
+                $records[$key] = time() + 86400;
+                while (count($records) > self::MAX_RECORDS) {
+                    array_shift($records);
+                }
+                $accepted = true;
+            },
+            static function (string $id, $record, int $now): bool {
+                return !preg_match('/^[A-Za-z0-9_-]{43}$/D', $id)
+                    || !is_int($record) || $record < $now;
+            }
+        );
+        return $accepted;
+    }
+
+    /** Let a transmitter retry when session invalidation could not complete. */
+    public static function releaseSecurityEvent(
+        string $provider,
+        string $issuer,
+        string $audience,
+        string $jti
+    ): void {
+        $key = self::securityEventKey($provider, $issuer, $audience, $jti);
+        self::changeFile(
+            self::signalReplayPath(),
+            static function (array &$records) use ($key): void {
+                unset($records[$key]);
+            },
+            static function (string $id, $record, int $now): bool {
+                return !preg_match('/^[A-Za-z0-9_-]{43}$/D', $id)
+                    || !is_int($record) || $record < $now;
+            }
+        );
+    }
+
     /** @param callable(array<string,array<string,mixed>>&):void $callback */
     private static function change(callable $callback): void
     {
         self::changeFile(
-            self::INDEX,
+            self::indexPath(),
             $callback,
             static function (string $id, $record, int $now): bool {
                 return !self::validSessionId($id) || !is_array($record)
@@ -244,6 +351,32 @@ final class SessionRegistry
             throw new ProtocolException('The logout token cannot be indexed safely');
         }
         return JwtVerifier::base64UrlEncode(hash('sha256', $issuer . "\0" . $jti, true));
+    }
+
+    private static function securityEventKey(string $provider, string $issuer, string $audience, string $jti): string
+    {
+        foreach ([$provider, $issuer, $audience, $jti] as $value) {
+            if ($value === '' || strlen($value) > 4096 || preg_match('/[\x00-\x1f\x7f]/', $value)) {
+                throw new ProtocolException('The security event cannot be indexed safely');
+            }
+        }
+        return JwtVerifier::base64UrlEncode(hash(
+            'sha256',
+            $provider . "\0" . $issuer . "\0" . $audience . "\0" . $jti,
+            true
+        ));
+    }
+
+    private static function indexPath(): string
+    {
+        return defined('OPENIDCONNECT_TEST_SESSION_REGISTRY')
+            ? (string)constant('OPENIDCONNECT_TEST_SESSION_REGISTRY') : self::INDEX;
+    }
+
+    private static function signalReplayPath(): string
+    {
+        return defined('OPENIDCONNECT_TEST_SIGNAL_REPLAYS')
+            ? (string)constant('OPENIDCONNECT_TEST_SIGNAL_REPLAYS') : self::SIGNAL_REPLAYS;
     }
 
     private static function validSessionId(string $sessionId): bool

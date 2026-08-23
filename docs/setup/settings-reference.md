@@ -33,6 +33,10 @@ defaults below.
 | Additional or overridden WebGUI origins | empty; Follow mode inherits configured names, actual local interface addresses and virtual IPs at the WebGUI port | add exact browser-facing HTTPS origins in Follow mode, or define the complete replacement set in Custom mode; never enter callback paths |
 | Pairwise subject sector | Off; the choices are the effective exact WebGUI origins | a provider should issue pairwise `sub` values and accepts a sector identifier URI; choose a stable origin before creating the provider client, save the server as a disabled draft, and do not change it after identity bindings exist |
 | Maximum authentication age | `14400` seconds (four hours) | use `3600` for one hour, `28800` for eight hours, or `0` to require active authentication at the provider for every new OPNsense login; this does not limit an OPNsense session that is already established |
+| Receive Shared Signals | Off | this provider should be allowed to end matching sessions through signed SSF push events |
+| Shared Signals transmitter issuer | Empty | copy the transmitter's exact HTTPS issuer before enabling Shared Signals |
+| Shared Signals audience | Empty | copy the immutable `aud` assigned to the receiver's stream |
+| Shared Signals delivery secret | Empty | generate it in the form and copy the displayed Bearer header into the stream delivery configuration |
 
 The authentication requirement checks both context and method evidence from the
 already signature-verified ID Token. Missing, malformed or nonmatching evidence
@@ -41,6 +45,11 @@ was present; it is not cryptographic evidence. The registered hardware-key AMR
 is `hwk`, not `hw`. Passwordless is deliberately not a separate policy because
 it describes the sign-in experience rather than a portable assurance level;
 Passkeys and FIDO2 belong under phishing-resistant authentication.
+
+Shared Signals is independent of offering new logins. It only ends sessions
+previously created by the same saved authentication server and never changes a
+local account, binding, group or privilege. See the [receiver setup](shared-signals.md)
+for its supported CAEP/RISC events and deliberately manual stream creation.
 
 ## Local identity and privileges
 

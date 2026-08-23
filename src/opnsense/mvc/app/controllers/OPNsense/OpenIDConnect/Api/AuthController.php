@@ -19,6 +19,7 @@ use OPNsense\OpenIDConnect\ProviderMetadata;
 use OPNsense\OpenIDConnect\RelyingParty;
 use OPNsense\OpenIDConnect\ProtocolException;
 use OPNsense\OpenIDConnect\SessionRegistry;
+use OPNsense\OpenIDConnect\SessionGrant;
 use OPNsense\OpenIDConnect\WebGuiAccess;
 
 /**
@@ -38,12 +39,6 @@ use OPNsense\OpenIDConnect\WebGuiAccess;
  */
 class AuthController extends ApiControllerBase
 {
-    /** kept for the lifetime of the session so that logging out can undo the login */
-    private const GRANT_PROVIDER = 'openidconnect_grant_provider';
-    private const GRANT_ISSUER = 'openidconnect_grant_issuer';
-    private const GRANT_ID_TOKEN = 'openidconnect_grant_id_token';
-    private const GRANT_TOKENS = 'openidconnect_grant_tokens';
-
     /** clock tolerance when judging how old an authentication is */
     private const CLOCK_TOLERANCE = 60;
 
@@ -345,10 +340,10 @@ class AuthController extends ApiControllerBase
             return $this->sendTo('/');
         }
 
-        $name = (string)$this->session->get(self::GRANT_PROVIDER);
-        $issuer = (string)$this->session->get(self::GRANT_ISSUER);
-        $idToken = (string)$this->session->get(self::GRANT_ID_TOKEN);
-        $tokens = json_decode((string)$this->session->get(self::GRANT_TOKENS), true) ?: [];
+        $name = (string)$this->session->get(SessionGrant::PROVIDER);
+        $issuer = (string)$this->session->get(SessionGrant::ISSUER);
+        $idToken = (string)$this->session->get(SessionGrant::ID_TOKEN);
+        $tokens = json_decode((string)$this->session->get(SessionGrant::TOKENS), true) ?: [];
 
         $settings = $name === '' || $issuer === '' || $idToken === '' ? null : $this->settingsFor($name);
         $settings?->trace(sprintf('signing out of %s, %d token(s) to hand back', $name, count(array_filter($tokens))));
@@ -414,7 +409,7 @@ class AuthController extends ApiControllerBase
         $origin = strtolower((string)($parts['scheme'] ?? '')) . '://' . strtolower((string)($parts['host'] ?? ''))
             . (isset($parts['port']) ? ':' . $parts['port'] : '');
         try {
-            $provider = (string)$this->session->get(self::GRANT_PROVIDER);
+            $provider = (string)$this->session->get(SessionGrant::PROVIDER);
             $settings = $provider !== '' ? $this->settingsFor($provider) : null;
             return hash_equals(strtolower(RelyingParty::intendedOrigin(
                 $this->request,
@@ -611,10 +606,10 @@ class AuthController extends ApiControllerBase
 
         $idToken = (string)$exchange->getIdToken();
         if ($idToken !== '') {
-            $this->session->set(self::GRANT_PROVIDER, $provider);
-            $this->session->set(self::GRANT_ISSUER, $exchange->issuer());
-            $this->session->set(self::GRANT_ID_TOKEN, $idToken);
-            $this->session->set(self::GRANT_TOKENS, (string)json_encode(array_filter([
+            $this->session->set(SessionGrant::PROVIDER, $provider);
+            $this->session->set(SessionGrant::ISSUER, $exchange->issuer());
+            $this->session->set(SessionGrant::ID_TOKEN, $idToken);
+            $this->session->set(SessionGrant::TOKENS, (string)json_encode(array_filter([
                 'access_token' => (string)$exchange->getAccessToken(),
                 'refresh_token' => (string)$exchange->getRefreshToken(),
             ])));

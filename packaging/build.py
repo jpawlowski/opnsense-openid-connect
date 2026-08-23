@@ -79,6 +79,7 @@ rm -f /var/lib/php/tmp/opnsense_acl_cache.json /tmp/opnsense_acl_cache.json
 rm -f /var/db/openid-connect/core.digest /var/db/openid-connect/core.version
 rm -f /var/lib/php/sessions/.openidconnect-sessions
 rm -f /var/lib/php/sessions/.openidconnect-logout-tokens
+rm -f /var/lib/php/sessions/.openidconnect-security-events
 rm -f /var/lib/php/sessions/.openidconnect-transactions
 rm -f /var/lib/php/sessions/.openidconnect-pending-identities
 rmdir /var/db/openid-connect 2>/dev/null
