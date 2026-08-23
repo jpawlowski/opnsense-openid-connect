@@ -210,7 +210,21 @@ def main():
 
     group("A release is attested and published only once")
     workflow = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
+    checkout_sha = "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803"
+    github_upload_sha = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
     attest_sha = "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6"
+    check("both checkout steps use only the pinned Node 24 action",
+          workflow.count(checkout_sha) == 2 and workflow.count("actions/checkout@") == 2, True)
+    check("the GitHub CI snapshot uploader is pinned", workflow.count(github_upload_sha), 1)
+    check("CI snapshots expire and are not built for pull requests or tags",
+          workflow.count("retention-days: 14") == 1
+          and "github.ref == 'refs/heads/main'" in workflow
+          and workflow.count("github.event_name == 'workflow_dispatch'") == 2, True)
+    check("the read-only Forgejo mirror does not publish a second snapshot",
+          "github.server_url == 'https://github.com'" in workflow
+          and "forgejo/upload-artifact@" not in workflow, True)
+    check("a CI snapshot carries the package and its checksum",
+          "packaging/dist/*.pkg" in workflow and "packaging/dist/*.pkg.sha256" in workflow, True)
     check("the provenance action is pinned", workflow.count(attest_sha), 1)
     check("the attestation receives only its required identity permissions",
           "id-token: write" in workflow and "attestations: write" in workflow, True)

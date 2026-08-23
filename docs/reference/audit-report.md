@@ -29,7 +29,7 @@ flowchart LR
 |---|---:|---|
 | Syntax | **passed** | all files parse |
 | Behaviour | **passed** | 405 checks passed |
-| Commit/release convention | **passed** | 57 checks passed |
+| Commit/release convention | **passed** | 62 checks passed |
 | Package/archive/supply chain | **passed** | 337 checks passed |
 
 ## Current findings
@@ -104,7 +104,7 @@ No host-independent check currently fails.
 | Reading a message | 8 | 0 |
 | What a release note makes of them | 8 | 0 |
 | Tags bound the release note | 14 | 0 |
-| A release is attested and published only once | 5 | 0 |
+| A release is attested and published only once | 10 | 0 |
 | Every type reaches a section of the note | 2 | 0 |
 | A version pkg can carry | 5 | 0 |
 | The archive is shaped the way pkg expects | 5 | 0 |
