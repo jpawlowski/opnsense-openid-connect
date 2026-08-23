@@ -109,6 +109,32 @@ Checks::throws(
     'HTTPS'
 );
 Checks::throws(
+    'an insecure pushed authorization request endpoint is refused',
+    fn() => ProviderMetadata::discover(
+        'https://id.example.net',
+        new HttpClient(fn() => jsonAnswer(metadata([
+            'pushed_authorization_request_endpoint' => 'http://id.example.net/par',
+        ])))
+    ),
+    'HTTPS'
+);
+Checks::throws(
+    'a provider cannot require PAR without publishing its endpoint',
+    fn() => ProviderMetadata::discover(
+        'https://id.example.net',
+        new HttpClient(fn() => jsonAnswer(metadata(['require_pushed_authorization_requests' => true])))
+    ),
+    'offers no endpoint'
+);
+Checks::throws(
+    'the PAR requirement in discovery must be a boolean',
+    fn() => ProviderMetadata::discover(
+        'https://id.example.net',
+        new HttpClient(fn() => jsonAnswer(metadata(['require_pushed_authorization_requests' => 'true'])))
+    ),
+    'invalid pushed authorization request requirement'
+);
+Checks::throws(
     'an issuer carrying a query is refused before discovery',
     fn() => ProviderMetadata::discover('https://id.example.net?tenant=x', $http),
     'query'
@@ -255,6 +281,7 @@ Checks::that('the browser is sent only to the discovered endpoint', strtok($auth
 Checks::that('the response type is authorization code', $parameters['response_type'], 'code');
 Checks::that('PKCE S256 is mandatory', $parameters['code_challenge_method'], 'S256');
 Checks::that('a nonce is always sent', is_string($parameters['nonce']) && strlen($parameters['nonce']) >= 32, true);
+Checks::that('account selection is not requested by default', array_key_exists('prompt', $parameters), false);
 Checks::that('the default asks for an authentication no older than four hours', $parameters['max_age'], '14400');
 Checks::that(
     'the callback is distinct for this provider configuration',
@@ -281,6 +308,20 @@ parse_str(
 );
 Checks::that('zero is sent to request active re-authentication', $alwaysFreshParameters['max_age'], '0');
 
+$selectAccountController = new Controller(new Request('https', 'firewall.example.net'), new Session());
+(new RelyingParty(connector([
+    'openidconnect_client_id' => 'client-id',
+    'openidconnect_client_secret' => 'secret',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_app_code' => 'choose-account',
+    'openidconnect_select_account' => '1',
+]), $selectAccountController, new HttpClient(fn() => jsonAnswer(metadata()))))->begin('choose-account', '/');
+parse_str(
+    (string)parse_url($selectAccountController->response->redirectedTo, PHP_URL_QUERY),
+    $selectAccountParameters
+);
+Checks::that('account selection sends the standard prompt value', $selectAccountParameters['prompt'], 'select_account');
+
 $noPkceController = new Controller(new Request('https', 'firewall.example.net'), new Session());
 Checks::throws(
     'an explicit provider declaration that omits S256 is refused before redirect',
@@ -291,6 +332,132 @@ Checks::throws(
     ))->begin('authentik', '/'),
     'PKCE S256'
 );
+
+$parRequest = [];
+$parSession = new Session();
+$parController = new Controller(new Request('https', 'firewall.example.net'), $parSession);
+$parParty = new RelyingParty($settings, $parController, new HttpClient(function (
+    string $method,
+    string $url,
+    ?string $body,
+    array $headers
+) use (&$parRequest): array {
+    if ($method === 'GET') {
+        return jsonAnswer(metadata([
+            'pushed_authorization_request_endpoint' => 'https://id.example.net/par',
+            'require_pushed_authorization_requests' => true,
+        ]));
+    }
+    $parRequest = compact('url', 'body', 'headers');
+    return jsonAnswer([
+        'request_uri' => 'urn:ietf:params:oauth:request_uri:example',
+        'expires_in' => 90,
+    ], 201);
+}));
+$parParty->begin('authentik', '/ui/dashboard');
+parse_str((string)parse_url($parController->response->redirectedTo, PHP_URL_QUERY), $parBrowserParameters);
+parse_str((string)$parRequest['body'], $parParameters);
+Checks::that('PAR sends the complete authorization request directly to its discovered endpoint', [
+    $parRequest['url'],
+    $parParameters['response_type'],
+    $parParameters['code_challenge_method'],
+    $parParameters['redirect_uri'],
+], [
+    'https://id.example.net/par',
+    'code',
+    'S256',
+    'https://firewall.example.net/api/openidconnect/auth/callback/authentik-main',
+]);
+Checks::that('PAR reuses Basic client authentication without putting the secret in its body', [
+    array_key_exists('client_secret', $parParameters),
+    count(array_filter($parRequest['headers'], static fn(string $header): bool =>
+        str_starts_with($header, 'Authorization: Basic '))),
+], [false, 1]);
+Checks::that('the browser sees only the PAR request reference and client ID', $parBrowserParameters, [
+    'client_id' => 'client-id',
+    'request_uri' => 'urn:ietf:params:oauth:request_uri:example',
+]);
+$parPostRequest = [];
+$parPostSettings = connector([
+    'openidconnect_client_id' => 'post-client',
+    'openidconnect_client_secret' => 'post-secret',
+    'openidconnect_token_auth' => 'client_secret_post',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_app_code' => 'par-post',
+]);
+(new RelyingParty(
+    $parPostSettings,
+    new Controller(new Request('https', 'firewall.example.net'), new Session()),
+    new HttpClient(function (string $method, string $url, ?string $body, array $headers) use (&$parPostRequest): array {
+        if ($method === 'GET') {
+            return jsonAnswer(metadata([
+                'pushed_authorization_request_endpoint' => 'https://id.example.net/par',
+            ]));
+        }
+        $parPostRequest = compact('body', 'headers');
+        return jsonAnswer(['request_uri' => 'urn:example:post', 'expires_in' => 60], 201);
+    })
+))->begin('par-post', '/');
+parse_str((string)$parPostRequest['body'], $parPostParameters);
+Checks::that('PAR reuses POST client authentication when configured', [
+    $parPostParameters['client_secret'],
+    count(array_filter($parPostRequest['headers'], static fn(string $header): bool =>
+        str_starts_with($header, 'Authorization:'))),
+], ['post-secret', 0]);
+$parTransaction = RelyingParty::consumeTransaction(
+    $parSession,
+    ['state' => $parParameters['state']],
+    'authentik-main'
+);
+Checks::that('a successful PAR stores the normal server-side login transaction', $parTransaction['target'],
+    '/ui/dashboard');
+
+$failedParState = '';
+$failedParSession = new Session();
+$failedParController = new Controller(new Request('https', 'firewall.example.net'), $failedParSession);
+Checks::throws('a failed PAR request is never replaced with a browser authorization request', function () use (
+    $settings,
+    $failedParController,
+    &$failedParState
+): void {
+    (new RelyingParty($settings, $failedParController, new HttpClient(function (
+        string $method,
+        string $url,
+        ?string $body
+    ) use (&$failedParState): array {
+        if ($method === 'GET') {
+            return jsonAnswer(metadata([
+                'pushed_authorization_request_endpoint' => 'https://id.example.net/par',
+            ]));
+        }
+        parse_str((string)$body, $posted);
+        $failedParState = (string)($posted['state'] ?? '');
+        return jsonAnswer(['error' => 'invalid_request'], 400);
+    })))->begin('authentik', '/');
+}, 'returned HTTP 400');
+Checks::that('a failed PAR leaves the browser where it was', $failedParController->response->redirectedTo, null);
+Checks::throws(
+    'a failed PAR leaves no pending transaction behind',
+    fn() => RelyingParty::consumeTransaction(
+        $failedParSession,
+        ['state' => $failedParState],
+        'authentik-main'
+    ),
+    'pending login'
+);
+
+foreach ([
+    ['answer' => ['request_uri' => "bad\nuri", 'expires_in' => 90], 'message' => 'usable request URI'],
+    ['answer' => ['request_uri' => 'urn:example', 'expires_in' => 0], 'message' => 'valid expiry'],
+] as $invalidPar) {
+    Checks::throws('a malformed PAR success response is refused', fn() => (new RelyingParty(
+        $settings,
+        new Controller(new Request('https', 'firewall.example.net'), new Session()),
+        new HttpClient(fn(string $method) => $method === 'GET'
+            ? jsonAnswer(metadata(['pushed_authorization_request_endpoint' => 'https://id.example.net/par']))
+            : jsonAnswer($invalidPar['answer'], 201))
+    ))->begin('authentik', '/'), $invalidPar['message']);
+}
 
 $transaction = RelyingParty::consumeTransaction($session, ['state' => $parameters['state']], 'authentik-main');
 Checks::that('the exact discovery issuer is frozen into the transaction', $transaction['issuer'], 'https://id.example.net');
@@ -376,6 +543,7 @@ Checks::throws(
 Checks::group('Back-channel logout token claims');
 $logoutClaims = [
     'iss' => 'https://id.example.net', 'aud' => 'client-id', 'iat' => $now,
+    'exp' => $now + 300,
     'sid' => 'provider-session', 'jti' => 'logout-once',
     'events' => ['http://schemas.openid.net/event/backchannel-logout' => []],
 ];
@@ -405,6 +573,19 @@ Checks::throws(
     'a logout token carrying a login nonce is refused',
     fn() => $logoutVerifier->verifyLogoutToken('signed', $logoutMetadata, 'client-id', $now),
     'nonce'
+);
+$logoutVerifier->claims = $logoutClaims;
+unset($logoutVerifier->claims['exp']);
+Checks::throws(
+    'a logout token without an expiry is refused',
+    fn() => $logoutVerifier->verifyLogoutToken('signed', $logoutMetadata, 'client-id', $now),
+    'valid expiry'
+);
+$logoutVerifier->claims = array_replace($logoutClaims, ['exp' => (string)($now + 300)]);
+Checks::throws(
+    'a logout token expiry is never coerced from a string',
+    fn() => $logoutVerifier->verifyLogoutToken('signed', $logoutMetadata, 'client-id', $now),
+    'valid expiry'
 );
 $logoutVerifier->claims = array_replace($logoutClaims, ['events' => []]);
 Checks::throws(

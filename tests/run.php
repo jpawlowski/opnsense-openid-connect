@@ -31,6 +31,7 @@ require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SessionReg
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/TransactionRegistry.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/WebGuiAccess.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RelyingParty.php';
+require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/AuthController.php';
 
 foreach (glob(__DIR__ . '/unit/*.php') as $file) {
     require $file;

@@ -13,6 +13,8 @@ cryptographic primitives.
 
 - Authorization Code flow only, always with transaction-specific `state`,
   `nonce`, and PKCE `S256`.
+- Pushed Authorization Requests (PAR) are used automatically when Discovery
+  publishes an endpoint; a failed push never falls back to browser parameters.
 - Exact issuer validation from OIDC Discovery; endpoints and the metadata
   snapshot are bound to the pending browser transaction.
 - A distinct callback per provider plus RFC 9207 `iss` validation when offered,
@@ -32,7 +34,10 @@ cryptographic primitives.
   `form_post` uses a bounded server-side transaction index so OPNsense's
   `SameSite=Lax` session cookie remains unchanged.
 - RP-Initiated, Front-Channel and Back-Channel Logout are supported. Signed
-  back-channel logout messages require a unique `jti` and are replay-protected.
+  back-channel logout messages require integer `exp`, a unique `jti` and are
+  replay-protected until their signed expiry.
+- Optional account selection and an exact-origin sector identifier endpoint
+  support multi-account sign-in and provider-issued pairwise subjects.
 
 The exact supported standards and intentionally unsupported optional extensions
 are listed in [the security and conformance document](docs/reference/security.md).

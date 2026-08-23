@@ -325,6 +325,17 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'type' => 'text',
                 'validate' => fn($value) => [],
             ],
+            'openidconnect_select_account' => [
+                'name' => gettext('Always show account selection'),
+                'help' => gettext(
+                    'Send <code>prompt=select_account</code> when a login begins. This is useful when ' .
+                    'administrators commonly have more than one account at the identity provider. Leave it ' .
+                    'off when the provider should reuse its current account without an extra choice.'
+                ),
+                'type' => 'checkbox',
+                'default' => '0',
+                'validate' => fn($value) => [],
+            ],
             'openidconnect_origin_policy' => [
                 'name' => gettext('WebGUI address policy'),
                 'help' => gettext(
@@ -384,6 +395,18 @@ class OpenIDConnect extends Base implements IAuthConnector
                     }
                     return [];
                 },
+            ],
+            'openidconnect_sector_origin' => [
+                'name' => gettext('Pairwise subject sector'),
+                'help' => gettext(
+                    'Optional stable HTTPS origin used by providers which issue pairwise subject identifiers. ' .
+                    'The plugin publishes this server\'s exact callback addresses below that origin. Changing ' .
+                    'the sector later can change <code>sub</code> values and break existing identity bindings.'
+                ),
+                'type' => 'dropdown',
+                'default' => '',
+                'options' => $this->sectorOriginOptions(),
+                'validate' => fn($value) => $this->validateSectorOrigin($value),
             ],
             'openidconnect_max_age' => [
                 'name' => gettext('Maximum authentication age'),
@@ -895,6 +918,11 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'name' => $entry['name'],
             ], static::configuredApplicationCodes()),
             'applicationCodeConflictLabel' => gettext('Already used by authentication server'),
+            'savedApplicationCode' => $this->applicationCode(),
+            'savedSectorOrigin' => $this->sectorOrigin(),
+            'savedServerEnabled' => !array_key_exists('openidconnect_enabled', $this->settings)
+                || $this->flag('openidconnect_enabled'),
+            'sectorOffLabel' => gettext('Off'),
             'profilePresets' => static::providerProfilePresets(),
             'fixedButtonProfiles' => array_keys(static::fixedProviderButtonLabels()),
             'configuredFields' => array_values(array_filter(
@@ -1032,6 +1060,10 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'Importing changes the identity provider. Review the file, its WebGUI addresses and the selected ' .
                 'realm or tenant before applying it.'
             ),
+            'setupPairwiseSaveHelp' => gettext(
+                'Save this authentication server as a disabled draft before generating pairwise-subject setup. ' .
+                'The provider must be able to read the saved sector endpoint before it can create the client.'
+            ),
             'setupGuides' => [
                 'authentik' => [
                     'name' => 'authentik',
@@ -1139,6 +1171,7 @@ class OpenIDConnect extends Base implements IAuthConnector
             'postLogoutEndpointLabel' => gettext('Post-logout redirect URI (only when return after logout is enabled)'),
             'backchannelEndpointLabel' => gettext('Back-channel logout URI (server-to-server choice)'),
             'frontchannelEndpointLabel' => gettext('Front-channel logout URI (browser-based alternative)'),
+            'sectorEndpointLabel' => gettext('Pairwise sector identifier URI'),
             'endpointHelp' => gettext(
                 'Do not register logout addresses as authorization redirect URIs. Provider terminology differs; ' .
                 'the provider guide explains which field receives which address.'
@@ -2157,6 +2190,46 @@ class OpenIDConnect extends Base implements IAuthConnector
         return [gettext('TLS offloading requires at least one exact public HTTPS origin.')];
     }
 
+    /** @return array<string,string> */
+    private function sectorOriginOptions(): array
+    {
+        $options = ['' => gettext('Off')];
+        foreach ($this->effectiveWebGuiOrigins() as $origin) {
+            $options[$origin] = $origin;
+        }
+        return $options;
+    }
+
+    private function validateSectorOrigin($value): array
+    {
+        $value = trim((string)$value);
+        if ($value === '') {
+            return [];
+        }
+        $normalized = static::normalizeHttpsOrigin($value);
+        if ($normalized === null || !in_array($normalized, $this->effectiveOriginsForValidation(), true)) {
+            return [gettext('Choose one of this provider\'s exact accepted WebGUI origins.')];
+        }
+        return [];
+    }
+
+    /** @return string[] */
+    private function effectiveOriginsForValidation(): array
+    {
+        if (!isset($_POST['type']) || (string)$_POST['type'] !== self::TYPE) {
+            return $this->effectiveWebGuiOrigins();
+        }
+        $policy = (string)($_POST['openidconnect_origin_policy'] ?? 'opnsense');
+        $origins = $policy === 'custom' ? [] : $this->opnsenseWebGuiOrigins();
+        foreach (static::splitList((string)($_POST['openidconnect_redirect_urls'] ?? '')) as $origin) {
+            $normalized = static::normalizeHttpsOrigin($origin);
+            if ($normalized !== null) {
+                $origins[] = $normalized;
+            }
+        }
+        return array_values(array_unique($origins));
+    }
+
     private function usesManagedMicrosoftIssuer(): bool
     {
         if (isset($_POST['type']) && (string)$_POST['type'] === self::TYPE) {
@@ -2471,6 +2544,11 @@ class OpenIDConnect extends Base implements IAuthConnector
         );
     }
 
+    public function selectAccount(): bool
+    {
+        return $this->flag('openidconnect_select_account');
+    }
+
     public function bootstrapMode(): string
     {
         return $this->choice(
@@ -2525,6 +2603,13 @@ class OpenIDConnect extends Base implements IAuthConnector
             }
         }
         return false;
+    }
+
+    /** Stable accepted origin whose public endpoint supplies pairwise-sector callback URIs. */
+    public function sectorOrigin(): string
+    {
+        $origin = static::normalizeHttpsOrigin($this->rawText('openidconnect_sector_origin'));
+        return $origin !== null && $this->acceptsWebGuiOrigin($origin) ? $origin : '';
     }
 
     /**

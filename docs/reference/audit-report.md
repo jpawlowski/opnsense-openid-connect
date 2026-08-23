@@ -28,9 +28,9 @@ flowchart LR
 | Stage | Result | Evidence |
 |---|---:|---|
 | Syntax | **passed** | all files parse |
-| Behaviour | **passed** | 405 checks passed |
+| Behaviour | **passed** | 439 checks passed |
 | Commit/release convention | **passed** | 62 checks passed |
-| Package/archive/supply chain | **passed** | 337 checks passed |
+| Package/archive/supply chain | **passed** | 339 checks passed |
 
 ## Current findings
 
@@ -75,25 +75,26 @@ No host-independent check currently fails.
 | Creating an account on first sight | 9 | 0 |
 | Administrator approval admission policy | 23 | 0 |
 | Separating identity claims from protocol claims | 5 | 0 |
-| Strict provider discovery | 12 | 0 |
+| Strict provider discovery | 15 | 0 |
 | Bounded HTTPS transport | 8 | 0 |
 | Strict endpoint responses and logout binding | 4 | 0 |
-| Login transactions, PKCE and mix-up protection | 16 | 0 |
+| Login transactions, PKCE and mix-up protection | 28 | 0 |
 | ID token claim validation | 7 | 0 |
-| Back-channel logout token claims | 4 | 0 |
+| Back-channel logout token claims | 6 | 0 |
 | Whom a token was issued for | 3 | 0 |
 | Group membership is left alone unless asked for | 2 | 0 |
 | What the provider offers | 6 | 0 |
 | Default groups belong to the login that creates the account | 5 | 0 |
 | Where the login button gets its icon | 8 | 0 |
 | What the login page is handed | 16 | 0 |
-| Provider setup files from an unfinished form | 30 | 0 |
+| Provider setup files from an unfinished form | 34 | 0 |
 | Choosing the address the provider returns to | 33 | 0 |
+| Pairwise subject sector endpoint | 6 | 0 |
 | Reading a list out of a settings field | 5 | 0 |
 | Telling a local path from an address | 5 | 0 |
 | Reading group names out of any shape a provider sends | 6 | 0 |
 | Keeping the exact configured issuer | 4 | 0 |
-| Defaults when a field is left empty | 77 | 0 |
+| Defaults when a field is left empty | 84 | 0 |
 | Telling an address this firewall may fetch from one it may not | 12 | 0 |
 | What the settings form refuses | 78 | 0 |
 | local WebGUI authorization | 8 | 0 |
@@ -115,7 +116,7 @@ No host-independent check currently fails.
 | What ships with it | 7 | 0 |
 | No address, host or mailbox of the builder's travels along | 157 | 0 |
 | Everything is in English and says who wrote it | 75 | 0 |
-| Every other file of ours says the same | 48 | 0 |
+| Every other file of ours says the same | 50 | 0 |
 
 ## Evidence not collected by this run
 

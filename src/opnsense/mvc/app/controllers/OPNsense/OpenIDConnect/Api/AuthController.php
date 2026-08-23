@@ -29,6 +29,7 @@ use OPNsense\OpenIDConnect\WebGuiAccess;
  *   /api/openidconnect/auth/logout    end here and at the provider
  *   /api/openidconnect/auth/icon      hand on a provider's logo for the login button
  *   /api/openidconnect/auth/builtinicon hand out a package-owned provider mark
+ *   /api/openidconnect/auth/sector    publish callback URIs for pairwise subjects
  *
  * These endpoints answer before anyone is logged in, so doAuth() declines the usual
  * session check. What protects them is the protocol: the provider's answer has to carry
@@ -99,6 +100,33 @@ class AuthController extends ApiControllerBase
         return parent::beforeExecuteRoute($dispatcher);
     }
 
+    /** Publish the saved redirect URIs only through this server's exact configured sector origin. */
+    public function sectorAction(string $applicationCode = '')
+    {
+        $settings = $this->settingsForApplicationCode($applicationCode);
+        $sectorOrigin = $settings?->sectorOrigin() ?? '';
+        if ($settings === null || $sectorOrigin === '') {
+            return $this->refuse(404, 'Not Found', 'Not Found.');
+        }
+        try {
+            $requestOrigin = OpenIDConnect::normalizeHttpsOrigin(RelyingParty::intendedOrigin(
+                $this->request,
+                $settings->usesTrustedTlsOffloading()
+            ));
+        } catch (\Throwable $e) {
+            return $this->refuse(404, 'Not Found', 'Not Found.');
+        }
+        if ($requestOrigin === null || !hash_equals($sectorOrigin, $requestOrigin)) {
+            return $this->refuse(404, 'Not Found', 'Not Found.');
+        }
+
+        $this->response->setContentType('application/json', 'UTF-8');
+        return array_map(
+            static fn(string $origin): string => $origin . RelyingParty::callbackPath($applicationCode),
+            $settings->effectiveWebGuiOrigins()
+        );
+    }
+
     /* ------------------------------------------------------ federated session logout */
 
     /** Receive a signed OIDC Back-Channel Logout token from a configured provider. */
@@ -128,7 +156,7 @@ class AuthController extends ApiControllerBase
                 $issuerValidator
             );
             $logoutIssuer = (string)$claims['iss'];
-            $replayExpires = is_int($claims['exp'] ?? null) ? $claims['exp'] + JwtVerifier::CLOCK_TOLERANCE : time() + 600;
+            $replayExpires = $claims['exp'] + JwtVerifier::CLOCK_TOLERANCE;
             if (!SessionRegistry::acceptLogoutToken($logoutIssuer, $claims['jti'], $replayExpires)) {
                 throw new ProtocolException('The back-channel logout token was already processed');
             }

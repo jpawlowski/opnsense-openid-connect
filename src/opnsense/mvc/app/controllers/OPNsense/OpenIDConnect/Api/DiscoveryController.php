@@ -99,6 +99,7 @@ class DiscoveryController extends PrivateApiControllerBase
             true
         );
         $userInfo = $metadata->userInfoEndpoint();
+        $parEndpoint = $metadata->pushedAuthorizationRequestEndpoint();
         $profileLabels = OpenIDConnect::providerProfileOptions();
 
         $checks = [
@@ -159,6 +160,14 @@ class DiscoveryController extends PrivateApiControllerBase
                 $pkceAdvertised
                     ? gettext('The provider explicitly advertises the required S256 method.')
                     : gettext('This client still sends PKCE S256; the provider must accept it despite omitting metadata.')
+            ),
+            $this->check(
+                gettext('Pushed authorization requests'),
+                $parEndpoint ?? gettext('Not offered'),
+                $parEndpoint === null ? 'info' : 'success',
+                $parEndpoint === null
+                    ? gettext('Authorization parameters will be sent through the browser.')
+                    : gettext('PAR will be used automatically so authorization parameters stay server-side.')
             ),
         ];
 
