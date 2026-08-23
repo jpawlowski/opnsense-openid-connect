@@ -13,7 +13,7 @@ import subprocess
 
 
 HERE = pathlib.Path(__file__).resolve().parent
-EXPECTED_PROVIDERS = {"keycloak", "authentik", "authelia", "dex", "pocketid"}
+EXPECTED_PROVIDERS = {"keycloak", "authentik", "authelia", "pocketid"}
 EXPECTED_SUPPORT = {"nginx", "postgres"}
 DIGEST = re.compile(r"^sha256:[a-f0-9]{64}$")
 

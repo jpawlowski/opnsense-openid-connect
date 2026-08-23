@@ -45,6 +45,11 @@ async function setGroupList(page, name, values) {
   if (await picker.count()) await picker.selectOption(values, { force: true });
 }
 
+async function selectNative(locator, value) {
+  // OPNsense's Bootstrap picker intentionally hides the authoritative select.
+  await locator.selectOption(value, { force: true });
+}
+
 async function apiContext(extraHTTPHeaders = {}) {
   const localHostHeader = process.env.E2E_PROVIDER_BROWSER_IP ? { Host: state.authority } : {};
   return playwrightRequest.newContext({
@@ -78,7 +83,9 @@ async function provisionAuthentik(blueprintPath) {
     multipart: { file: { name: 'opnsense-authentik-blueprint.yaml', mimeType: 'application/yaml', buffer: blueprint } },
   });
   const importResult = await checkedJson(imported, 'authentik Blueprint import');
-  expect(importResult.success).toBeTruthy();
+  if (!importResult.success) {
+    throw new Error(`authentik Blueprint validation failed: ${JSON.stringify(importResult.logs)}`);
+  }
   const list = await checkedJson(await api.get(`${providerApiOrigin}/api/v3/providers/oauth2/`, {
     params: { search: `opnsense-${state.application_code}` },
   }), 'authentik provider lookup');
@@ -139,20 +146,26 @@ async function enrollPocketIdPasskey(browser) {
   if (await last.count()) await last.fill('E2E');
   await page.getByRole('button', { name: /sign up|continue|create/i }).click();
   const addPasskey = page.getByRole('button', { name: /add passkey|create passkey|continue/i });
-  if (await addPasskey.count()) await addPasskey.click();
+  await expect(addPasskey).toBeVisible();
+  await addPasskey.click();
   await expect.poll(async () => (
     await cdp.send('WebAuthn.getCredentials', { authenticatorId })
-  ).credentials.length).toBeGreaterThan(0);
+  ).credentials.length, { timeout: 30_000 }).toBeGreaterThan(0);
   return { context, page, cdp };
 }
 
 async function configureServer(page) {
   await page.goto(`${origin}/system_authservers.php?act=new`);
-  await page.locator('select[name="type"]').selectOption('openidconnect');
+  await selectNative(page.locator('select[name="type"]'), 'openidconnect');
   await page.locator('input[name="name"]').fill(state.server_name);
   await page.locator('input[name="openidconnect_app_code"]').fill(state.application_code);
-  await page.locator('select[name="openidconnect_provider_profile"]').selectOption(state.profile);
-  await page.locator('select[name="openidconnect_bootstrap_mode"]').selectOption('username');
+  await selectNative(page.locator('select[name="openidconnect_provider_profile"]'), state.profile);
+  // The local VM forwards a random Mac port to the guest's HTTPS port. That
+  // externally visible origin therefore cannot be inferred from OPNsense's
+  // own listen address and must be registered exactly like a reverse proxy.
+  await selectNative(page.locator('select[name="openidconnect_origin_policy"]'), 'custom');
+  await setFlatList(page, 'openidconnect_redirect_urls', [origin]);
+  await selectNative(page.locator('select[name="openidconnect_bootstrap_mode"]'), 'username');
   await page.locator('input[name="openidconnect_create_users"]').check();
   await setGroupList(page, 'openidconnect_default_groups', ['admins']);
   await page.locator('input[name="openidconnect_logout_menu"]').check();
@@ -189,13 +202,18 @@ async function configureServer(page) {
 async function passwordLogin(page) {
   const username = page.getByRole('textbox', { name: /username|email address|username or email/i }).first();
   await expect(username).toBeVisible();
-  await username.fill(state.provider === 'dex' ? `${state.username}@example.com` : state.username);
-  const continueButton = page.getByRole('button', { name: /continue|next/i });
-  if (state.provider === 'authentik' && await continueButton.count()) await continueButton.click();
+  await username.fill(state.username);
+  const action = page.getByRole('button', { name: /continue|next|sign in|log in|login/i });
+  // authentik's identification page includes a password-shaped control, but
+  // the actual password stage is rendered only after submitting the username.
+  if (state.provider === 'authentik') {
+    await action.click();
+    await expect(username).toBeHidden();
+  }
   const password = page.getByRole('textbox', { name: /password/i }).or(page.locator('input[type="password"]')).first();
   await expect(password).toBeVisible();
   await password.fill(state.password);
-  await page.getByRole('button', { name: /sign in|log in|login/i }).click();
+  await action.click();
 }
 
 async function providerLogin(page) {
@@ -210,11 +228,14 @@ async function providerLogin(page) {
   await page.getByRole('link', { name: `Login using ${state.server_name}` }).click();
   if (state.provider !== 'pocketid') {
     await passwordLogin(page);
+    if (state.provider === 'authelia') {
+      await page.getByRole('button', { name: 'Accept' }).click();
+    }
   } else {
     const passkey = page.getByRole('button', { name: /passkey|sign in|log in/i }).first();
     if (await passkey.count()) await passkey.click();
   }
-  await expect(page).toHaveURL(/\/ui\/core\/dashboard/);
+  await expect(page).toHaveURL(/\/ui\/core\/dashboard/, { timeout: 45_000 });
   const after = (await page.context().cookies(origin)).find(cookie => cookie.name === 'PHPSESSID')?.value;
   expect(authorization).toBeTruthy();
   expect(authorization.searchParams.get('code_challenge_method')).toBe('S256');

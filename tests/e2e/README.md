@@ -45,12 +45,15 @@ The default `core` suite runs the two high-value implementations:
 - **authentik** exercises the second primary deployment target and imports the exact Blueprint downloaded from the
   unsaved OPNsense form before completing a real login.
 
-The `full` suite adds three low-cost implementations whose official arm64 container images are small or self-contained:
+The `full` suite adds two low-cost implementations whose official arm64 container images are small or self-contained:
 
 - **Authelia** checks a file-backed provider, group claims, local SQLite state and a different Discovery/userinfo shape.
-- **Dex** checks a minimal provider with a path-based issuer and no userinfo or RP-logout dependency.
 - **Pocket ID** checks an API-provisioned, passkey-only provider with a virtual WebAuthn authenticator and group-restricted
   client access.
+
+Dex was evaluated as another lightweight candidate but is not in the matrix yet. Its current stable release does not
+return the required `auth_time` claim when OPNsense requests `max_age`; the firewall therefore correctly refuses the
+login. Revisit it after Dex ships its authentication-session implementation in a stable release.
 
 Every reviewed container is pinned by both tag and digest in `providers/images.json`. A canary run resolves the latest
 official GitHub release once and then resolves its registry digest before starting it:
@@ -61,8 +64,9 @@ official GitHub release once and then resolves its registry digest before starti
 
 The matrix wrapper reports all provider failures rather than hiding later results after the first failure. Provider
 stacks use a per-run CA and TLS proxy. `provider.opnsense.test` is mapped to the Mac only for the browser and is pinned
-to QEMU's host gateway inside OPNsense. The reserved `.test` suffix avoids the special loopback handling that HTTP
-clients apply to `.localhost`; `opnsense.localhost` still maps to Docker Desktop's host gateway for logout callbacks.
+to QEMU's host gateway inside OPNsense. `opnsense.opnsense.test` is mapped separately to the VM's forwarded HTTPS port
+for the browser and to Docker Desktop's host gateway for logout callbacks. The reserved `.test` suffix avoids the
+special loopback and proxy handling that HTTP clients apply to `.localhost`.
 
 ## Prepared lab or CI runner
 

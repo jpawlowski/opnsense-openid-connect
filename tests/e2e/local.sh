@@ -45,7 +45,11 @@ command -v node >/dev/null
 refresh_argument=
 [ "$refresh" = 0 ] || refresh_argument=--refresh
 vm=$(python3 "$script_dir/vm.py" start --backend "$backend" $refresh_argument)
-state=$(printf '%s' "$vm" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).state))')
+vm_field() {
+  printf '%s' "$vm" | node -e \
+    'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d)[process.argv[1]]))' "$1"
+}
+state=$(vm_field state)
 
 cleanup() {
   status=$?
@@ -58,15 +62,17 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-E2E_OPNSENSE_URL=$(printf '%s' "$vm" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).url))')
-E2E_OPNSENSE_SSH=$(printf '%s' "$vm" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).ssh))')
-E2E_OPNSENSE_SSH_CONFIG=$(printf '%s' "$vm" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).ssh_config))')
+E2E_OPNSENSE_URL=$(vm_field url)
+E2E_OPNSENSE_SSH=$(vm_field ssh)
+E2E_OPNSENSE_SSH_CONFIG=$(vm_field ssh_config)
 E2E_OPNSENSE_USERNAME=${E2E_OPNSENSE_USERNAME:-root}
 E2E_OPNSENSE_PASSWORD=${E2E_OPNSENSE_PASSWORD:-opnsense}
 E2E_PROVIDER_HOST=${E2E_PROVIDER_HOST:-provider.opnsense.test}
 E2E_PROVIDER_BROWSER_IP=${E2E_PROVIDER_BROWSER_IP:-127.0.0.1}
+E2E_OPNSENSE_BROWSER_IP=${E2E_OPNSENSE_BROWSER_IP:-127.0.0.1}
 export E2E_OPNSENSE_URL E2E_OPNSENSE_SSH E2E_OPNSENSE_SSH_CONFIG
 export E2E_OPNSENSE_USERNAME E2E_OPNSENSE_PASSWORD E2E_PROVIDER_HOST E2E_PROVIDER_BROWSER_IP
+export E2E_OPNSENSE_BROWSER_IP
 
 # Arguments originate in the strict case statement above and contain no shell
 # metacharacters; word splitting preserves the underlying runner's POSIX CLI.

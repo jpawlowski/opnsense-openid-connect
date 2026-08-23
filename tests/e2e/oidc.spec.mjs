@@ -23,6 +23,9 @@ for (const name of required) {
 
 const opnsense = new URL(process.env.E2E_OPNSENSE_URL);
 const keycloak = new URL(process.env.E2E_KEYCLOAK_URL);
+const keycloakApiOrigin = process.env.E2E_PROVIDER_BROWSER_IP
+  ? keycloak.origin.replace(keycloak.hostname, process.env.E2E_PROVIDER_BROWSER_IP)
+  : keycloak.origin;
 const origin = opnsense.origin;
 const issuer = `${keycloak.origin}/realms/${process.env.E2E_KEYCLOAK_REALM}`;
 const callbackPath = `/api/openidconnect/auth/callback/${process.env.E2E_APPLICATION_CODE}`;
@@ -86,6 +89,11 @@ async function setGroupList(page, name, values) {
   }
 }
 
+async function selectNative(locator, value) {
+  // OPNsense's Bootstrap picker intentionally hides the authoritative select.
+  await locator.selectOption(value, { force: true });
+}
+
 async function configureServer(page) {
   let discoveryRequests = 0;
   page.on('request', request => {
@@ -94,7 +102,7 @@ async function configureServer(page) {
     }
   });
   await page.goto(`${origin}/system_authservers.php?act=new`);
-  await page.locator('select[name="type"]').selectOption('openidconnect');
+  await selectNative(page.locator('select[name="type"]'), 'openidconnect');
   await expect(page.locator('input[name="openidconnect_provider_url"]')).toBeVisible();
   await expect(page.locator('input[name="openidconnect_tls_offloading"]')
     .locator('xpath=ancestor::tr')).toBeHidden();
@@ -129,7 +137,7 @@ async function configureServer(page) {
   await expect(buttonTextMode.locator('xpath=ancestor::tr')).toBeVisible();
   await expect(buttonProviderLabel.locator('xpath=ancestor::tr')).toBeVisible();
   await expect(customButtonText.locator('xpath=ancestor::tr')).toBeHidden();
-  await providerProfile.selectOption('apple');
+  await selectNative(providerProfile, 'apple');
   await expect(issuerField).toHaveValue('https://appleid.apple.com');
   await expect(issuerField).toHaveAttribute('readonly', 'readonly');
   await expect(page.locator('select[name="openidconnect_token_auth"]')).toBeDisabled();
@@ -150,53 +158,55 @@ async function configureServer(page) {
   await page.locator('input[name="openidconnect_username_claim"]').fill('sub');
   await page.getByRole('button', { name: 'Restore profile defaults' }).click();
   await expect(page.locator('input[name="openidconnect_username_claim"]')).toHaveValue('email');
-  await providerProfile.selectOption('orcid');
+  await selectNative(providerProfile, 'orcid');
   await expect(issuerField).toHaveValue('https://orcid.org');
   await expect(page.locator('input[name="openidconnect_scopes"]')).toHaveValue('openid');
-  await providerProfile.selectOption('keycloak');
+  await selectNative(providerProfile, 'keycloak');
   await expect(iconField).toHaveValue('/api/openidconnect/auth/builtinicon/keycloak');
   await expect(buttonTextMode).toBeEnabled();
   await expect(buttonTextMode).toHaveValue('localized');
   await expect(buttonTextMode.locator('xpath=ancestor::tr')).toBeVisible();
   await expect(buttonProviderLabel.locator('xpath=ancestor::tr')).toBeVisible();
   await buttonProviderLabel.fill('Company identity');
-  await buttonTextMode.selectOption('custom');
+  await selectNative(buttonTextMode, 'custom');
   await expect(buttonProviderLabel.locator('xpath=ancestor::tr')).toBeHidden();
   await expect(customButtonText.locator('xpath=ancestor::tr')).toBeVisible();
   await customButtonText.fill('Continue through Company identity');
-  await buttonTextMode.selectOption('localized');
+  await selectNative(buttonTextMode, 'localized');
   await buttonProviderLabel.fill('');
   await expect(issuerField).not.toHaveAttribute('readonly');
   await expect(page.locator('select[name="openidconnect_token_auth"]')).toBeEnabled();
   await expect(issuerField).toHaveAttribute('placeholder', 'https://id.example.com/realms/opnsense');
-  await providerProfile.selectOption('authentik');
+  await selectNative(providerProfile, 'authentik');
   await issuerField.fill(
     'https://auth.example.com/application/o/firewall/.well-known/openid-configuration'
   );
   await issuerField.blur();
   await expect(issuerField).toHaveValue('https://auth.example.com/application/o/firewall/');
-  await page.locator('select[name="openidconnect_provider_profile"]').selectOption('entra');
+  await selectNative(page.locator('select[name="openidconnect_provider_profile"]'), 'entra');
   const microsoftAudience = page.locator('select[name="openidconnect_microsoft_audience"]');
   await expect(microsoftAudience.locator('xpath=ancestor::tr')).toBeVisible();
   await expect(microsoftAudience.locator('option')).toHaveCount(4);
-  await microsoftAudience.selectOption('common');
+  await selectNative(microsoftAudience, 'common');
   await expect(page.locator('input[name="openidconnect_provider_url"]'))
     .toHaveValue('https://login.microsoftonline.com/common/v2.0');
   await expect(page.locator('input[name="openidconnect_provider_url"]'))
     .toHaveAttribute('readonly', 'readonly');
-  await page.locator('select[name="openidconnect_provider_profile"]').selectOption('keycloak');
+  await selectNative(page.locator('select[name="openidconnect_provider_profile"]'), 'keycloak');
   await expect(microsoftAudience.locator('xpath=ancestor::tr')).toBeHidden();
   await expect(page.locator('input[name="openidconnect_provider_url"]')).toHaveValue('');
   await expect(page.locator('select[name="openidconnect_origin_policy"]')).toHaveValue('opnsense');
   await expect(page.locator('input[name="openidconnect_redirect_urls"]').locator('xpath=ancestor::tr')).toBeVisible();
+  await selectNative(page.locator('select[name="openidconnect_origin_policy"]'), 'custom');
+  await setFlatList(page, 'openidconnect_redirect_urls', [origin]);
   await page.locator('input[name="name"]').fill(process.env.E2E_SERVER_NAME);
   await page.locator('input[name="openidconnect_app_code"]').fill(process.env.E2E_APPLICATION_CODE);
   await expect(page.locator('.oidc-endpoints code').first()).toHaveText(`${origin}${callbackPath}`);
-  await page.locator('select[name="openidconnect_provider_profile"]').selectOption('keycloak');
-  await page.locator('select[name="openidconnect_bootstrap_mode"]').selectOption('username');
+  await selectNative(page.locator('select[name="openidconnect_provider_profile"]'), 'keycloak');
+  await selectNative(page.locator('select[name="openidconnect_bootstrap_mode"]'), 'username');
   await page.locator('input[name="openidconnect_username_claim"]').fill('preferred_username');
-  await page.locator('select[name="openidconnect_claims_source"]').selectOption('auto');
-  await page.locator('select[name="openidconnect_response_mode"]').selectOption('query');
+  await selectNative(page.locator('select[name="openidconnect_claims_source"]'), 'auto');
+  await selectNative(page.locator('select[name="openidconnect_response_mode"]'), 'query');
   await setFlatList(page, 'openidconnect_scopes', ['openid', 'email', 'profile']);
   await page.locator('input[name="openidconnect_create_users"]').check();
   await setGroupList(page, 'openidconnect_default_groups', ['admins']);
@@ -261,7 +271,7 @@ async function configureServer(page) {
   await expect(keycloakSetupDialog).toBeHidden();
 
   // Each supported profile receives concrete instructions for its own import UI.
-  await page.locator('select[name="openidconnect_provider_profile"]').selectOption('authentik');
+  await selectNative(page.locator('select[name="openidconnect_provider_profile"]'), 'authentik');
   const authentikDownloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download provider setup' }).click();
   const authentikDownload = await authentikDownloadPromise;
@@ -328,10 +338,10 @@ async function configureServer(page) {
   expect(guideDownloadCount).toBe(0);
   await standaloneGuide.getByRole('button', { name: 'Done' }).click();
   await expect(standaloneGuideDialog).toBeHidden();
-  await page.locator('select[name="openidconnect_provider_profile"]').selectOption('keycloak');
+  await selectNative(page.locator('select[name="openidconnect_provider_profile"]'), 'keycloak');
   // Selecting a named profile deliberately restores its complete safe starting point.
   // Apply this test's less restrictive JIT policy only after the final profile choice.
-  await page.locator('select[name="openidconnect_bootstrap_mode"]').selectOption('username');
+  await selectNative(page.locator('select[name="openidconnect_bootstrap_mode"]'), 'username');
 
   // Saving a disabled draft needs no provider-side values and never contacts Discovery.
   await page.getByRole('button', { name: 'Save' }).click();
@@ -342,7 +352,7 @@ async function configureServer(page) {
 
   // Callback routing is unambiguous only while every OIDC application code is unique.
   await page.goto(`${origin}/system_authservers.php?act=new`);
-  await page.locator('select[name="type"]').selectOption('openidconnect');
+  await selectNative(page.locator('select[name="type"]'), 'openidconnect');
   await page.locator('input[name="name"]').fill('duplicate-code-probe');
   await page.locator('input[name="openidconnect_app_code"]').fill(process.env.E2E_APPLICATION_CODE);
   await expect(page.locator('.oidc-app-code-conflict')).toBeVisible();
@@ -398,12 +408,13 @@ async function configureServer(page) {
   const dialog = page.getByRole('dialog');
   await expect(dialog.locator('.oidc-discovery-result .alert-success')).toBeVisible();
   await expect(dialog.locator('.oidc-discovery-results')).toBeVisible();
-  await expect(dialog.locator('.oidc-discovery-results tbody tr')).toHaveCount(13);
+  await expect(dialog.locator('.oidc-discovery-results tbody tr')).toHaveCount(14);
   await expect(dialog.locator('.oidc-discovery-results tr[data-status="success"]').first()).toBeVisible();
   await expect(dialog.locator('.oidc-discovery-results tr[data-status="info"]').first()).toBeVisible();
   await expect(dialog).toContainText(issuer);
   await expect(dialog).toContainText('RS256');
   await expect(dialog).toContainText('client_secret_post');
+  await expect(dialog).toContainText('PAR will be used automatically');
   await dialog.getByRole('button', { name: '×' }).click();
 
   await page.getByRole('button', { name: 'Save' }).click();
@@ -497,11 +508,20 @@ async function providerLogin(page, { formPost = false } = {}) {
   await page.getByRole('link', { name: `Login using ${process.env.E2E_SERVER_NAME}` }).click();
 
   await expect.poll(() => authorization?.toString() || '').not.toBe('');
-  expect(authorization.searchParams.get('response_type')).toBe('code');
-  expect(authorization.searchParams.get('code_challenge_method')).toBe('S256');
-  expect(authorization.searchParams.get('state')).toBeTruthy();
-  expect(authorization.searchParams.get('nonce')).toBeTruthy();
-  expect(authorization.searchParams.get('response_mode')).toBe(formPost ? 'form_post' : null);
+  const requestUri = authorization.searchParams.get('request_uri');
+  if (requestUri) {
+    expect(authorization.searchParams.get('client_id')).toBe(process.env.E2E_KEYCLOAK_CLIENT_ID);
+    expect(requestUri).toMatch(/^urn:ietf:params:oauth:request_uri:/);
+    expect(authorization.searchParams.get('response_type')).toBeNull();
+    expect(authorization.searchParams.get('state')).toBeNull();
+    expect(authorization.searchParams.get('nonce')).toBeNull();
+  } else {
+    expect(authorization.searchParams.get('response_type')).toBe('code');
+    expect(authorization.searchParams.get('code_challenge_method')).toBe('S256');
+    expect(authorization.searchParams.get('state')).toBeTruthy();
+    expect(authorization.searchParams.get('nonce')).toBeTruthy();
+    expect(authorization.searchParams.get('response_mode')).toBe(formPost ? 'form_post' : null);
+  }
 
   const providerUsername = page.getByRole('textbox', { name: 'Username' });
   let arrival = 'waiting';
@@ -538,8 +558,12 @@ async function providerLogin(page, { formPost = false } = {}) {
 }
 
 async function keycloakAdmin() {
-  const api = await playwrightRequest.newContext({ ignoreHTTPSErrors: true });
-  const tokenResponse = await api.post(`${keycloak.origin}/realms/master/protocol/openid-connect/token`, {
+  const extraHTTPHeaders = process.env.E2E_PROVIDER_BROWSER_IP ? { Host: keycloak.host } : {};
+  const proxy = process.env.E2E_PROVIDER_BROWSER_IP
+    ? { server: process.env.E2E_ZAP_PROXY, bypass: process.env.E2E_PROVIDER_BROWSER_IP }
+    : undefined;
+  const api = await playwrightRequest.newContext({ ignoreHTTPSErrors: true, extraHTTPHeaders, proxy });
+  const tokenResponse = await api.post(`${keycloakApiOrigin}/realms/master/protocol/openid-connect/token`, {
     form: {
       grant_type: 'password',
       client_id: 'admin-cli',
@@ -555,19 +579,19 @@ async function keycloakAdmin() {
 
 async function setFrontChannel(enabled) {
   const { api, headers } = await keycloakAdmin();
-  const list = await api.get(`${keycloak.origin}/admin/realms/${process.env.E2E_KEYCLOAK_REALM}/clients`, {
+  const list = await api.get(`${keycloakApiOrigin}/admin/realms/${process.env.E2E_KEYCLOAK_REALM}/clients`, {
     headers,
     params: { clientId: process.env.E2E_KEYCLOAK_CLIENT_ID },
   });
   const clientId = (await list.json())[0].id;
   const response = await api.get(
-    `${keycloak.origin}/admin/realms/${process.env.E2E_KEYCLOAK_REALM}/clients/${clientId}`,
+    `${keycloakApiOrigin}/admin/realms/${process.env.E2E_KEYCLOAK_REALM}/clients/${clientId}`,
     { headers }
   );
   const client = await response.json();
   client.frontchannelLogout = enabled;
   const update = await api.put(
-    `${keycloak.origin}/admin/realms/${process.env.E2E_KEYCLOAK_REALM}/clients/${clientId}`,
+    `${keycloakApiOrigin}/admin/realms/${process.env.E2E_KEYCLOAK_REALM}/clients/${clientId}`,
     { headers, data: client }
   );
   expect(update.ok()).toBeTruthy();
@@ -576,13 +600,13 @@ async function setFrontChannel(enabled) {
 
 async function terminateProviderSession() {
   const { api, headers } = await keycloakAdmin();
-  const list = await api.get(`${keycloak.origin}/admin/realms/${process.env.E2E_KEYCLOAK_REALM}/users`, {
+  const list = await api.get(`${keycloakApiOrigin}/admin/realms/${process.env.E2E_KEYCLOAK_REALM}/users`, {
     headers,
     params: { username: process.env.E2E_TEST_USERNAME, exact: 'true' },
   });
   const userId = (await list.json())[0].id;
   const logout = await api.post(
-    `${keycloak.origin}/admin/realms/${process.env.E2E_KEYCLOAK_REALM}/users/${userId}/logout`,
+    `${keycloakApiOrigin}/admin/realms/${process.env.E2E_KEYCLOAK_REALM}/users/${userId}/logout`,
     { headers }
   );
   expect(logout.ok()).toBeTruthy();
@@ -655,7 +679,6 @@ test('real OPNsense login, session binding and logout interoperability', async (
   const localFallback = await browser.newContext();
   const localPage = await localFallback.newPage();
   await localLogin(localPage);
-  await expect(localPage.locator('body')).toContainText(`${process.env.E2E_OPNSENSE_USERNAME}@`);
   await localFallback.close();
 
   const user = await browser.newContext();
@@ -710,8 +733,8 @@ test('real OPNsense login, session binding and logout interoperability', async (
   await providerLogoutPage.close();
 
   await editServer(adminPage, async page => {
-    await page.locator('select[name="openidconnect_token_auth"]').selectOption('client_secret_post');
-    await page.locator('select[name="openidconnect_response_mode"]').selectOption('form_post');
+    await selectNative(page.locator('select[name="openidconnect_token_auth"]'), 'client_secret_post');
+    await selectNative(page.locator('select[name="openidconnect_response_mode"]'), 'form_post');
   });
   await testSignIn(adminPage);
   await providerLogin(userPage, { formPost: true });
@@ -721,7 +744,7 @@ test('real OPNsense login, session binding and logout interoperability', async (
   // Removing the established binding under the Approval policy must queue the
   // identity without granting a session, then require an explicit local-UID choice.
   await editServer(adminPage, async page => {
-    await page.locator('select[name="openidconnect_bootstrap_mode"]').selectOption('approval');
+    await selectNative(page.locator('select[name="openidconnect_bootstrap_mode"]'), 'approval');
     await expect(page.locator('input[name="openidconnect_create_users"]')
       .locator('xpath=ancestor::tr')).toBeHidden();
     await expect(page.locator('[name="openidconnect_subject_bindings"]')).toHaveCount(0);

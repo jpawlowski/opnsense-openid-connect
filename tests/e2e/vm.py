@@ -213,7 +213,8 @@ def choose_backend(requested):
     available = available_backends()
     if requested != "auto":
         if requested not in available:
-            raise RuntimeError(f"requested backend {requested} is unavailable (found: {', '.join(available) or 'none'})")
+            found = ", ".join(available) or "none"
+            raise RuntimeError(f"requested backend {requested} is unavailable (found: {found})")
         return requested
     if not available:
         raise RuntimeError("neither Homebrew QEMU nor UTM is available")
@@ -253,7 +254,10 @@ def launch_qemu(disk, run_directory, web_port, ssh_port, serial_port):
     ]
     log_file = (run_directory / "qemu.log").open("ab")
     process = subprocess.Popen(command, stdout=log_file, stderr=subprocess.STDOUT, start_new_session=True)
-    return {"backend": "qemu", "pid": process.pid, "serial_port": serial_port, "log_file": str(run_directory / "qemu.log")}
+    return {
+        "backend": "qemu", "pid": process.pid, "serial_port": serial_port,
+        "log_file": str(run_directory / "qemu.log"),
+    }
 
 
 def apple_script_argument(value):
@@ -296,7 +300,7 @@ end run
         run(str(UTMCTL), "delete", identifier, check=False, quiet=True)
         raise RuntimeError("UTM did not finish importing the disposable disk")
     try:
-        run(str(UTMCTL), "start", identifier, "--hide")
+        run(str(UTMCTL), "start", identifier, "--hide", quiet=True)
     except subprocess.CalledProcessError:
         run(str(UTMCTL), "delete", identifier, check=False, quiet=True)
         raise
@@ -339,14 +343,16 @@ def wait_tcp(port, timeout=900):
 def bootstrap_payload(public_key):
     encoded_key = base64.b64encode((public_key.strip() + "\n").encode()).decode()
     php = (
-        "<?php require_once('/usr/local/etc/inc/config.inc');require_once('/usr/local/etc/inc/util.inc');global $config;"
+        "<?php require_once('/usr/local/etc/inc/config.inc');"
+        "require_once('/usr/local/etc/inc/util.inc');global $config;"
         "$config['interfaces']['wan']['if']='vtnet0';$config['interfaces']['wan']['ipaddr']='dhcp';"
         "$config['interfaces']['lan']['if']='vtnet1';$config['interfaces']['lan']['ipaddr']='192.168.1.1';"
         "$config['interfaces']['lan']['subnet']='24';$config['system']['ssh']['enabled']='enabled';"
         "$config['system']['ssh']['permitrootlogin']=true;$config['system']['ssh']['noauto']=1;"
-        "$config['system']['webgui']['althostnames']='opnsense.localhost';"
+        "$config['system']['webgui']['althostnames']='opnsense.opnsense.test';"
         "unset($config['trigger_initial_wizard']);"
-        f"foreach($config['system']['user'] as &$user){{if(($user['name']??'')==='root'){{$user['authorizedkeys']='{encoded_key}';}}}}"
+        f"foreach($config['system']['user'] as &$user){{if(($user['name']??'')==='root'){{"
+        f"$user['authorizedkeys']='{encoded_key}';}}}}"
         "unset($user);write_config('Prepared disposable OIDC E2E VM');"
     )
     encoded_php = base64.b64encode(php.encode()).decode()
@@ -484,13 +490,13 @@ def start_vm(arguments):
             raise RuntimeError("OPNsense SSH did not accept the pinned test key")
         run(
             "ssh", "-F", str(config), "opnsense-e2e",
-            "grep -q '[[:space:]]provider\\.localhost' /etc/hosts || "
+            "grep -q '[[:space:]]provider\\.opnsense\\.test' /etc/hosts || "
             "printf '10.0.2.2\\tprovider.opnsense.test\\n' >> /etc/hosts",
             quiet=True,
         )
         webgui_config = (
             "require_once('/usr/local/etc/inc/config.inc');require_once('/usr/local/etc/inc/util.inc');"
-            "$config['system']['webgui']['althostnames']='opnsense.localhost';"
+            "$config['system']['webgui']['althostnames']='opnsense.opnsense.test';"
             "unset($config['trigger_initial_wizard']);"
             "write_config('Prepared disposable OIDC E2E hostname');"
         )
@@ -503,11 +509,11 @@ def start_vm(arguments):
         atomic_write(state_path, json.dumps(state, indent=2) + "\n")
         output = {
             "backend": backend, "version": version,
-            "url": f"https://opnsense.localhost:{web_port}",
+            "url": f"https://opnsense.opnsense.test:{web_port}",
             "ssh": "opnsense-e2e", "ssh_config": str(config), "state": str(state_path),
         }
         print(json.dumps(output))
-    except Exception:
+    except (Exception, KeyboardInterrupt):
         stop_backend(state)
         shutil.rmtree(run_directory, ignore_errors=True)
         raise
