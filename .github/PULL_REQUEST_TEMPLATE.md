@@ -16,11 +16,29 @@ operator instruction below.
 Describe the problem in the issue. Here, describe only the change and how it
 resolves the issue. English and German are accepted; prefer English when in
 doubt.
+
+Issue `type:*` labels describe a request and do not belong on its pull request.
+The title selects one `change:*` label. Under Area, deliberately keep `Same as
+issue` or replace it with one or two exact `area:*` labels when the implementation
+belongs elsewhere. Automation reconciles these labels for fork contributions.
+
+Target `jpawlowski/opnsense-openid-connect:main`. Without repository write
+access, push the head branch to a personal fork. `Fixes #N` creates the same
+Development link from either kind of head; the manual picker requires write
+access. A first-time fork workflow may wait for maintainer approval.
 -->
 
 ## Issue
 
-<!-- Use exactly `Fixes #N`. A human-authored direct contribution may use exactly `None`. -->
+<!-- Use exactly `Fixes #N`. A human-authored PR without a preceding issue may use exactly `None`. -->
+
+## Area
+
+<!--
+Use `Same as issue` only with `Fixes #N`. Otherwise give one or two exact lines:
+area: oidc, area: opnsense, area: ui, area: packaging, or area: contribution.
+-->
+Same as issue
 
 ## Change
 

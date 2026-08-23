@@ -34,6 +34,7 @@ echo
 echo '== what an issue or pull request may say =='
 python3 tests/contribution.py
 node tests/issue-hygiene.mjs
+node tests/pull-request-labels.mjs
 
 echo
 echo '== what an agent task prepares =='

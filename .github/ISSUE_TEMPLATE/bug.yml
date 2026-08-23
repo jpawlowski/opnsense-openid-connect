@@ -1,6 +1,6 @@
 name: Bug report / Fehlerbericht
 description: Report observable incorrect behaviour in English or German.
-labels: [bug]
+labels: ["type: bug"]
 body:
   - type: markdown
     attributes:
@@ -14,6 +14,17 @@ body:
         *An AI agent wrote this text on my behalf; I am responsible for its content.*
 
         *Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.*
+  - type: dropdown
+    id: area
+    attributes:
+      label: Suggested area
+      description: Suggest one area. Repository automation or a maintainer confirms the label.
+      options:
+        - "area: oidc"
+        - "area: opnsense"
+        - "area: ui"
+        - "area: packaging"
+        - "area: contribution"
   - type: textarea
     id: tldr
     attributes:

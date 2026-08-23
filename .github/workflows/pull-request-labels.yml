@@ -1,0 +1,34 @@
+name: Classify pull request
+
+# This privileged event is deliberately metadata-only. It checks out the
+# trusted base commit, never the pull-request head, and executes no contributor
+# code. That lets fork contributions receive labels without a writable test job.
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened, ready_for_review, labeled, unlabeled]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: write
+
+concurrency:
+  group: pull-request-labels-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read the trusted classifier from the base commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Reconcile pull request labels
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: |
+            const labels = require("./.github/scripts/contribution-labels.js");
+            await labels.reconcilePullRequest({github, context});

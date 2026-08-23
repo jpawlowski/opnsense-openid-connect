@@ -8,16 +8,21 @@ PHPUnit, no network, no OPNsense. See [`tests/README.md`](tests/README.md).
 
 ## Pull requests
 
-GitHub is the source of truth. Work on a branch and open a pull request there;
-the Forgejo repository is a read-only code mirror and accepts no contributions.
+GitHub is the source of truth; the Forgejo repository is a read-only code
+mirror and accepts no contributions. With write access, push a topic branch to
+this repository. Without write access, push it to a personal fork and open the
+pull request against `jpawlowski/opnsense-openid-connect:main`. Both paths use a
+branch, and every pull request targets `main`.
 
 Pull requests are squash-merged, so their title and description become the one
 commit that reaches `main`. Give the title the Conventional Commit shape below,
 at most 100 characters. The description does not restate the problem: put that
 in an issue, then describe the change and how it resolves that issue. An
 agent-authored pull request must close exactly one same-repository issue which
-was opened first with `Fixes #N`. A human-authored direct contribution may use
-`None` instead.
+was opened first with `Fixes #N`. A human-authored pull request without a
+preceding issue may use `None` instead. `Fixes #N` creates the Development link
+for every pull-request author, including authors working from forks; the manual
+Development picker is only a convenience for maintainers with write access.
 
 Use the template sections, check an actual validation or say `Not run: <reason>`,
 and keep the pull-request body to at most 125 counted prose words. When
@@ -25,6 +30,36 @@ applicable, put the exact `BREAKING CHANGE:` operator instruction under upgrade
 impact. Intermediate branch commits may be ordinary work in progress; the
 pipeline judges the future squash commit shown by the pull request. A title or
 description edit triggers that check again.
+
+The `Area` section is a visible label request. Use `Same as issue` only when the
+implementation belongs to the linked issue's areas; otherwise list one or two
+exact `area:*` labels. This lets a fork contributor classify the implementation
+without label permission.
+
+GitHub may hold the workflow of a first-time fork contributor for maintainer
+approval. That is an expected security review, not a failed check; do not close
+and recreate the pull request while it waits.
+
+For a fork clone, keep `origin` as the writable fork and use the canonical
+repository as a read-only `upstream`. Agent startup recognizes the fork from
+the `origin` fetch URL, creates that `upstream` with pushing disabled, and uses
+`upstream/main` as the base. A direct canonical clone needs no extra remote and
+uses `origin/main`. An existing `upstream` with another destination is never
+overwritten. GitHub's Sync fork button and a current fork `main` are optional:
+create and push the topic branch through `origin`, but derive and refresh it
+from the canonical ref.
+
+Concurrent local agents use separate linked worktrees and topic branches.
+Cloud sessions already run in isolated checkouts and do not add another
+worktree. Claude Code cloud exposes `CLAUDE_CODE_REMOTE=true`; Codex cloud uses
+the repository-defined `AGENT_EXECUTION=codex-cloud`, and GitHub Copilot coding
+agent is recognized from its scoped `GITHUB_COPILOT_GIT_TOKEN` by the adapter
+under `.github/hooks/`. Regardless of vendor, a checkout without `origin` is
+treated as an isolated snapshot: it can test and create a handoff commit, but
+cannot claim remote freshness or a successful push. Do not place a personal
+access token in a cloud setup script. Use the platform's existing pull request
+update facility, or hand a commit and patch to the agent that owns the
+pull-request branch. Do not open a replacement pull request for the same work.
 
 Before opening a pull request, an agent validates the exact proposed title and
 body locally:
@@ -37,17 +72,62 @@ body locally:
 Keep the pull request in draft while it is changing. Before merge, wait for
 Codex to review the current head commit, not an earlier revision. P0, P1 and P2
 findings block merge until fixed or technically rebutted in their thread; P3
-findings are answered or tracked. Document the disposition before resolving a
-thread. The required-thread rule prevents unresolved findings from merging,
-while this wait prevents a late Codex review from arriving only after merge.
+findings are answered or tracked. The pull request's author or integrating
+agent owns every review thread through completion: document its disposition and
+resolve it when addressed before requesting another review. The required-thread
+rule prevents unresolved findings from merging, while this wait prevents a late
+Codex review from arriving only after merge.
 
 ## Issues and public conversation
+
+Search before opening another issue. Extend an existing open issue and its
+active pull request when follow-up work belongs to the same continuous request,
+serves the same outcome, and can be reviewed and accepted or rejected together.
+Update the issue title and body when its coherent scope grows. A shared area
+alone is not enough; create a separate issue when the work is independently
+decidable, needs a separate security path, or requires another real decision.
+An agent never creates an issue merely to satisfy the issue-first rule and asks
+the user before splitting an ambiguous continuous request.
+
+When work begins now rather than at some later date, first check assignees,
+Development links, and recent comments. A contributor with write access assigns
+their own account to the issue. Until a pull request is linked, the contributor
+also leaves one short temporary comment saying that work has started; this is
+the only signal available to a contributor without assignment permission. An
+agent uses the issue's language and includes its authorship notice.
+
+Delete only the contributor's own temporary work comment as soon as the pull
+request appears through `Fixes #N`. Never delete another person's comment, even
+if it copies the same marker or wording. If work stops before a pull request
+exists, remove the contributor's own comment and self-assignment. When the pull request is
+opened immediately, its Development link makes a temporary comment unnecessary.
 
 Bug and Change forms ask for `TL;DR`, `Where`, `Now`, `Want`, and `To decide`.
 Keep the complete issue to at most 175 counted prose words. The last field names
 one decision and suggests a direction at a high level; implementation detail
 belongs in the eventual change. Suspected vulnerabilities go through a private
 security advisory, never a public issue.
+
+### Labels and triage
+
+Issues and pull requests share a small vocabulary without mirroring one another.
+Every issue has exactly one `type:*`: `bug`, `change`, `docs`, or `question`.
+Every pull request instead has exactly one title-derived `change:*`: `feature`,
+`fix`, `performance`, `docs`, or `maintenance`. A breaking title also carries
+`impact: breaking`; issue `type:*` labels never belong on a pull request.
+
+One or two `area:*` labels locate either item in `oidc`, `opnsense`, `ui`,
+`packaging`, or `contribution`. Pull requests deliberately confirm the issue
+areas or name their implementation areas; automation reconciles both paths,
+including fork contributions. `accessibility` follows a linked issue when
+relevant, but workflow labels such as `needs decision` are not copied.
+
+`needs revision` belongs to the hygiene workflow. Maintainers use `needs decision`,
+`needs reproduction`, or `blocked` only while that action is needed; `help wanted`
+and `good first issue` are deliberate invitations. `accessibility` records an
+impact, while `duplicate` and `not planned` record a reasoned close. There are no
+priority or agent-authorship labels. Contributors without triage access make
+their classification through the forms rather than applying labels directly.
 
 English and German are accepted; prefer English when in doubt. Replies follow
 the language of the issue or pull request, and use English for a mixed-language
@@ -103,14 +183,31 @@ as the change needs.
     git config commit.template "$(git rev-parse --show-toplevel)/.gitmessage"
     git config core.hooksPath packaging/hooks
 
-A Codex or Claude task applies both settings automatically when it starts;
-other contributors run the commands once per clone. Both agents read the same
+A local Codex or Claude task applies both settings automatically when its host
+supports repository hooks; other contributors run the commands once per clone.
+Cloud agents still follow `AGENTS.md`, and Claude cloud also runs the shared
+configuration through its repository settings. The agents read the same
 tracked hook configuration and implementation under `.agents/`. The template
 puts the expected shape and the available types into the commit editor; its
 guidance consists only of comments and does not become part of the commit. The
 hook refuses a message the release note could not read, before the commit
 exists rather than after. Neither Git config nor hooks are part of what Git
 clones, so the pipeline remains authoritative.
+
+For parallel local agents, Git's ordinary repository configuration would be
+shared between linked worktrees. The agent hook therefore enables
+worktree-specific configuration and stores the absolute template path
+separately for each tree.
+It also serializes periodic fetches of the selected canonical ref, keeps local
+`main` as a safe fast-forward mirror, and reports lag and overlap with work
+already in progress. It never rebases, merges, or pushes an agent branch
+automatically. Before publishing, an agent runs:
+
+    python3 .agents/hooks/fast_gate.py refresh
+
+When no remote exists, the command reports a snapshot handoff instead of a safe
+`main` mirror. The cloud platform must update the existing pull request, or the
+agent must provide its commit and patch to the integrating session.
 
 For a pull request, the pipeline checks its title, description and linked issue
 instead. On `main` and tag pushes it checks the commits that arrived, so the

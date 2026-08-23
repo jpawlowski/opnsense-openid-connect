@@ -20,6 +20,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -31,12 +32,39 @@ import commits  # noqa: E402
 ISSUE_LIMIT = 175
 PULL_REQUEST_LIMIT = 125
 ISSUE_HEADINGS = ("TL;DR", "Where", "Now", "Want", "To decide")
-PULL_REQUEST_HEADINGS = ("Issue", "Change", "Resolution", "Validation", "Upgrade impact")
+PULL_REQUEST_HEADINGS = ("Issue", "Area", "Change", "Resolution", "Validation", "Upgrade impact")
 AI_NOTICES = (
     "*An AI agent wrote this text on my behalf; I am responsible for its content.*",
     "*Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.*",
 )
-KNOWN_HEADINGS = set(ISSUE_HEADINGS + PULL_REQUEST_HEADINGS)
+KNOWN_HEADINGS = set(ISSUE_HEADINGS + PULL_REQUEST_HEADINGS + ("Suggested area",))
+AREA_LABELS = {
+    "area: oidc", "area: opnsense", "area: ui", "area: packaging", "area: contribution",
+}
+CHANGE_BY_COMMIT = {
+    "feat": "change: feature",
+    "fix": "change: fix",
+    "perf": "change: performance",
+    "docs": "change: docs",
+    "refactor": "change: maintenance",
+    "build": "change: maintenance",
+    "ci": "change: maintenance",
+    "test": "change: maintenance",
+    "chore": "change: maintenance",
+    "style": "change: maintenance",
+    "revert": "change: maintenance",
+}
+CHANGE_LABELS = set(CHANGE_BY_COMMIT.values())
+ISSUE_TYPE_LABELS = {"type: bug", "type: change", "type: docs", "type: question"}
+BREAKING_LABEL = "impact: breaking"
+LABEL_PROBLEM_PREFIXES = (
+    "pull request labels must contain",
+    "pull request `area:*` labels must match",
+    "issue `type:*` labels do not belong",
+    f"`{BREAKING_LABEL}` must match",
+)
+PULL_REQUEST_POLL_ATTEMPTS = 6
+PULL_REQUEST_POLL_DELAY = 2
 
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 FENCED_CODE = re.compile(r"^\s*(```|~~~).*?^\s*\1\s*$", re.M | re.S)
@@ -53,7 +81,8 @@ TECHNICAL_TOKEN = re.compile(
     r"|(?<!\w)[\w.-]+(?:[/\\][\w.@+~-]+)+(?!\w)"
     r"|\b(?:[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+|[a-z]+[A-Z][A-Za-z0-9]*)\b"
     r"|\b[A-Z][A-Z0-9_]{1,}\b"
-    r"|\b[A-Za-z0-9_-]+\.(?:php|py|js|mjs|json|ya?ml|md|sh|xml|inc|conf|pkg)\b",
+    r"|\b[A-Za-z0-9_-]+\.(?:php|py|js|mjs|json|ya?ml|md|sh|xml|inc|conf|pkg)\b"
+    r"|\b(?:type|area):\s*[a-z][a-z-]*\b",
 )
 PLACEHOLDER = re.compile(r"^(?:todo|tbd|n/?a|no response|replace this.*)$", re.I)
 ISSUE_REFERENCE = re.compile(r"^Fixes\s+#(?P<number>[1-9]\d*)$", re.I)
@@ -83,7 +112,11 @@ def without_authored_markup(text):
         heading = HEADING.fullmatch(line)
         if heading and heading.group(2).strip() in KNOWN_HEADINGS:
             continue
+        if PLACEHOLDER.fullmatch(re.sub(r"[*_~]", "", line.strip())):
+            continue
         if line.strip() == "None":
+            continue
+        if line.strip() == "Same as issue":
             continue
         line = re.sub(r"^\s*BREAKING[ -]CHANGE:\s*", "", line)
         line = re.sub(r"^\s*[-*+]\s+\[[ xX]\]\s*", "", line)
@@ -183,9 +216,9 @@ def repository_from_remote():
     return match.group("repo") if match else ""
 
 
-def github_issue(repository, number):
+def github_resource(repository, path, description):
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
-    request = Request(f"{api}/repos/{repository}/issues/{number}")
+    request = Request(f"{api}/repos/{repository}/{path.lstrip('/')}")
     request.add_header("Accept", "application/vnd.github+json")
     request.add_header("User-Agent", "opnsense-openid-connect-contribution-lint")
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
@@ -195,9 +228,19 @@ def github_issue(repository, number):
         with urlopen(request, timeout=15) as response:
             return json.load(response)
     except HTTPError as error:
-        raise ValueError(f"issue #{number} could not be read (HTTP {error.code})") from error
+        raise ValueError(f"{description} could not be read (HTTP {error.code})") from error
     except URLError as error:
-        raise ValueError(f"issue #{number} could not be read ({error.reason})") from error
+        raise ValueError(f"{description} could not be read ({error.reason})") from error
+
+
+def github_issue(repository, number):
+    return github_resource(repository, f"issues/{number}", f"issue #{number}")
+
+
+def github_pull_request(repository, number):
+    # Pull requests share GitHub's issue endpoint, including current title,
+    # body and labels. Using it keeps the workflow's permission metadata-only.
+    return github_resource(repository, f"issues/{number}", f"pull request #{number}")
 
 
 def instant(value):
@@ -222,7 +265,35 @@ def validate_issue_reference(number, repository, pull_request_created, issue_rea
     return []
 
 
-def validate_pull_request(title, body, repository="", created_at="", issue_reader=github_issue):
+def label_names(labels):
+    return [label if isinstance(label, str) else label.get("name", "") for label in (labels or [])]
+
+
+def requested_areas(area_text, issue_match, repository, issue_reader):
+    if area_text == "Same as issue":
+        if not issue_match:
+            return [], ["`Area` can use `Same as issue` only with `Fixes #N`"]
+        if not repository:
+            return [], ["the repository is needed to inherit the issue area"]
+        number = int(issue_match.group("number"))
+        try:
+            issue = issue_reader(repository, number)
+        except ValueError as error:
+            return [], [str(error)]
+        if issue.get("pull_request") is not None:
+            return [], [f"#{number} is a pull request, not an issue"]
+        areas = [name for name in label_names(issue.get("labels")) if name in AREA_LABELS]
+        if not 1 <= len(areas) <= 2:
+            return [], [f"issue #{number} needs one or two `area:*` labels before the pull request can inherit them"]
+        return areas, []
+
+    areas = [line.strip() for line in area_text.splitlines() if line.strip()]
+    if not 1 <= len(areas) <= 2 or len(set(areas)) != len(areas) or any(area not in AREA_LABELS for area in areas):
+        return [], ["`Area` must contain `Same as issue`, or one or two supported `area:*` labels"]
+    return areas, []
+
+
+def validate_pull_request(title, body, repository="", created_at="", issue_reader=github_issue, labels=None):
     problems = []
     future = commits.Commit(f"{title.strip()}\n\n{body.strip()}")
     if future.generated:
@@ -241,6 +312,9 @@ def validate_pull_request(title, body, repository="", created_at="", issue_reade
     issue_match = ISSUE_REFERENCE.fullmatch(issue_text)
     if issue_text != "None" and not issue_match:
         problems.append("`Issue` must contain exactly `Fixes #N`, or `None` for a human-authored direct contribution")
+
+    areas, area_errors = requested_areas(by_name.get("Area", "").strip(), issue_match, repository, issue_reader)
+    problems.extend(area_errors)
 
     for heading in ("Change", "Resolution"):
         if heading in by_name and not prose_words(by_name[heading]):
@@ -261,6 +335,21 @@ def validate_pull_request(title, body, repository="", created_at="", issue_reade
     if footer and not title_breaking:
         problems.append("a `BREAKING CHANGE:` instruction also needs `!` in the pull request title")
 
+    if labels is not None:
+        assigned = set(label_names(labels))
+        future_change = CHANGE_BY_COMMIT.get(future.type)
+        assigned_changes = assigned & CHANGE_LABELS
+        if not future_change or assigned_changes != {future_change}:
+            expected = future_change or "a supported change:* label"
+            problems.append(f"pull request labels must contain exactly `{expected}`")
+        assigned_areas = assigned & AREA_LABELS
+        if areas and assigned_areas != set(areas):
+            problems.append("pull request `area:*` labels must match its `Area` section")
+        if assigned & ISSUE_TYPE_LABELS:
+            problems.append("issue `type:*` labels do not belong on pull requests")
+        if title_breaking != (BREAKING_LABEL in assigned):
+            problems.append(f"`{BREAKING_LABEL}` must match the `!` in the pull request title")
+
     notice_errors, agent_authored = notice_problems(body)
     problems.extend(notice_errors)
     if agent_authored:
@@ -278,6 +367,35 @@ def validate_pull_request(title, body, repository="", created_at="", issue_reade
         "agent_authored": agent_authored,
         "problems": list(dict.fromkeys(problems)),
     }
+
+
+def validate_pull_request_event(event, request_reader=github_pull_request, issue_reader=github_issue,
+                                pause=time.sleep):
+    """Validate live PR metadata, waiting briefly for the separate label workflow."""
+    payload = event.get("pull_request") or {}
+    repository = (event.get("repository") or {}).get("full_name") or ""
+    number = event.get("number") or payload.get("number")
+    if not repository or not number:
+        raise ValueError("the pull request event needs a repository and number")
+
+    result = None
+    for attempt in range(PULL_REQUEST_POLL_ATTEMPTS):
+        request = request_reader(repository, int(number))
+        result = validate_pull_request(
+            request.get("title") or "",
+            request.get("body") or "",
+            repository,
+            request.get("created_at") or payload.get("created_at") or "",
+            issue_reader=issue_reader,
+            labels=request.get("labels") or [],
+        )
+        waiting_for_labels = any(
+            problem.startswith(LABEL_PROBLEM_PREFIXES) for problem in result["problems"]
+        )
+        if not waiting_for_labels or attempt + 1 == PULL_REQUEST_POLL_ATTEMPTS:
+            return result
+        pause(PULL_REQUEST_POLL_DELAY)
+    return result
 
 
 def print_result(result):
@@ -310,14 +428,7 @@ def main():
             result = validate_issue((event.get("issue") or {}).get("body") or "")
         elif args.pull_request_event:
             event = event_payload()
-            request = event.get("pull_request") or {}
-            repository = ((event.get("repository") or {}).get("full_name") or args.repository or "")
-            result = validate_pull_request(
-                request.get("title") or "",
-                request.get("body") or "",
-                repository,
-                request.get("created_at") or "",
-            )
+            result = validate_pull_request_event(event)
         else:
             if not args.body_file:
                 raise ValueError("--title also requires --body-file")

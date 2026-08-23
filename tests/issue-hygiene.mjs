@@ -35,7 +35,9 @@ function fixture() {
   return {
     state,
     github: {rest: {issues}, paginate: async (method, arguments_) => method(arguments_)},
-    context: {repo: {owner: "owner", repo: "repo"}, payload: {issue: {number: 7, state: "open"}}},
+    context: {repo: {owner: "owner", repo: "repo"}, payload: {
+      issue: {number: 7, state: "open", body: "", labels: []},
+    }},
   };
 }
 
@@ -65,4 +67,35 @@ closed.context.payload.issue.state = "closed";
 await hygiene.reconcile({...closed, result: invalid});
 assert.equal(closed.state.calls.length, 0, "a closed invalid issue is not newly nagged");
 
-console.log("4 issue hygiene checks passed");
+const suggested = fixture();
+suggested.context.payload.issue.body = "### Suggested area\n\narea: contribution\n\n### TL;DR\n\nShort.";
+await hygiene.reconcile({...suggested, result: valid});
+assert(suggested.state.labels.has("area: contribution"), "an allow-listed suggestion becomes an area label");
+
+const maintained = fixture();
+maintained.context.payload.issue.body = suggested.context.payload.issue.body;
+maintained.context.payload.issue.labels = [{name: "area: oidc"}];
+await hygiene.reconcile({...maintained, result: valid});
+assert(!maintained.state.calls.some(([name, arguments_]) =>
+  name === "addLabels" && arguments_.labels.includes("area: contribution")),
+"automation does not overwrite a maintainer-assigned area");
+
+const revised = fixture();
+revised.context.payload.issue.body = "### Suggested area\n\narea: ui\n\n### TL;DR\n\nShort.";
+revised.context.payload.issue.labels = [{name: "area: contribution"}];
+revised.context.payload.changes = {body: {from: suggested.context.payload.issue.body}};
+revised.state.labels.add("area: contribution");
+await hygiene.reconcile({...revised, result: valid});
+assert(!revised.state.labels.has("area: contribution"), "the obsolete automated suggestion is removed");
+assert(revised.state.labels.has("area: ui"), "a contributor can revise an automated area suggestion");
+
+const revisedAfterMaintenance = fixture();
+revisedAfterMaintenance.context.payload.issue.body = revised.context.payload.issue.body;
+revisedAfterMaintenance.context.payload.issue.labels = [{name: "area: oidc"}];
+revisedAfterMaintenance.context.payload.changes = {body: {from: suggested.context.payload.issue.body}};
+revisedAfterMaintenance.state.labels.add("area: oidc");
+await hygiene.reconcile({...revisedAfterMaintenance, result: valid});
+assert(revisedAfterMaintenance.state.labels.has("area: oidc"), "a maintainer area survives a form edit");
+assert(!revisedAfterMaintenance.state.labels.has("area: ui"), "a form edit does not replace maintainer choice");
+
+console.log("10 issue hygiene checks passed");
