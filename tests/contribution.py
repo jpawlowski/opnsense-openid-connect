@@ -216,6 +216,18 @@ def main():
               and "continuous" in text and "independently" in text for text in reuse_rules), True)
     check("an ambiguous split returns to the user",
           all(re.search(r"asks? the user before", text) for text in reuse_rules), True)
+    work_claim_rules = [re.sub(r"\s+", " ", text) for text in (contribution_skill, contributing)]
+    check("active work is assigned when permission allows",
+          all("write access" in text and "assign" in text and re.search(r"work (?:starts|begins)", text)
+              for text in work_claim_rules), True)
+    check("an unlinked start leaves a temporary work signal",
+          all("temporary comment" in text and "Development link" in text
+              for text in work_claim_rules), True)
+    check("only the author's own obsolete claim is deleted",
+          all("delete" in text and "own" in text and "another" in text
+              for text in work_claim_rules), True)
+    check("the agent work claim has a stable hidden marker",
+          "<!-- contribution-work-claim -->" in contribution_skill, True)
     rules_readme = (ROOT / ".github" / "rulesets" / "README.md").read_text(encoding="utf-8")
     json.loads((ROOT / ".github" / "rulesets" / "main.json").read_text(encoding="utf-8"))
     check("the strict ruleset import has a documented adjacent copyright exception",

@@ -36,6 +36,28 @@ out; `To decide` names one decision and recommends a direction at a high level.
 Keep counted issue prose to 175 words. The issue workflow helps with structure
 and length but does not close an issue or grant permission to start work.
 
+## Claiming active work
+
+Before starting, inspect the issue's assignees, Development links, and recent
+comments. Coordinate instead of creating a second claim when somebody is
+already working on it. Claim work only when implementation begins now, not when
+it is merely planned for later.
+
+With write access, assign the publishing account to the issue when work starts.
+Without write access, do not attempt to change assignees. If no pull request is
+linked yet, also leave one concise temporary comment in the issue's language:
+
+    <!-- contribution-work-claim -->
+    I am working on this now. This note will be removed when the pull request is linked.
+
+An agent adds the required authorship notice as the final paragraph. Keep the
+comment URL or ID. As soon as the pull request's `Fixes #N` link appears, delete
+only that account's own marked comment; never delete another author's comment,
+even when it contains the marker. If work stops before a pull request exists,
+delete the claim and, when permitted, remove the self-assignment. A pull request
+opened immediately needs no temporary comment because its Development link is
+the work signal.
+
 ## Pull requests
 
 Resolve the publishing path before pushing. Query the upstream repository's

@@ -61,6 +61,19 @@ decidable, needs a separate security path, or requires another real decision.
 An agent never creates an issue merely to satisfy the issue-first rule and asks
 the user before splitting an ambiguous continuous request.
 
+When work begins now rather than at some later date, first check assignees,
+Development links, and recent comments. A contributor with write access assigns
+their own account to the issue. Until a pull request is linked, the contributor
+also leaves one short temporary comment saying that work has started; this is
+the only signal available to a contributor without assignment permission. An
+agent uses the issue's language and includes its authorship notice.
+
+Delete only the contributor's own temporary work comment as soon as the pull
+request appears through `Fixes #N`. Never delete another person's comment, even
+if it copies the same marker or wording. If work stops before a pull request
+exists, remove the contributor's own comment and self-assignment. When the pull request is
+opened immediately, its Development link makes a temporary comment unnecessary.
+
 Bug and Change forms ask for `TL;DR`, `Where`, `Now`, `Want`, and `To decide`.
 Keep the complete issue to at most 175 counted prose words. The last field names
 one decision and suggests a direction at a high level; implementation detail
