@@ -46,13 +46,16 @@ set — not that something changed, but what to do about it.
 The subject is a sentence, lower case after the colon, no full stop. Everything
 else — how long, how much prose, whether there is a body at all — is yours.
 
-### The hook
+### Local commit setup
 
+    git config commit.template "$(git rev-parse --show-toplevel)/.gitmessage"
     git config core.hooksPath packaging/hooks
 
-Once per clone, when every local commit should already have the final shape;
-hooks are not part of what git clones. It refuses a message the release note
-could not read, before the commit exists rather than after.
+Run both once per clone. The template puts the expected shape and the available
+types into the commit editor; its guidance consists only of comments and does
+not become part of the commit. The hook refuses a message the release note
+could not read, before the commit exists rather than after. Neither Git config
+nor hooks are part of what Git clones, so the pipeline remains authoritative.
 
 For a pull request, the pipeline checks its title and description instead. On
 `main` and tag pushes it checks the commits that arrived, so the protected
