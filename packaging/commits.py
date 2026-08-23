@@ -70,6 +70,12 @@ HEADER = re.compile(
 # English to fit. A subject is a sentence, not a headline.
 HEADER_MAX = 100
 
+# Pull-request templates use HTML comments for instructions that remain in a
+# squash commit when an early contribution does not replace the template. They
+# are not authored release content and must never acquire protocol-like meaning
+# merely because an example contains a footer name.
+HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+
 # Runs to the next blank line or the next footer, so that a trailer underneath it
 # - Co-Authored-By and the like - does not end up read as part of the warning.
 BREAKING_FOOTER = re.compile(
@@ -97,7 +103,7 @@ class Commit:
         self.type = match.group("type") if match else None
         self.scope = match.group("scope") if match else None
         self.subject = match.group("subject") if match else self.header
-        footer = BREAKING_FOOTER.search(self.message)
+        footer = BREAKING_FOOTER.search(HTML_COMMENT.sub("", self.message))
         self.breaking_detail = footer.group("detail").strip() if footer else ""
         self.breaking = bool(match and match.group("breaking")) or bool(footer)
 
