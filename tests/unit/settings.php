@@ -158,6 +158,36 @@ Checks::that(
     'client_secret_post'
 );
 Checks::that('token auth, nonsense value', connector(['openidconnect_token_auth' => 'wobble'])->tokenAuthMethod(), null);
+Checks::that('account selection is off unless asked for', connector([])->selectAccount(), false);
+Checks::that('account selection can be requested', connector([
+    'openidconnect_select_account' => '1',
+])->selectAccount(), true);
+$sectorSettings = connector([
+    'openidconnect_origin_policy' => 'custom',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net,https://backup.example.net:8443',
+    'openidconnect_sector_origin' => 'https://firewall.example.net',
+]);
+Checks::that('the pairwise sector is an exact accepted origin', $sectorSettings->sectorOrigin(),
+    'https://firewall.example.net');
+$sectorOptions = $sectorSettings->getConfigurationOptions()['openidconnect_sector_origin'];
+Checks::that('the pairwise sector dropdown lists effective origins', array_keys($sectorOptions['options']), [
+    '', 'https://firewall.example.net', 'https://backup.example.net:8443',
+]);
+Checks::that(
+    'an accepted pairwise sector validates',
+    $sectorOptions['validate']('https://backup.example.net:8443'),
+    []
+);
+Checks::that(
+    'an unrelated pairwise sector is refused',
+    count($sectorOptions['validate']('https://other.example.net')),
+    1
+);
+Checks::that('an invalid saved pairwise sector is disabled', connector([
+    'openidconnect_origin_policy' => 'custom',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_sector_origin' => 'https://other.example.net',
+])->sectorOrigin(), '');
 Checks::that('group claim is off unless asked for', connector([])->groupClaim(), '');
 Checks::that('tracing is off unless asked for', connector([])->isTracing(), false);
 Checks::that('e-mail matching asks the provider to have checked', connector([])->emailMatching(), 'verified');

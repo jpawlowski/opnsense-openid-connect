@@ -51,7 +51,7 @@ flowchart TD
     AuthController --> ExistingSession
     ExistingSession -->|"Yes"| LocalRedirect
     ExistingSession -->|"No; accepted WebGUI origin"| RelyingParty
-    RelyingParty --> ProviderServices
+    RelyingParty -->|"Discovery and optional PAR"| ProviderServices
     RelyingParty --> TokenVerification
     RelyingParty -->|"Server-side state, nonce and PKCE;<br/>exact provider callback"| VerifiedClaims
     VerifiedClaims --> Connector
@@ -158,8 +158,8 @@ flowchart TD
 
 | Component | Responsibility | Must not do |
 |---|---|---|
-| `AuthController` | public protocol endpoints, package-owned and safely proxied login icons, generic browser errors, audit records, session elevation/logout | decide JWT validity or account policy |
-| `RelyingParty` | authorization transaction, code exchange, claim-source composition, logout/revocation requests | perform cryptography or grant privileges |
+| `AuthController` | public protocol endpoints including the exact-origin pairwise-sector document, package-owned and safely proxied login icons, generic browser errors, audit records, session elevation/logout | decide JWT validity or account policy |
+| `RelyingParty` | authorization transaction, optional PAR, code exchange, claim-source composition, logout/revocation requests | perform cryptography or grant privileges |
 | `ProviderMetadata` | exact Discovery validation and immutable per-login metadata snapshot | guess provider endpoints |
 | `TestController` | authenticated and CSRF-protected initiation of a saved provider's non-mutating browser test | accept an unsaved secret, grant a session or change local identity state |
 | `ApprovalController` | authenticated CRUD for durable bindings plus approval/denial of identities queued for one saved server; rechecks the core authentication-server and read-only privileges | authenticate the identity, create a session, trust button visibility as authorization or choose a local account automatically |
@@ -223,6 +223,9 @@ The exact endpoint matrix and the reasons for the two exceptions are recorded in
   elevate or replace the initiating WebGUI session.
 - Discovery is performed when login begins; the exact validated metadata is
   frozen into that transaction so endpoints cannot change halfway through it.
+  When it advertises PAR, the complete authorization request is authenticated
+  and pushed before the transaction is stored; a failed push leaves no pending
+  state and never falls back to exposing the parameters through the browser.
 - Identity bindings live in the normal `<system><authserver>` OPNsense
   configuration and bind an issuer/subject pair to a numeric local UID. Their
   opaque storage field is administered only through the combined identity

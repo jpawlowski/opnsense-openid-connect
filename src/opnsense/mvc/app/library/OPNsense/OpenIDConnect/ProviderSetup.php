@@ -29,7 +29,8 @@ final class ProviderSetup
         string $displayName,
         array $origins,
         bool $postLogoutRedirect,
-        string $logoutChannel = 'backchannel'
+        string $logoutChannel = 'backchannel',
+        string $sectorOrigin = ''
     ): array {
         $profile = strtolower(trim($profile));
         if (!in_array($profile, self::PROFILES, true)) {
@@ -57,11 +58,23 @@ final class ProviderSetup
         if (!in_array($logoutChannel, self::LOGOUT_CHANNELS, true)) {
             throw new \InvalidArgumentException('Unknown logout channel.');
         }
+        $sectorOrigin = trim($sectorOrigin);
+        if ($sectorOrigin !== '' && !in_array($sectorOrigin, $origins, true)) {
+            throw new \InvalidArgumentException('The pairwise subject sector is not an accepted WebGUI origin.');
+        }
 
         $slug = self::slug($applicationCode);
         return $profile === 'authentik'
             ? self::authentik($applicationCode, $slug, $displayName, $origins, $postLogoutRedirect, $logoutChannel)
-            : self::keycloak($applicationCode, $slug, $displayName, $origins, $postLogoutRedirect, $logoutChannel);
+            : self::keycloak(
+                $applicationCode,
+                $slug,
+                $displayName,
+                $origins,
+                $postLogoutRedirect,
+                $logoutChannel,
+                $sectorOrigin
+            );
     }
 
     /** @return string[] */
@@ -200,7 +213,8 @@ final class ProviderSetup
         string $displayName,
         array $origins,
         bool $postLogoutRedirect,
-        string $logoutChannel
+        string $logoutChannel,
+        string $sectorOrigin
     ): array {
         $callbacks = [];
         $postLogout = [];
@@ -227,26 +241,40 @@ final class ProviderSetup
             $attributes['post.logout.redirect.uris'] = implode('##', $postLogout);
         }
 
+        $client = [
+            'clientId' => $slug,
+            'name' => $displayName,
+            'description' => 'OPNsense WebGUI login through OpenID Connect',
+            'enabled' => true,
+            'protocol' => 'openid-connect',
+            'clientAuthenticatorType' => 'client-secret',
+            'publicClient' => false,
+            'standardFlowEnabled' => true,
+            'implicitFlowEnabled' => false,
+            'directAccessGrantsEnabled' => false,
+            'serviceAccountsEnabled' => false,
+            'frontchannelLogout' => $logoutChannel === 'frontchannel',
+            'redirectUris' => $callbacks,
+            'webOrigins' => $origins,
+            'attributes' => $attributes,
+        ];
+        if ($sectorOrigin !== '') {
+            $client['protocolMappers'] = [[
+                'name' => 'Pairwise subject identifier',
+                'protocol' => 'openid-connect',
+                'protocolMapper' => 'oidc-sha256-pairwise-sub-mapper',
+                'consentRequired' => false,
+                'config' => [
+                    'sectorIdentifierUri' => $sectorOrigin . '/api/openidconnect/auth/sector/'
+                        . rawurlencode($applicationCode),
+                ],
+            ]];
+        }
+
         $document = [
             /* Used by kcadm/direct API imports. The Admin Console asks separately. */
             'ifResourceExists' => 'SKIP',
-            'clients' => [[
-                'clientId' => $slug,
-                'name' => $displayName,
-                'description' => 'OPNsense WebGUI login through OpenID Connect',
-                'enabled' => true,
-                'protocol' => 'openid-connect',
-                'clientAuthenticatorType' => 'client-secret',
-                'publicClient' => false,
-                'standardFlowEnabled' => true,
-                'implicitFlowEnabled' => false,
-                'directAccessGrantsEnabled' => false,
-                'serviceAccountsEnabled' => false,
-                'frontchannelLogout' => $logoutChannel === 'frontchannel',
-                'redirectUris' => $callbacks,
-                'webOrigins' => $origins,
-                'attributes' => $attributes,
-            ]],
+            'clients' => [$client],
         ];
         $content = json_encode($document, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
         if (!is_string($content)) {

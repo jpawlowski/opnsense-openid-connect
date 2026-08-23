@@ -25,7 +25,8 @@ class SetupController extends PrivateApiControllerBase
                 (string)$this->request->getPost('display_name', null, ''),
                 $origins,
                 $this->postedFlag('post_logout_redirect'),
-                (string)$this->request->getPost('logout_channel', null, 'backchannel')
+                (string)$this->request->getPost('logout_channel', null, 'backchannel'),
+                (string)$this->request->getPost('sector_origin', null, '')
             );
             return ['status' => 'ok'] + $artifact;
         } catch (\Throwable $e) {

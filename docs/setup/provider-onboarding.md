@@ -43,6 +43,14 @@ origins are registered. In either mode the first origin is the canonical
 front-channel or back-channel logout notification address; all origins receive
 authorization and optional post-logout redirect entries.
 
+Pairwise subjects are the exception to unsaved generation. Select a stable
+**Pairwise subject sector** and save the authentication server as a disabled
+draft first, because the provider must fetch the public sector identifier URI
+from that saved origin. A generated Keycloak client then includes Keycloak's
+built-in SHA-256 pairwise-subject mapper and the sector URI; Keycloak generates
+and persists its own mapper salt. The authentik Blueprint already uses its
+per-provider issuer and hashed user-ID subject mode and is otherwise unchanged.
+
 Choose **Back-channel** only when the provider server can resolve and reach the
 canonical WebGUI address and trusts its certificate. Otherwise choose
 **Front-channel** and understand its browser, cookie and iframe limitations.

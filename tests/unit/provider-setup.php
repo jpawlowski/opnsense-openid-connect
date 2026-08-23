@@ -87,6 +87,29 @@ Checks::that('front-channel is selected consistently', [
     $client['attributes']['frontchannel.logout'],
     isset($client['attributes']['backchannel.logout.url']),
 ], [true, 'true', false]);
+Checks::that('Keycloak public subjects remain unchanged unless a sector is selected',
+    array_key_exists('protocolMappers', $client), false);
+
+$pairwiseKeycloak = ProviderSetup::generate(
+    'keycloak',
+    'pairwise',
+    'Pairwise OPNsense WebGUI',
+    ['https://firewall.example.net', 'https://backup.example.net'],
+    false,
+    'backchannel',
+    'https://firewall.example.net'
+);
+$pairwiseClient = json_decode($pairwiseKeycloak['content'], true, 32, JSON_THROW_ON_ERROR)['clients'][0];
+$pairwiseMapper = $pairwiseClient['protocolMappers'][0];
+Checks::that('Keycloak receives its built-in SHA-256 pairwise subject mapper', [
+    $pairwiseMapper['protocolMapper'],
+    $pairwiseMapper['config']['sectorIdentifierUri'],
+], [
+    'oidc-sha256-pairwise-sub-mapper',
+    'https://firewall.example.net/api/openidconnect/auth/sector/pairwise',
+]);
+Checks::that('Keycloak generates and persists its own pairwise salt',
+    array_key_exists('pairwiseSubAlgorithmSalt', $pairwiseMapper['config']), false);
 
 Checks::throws('a provider without an importer is refused', function (): void {
     ProviderSetup::generate('entra', 'main', 'Firewall', ['https://firewall.example.com'], false);
@@ -106,3 +129,14 @@ Checks::throws('a URL dot segment cannot become a provider callback path', funct
 Checks::throws('an unknown logout channel is refused', function (): void {
     ProviderSetup::generate('keycloak', 'main', 'Firewall', ['https://firewall.example.com'], false, 'both');
 }, 'Unknown logout channel');
+Checks::throws('a pairwise sector outside the accepted origins is refused', function (): void {
+    ProviderSetup::generate(
+        'keycloak',
+        'main',
+        'Firewall',
+        ['https://firewall.example.com'],
+        false,
+        'backchannel',
+        'https://other.example.com'
+    );
+}, 'not an accepted WebGUI origin');

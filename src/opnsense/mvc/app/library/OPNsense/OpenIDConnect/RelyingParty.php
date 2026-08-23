@@ -118,6 +118,7 @@ class RelyingParty
     public function authorizationUrl(string $providerName, string $target, bool $testOnly = false): string
     {
         $metadata = $this->discoverMetadata();
+        $this->metadata = $metadata;
         $pkceMethods = $metadata->get('code_challenge_methods_supported', []);
         if (is_array($pkceMethods) && $pkceMethods !== [] && !in_array('S256', $pkceMethods, true)) {
             throw new ProtocolException('The provider explicitly advertises no PKCE S256 support');
@@ -207,7 +208,10 @@ class RelyingParty
         $this->authenticateClient($parameters, $headers);
         $response = $this->http->postForm($endpoint, $parameters, self::PAR_MAX_BYTES, $headers);
         if ($response->status !== 201) {
-            throw new ProtocolException(sprintf('The pushed authorization request endpoint returned HTTP %d', $response->status));
+            throw new ProtocolException(sprintf(
+                'The pushed authorization request endpoint returned HTTP %d',
+                $response->status
+            ));
         }
         if ($response->contentType !== 'application/json') {
             throw new ProtocolException('The pushed authorization request endpoint did not return application/json');

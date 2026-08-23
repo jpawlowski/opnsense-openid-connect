@@ -1303,6 +1303,7 @@ class OpenIDConnect extends Base implements IAuthConnector
             'postLogoutEndpointLabel' => gettext('Post-logout redirect URI (only when return after logout is enabled)'),
             'backchannelEndpointLabel' => gettext('Back-channel logout URI (server-to-server choice)'),
             'frontchannelEndpointLabel' => gettext('Front-channel logout URI (browser-based alternative)'),
+            'sectorEndpointLabel' => gettext('Pairwise sector identifier URI'),
             'endpointHelp' => gettext(
                 'Do not register logout addresses as authorization redirect URIs. Provider terminology differs; ' .
                 'the provider guide explains which field receives which address.'

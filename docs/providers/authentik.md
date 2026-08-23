@@ -54,6 +54,9 @@ leaves the existing provider and its credentials unchanged.
 The Blueprint deliberately creates no authentik policy binding. Restrict the
 generated application to the users or groups who may administer this firewall;
 OPNsense's local account and privilege checks remain an additional boundary.
+It already selects authentik's per-provider issuer mode and hashed user-ID
+subject mode, so the OPNsense **Pairwise subject sector** setting is not needed
+for this generated Blueprint and does not alter it.
 
 The remaining sections describe every field and are also the fallback when a
 custom authentik flow, signing key or policy assignment is required.
@@ -126,10 +129,12 @@ store. Do not disable certificate verification.
 
 authentik currently marks its front-channel/back-channel logout feature as
 **Preview**. Its documented back-channel Logout Token includes `iss`, `sub`,
-`aud`, `iat`, unique `jti`, the logout event and optional `sid`, which matches
-this plugin's validation profile. Treat both notification methods as optional
-until they have been tested with the installed authentik release; ordinary
-login and RP-initiated logout do not depend on enabling either one.
+`aud`, `iat`, unique `jti`, the logout event and optional `sid`. OPNsense also
+requires an integer `exp` and keeps its replay entry through that signed expiry.
+If the installed authentik release does not emit `exp`, use front-channel
+logout instead of weakening token validation. Treat both notification methods
+as optional until they have been tested with the installed authentik release;
+ordinary login and RP-initiated logout do not depend on enabling either one.
 
 These addresses have separate jobs:
 
@@ -173,6 +178,7 @@ login:
 | Authorization response mode | Query | authentik returns the authorization code in the normal query response |
 | Match by e-mail address | Only a verified address | avoids first-binding takeover through an unverified address |
 | Scopes | `openid,email,profile` | sufficient for sign-in and the standard identity claims |
+| Pairwise subject sector | Off | the generated provider already uses per-provider issuer and hashed user-ID subject modes |
 | Maximum authentication age | `14400` | require the authentik authentication used for a new OPNsense login to be no older than four hours; `0` requests active authentication every time and does not shorten an established OPNsense session |
 | Create an account on first login | Off | firewall accounts should normally be pre-created |
 | Allow the built-in root account | Off | preserves a local recovery account outside the IdP |

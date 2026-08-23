@@ -58,6 +58,22 @@ namespace OPNsense\Auth {
         }
     }
 
+    class AuthenticationFactory
+    {
+        public function get(string $name)
+        {
+            foreach (\OPNsense\Core\Config::getInstance()->object()->system->authserver ?? [] as $server) {
+                if ((string)($server->name ?? '') !== $name) {
+                    continue;
+                }
+                $connector = new OpenIDConnect();
+                $connector->setProperties((array)$server);
+                return $connector;
+            }
+            throw new \RuntimeException('Authentication server not found');
+        }
+    }
+
     /** collects what a stub was asked to do, so a test can look at it */
     class Recorder
     {
@@ -261,10 +277,30 @@ namespace OPNsense\Mvc {
     class Response
     {
         public ?string $redirectedTo = null;
+        public array $headers = [];
+        public ?array $status = null;
 
         public function redirect(string $target): self
         {
             $this->redirectedTo = $target;
+            return $this;
+        }
+
+        public function setContentType(string $type, string $charset = ''): self
+        {
+            $this->headers['Content-Type'] = $type . ($charset === '' ? '' : '; charset=' . $charset);
+            return $this;
+        }
+
+        public function setHeader(string $name, string $value): self
+        {
+            $this->headers[$name] = $value;
+            return $this;
+        }
+
+        public function setStatusCode(int $code, string $status): self
+        {
+            $this->status = [$code, $status];
             return $this;
         }
     }
@@ -300,6 +336,16 @@ namespace OPNsense\Mvc {
             $this->request = $request ?? new Request();
             $this->session = $session ?? new Session();
             $this->response = new Response();
+        }
+    }
+}
+
+namespace OPNsense\Base {
+    class ApiControllerBase extends \OPNsense\Mvc\Controller
+    {
+        public function beforeExecuteRoute($dispatcher)
+        {
+            return true;
         }
     }
 }

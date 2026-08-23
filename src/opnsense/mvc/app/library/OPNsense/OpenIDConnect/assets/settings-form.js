@@ -1079,6 +1079,13 @@
                 [options.backchannelEndpointLabel || 'Back-channel logout URI', base + 'backchannel/' + encodeURIComponent(code)],
                 [options.frontchannelEndpointLabel || 'Front-channel logout URI', base + 'frontchannel/' + encodeURIComponent(code)]
             ];
+            var sectorOrigin = field('openidconnect_sector_origin').value;
+            if (sectorOrigin) {
+                destinations.push([
+                    options.sectorEndpointLabel || 'Pairwise sector identifier URI',
+                    sectorOrigin + '/api/openidconnect/auth/sector/' + encodeURIComponent(code)
+                ]);
+            }
             destinations.forEach(function (destination) {
                 $('<div>').append($('<span>').text(destination[0] + ': '))
                     .append($('<code>').text(destination[1])).appendTo(output);
@@ -1088,6 +1095,7 @@
         $(field('openidconnect_app_code')).on('input change', update);
         $(field('openidconnect_redirect_urls')).on('input change', update);
         $(field('openidconnect_origin_policy')).on('change', update);
+        $(field('openidconnect_sector_origin')).on('change', update);
         update();
     }
 

@@ -31,6 +31,13 @@ confidential client with a derived ID such as `opnsense-keycloak` and generates
 its secret. Copy the secret from the client's **Credentials** tab, and copy the
 realm's exact issuer into OPNsense.
 
+For pairwise subjects, first choose **Pairwise subject sector** in OPNsense and
+save the server as a disabled draft. The generated import then adds Keycloak's
+built-in `oidc-sha256-pairwise-sub-mapper` with the displayed sector identifier
+URI. The mapper salt is deliberately absent from the file so Keycloak generates
+and persists it. Do not change the sector or recreate the mapper after users are
+bound: either can change `sub` and require deliberate rebinding.
+
 The manual instructions below remain useful for checking the result and for
 installations with custom client policies.
 
@@ -79,6 +86,19 @@ On the **Credentials** tab, copy the generated client secret to OPNsense. Under
 the client's advanced OpenID Connect settings, set **Proof Key for Code Exchange
 Code Challenge Method** to `S256` if the installed Keycloak version exposes
 that control. OPNsense sends PKCE S256 on every request in either case.
+
+Optional manual pairwise configuration uses Keycloak's **Pairwise subject
+identifier** protocol mapper. Select a stable OPNsense **Pairwise subject
+sector**, save the disabled draft, and configure the mapper's Sector Identifier
+URI as:
+
+```text
+https://firewall.example.com/api/openidconnect/auth/sector/keycloak
+```
+
+Leave Keycloak to generate the pairwise salt. The URI is intentionally public,
+contains only the client's exact callback URI array, and answers only through
+the selected origin.
 
 ### 3. Configure one Keycloak logout channel
 
@@ -153,6 +173,7 @@ login:
 | Authorization response mode | Query | normal Authorization Code response; Form POST is also implemented but unnecessary for Keycloak |
 | Match by e-mail address | Only a verified address | prevents a first binding through an unverified address |
 | Scopes | `openid,email,profile` | sufficient for sign-in and the standard identity claims |
+| Pairwise subject sector | Off | select a stable accepted origin before client creation only when pairwise `sub` values are required |
 | Maximum authentication age | `14400` | require the Keycloak authentication used for a new OPNsense login to be no older than four hours; `0` requests active authentication every time and does not shorten an established OPNsense session |
 | Create an account on first login | Off | firewall accounts should normally be pre-created |
 | Allow the built-in root account | Off | preserves a provider-independent recovery account |
