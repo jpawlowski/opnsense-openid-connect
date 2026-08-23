@@ -41,11 +41,11 @@ def issue_body(tldr="Short summary.", where="The login flow.", now="It fails.",
     )
 
 
-def pull_request_body(issue="None", change="Added a focused check.",
+def pull_request_body(issue="None", area="area: contribution", change="Added a focused check.",
                       resolution="It prevents empty submissions.",
                       validation="- [x] `./tests/run.sh`", upgrade="None", notice=""):
     body = (
-        f"## Issue\n\n{issue}\n\n## Change\n\n{change}\n\n## Resolution\n\n{resolution}\n\n"
+        f"## Issue\n\n{issue}\n\n## Area\n\n{area}\n\n## Change\n\n{change}\n\n## Resolution\n\n{resolution}\n\n"
         f"## Validation\n\n{validation}\n\n## Upgrade impact\n\n{upgrade}"
     )
     return f"{body}\n\n{notice}" if notice else body
@@ -63,6 +63,12 @@ def main():
           lint.prose_words(sample), ["Three", "visible", "words", "and", "two"])
     check("a custom link label remains prose", lint.count_prose("[read this](https://example.net)"), 2)
     check("an unknown heading is authored prose", lint.count_prose("## Additional context\nUseful detail"), 4)
+    area_suggestion = "### Suggested area\n\narea: contribution\n\n" + issue_body()
+    check("the form's allow-listed area suggestion is boilerplate",
+          lint.count_prose(area_suggestion), lint.count_prose(issue_body()))
+    check("the optional area precedes the five required fields", lint.validate_issue(area_suggestion)["valid"], True)
+    no_area = "### Suggested area\n\n_No response_\n\n" + issue_body()
+    check("an unanswered optional area is boilerplate", lint.count_prose(no_area), lint.count_prose(issue_body()))
     check("the breaking prefix is free but its instruction counts",
           lint.prose_words("BREAKING CHANGE: set the provider again"),
           ["set", "the", "provider", "again"])
@@ -117,6 +123,27 @@ def main():
     over_pr_limit = pull_request_body(change="word " * 124, resolution="One two.")
     check("126 counted pull-request words fail",
           lint.validate_pull_request("fix: keep a concise change", over_pr_limit)["valid"], False)
+    same_issue = lambda repository, number: {
+        "number": number, "created_at": "2026-01-01T00:00:00Z",
+        "labels": [{"name": "type: bug"}, {"name": "area: oidc"}],
+    }
+    inherited = lint.validate_pull_request(
+        "fix(auth): keep the callback bounded",
+        pull_request_body(issue="Fixes #42", area="Same as issue"),
+        "owner/repo", "2026-01-02T00:00:00Z", same_issue,
+        labels=[{"name": "change: fix"}, {"name": "area: oidc"}],
+    )
+    check("a pull request deliberately inherits only the issue area", inherited["valid"], True)
+    wrong_labels = lint.validate_pull_request(
+        "fix(auth): keep the callback bounded",
+        pull_request_body(issue="Fixes #42", area="Same as issue"),
+        "owner/repo", "2026-01-02T00:00:00Z", same_issue,
+        labels=[{"name": "type: bug"}, {"name": "change: feature"}, {"name": "area: ui"}],
+    )
+    check("issue type and mismatched change or area labels fail the pull request", wrong_labels["valid"], False)
+    check("a direct human contribution cannot inherit from a missing issue", lint.validate_pull_request(
+        "docs: explain a direct contribution", pull_request_body(area="Same as issue"),
+    )["valid"], False)
 
     group("Breaking changes and agent attribution")
     breaking = pull_request_body(upgrade="BREAKING CHANGE: set the provider before upgrading.")
@@ -167,15 +194,44 @@ def main():
         "owner/repo", "2026-01-02T00:00:00Z", older_issue,
     )["valid"], False)
 
+    group("Pull-request events follow current GitHub metadata")
+    current = {
+        "number": 18,
+        "title": "fix(contribution): validate current labels",
+        "body": pull_request_body(),
+        "created_at": "2026-01-02T00:00:00Z",
+    }
+    responses = [
+        {**current, "labels": [{"name": "change: feature"}, {"name": "area: contribution"}]},
+        {**current, "labels": [{"name": "change: fix"}, {"name": "area: contribution"}]},
+    ]
+    reads = []
+    pauses = []
+
+    def current_request(repository, number):
+        reads.append((repository, number))
+        return responses[min(len(reads) - 1, len(responses) - 1)]
+
+    live = lint.validate_pull_request_event({
+        "number": 18,
+        "repository": {"full_name": "owner/repo"},
+        "pull_request": {"number": 18, "title": "stale invalid title", "body": ""},
+    }, request_reader=current_request, issue_reader=older_issue, pause=pauses.append)
+    check("the immutable event body is replaced by current pull-request metadata", live["valid"], True)
+    check("the linter waits for the separate classifier to reconcile labels", reads,
+          [("owner/repo", 18), ("owner/repo", 18)])
+    check("label polling is short and bounded", pauses, [lint.PULL_REQUEST_POLL_DELAY])
+
     group("The workflows keep edits and automation safe")
     build = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
     issue_workflow = (ROOT / ".github" / "workflows" / "issue-hygiene.yml").read_text(encoding="utf-8")
+    label_workflow = (ROOT / ".github" / "workflows" / "pull-request-labels.yml").read_text(encoding="utf-8")
     pull_request_template = (ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md").read_text(encoding="utf-8")
     contribution_skill = (
         ROOT / ".agents" / "skills" / "github-contribution" / "SKILL.md"
     ).read_text(encoding="utf-8")
     check("editing a title or body triggers a fresh pull-request check",
-          "types: [opened, edited, synchronize, reopened]" in build)
+          "types: [opened, edited, synchronize, reopened, ready_for_review, labeled, unlabeled]" in build)
     check("only the latest pull-request run matters",
           "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in build)
     check("the contribution linter replaces the narrower pull-request check",
@@ -185,17 +241,93 @@ def main():
           "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3" in issue_workflow)
     check("untrusted issue text is passed through an event file, not shell interpolation",
           "github.event.issue.body" not in issue_workflow)
+    check("fork pull requests receive labels from trusted base code only",
+          "pull_request_target:" in label_workflow
+          and "github.event.pull_request.base.sha" in label_workflow
+          and "github.event.pull_request.head.sha" not in label_workflow, True)
+    check("the label workflow has only metadata write permission",
+          "contents: read" in label_workflow
+          and "issues: read" in label_workflow
+          and "pull-requests: write" in label_workflow, True)
+    check("the label workflow uses immutable action revisions",
+          "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803" in label_workflow
+          and "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3" in label_workflow, True)
     check("the skill exposes every release-note type",
           [kind for kind in lint.commits.TYPES if f"`{kind}`" not in contribution_skill], [])
+    check("every release-note type has one pull-request change class",
+          set(lint.CHANGE_BY_COMMIT), set(lint.commits.TYPES))
     check("the pull-request template exposes every release-note type",
           [kind for kind in lint.commits.TYPES
            if not re.search(rf"\b{re.escape(kind)}\b", pull_request_template)], [])
+    check("the pull-request template makes its area decision visible",
+          "## Area" in pull_request_template and "Same as issue" in pull_request_template, True)
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     check("agent and contributor rules wait for a review of the current head",
           all("current head" in text.lower() for text in (contribution_skill, agents, contributing)), True)
     check("high and medium Codex findings are explicitly merge-blocking",
           all("P0, P1 and P2" in text for text in (contribution_skill, agents, contributing)), True)
+    check("one integrating agent owns review threads through completion",
+          all(re.search(r"owns\s+every review thread\s+through completion", text)
+              for text in (contribution_skill, agents, contributing)), True)
+    check("the agent closes old review threads before requesting another review",
+          "Only after all existing threads have a disposition" in contribution_skill
+          and "request exactly one new review" in contribution_skill
+          and "does not update or close an earlier review's threads" in contribution_skill, True)
+    check("human and agent guidance distinguishes upstream branches from forks",
+          all("without write access" in text.lower() and "opnsense-openid-connect:main" in text
+              for text in (contribution_skill, contributing)), True)
+    check("the agent resolves permission before choosing its push target",
+          "viewerPermission" in contribution_skill and "<fork-owner>:<branch>" in contribution_skill, True)
+    check("parallel agents refresh one shared remote view without automatic integration",
+          all("origin/main" in text and "worktree" in text.lower()
+              and ("never" in text.lower() or "without changing" in text.lower())
+              for text in (contribution_skill, agents, contributing)), True)
+    check("cloud agents keep one existing pull request and never invent credentials",
+          all("existing pull request" in text.lower()
+              and "personal" in text.lower() and "token" in text.lower()
+              and "patch" in text.lower() for text in (contribution_skill, agents, contributing)), True)
+    check("Codex, Claude and Copilot cloud contexts have explicit recognition paths",
+          all("AGENT_EXECUTION=codex-cloud" in text
+              and "CLAUDE_CODE_REMOTE" in text
+              and "GITHUB_COPILOT_GIT_TOKEN" in text
+              for text in (contribution_skill, agents, contributing)), True)
+    check("both paths use the permission-neutral Development link",
+          all("Development link" in text and "Fixes #N" in text
+              for text in (contribution_skill, contributing)), True)
+    reuse_rules = [re.sub(r"\s+", " ", text) for text in (contribution_skill, contributing)]
+    check("agents reuse a coherent issue and pull request before creating more",
+          all("merely to satisfy the issue-first rule" in text
+              and "continuous" in text and "independently" in text for text in reuse_rules), True)
+    check("an ambiguous split returns to the user",
+          all(re.search(r"ask(?:s)? the user (?:before|once)", text) for text in reuse_rules), True)
+    check("agents ask once before broad work is split into a new session",
+          "ask the user once" in contribution_skill
+          and "new session" in contribution_skill
+          and "Do not ask repeatedly" in contribution_skill, True)
+    check("agents prefer meaningful native sub-issues without manufacturing hierarchy",
+          "native sub-issue relationship" in contribution_skill
+          and "placeholder parent" in contribution_skill
+          and "not the first choice" in contribution_skill, True)
+    check("the sub-issue workflow is not imposed on human contributors",
+          "native sub-issue relationship" not in contributing
+          and "new session" not in contributing, True)
+    check("agents without triage suggest rather than fabricate a sub-issue relation",
+          "requires repository triage permission" in contribution_skill
+          and "Sub-issue of #N" in contribution_skill
+          and "suggestion for a maintainer" in contribution_skill, True)
+    work_claim_rules = [re.sub(r"\s+", " ", text) for text in (contribution_skill, contributing)]
+    check("active work is assigned when permission allows",
+          all("write access" in text and "assign" in text and re.search(r"work (?:starts|begins)", text)
+              for text in work_claim_rules), True)
+    check("an unlinked start leaves a temporary work signal",
+          all("temporary comment" in text and "Development link" in text
+              for text in work_claim_rules), True)
+    check("only the author's own obsolete claim is deleted",
+          all("delete" in text and "own" in text and "another" in text
+              for text in work_claim_rules), True)
+    check("the agent work claim has a stable hidden marker",
+          "<!-- contribution-work-claim -->" in contribution_skill, True)
     rules_readme = (ROOT / ".github" / "rulesets" / "README.md").read_text(encoding="utf-8")
     json.loads((ROOT / ".github" / "rulesets" / "main.json").read_text(encoding="utf-8"))
     check("the strict ruleset import has a documented adjacent copyright exception",
@@ -207,8 +339,10 @@ def main():
         for name in ("bug.yml", "change.yml")
     ]
     field_ids = [re.findall(r"^\s+id:\s+(\S+)$", form, re.M) for form in forms]
-    check("both issue forms use the same five fields in the same order",
-          field_ids, [["tldr", "where", "now", "want", "to_decide"]] * 2)
+    check("both issue forms offer an area before the same five required fields",
+          field_ids, [["area", "tldr", "where", "now", "want", "to_decide"]] * 2)
+    check("the forms apply the canonical type labels",
+          ['labels: ["type: bug"]' in forms[0], 'labels: ["type: change"]' in forms[1]], [True, True])
     config = (ROOT / ".github" / "ISSUE_TEMPLATE" / "config.yml").read_text(encoding="utf-8")
     check("blank issues are disabled and security reports stay private",
           "blank_issues_enabled: false" in config and "/security/advisories/new" in config)

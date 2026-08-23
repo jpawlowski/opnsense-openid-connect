@@ -2,6 +2,8 @@
 // All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
 "use strict";
 
+const {AREA_CHOICES} = require("./contribution-labels.js");
+
 const LABEL = "needs revision";
 const MARKER = "<!-- contribution-hygiene:issue -->";
 const BOT = "github-actions[bot]";
@@ -19,16 +21,48 @@ async function markerComments(github, owner, repo, issueNumber) {
   return comments.filter((comment) => comment.user && comment.user.login === BOT && comment.body.includes(MARKER));
 }
 
-async function ensureLabel(github, owner, repo) {
+async function ensureLabel(github, owner, repo, name, definition) {
   try {
-    await github.rest.issues.getLabel({owner, repo, name: LABEL});
+    await github.rest.issues.getLabel({owner, repo, name});
   } catch (error) {
     if (error.status !== 404) throw error;
     await github.rest.issues.createLabel({
-      owner, repo, name: LABEL, color: "D93F0B",
-      description: "The issue needs a small structural or length revision",
+      owner, repo, name, color: definition.color, description: definition.description,
     });
   }
+}
+
+function suggestedArea(body) {
+  const match = String(body || "").match(/^#{2,6}\s+Suggested area\s*$\n+\s*([^\n]+?)\s*$/im);
+  return match && AREA_CHOICES.has(match[1]) ? match[1] : "";
+}
+
+async function removeNamedLabel(github, owner, repo, issueNumber, name) {
+  try {
+    await github.rest.issues.removeLabel({owner, repo, issue_number: issueNumber, name});
+  } catch (error) {
+    if (error.status !== 404) throw error;
+  }
+}
+
+async function applySuggestedArea(github, owner, repo, issue, previousBody = "") {
+  const suggestion = suggestedArea(issue.body);
+  const assigned = (issue.labels || []).map((label) => typeof label === "string" ? label : label.name);
+  const assignedAreas = assigned.filter((label) => AREA_CHOICES.has(label));
+  const previousSuggestion = suggestedArea(previousBody);
+  const replacesAutomatedSuggestion = previousSuggestion && assignedAreas.length === 1 &&
+    assignedAreas[0] === previousSuggestion && suggestion !== previousSuggestion;
+
+  if (replacesAutomatedSuggestion) {
+    await removeNamedLabel(github, owner, repo, issue.number, previousSuggestion);
+  } else if (assignedAreas.length) {
+    // An area that differs from the form's previous suggestion is a maintainer
+    // decision. Automation never replaces it.
+    return;
+  }
+  if (!suggestion) return;
+  await ensureLabel(github, owner, repo, suggestion, AREA_CHOICES.get(suggestion));
+  await github.rest.issues.addLabels({owner, repo, issue_number: issue.number, labels: [suggestion]});
 }
 
 async function removeLabel(github, owner, repo, issueNumber) {
@@ -48,6 +82,11 @@ async function reconcile({github, context, result}) {
   // the cleanup below and removes obsolete automation state.
   if (!result.valid && issue.state === "closed") return;
 
+  // An outside contributor cannot apply labels directly. The form therefore
+  // carries one allow-listed suggestion. Reconcile a known earlier suggestion,
+  // but preserve a different area as a maintainer's decision.
+  await applySuggestedArea(github, owner, repo, issue, context.payload.changes?.body?.from || "");
+
   const comments = await markerComments(github, owner, repo, issueNumber);
   if (result.valid) {
     await removeLabel(github, owner, repo, issueNumber);
@@ -57,7 +96,9 @@ async function reconcile({github, context, result}) {
     return;
   }
 
-  await ensureLabel(github, owner, repo);
+  await ensureLabel(github, owner, repo, LABEL, {
+    color: "D93F0B", description: "The issue needs a small structural or length revision",
+  });
   await github.rest.issues.addLabels({owner, repo, issue_number: issueNumber, labels: [LABEL]});
   const body = commentBody(result);
   if (comments.length) {
@@ -72,4 +113,4 @@ async function reconcile({github, context, result}) {
   }
 }
 
-module.exports = {BOT, LABEL, MARKER, commentBody, reconcile};
+module.exports = {AREA_CHOICES, BOT, LABEL, MARKER, applySuggestedArea, commentBody, suggestedArea, reconcile};
