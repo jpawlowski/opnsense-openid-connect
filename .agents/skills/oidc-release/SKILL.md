@@ -61,10 +61,16 @@ Forgejo run or ordinary branch push may build and check but must not create a
 release.
 
 A successful GitHub `main` push or manual run also keeps a **CI snapshot** for
-14 days: the commit-versioned `.pkg` and its `.sha256`. Pull requests do not
-publish installable artifacts, because a contributor controls their contents;
-tag runs use the separately attested release path instead. Forgejo runs the
-shared checks but keeps no duplicate snapshot. A CI snapshot is for testing
+14 days: the commit-versioned `.pkg` and its `.sha256`. Successful pull-request
+runs keep clearly named, untrusted snapshots for 3 days so their exact result
+can be tested manually. Each revision has a separate artifact; concurrency
+cancels only an older run that is still in progress, while completed artifacts
+expire normally.
+
+A pull-request snapshot contains contributor-controlled code and carries no
+release signature or attestation. Its artifact name and included notice must
+say so. Tag runs use the separately attested release path instead. Forgejo runs
+the shared checks but keeps no duplicate snapshot. A CI snapshot is for testing
 only and is never promoted into a release.
 
 The GitHub release attaches:

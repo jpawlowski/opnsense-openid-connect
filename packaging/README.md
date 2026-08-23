@@ -43,9 +43,16 @@ The result is `packaging/dist/os-openid-connect-<version>.pkg`.
 
 After a successful GitHub `main` or manually requested CI run, the workflow
 keeps that commit-versioned package and its checksum as a downloadable **CI
-snapshot** for 14 days. It deliberately does not upload packages built from
-pull requests, and the read-only Forgejo mirror keeps no duplicate artifact. A
-snapshot is never reused as a release asset: release tags rebuild and attest
+snapshot** for 14 days. A successful pull-request run keeps its own snapshot for
+3 days, clearly named `untrusted-pr`: every new revision gets a separate
+artifact, while the concurrency rule cancels an older run that is still in
+progress. Completed artifacts are allowed to expire rather than receiving the
+write permission that eager deletion would require.
+
+A pull-request snapshot contains contributor-controlled code. Its notice says
+that it is neither signed nor attested as a release and is only for deliberate
+manual testing. The read-only Forgejo mirror keeps no duplicate artifact. No CI
+snapshot is ever reused as a release asset: release tags rebuild and attest
 their own package at the immutable publication boundary.
 
 **It needs neither FreeBSD nor `pkg`.** A FreeBSD package is a compressed tar
