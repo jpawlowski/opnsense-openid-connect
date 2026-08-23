@@ -18,6 +18,7 @@
         "webgui-access-policy",
         "form-post-transaction",
         "logout-token-policy",
+        "shared-signals-policy",
         "login-content-safety",
         "package-archive-integrity",
         "release-provenance-policy",
@@ -29,6 +30,7 @@
       "description": "Installed OPNsense runtime, phpseclib, filesystem and core integration",
       "capabilities": [
         "runtime-jws-crypto",
+        "runtime-shared-signals",
         "runtime-state-registries",
         "runtime-core-acl",
         "runtime-login-presentation",
@@ -406,6 +408,29 @@
                 "tier": "host-independent",
                 "capabilities": ["issuer-bound-logout-grants"],
                 "validation": ["tests/unit/exchange.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "shared-signals-policy",
+          "claim": "Shared Signals deliveries require pre-crypto bearer authentication, exact transmitter metadata, an asymmetrically signed SSF SET for the configured audience, provider-and-issuer-scoped iss_sub matching, replay protection and a session creation time no later than the event.",
+          "implementation": [
+            "src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/SsfController.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SecurityEventVerifier.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SessionRegistry.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["shared-signals-policy"],
+                "validation": ["tests/unit/shared-signals.php"]
+              },
+              {
+                "tier": "installed-integration",
+                "capabilities": ["runtime-shared-signals"],
+                "validation": ["tests/integration/opnsense.php"]
               }
             ]
           }

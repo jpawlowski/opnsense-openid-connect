@@ -14,6 +14,7 @@ at their profile defaults.
 - [Provider icons and branding](reference/provider-icons.md)
 - [Admission policy and administrator approvals](setup/admission-policy.md)
 - [Complete settings reference](setup/settings-reference.md)
+- [Shared Signals receiver setup](setup/shared-signals.md)
 - [Troubleshooting](setup/troubleshooting.md)
 
 ## Design and review

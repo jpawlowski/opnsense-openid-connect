@@ -107,16 +107,38 @@ class JwtVerifier
         ?callable $issuerValidator = null
     ): array
     {
+        $advertised = $metadata->get($advertisedField, []);
+        $verified = $this->verifySignedJwt(
+            $jwt,
+            $metadata->jwksUri(),
+            is_array($advertised) ? $advertised : []
+        );
+        $claims = $verified['claims'];
+        if ($issuerValidator !== null) {
+            $issuerValidator($claims, $verified['key']);
+        }
+
+        return $claims;
+    }
+
+    /**
+     * Verify one asymmetrically signed JWT against a fixed, already validated key-set URL.
+     * Claim policy belongs to the protocol-specific caller.
+     *
+     * @param string[] $advertisedAlgorithms
+     * @return array{header:array<string,mixed>,claims:array<string,mixed>,key:array<string,mixed>}
+     */
+    public function verifySignedJwt(string $jwt, string $jwksUri, array $advertisedAlgorithms = []): array
+    {
         [$header, $claims, $signingInput, $signature] = self::decode($jwt);
         $algorithm = $header['alg'] ?? null;
         if (!is_string($algorithm) || !in_array($algorithm, self::ALGORITHMS, true)) {
             throw new ProtocolException('The JWT uses an unsupported signing algorithm');
         }
-        $advertised = $metadata->get($advertisedField, []);
-        if (is_array($advertised) && $advertised !== [] && !in_array($algorithm, $advertised, true)) {
-            throw new ProtocolException('The JWT algorithm was not advertised by the provider');
+        if ($advertisedAlgorithms !== [] && !in_array($algorithm, $advertisedAlgorithms, true)) {
+            throw new ProtocolException('The JWT algorithm was not advertised by the issuer');
         }
-        $jwks = $this->http->get($metadata->jwksUri(), self::MAX_JWKS_BYTES);
+        $jwks = $this->http->get($jwksUri, self::MAX_JWKS_BYTES);
         if ($jwks->status !== 200) {
             throw new ProtocolException(sprintf('The provider key set returned HTTP %d', $jwks->status));
         }
@@ -131,11 +153,7 @@ class JwtVerifier
         if (!$this->verifySignature($algorithm, $key, $signingInput, $signature)) {
             throw new ProtocolException('The JWT signature is invalid');
         }
-        if ($issuerValidator !== null) {
-            $issuerValidator($claims, $key);
-        }
-
-        return $claims;
+        return ['header' => $header, 'claims' => $claims, 'key' => $key];
     }
 
     /** @return array<string,mixed> verified OpenID Connect Back-Channel Logout claims */
