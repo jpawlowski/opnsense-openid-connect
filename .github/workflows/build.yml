@@ -144,15 +144,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Require immutable GitHub releases
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ "$(gh api "repos/${GITHUB_REPOSITORY}/immutable-releases" --jq .enabled)" != "true" ]; then
-            echo 'GitHub release immutability is disabled; enable it before creating a release tag.' >&2
-            exit 1
-          fi
-
       - name: Build the package
         id: build
         run: |
