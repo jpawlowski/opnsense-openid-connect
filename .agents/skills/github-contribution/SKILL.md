@@ -190,14 +190,30 @@ not as a reason to recreate the pull request.
 Keep an agent-authored pull request in draft until its intended change and
 validation are complete. Before merging, wait for Codex to review the current
 head commit; compare the reviewed commit shown by Codex with the pull request's
-current head. A review of an older head does not count. Request another review
-after a code push when GitHub does not start one automatically.
+current head. A review of an older head does not count.
 
 Every P0, P1 and P2 finding blocks the merge until it is fixed or technically
 rebutted in its review thread. Answer or track every P3 finding. Do not dismiss
 or silently resolve a finding: document its disposition in the thread, then
 resolve it. The ruleset's required thread resolution is the hard backstop, but
 it does not replace waiting for a late review or checking the reviewed commit.
+
+The integrating agent that owns the publishing branch owns every review thread
+through completion; the reviewing agent does not. After each review:
+
+1. Inventory every unresolved thread, including outdated threads from earlier
+   heads.
+2. Fix the finding, technically rebut it, or track it when the P3 rule permits.
+3. Push the change and run the relevant validation before claiming it is fixed.
+4. Reply in the thread with the disposition and, when applicable, the commit
+   and validation that demonstrate it.
+5. Resolve the thread once that disposition is complete. Never leave this
+   cleanup for the reviewer or silently resolve an unaddressed finding.
+
+Only after all existing threads have a disposition, all addressed threads are
+resolved, and no P0, P1 or P2 remains unaddressed may the integrating agent
+request exactly one new review for the current head. A new Codex review is a
+separate snapshot; it does not update or close an earlier review's threads.
 
 ## Agent notice
 

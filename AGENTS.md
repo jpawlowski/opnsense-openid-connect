@@ -131,8 +131,10 @@ public message written in a contributor's name.
 
 Do not merge a pull request until Codex has reviewed its current head commit.
 P0, P1 and P2 findings block the merge until fixed or technically rebutted in
-their thread; P3 findings are answered or tracked. Every review thread records
-its disposition before it is resolved.
+their thread; P3 findings are answered or tracked. The integrating agent owns
+every review thread through completion. Before requesting another review, it
+records every existing thread's disposition and resolves every addressed
+thread; it never leaves that cleanup to the reviewer.
 
 ## What this deliberately does not do
 

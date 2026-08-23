@@ -267,6 +267,13 @@ def main():
           all("current head" in text.lower() for text in (contribution_skill, agents, contributing)), True)
     check("high and medium Codex findings are explicitly merge-blocking",
           all("P0, P1 and P2" in text for text in (contribution_skill, agents, contributing)), True)
+    check("one integrating agent owns review threads through completion",
+          all(re.search(r"owns\s+every review thread\s+through completion", text)
+              for text in (contribution_skill, agents, contributing)), True)
+    check("the agent closes old review threads before requesting another review",
+          "Only after all existing threads have a disposition" in contribution_skill
+          and "request exactly one new review" in contribution_skill
+          and "does not update or close an earlier review's threads" in contribution_skill, True)
     check("human and agent guidance distinguishes upstream branches from forks",
           all("without write access" in text.lower() and "opnsense-openid-connect:main" in text
               for text in (contribution_skill, contributing)), True)
