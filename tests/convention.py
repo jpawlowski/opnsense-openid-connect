@@ -173,6 +173,8 @@ def main():
                 "https://example.net/releases/os-openid-connect-1.1.0.pkg",
                 "--checksum",
                 "0123456789abcdef",
+                "--repository",
+                "example/project",
             ],
             check=True,
             capture_output=True,
@@ -180,16 +182,46 @@ def main():
         ).stdout
         check("the command includes only the new fix", "- second" in rendered and "- first" not in rendered, True)
         check("the command identifies the previous tag", "1 commit(s) since v1.0.0." in rendered, True)
-        check("the complete note includes installation", "### Installing" in rendered, True)
+        check("the complete note includes verification and installation", "### Verify and install" in rendered, True)
         check("an unsigned note promises no signature", ".sig" not in rendered, True)
+        check("the complete note verifies GitHub build provenance",
+              "gh attestation verify" in rendered and "-R example/project" in rendered, True)
+        check("verification is restricted to the intended GitHub-hosted release builder",
+              "--signer-workflow example/project/.github/workflows/build.yml" in rendered
+              and "--deny-self-hosted-runners" in rendered, True)
+        check("the note separates workstation verification from firewall installation",
+              rendered.index("On an administrator workstation")
+              < rendered.index("Copy that verified package")
+              < rendered.index("pkg add"), True)
+        check("every verification happens before pkg add",
+              max(rendered.index("sha256 -c"), rendered.index("gh attestation verify"))
+              < rendered.index("pkg add"), True)
 
         signed = notes.installing(
             "os-openid-connect-1.1.0.pkg",
             "https://example.net/releases/os-openid-connect-1.1.0.pkg",
             "0123456789abcdef",
             True,
+            "example/project",
         )
         check("a signed note fetches and verifies the signature", ".sig" in signed and "openssl dgst" in signed, True)
+        check("the optional offline signature is also checked before installation",
+              signed.index("openssl dgst") < signed.index("pkg add"), True)
+
+    group("A release is attested and published only once")
+    workflow = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
+    attest_sha = "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6"
+    check("the provenance action is pinned", workflow.count(attest_sha), 1)
+    check("the attestation receives only its required identity permissions",
+          "id-token: write" in workflow and "attestations: write" in workflow, True)
+    check("assets enter a draft before its one-way publication",
+          workflow.index("gh release create") < workflow.index("gh release upload")
+          < workflow.index('gh release edit "$TAG" --draft=false'), True)
+    check("a published release is never refreshed",
+          "already published and must never be replaced" in workflow
+          and "delete-asset" not in workflow and "--clobber" not in workflow, True)
+    check("publication verifies GitHub actually made the release immutable",
+          "--jq .immutable" in workflow, True)
 
     group("Every type reaches a section of the note")
     check(

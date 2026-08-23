@@ -31,7 +31,7 @@ separation is not decoration — keep it.
 ## Commands
 
     ./tests/run.sh                                    fast host-independent gate; Stop hook and CI
-    python3 tests/update-audit-report.py --update     refresh generated audit evidence
+    python3 tests/update-audit-report.py --update     regenerate the complete audit report
     php tests/run.php                                 the behaviour checks alone
     python3 packaging/build.py --check                does it still build
     python3 packaging/release-notes.py --tag vX.Y.Z   what a release would say

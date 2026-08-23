@@ -61,8 +61,12 @@ jobs:
       startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
-      # the one thing this pipeline writes
+      # Release assets and the immutable release itself.
       contents: write
+      # Short-lived GitHub OIDC identity for Sigstore, with permission to store
+      # the resulting build-provenance attestation. No signing key is involved.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -79,83 +83,108 @@ jobs:
           echo "file=$(basename "$path")" >> "$GITHUB_OUTPUT"
           echo "checksum=$(sha256sum "$path" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
-      - name: Create the GitHub release and attach the package
+      - name: Prepare checksums, optional offline signature and release notes
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
           BASE: ${{ github.server_url }}/${{ github.repository }}
+          REPOSITORY: ${{ github.repository }}
           PATH_PKG: ${{ steps.build.outputs.path }}
           FILE: ${{ steps.build.outputs.file }}
           CHECKSUM: ${{ steps.build.outputs.checksum }}
           # An RSA private key in PEM form, or unset. `pkg add` verifies
           # nothing about a file handed to it directly, so a package that changes how a
           # firewall authenticates should travel with something to check it against.
-          # Without the secret the release is built and attached exactly as before, with
-          # the checksum file alone.
+          # Without the secret the mandatory GitHub provenance and checksum remain.
           SIGNING_KEY: ${{ secrets.PKG_SIGNING_KEY }}
         run: |
           set -eu
-          # The attachment's address is fixed as soon as the tag and the file
-          # name are, so the note can be something to copy rather than showing
-          # a placeholder.
           URL="$BASE/releases/download/$TAG/$FILE"
 
-          # Written out of the commits this tag contains, so that what an
-          # installation has to know before it upgrades is whatever somebody
-          # already wrote down when they made the change.
-          python3 packaging/release-notes.py \
-            --tag "$TAG" \
-            --file "$FILE" \
-            --url "$URL" \
-            --checksum "$CHECKSUM" \
-            --commit-url "$BASE/commit/" \
-            --built-from "$GITHUB_SHA" \
-            ${SIGNING_KEY:+--signed} > "$RUNNER_TEMP/notes.md"
-
-          # The checksum travels as a file of its own as well: one that is read
-          # by a machine rather than copied out of a paragraph by hand.
           printf '%s  %s\n' "$CHECKSUM" "$FILE" > "$PATH_PKG.sha256"
-          assets="$PATH_PKG $PATH_PKG.sha256"
 
           if [ -n "${SIGNING_KEY:-}" ]; then
+            if [ ! -s packaging/release-key.pub ]; then
+              echo 'PKG_SIGNING_KEY is configured but packaging/release-key.pub is missing.' >&2
+              exit 1
+            fi
             umask 077
             printf '%s\n' "$SIGNING_KEY" > "$RUNNER_TEMP/release.key"
             openssl dgst -sha256 -sign "$RUNNER_TEMP/release.key" \
               -out "$PATH_PKG.sig" "$PATH_PKG"
             rm -f "$RUNNER_TEMP/release.key"
-            assets="$assets $PATH_PKG.sig"
             echo "signed with the release key"
           else
-            echo "no release key configured, attaching the checksum alone"
+            echo "no offline release key configured; GitHub provenance remains mandatory"
           fi
 
-          # The run has to be repeatable: a tag deleted and pushed again finds
-          # the release still there, so look first and edit rather than fail.
-          prerelease=false
-          create_prerelease=""
-          case "$TAG" in
-            *-*) prerelease=true; create_prerelease="--prerelease" ;;
-          esac
+          python3 packaging/release-notes.py \
+            --tag "$TAG" \
+            --file "$FILE" \
+            --url "$URL" \
+            --checksum "$CHECKSUM" \
+            --repository "$REPOSITORY" \
+            --commit-url "$BASE/commit/" \
+            --built-from "$GITHUB_SHA" \
+            ${SIGNING_KEY:+--signed} > "$RUNNER_TEMP/notes.md"
 
+      # v4.2.2 is pinned: moving action tags must not change release code.
+      - name: Attest package build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: ${{ steps.build.outputs.path }}
+
+      - name: Publish the complete immutable GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          PATH_PKG: ${{ steps.build.outputs.path }}
+          FILE: ${{ steps.build.outputs.file }}
+        run: |
+          set -eu
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" \
-              --draft=false --prerelease="$prerelease"
-            echo "Release $TAG already existed, refreshed."
-          else
-            gh release create "$TAG" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" \
-              $create_prerelease
-            echo "Release $TAG created."
+            if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != "true" ]; then
+              echo "Release $TAG is already published and must never be replaced; use a new version." >&2
+              exit 1
+            fi
+            # A failed earlier run may leave only an unpublished draft. Rebuild
+            # that private staging area from zero; a published release is never touched.
+            gh release delete "$TAG" --yes
           fi
 
-          # A release for tag X carries exactly this run's assets. In particular,
-          # removing the signing secret must also remove an earlier signature.
-          for asset in $(gh release view "$TAG" --json assets --jq '.assets[].name'); do
-            gh release delete-asset "$TAG" "$asset" --yes
-            echo "  removed earlier attachment $asset"
+          prerelease=""
+          case "$TAG" in
+            *-*) prerelease="--prerelease" ;;
+          esac
+          gh release create "$TAG" --verify-tag --draft --title "$TAG" \
+            --notes-file "$RUNNER_TEMP/notes.md" $prerelease
+
+          assets="$PATH_PKG $PATH_PKG.sha256"
+          if [ -f "$PATH_PKG.sig" ]; then
+            assets="$assets $PATH_PKG.sig"
+          fi
+          # shellcheck disable=SC2086 -- each generated asset path contains no whitespace
+          gh release upload "$TAG" $assets
+
+          uploaded=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+          expected=0
+          for asset in $assets; do
+            expected=$((expected + 1))
+            name=$(basename "$asset")
+            printf '%s\n' "$uploaded" | grep -Fqx "$name" || {
+              echo "Draft release is missing expected asset $name." >&2
+              exit 1
+            }
           done
+          if [ "$(printf '%s\n' "$uploaded" | sed '/^$/d' | wc -l)" -ne "$expected" ]; then
+            echo 'Draft release contains an unexpected asset.' >&2
+            exit 1
+          fi
 
-          # --clobber also makes this safe if an asset appeared concurrently.
-          # shellcheck disable=SC2086
-          gh release upload "$TAG" $assets --clobber
-
-          echo "$FILE attached (sha256 $CHECKSUM)."
+          # Publication is the one-way boundary: repository release immutability
+          # locks the tag and every asset and creates a GitHub release attestation.
+          gh release edit "$TAG" --draft=false
+          if [ "$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq .immutable)" != "true" ]; then
+            echo 'GitHub published the release without immutability; enable the repository policy.' >&2
+            exit 1
+          fi
+          echo "$FILE published once as an immutable, attested release."

@@ -566,7 +566,7 @@ class OpenIDConnect extends Base implements IAuthConnector
             'openidconnect_icon_url' => [
                 'name' => gettext('Icon URL'),
                 'help' => gettext(
-                    'A named provider profile supplies a local built-in SVG by default. An absolute ' .
+                    'Every provider profile supplies a local built-in SVG by default. An absolute ' .
                     'PNG or SVG URL is fetched by the firewall and handed on; a path ' .
                     'starting with a slash is served from this firewall directly, which is how a theme ' .
                     'asset becomes the logo, for example ' .
@@ -716,7 +716,7 @@ class OpenIDConnect extends Base implements IAuthConnector
             'openidconnect_button_text_mode' => 'localized',
             'openidconnect_button_provider_label' => '',
             'openidconnect_button_custom_text' => '',
-            'openidconnect_icon_url' => '',
+            'openidconnect_icon_url' => static::providerIconUrl('general'),
         ];
         $named = array_replace($generic, ['openidconnect_bootstrap_mode' => 'approval']);
         $make = static function (
@@ -833,9 +833,7 @@ class OpenIDConnect extends Base implements IAuthConnector
             ),
         ];
         foreach ($profiles as $profile => &$preset) {
-            if ($profile !== 'general') {
-                $preset['values']['openidconnect_icon_url'] = static::providerIconUrl($profile);
-            }
+            $preset['values']['openidconnect_icon_url'] = static::providerIconUrl($profile);
             if (isset(self::FIXED_PROVIDER_BUTTON_LABELS[$profile])) {
                 $preset['values']['openidconnect_button_text_mode'] = 'label_only';
                 $preset['values']['openidconnect_button_provider_label'] =
@@ -851,10 +849,10 @@ class OpenIDConnect extends Base implements IAuthConnector
         return $profiles;
     }
 
-    /** The local public address used by named profile presets. */
+    /** The local public address used by provider profile presets. */
     public static function providerIconUrl(string $profile): string
     {
-        return $profile !== 'general' && in_array($profile, self::PROVIDER_PROFILES, true)
+        return in_array($profile, self::PROVIDER_PROFILES, true)
             ? '/api/openidconnect/auth/builtinicon/' . rawurlencode($profile)
             : '';
     }
@@ -868,7 +866,7 @@ class OpenIDConnect extends Base implements IAuthConnector
     /** Resolve a profile name to one package-owned SVG without accepting a filesystem path. */
     public static function providerIconPath(string $profile): ?string
     {
-        if ($profile === 'general' || !in_array($profile, self::PROVIDER_PROFILES, true)) {
+        if (!in_array($profile, self::PROVIDER_PROFILES, true)) {
             return null;
         }
         $path = __DIR__ . '/../OpenIDConnect/assets/provider-icons/' . $profile . '.svg';

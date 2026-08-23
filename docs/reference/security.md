@@ -140,11 +140,18 @@ inside the isolated test boundary.
 
 ## Release security
 
-The repository has no release signing key yet. A direct package install is
-therefore not publisher-authenticated by `pkg`. Until a public key is published,
-operators should verify a checksum through a separately trusted channel or
-build from a reviewed commit. This does not block development or local testing,
-but must be explicit in every release note.
+Every published package receives keyless GitHub/Sigstore build provenance bound
+to its exact digest, this repository's release workflow and the source commit.
+The workflow stages the complete asset set in a draft and publishes only once;
+GitHub release immutability then locks both tag and assets and creates a separate
+release attestation. Release notes put attestation, checksum and any optional
+offline RSA verification before `pkg add`.
+
+OPNsense `pkg` does not understand GitHub attestations for a directly supplied
+file. Operators therefore verify provenance on an administrator workstation
+before copying the package to the firewall. A checksum alone is only a transfer
+integrity check. During beta there is deliberately no package repository,
+repository trust fingerprint or automatic `pkg install` update path.
 
 Do not publish client secrets, tokens, complete session files, or unredacted
 provider responses in issues. See [SECURITY.md](../../SECURITY.md).

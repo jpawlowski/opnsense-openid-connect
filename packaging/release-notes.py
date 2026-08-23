@@ -8,7 +8,7 @@
     python3 packaging/release-notes.py --tag v1.2.3 \\
         --file os-openid-connect-1.2.3.pkg \\
         --url https://.../releases/download/v1.2.3/... \\
-        --checksum <sha256> --signed --built-from <sha>
+        --checksum <sha256> --repository owner/repository --signed --built-from <sha>
 
 Read from the commits rather than written by hand, because a note written by
 hand is a note that is written once and then not again - and because what an
@@ -91,34 +91,46 @@ def changes(entries, commit_url=""):
     return "\n".join(written).strip("\n")
 
 
-def installing(file, url, checksum, signed):
+def installing(file, url, checksum, signed, repository=""):
     """The half of the note that is the same every time, and has to be right."""
-    verify = [
-        f"    fetch -o /tmp/{file}.sha256 {url}.sha256",
-        f"    sha256 -c $(cut -d' ' -f1 /tmp/{file}.sha256) /tmp/{file}",
+    workstation = [
+        "On an administrator workstation:",
+        "",
+        f"    curl --fail --location --output /tmp/{file} \\",
+        f"      {url}",
     ]
+    if repository:
+        workstation += [
+            f"    gh attestation verify /tmp/{file} \\",
+            f"      -R {repository} \\",
+            f"      --signer-workflow {repository}/.github/workflows/build.yml \\",
+            "      --deny-self-hosted-runners",
+        ]
     if signed:
-        verify += [
+        workstation += [
             "",
-            "and against the release key in `packaging/release-key.pub`:",
+            "Optionally verify the additional offline signature against",
+            "`packaging/release-key.pub` from the reviewed source tree:",
             "",
-            f"    fetch -o /tmp/{file}.sig {url}.sig",
+            f"    curl --fail --location --output /tmp/{file}.sig {url}.sig",
             "    openssl dgst -sha256 -verify release-key.pub \\",
             f"      -signature /tmp/{file}.sig /tmp/{file}",
         ]
 
     return "\n".join([
-        "### Installing",
+        "### Verify and install",
         "",
-        f"    fetch -o /tmp/{file} \\",
-        f"      {url}",
+        "`pkg` checks nothing about a file handed to it directly. Establish its",
+        "GitHub/Sigstore provenance before the package reaches the firewall.",
+        "",
+        *workstation,
+        "",
+        "Copy that verified package to `/tmp` on the firewall. Confirm that the",
+        "transfer preserved its exact bytes, then install it:",
+        "",
+        f"    sha256 -c {checksum} /tmp/{file}",
+        "",
         f"    pkg add /tmp/{file}",
-        "",
-        f"    sha256  {checksum}",
-        "",
-        "`pkg` checks nothing about a file handed to it directly, so check it here:",
-        "",
-        *verify,
         "",
         "No restart, no service affected. Signing in locally with a username and",
         "password is untouched; the way back is always",
@@ -133,6 +145,7 @@ def main():
     parser.add_argument("--file", help="name of the package attached to the release")
     parser.add_argument("--url", default="", help="where that package can be fetched")
     parser.add_argument("--checksum", default="", help="its sha256")
+    parser.add_argument("--repository", default="", help="GitHub owner/repository for provenance verification")
     parser.add_argument("--signed", action="store_true", help="a signature is attached as well")
     parser.add_argument("--commit-url", default="", help="prefix a commit id is a link under")
     parser.add_argument("--built-from", default="", help="the commit it was built from")
@@ -150,7 +163,7 @@ def main():
 
     note = [said, ""]
     if args.file:
-        note += [installing(args.file, args.url, args.checksum, args.signed), ""]
+        note += [installing(args.file, args.url, args.checksum, args.signed, args.repository), ""]
     note.append(
         f"{len(entries)} commit(s) since {earlier}." if earlier
         else f"{len(entries)} commit(s), the first release."

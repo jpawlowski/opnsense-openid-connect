@@ -84,6 +84,8 @@ Checks::that('an installation-specific provider label may differ from Descriptiv
 Checks::that('custom full button text is read literally', connector([
     'openidconnect_button_custom_text' => 'Continue through the identity portal',
 ])->customButtonText(), 'Continue through the identity portal');
+Checks::that('Generic OpenID Connect uses its neutral icon by default', connector([])->iconUrl(),
+    '/api/openidconnect/auth/builtinicon/general');
 Checks::that('icon rendering', connector([])->iconMode(), 'monochrome');
 Checks::that('maximum age, unset', connector([])->maximumAuthenticationAge(), 14400);
 Checks::that('maximum age, legacy empty value', connector(['openidconnect_max_age' => ''])->maximumAuthenticationAge(), 14400);
@@ -199,15 +201,16 @@ Checks::that('a self-hosted provider keeps all three wording choices editable', 
     'openidconnect_button_provider_label' => 'Company identity',
     'openidconnect_button_custom_text' => 'Continue to Company identity',
 ])->buttonTextMode(), 'custom');
-Checks::that('Generic OpenID Connect deliberately has no assumed brand icon',
-    $profilePresets['general']['values']['openidconnect_icon_url'], '');
-Checks::that('Generic OpenID Connect resolves no package icon',
-    OpenIDConnect::providerIconPath('general'), null);
+Checks::that('Generic OpenID Connect selects the neutral package icon',
+    $profilePresets['general']['values']['openidconnect_icon_url'],
+    '/api/openidconnect/auth/builtinicon/general');
+Checks::that('Generic OpenID Connect resolves its package icon',
+    basename((string)OpenIDConnect::providerIconPath('general')), 'general.svg');
 Checks::that('an unknown profile resolves no package icon',
     OpenIDConnect::providerIconPath('../keycloak'), null);
 $missingProfileIcons = [];
 $unsafeProfileIcons = [];
-foreach (array_slice($profilePresets, 1, null, true) as $profile => $preset) {
+foreach ($profilePresets as $profile => $preset) {
     $expectedUrl = '/api/openidconnect/auth/builtinicon/' . rawurlencode($profile);
     if (($preset['values']['openidconnect_icon_url'] ?? '') !== $expectedUrl) {
         $missingProfileIcons[] = $profile . ':preset';
@@ -227,7 +230,7 @@ foreach (array_slice($profilePresets, 1, null, true) as $profile => $preset) {
         $unsafeProfileIcons[] = $profile;
     }
 }
-Checks::that('every named provider preset selects its package-owned SVG', $missingProfileIcons, []);
+Checks::that('every provider preset selects its package-owned SVG', $missingProfileIcons, []);
 Checks::that('every package-owned provider SVG is small and self-contained', $unsafeProfileIcons, []);
 Checks::that('an existing named profile without a saved icon gains the package default', connector([
     'openidconnect_provider_profile' => 'keycloak',

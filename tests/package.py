@@ -259,9 +259,9 @@ def main():
         for n in contents
         if "/OPNsense/OpenIDConnect/assets/provider-icons/" in n and n.endswith(".svg")
     }
-    check("every named provider has one package-owned icon", provider_icons, {
+    check("every provider profile has one package-owned icon", provider_icons, {
         "apple.svg", "auth0.svg", "authentik.svg", "authelia.svg", "cognito.svg",
-        "dex.svg", "duo.svg", "entra.svg", "fusionauth.svg", "gitlab.svg",
+        "dex.svg", "duo.svg", "entra.svg", "fusionauth.svg", "general.svg", "gitlab.svg",
         "google.svg", "ibm_verify.svg", "jumpcloud.svg", "keycloak.svg",
         "linkedin.svg", "okta.svg", "onelogin.svg", "oracle_idcs.svg", "orcid.svg",
         "ping.svg", "pocketid.svg", "slack.svg", "wso2.svg", "yahoo.svg",

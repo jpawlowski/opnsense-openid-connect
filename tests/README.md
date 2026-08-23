@@ -2,14 +2,15 @@
 
     ./tests/run.sh
 
-The audit report keeps a machine-managed snapshot of this command. Refresh it
-after a meaningful test run with:
+The audit report is generated completely from this command. Refresh it after a
+meaningful test run with:
 
     python3 tests/update-audit-report.py --update
 
 `--check` runs the same suite without changing the report and fails when the
-snapshot is stale. A failing suite is recorded as failed, including stages not
-reached because the runner stops at the first failing stage.
+report is stale. A failing suite is recorded as failed, including stages not
+reached because the runner stops at the first failing stage. Historical manual
+claims are not carried forward without current machine-readable evidence.
 
 This is the fast, host-independent gate used by hand, by an agent Stop hook and
 by the pipeline, so a failure looks the same in all three places. Nothing in it

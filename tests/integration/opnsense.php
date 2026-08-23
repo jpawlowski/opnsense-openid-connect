@@ -161,6 +161,16 @@ $check(
     is_string($iconPath) && is_readable($iconPath) && str_contains((string)file_get_contents($iconPath), '<svg'),
     'the selected provider icon is installed as a readable SVG'
 );
+$genericIcon = new OpenIDConnect();
+$genericIcon->setProperties(['openidconnect_provider_profile' => 'general']);
+$genericIconPath = OpenIDConnect::providerIconPath('general');
+$check(
+    $genericIcon->iconUrl() === '/api/openidconnect/auth/builtinicon/general'
+        && is_string($genericIconPath)
+        && is_readable($genericIconPath)
+        && str_contains((string)file_get_contents($genericIconPath), '>OIDC</text>'),
+    'Generic OpenID Connect receives the installed neutral OIDC icon'
+);
 $fixedButton = new OpenIDConnect();
 $fixedButton->setProperties([
     'openidconnect_provider_profile' => 'google',

@@ -124,6 +124,7 @@ async function configureServer(page) {
   const buttonTextMode = page.locator('select[name="openidconnect_button_text_mode"]');
   const buttonProviderLabel = page.locator('input[name="openidconnect_button_provider_label"]');
   const customButtonText = page.locator('input[name="openidconnect_button_custom_text"]');
+  await expect(iconField).toHaveValue('/api/openidconnect/auth/builtinicon/general');
   await expect(buttonTextMode).toHaveValue('localized');
   await expect(buttonTextMode.locator('xpath=ancestor::tr')).toBeVisible();
   await expect(buttonProviderLabel.locator('xpath=ancestor::tr')).toBeVisible();
