@@ -9,11 +9,10 @@ There is no version number in the source that anyone could forget to bump.
 
     git tag -a v1.2.3 -m "..." && git push --tags
 
-That is all it takes: the pipeline builds the package, writes the release note
-and attaches both. Both pipelines, in fact — `.forgejo/workflows/build.yml` and
-`.github/workflows/build.yml` run the same checks by the same commands, so the
-mirror is not a second set of rules. Only the release step differs, because the
-two forges do not offer releases the same way.
+That is all it takes: GitHub builds the package, writes the release note and
+attaches both. `.github/workflows/build.yml` remains valid Forgejo Actions
+syntax, but the Forgejo repository is a pull mirror and never publishes a
+release of its own.
 
 A tag with a suffix is a pre-release: `v1.0.0-beta1` becomes package version
 `1.0.0.beta1` — a hyphen is what `pkg` reads as the end of a package's name, so
@@ -41,6 +40,13 @@ enforced and what is read cannot drift apart.
     python3 packaging/build.py --check    # check only, write nothing
 
 The result is `packaging/dist/os-openid-connect-<version>.pkg`.
+
+After a successful GitHub `main` or manually requested CI run, the workflow
+keeps that commit-versioned package and its checksum as a downloadable **CI
+snapshot** for 14 days. It deliberately does not upload packages built from
+pull requests, and the read-only Forgejo mirror keeps no duplicate artifact. A
+snapshot is never reused as a release asset: release tags rebuild and attest
+their own package at the immutable publication boundary.
 
 **It needs neither FreeBSD nor `pkg`.** A FreeBSD package is a compressed tar
 archive with `+COMPACT_MANIFEST` and `+MANIFEST` in front and the files under
