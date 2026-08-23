@@ -217,16 +217,21 @@ def main():
     check("both checkout steps use only the pinned Node 24 action",
           workflow.count(checkout_sha) == 2 and workflow.count("actions/checkout@") == 2, True)
     check("the GitHub CI snapshot uploader is pinned", workflow.count(github_upload_sha), 1)
-    check("CI snapshots expire and are not built for pull requests or tags",
-          workflow.count("retention-days: 14") == 1
+    check("CI snapshots cover pull requests but not tags, with shorter PR retention",
+          "retention-days: ${{ github.event_name == 'pull_request' && 3 || 14 }}" in workflow
+          and "untrusted-pr-{0}-{1}" in workflow
+          and workflow.count("github.event_name == 'pull_request' ||") == 2
           and "github.ref == 'refs/heads/main'" in workflow
           and workflow.count("github.event_name == 'workflow_dispatch'") == 2
           and workflow.count("!startsWith(github.ref, 'refs/tags/')") == 2, True)
     check("the read-only Forgejo mirror does not publish a second snapshot",
           "github.server_url == 'https://github.com'" in workflow
           and "forgejo/upload-artifact@" not in workflow, True)
-    check("a CI snapshot carries the package and its checksum",
-          "packaging/dist/*.pkg" in workflow and "packaging/dist/*.pkg.sha256" in workflow, True)
+    check("a CI snapshot carries the package, its checksum and a trust notice",
+          "packaging/dist/*.pkg" in workflow
+          and "packaging/dist/*.pkg.sha256" in workflow
+          and "packaging/dist/CI-SNAPSHOT.txt" in workflow
+          and "UNTRUSTED PULL REQUEST SNAPSHOT" in workflow, True)
     check("the provenance action is pinned", workflow.count(attest_sha), 1)
     check("only a GitHub tag push can enter the publication job",
           "github.event_name == 'push'" in workflow

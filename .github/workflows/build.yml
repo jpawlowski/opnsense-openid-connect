@@ -62,18 +62,39 @@ jobs:
         # which GitHub and Forgejo write to the same place in the same shape.
         run: python3 packaging/commit-lint.py --pushed
 
-      - name: Build a non-release CI snapshot
+      - name: Build a temporary CI snapshot
         if: >-
           github.server_url == 'https://github.com' &&
-          ((github.event_name == 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/')) ||
+          (github.event_name == 'pull_request' ||
+          (github.event_name == 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/')) ||
           (github.event_name == 'push' && github.ref == 'refs/heads/main'))
         run: |
           set -eu
+          # tests/package.py has already built its fixed-version fixture. Keep the
+          # downloadable snapshot unambiguous: exactly the commit-versioned package.
+          find packaging/dist -maxdepth 1 -type f \
+            \( -name '*.pkg' -o -name '*.pkg.sha256' -o -name 'CI-SNAPSHOT.txt' \) -delete
           python3 packaging/build.py
           package=$(find packaging/dist -type f -name '*.pkg' -print -quit)
           test -n "$package"
           checksum=$(sha256sum "$package" | cut -d' ' -f1)
           printf '%s  %s\n' "$checksum" "$(basename "$package")" > "$package.sha256"
+
+          if [ "$GITHUB_EVENT_NAME" = 'pull_request' ]; then
+            printf '%s\n' \
+              'UNTRUSTED PULL REQUEST SNAPSHOT' \
+              '' \
+              'This package contains contributor-controlled pull request code.' \
+              'It is neither a release nor signed or attested as one.' \
+              'Use it only for deliberate manual testing.' \
+              "Built from GitHub workflow commit: $GITHUB_SHA" > packaging/dist/CI-SNAPSHOT.txt
+          else
+            printf '%s\n' \
+              'TEMPORARY CI SNAPSHOT' \
+              '' \
+              'This package is for manual testing and is never promoted to a release.' \
+              "Built from GitHub workflow commit: $GITHUB_SHA" > packaging/dist/CI-SNAPSHOT.txt
+          fi
 
       # GitHub's v7.0.1 uploader uses Node 24. Forgejo 16 requires a different
       # patched action which GitHub refuses while preparing a job, even on a
@@ -82,16 +103,23 @@ jobs:
       - name: Keep the CI snapshot for trying out on GitHub
         if: >-
           github.server_url == 'https://github.com' &&
-          ((github.event_name == 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/')) ||
+          (github.event_name == 'pull_request' ||
+          (github.event_name == 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/')) ||
           (github.event_name == 'push' && github.ref == 'refs/heads/main'))
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: os-openid-connect-ci-${{ github.sha }}
+          name: >-
+            os-openid-connect-${{
+              github.event_name == 'pull_request'
+              && format('untrusted-pr-{0}-{1}', github.event.pull_request.number, github.sha)
+              || format('ci-{0}', github.sha)
+            }}
           path: |
             packaging/dist/*.pkg
             packaging/dist/*.pkg.sha256
+            packaging/dist/CI-SNAPSHOT.txt
           if-no-files-found: error
-          retention-days: 14
+          retention-days: ${{ github.event_name == 'pull_request' && 3 || 14 }}
           compression-level: 0
 
   release:
