@@ -82,21 +82,30 @@ agents write the same worktree or branch. When several agents support one pull
 request, exactly one agent owns its publishing branch; the others hand over
 focused commits for that agent to integrate.
 
-The startup hook serializes remote access across worktrees, refreshes the shared
-`origin/main` at most once per interval, and fast-forwards clean local `main`
-only. It never changes an agent's topic branch. Treat `origin/main` after that
-fetch as the source of truth. If the hook reports overlapping paths, pause and
-integrate deliberately before publishing.
+The startup hook compares the `origin` fetch URL with the canonical repository.
+For a direct clone, it treats `origin/main` as the source of truth and adds no
+remote. For a GitHub fork, `origin` remains the writable publishing remote and
+the hook creates `upstream` for the canonical repository with pushing disabled;
+`upstream/main` is then the source of truth. It refuses to overwrite an existing
+`upstream` that points elsewhere. Resolve that name conflict deliberately.
+
+The hook serializes fetches across worktrees, refreshes the canonical base and
+the publishing remote at most once per interval, and fast-forwards clean local
+`main` only. It never changes an agent's topic branch or pushes canonical main
+to a fork. GitHub's Sync fork button is not required. Start new work from the
+reported canonical ref, not from a possibly stale fork `main`. If the hook
+reports lag or overlapping paths, integrate deliberately before publishing.
 
 Immediately before a push, pull request update, or review handoff, require a
 fresh remote view:
 
     python3 .agents/hooks/fast_gate.py refresh
 
-Rebase an unpublished private branch onto `origin/main`. Do not routinely
-rewrite a published branch; merge `origin/main` only when its changes are
-relevant or GitHub requires an up-to-date branch. Either operation changes the
-head and invalidates an earlier review.
+Rebase an unpublished private branch onto the reported `origin/main` or
+`upstream/main`. Do not routinely rewrite a published branch; merge the
+canonical ref only when its changes are relevant or GitHub requires an
+up-to-date branch. Either operation changes the head and invalidates an earlier
+review.
 
 ### Publishing
 
@@ -106,6 +115,8 @@ Without write access, reuse or create a personal fork and push the branch to
 that writable head. In either case, open the pull request against
 `jpawlowski/opnsense-openid-connect:main`.
 For a cross-repository head, identify it as `<fork-owner>:<branch>`.
+Push only the topic branch to `origin`; keeping the fork's own `main` synchronized
+is optional and is not part of the contribution procedure.
 
     gh repo view jpawlowski/opnsense-openid-connect \
         --json viewerPermission --jq .viewerPermission

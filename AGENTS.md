@@ -52,12 +52,15 @@ agents write the same worktree or branch. One integrating agent owns a pull
 request branch; supporting agents hand over commits instead of editing or
 pushing that branch themselves.
 
-`origin/main` after a fetch is the remote source of truth. The shared startup
-and Stop hook serializes fetches, keeps a clean local `main` as a fast-forward
-mirror, and reports path overlap without changing the current topic branch.
-Before any push, pull-request update, or review handoff, run the explicit
-refresh command above. Rebase an unpublished branch; do not routinely rewrite
-a published branch, and request a new review after any head change.
+The shared startup hook identifies the canonical base from the `origin` fetch
+URL. A direct clone uses `origin/main`; a GitHub fork keeps `origin` for
+publishing and gains a push-disabled `upstream`, then uses `upstream/main`.
+It serializes fetches, keeps clean local `main` as a fast-forward mirror, and
+reports lag or path overlap without changing the topic branch. Before any push,
+pull-request update, or review handoff, run the explicit refresh command above.
+Start from the reported canonical ref, rebase an unpublished branch, do not
+routinely rewrite a published branch, and request a new review after a head
+change. Never push an automatic `main` synchronization to a contributor fork.
 
 ## Rules that are not preferences
 

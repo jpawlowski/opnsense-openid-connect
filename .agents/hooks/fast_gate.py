@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from urllib.parse import urlparse
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -30,6 +31,9 @@ START_FETCH_TTL = 5 * 60
 ACTIVE_FETCH_TTL = 10 * 60
 FETCH_TIMEOUT = 20
 LOCK_TIMEOUT = 5
+CANONICAL_REPOSITORY = "jpawlowski/opnsense-openid-connect"
+CANONICAL_FETCH_URL = f"https://github.com/{CANONICAL_REPOSITORY}.git"
+READ_ONLY_PUSH_URL = "disabled://canonical-upstream-is-read-only"
 
 
 def event_input():
@@ -67,6 +71,62 @@ def repository_git(repository, *arguments, check=True, timeout=None):
 def git_value(repository, *arguments):
     result = repository_git(repository, *arguments, check=False)
     return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def github_repository(url):
+    """Return owner/repository for the GitHub URL forms Git commonly uses."""
+    value = url.strip()
+    if value.startswith("git@github.com:"):
+        path = value.removeprefix("git@github.com:")
+    else:
+        parsed = urlparse(value)
+        if parsed.hostname != "github.com":
+            return None
+        path = parsed.path
+    parts = path.strip("/").removesuffix(".git").split("/")
+    if len(parts) != 2 or not all(parts):
+        return None
+    return "/".join(parts).lower()
+
+
+def ensure_remote_topology(repository):
+    """Choose the canonical base without confusing a contributor fork with it."""
+    origin_url = git_value(repository, "remote", "get-url", "origin")
+    identity = github_repository(origin_url)
+    if not origin_url or identity in (None, CANONICAL_REPOSITORY):
+        return {
+            "base_remote": "origin",
+            "base_ref": "refs/remotes/origin/main",
+            "base_name": "origin/main",
+            "fetch_remotes": ("origin",),
+            "identity": f"origin\0{origin_url}",
+            "fork": False,
+        }
+
+    upstream_url = git_value(repository, "remote", "get-url", "upstream")
+    if upstream_url and github_repository(upstream_url) != CANONICAL_REPOSITORY:
+        raise RuntimeError(
+            f"remote 'upstream' already points to {upstream_url}; it was not replaced with {CANONICAL_FETCH_URL}"
+        )
+    if not upstream_url:
+        repository_git(repository, "remote", "add", "upstream", CANONICAL_FETCH_URL)
+
+    # A contributor publishes through origin. The canonical remote must never
+    # become an accidental push target, even when credentials allow a push.
+    repository_git(repository, "config", "--local", "--unset-all", "remote.upstream.pushurl", check=False)
+    repository_git(repository, "config", "--local", "--add", "remote.upstream.pushurl", READ_ONLY_PUSH_URL)
+    repository_git(
+        repository, "config", "--local", "--replace-all", "remote.upstream.fetch",
+        "+refs/heads/*:refs/remotes/upstream/*",
+    )
+    return {
+        "base_remote": "upstream",
+        "base_ref": "refs/remotes/upstream/main",
+        "base_name": "upstream/main",
+        "fetch_remotes": ("upstream", "origin"),
+        "identity": f"upstream\0{origin_url}\0{CANONICAL_FETCH_URL}",
+        "fork": True,
+    }
 
 
 def common_git_directory(repository):
@@ -149,25 +209,25 @@ def checked_out_main(repository):
     return None
 
 
-def fast_forward_main(repository, origin_main):
+def fast_forward_main(repository, base_ref, base_name, base_main):
     local_main = git_value(repository, "rev-parse", "--verify", "refs/heads/main")
-    if not origin_main:
-        return "origin/main does not exist after the fetch"
-    if local_main == origin_main:
+    if not base_main:
+        return f"{base_name} does not exist after the fetch"
+    if local_main == base_main:
         return ""
     if local_main and repository_git(
-        repository, "merge-base", "--is-ancestor", local_main, origin_main, check=False,
+        repository, "merge-base", "--is-ancestor", local_main, base_main, check=False,
     ).returncode != 0:
-        return "local main has commits outside origin/main and was not changed"
+        return f"local main has commits outside {base_name} and was not changed"
 
     main_worktree = checked_out_main(repository)
     if main_worktree is not None:
         if git_value(main_worktree, "status", "--porcelain"):
             return f"the main control worktree at {main_worktree} is not clean and was not changed"
-        repository_git(main_worktree, "merge", "--ff-only", "refs/remotes/origin/main")
+        repository_git(main_worktree, "merge", "--ff-only", base_ref)
         return ""
 
-    arguments = ["update-ref", "refs/heads/main", origin_main]
+    arguments = ["update-ref", "refs/heads/main", base_main]
     if local_main:
         arguments.append(local_main)
     repository_git(repository, *arguments)
@@ -175,47 +235,57 @@ def fast_forward_main(repository, origin_main):
 
 
 def synchronize_repository(repository, max_age, required=False):
-    """Refresh origin once for all worktrees and safely mirror it to local main."""
+    """Refresh the canonical base once for all worktrees and safely mirror main."""
     with RepositoryLock(repository):
         configure_repository(repository)
+        topology = ensure_remote_topology(repository)
         path = sync_state_path(repository)
         state = load_json(path)
         now = time.time()
         last_attempt = float(state.get("attempted_at", 0))
-        old_origin = git_value(repository, "rev-parse", "--verify", "refs/remotes/origin/main")
+        old_base = git_value(repository, "rev-parse", "--verify", topology["base_ref"])
         fetched = False
         warning = str(state.get("error", ""))
+        topology_changed = state.get("topology") != topology["identity"]
 
-        if required or now - last_attempt >= max_age:
+        if required or topology_changed or now - last_attempt >= max_age:
             state["attempted_at"] = now
-            try:
-                result = repository_git(
-                    repository, "fetch", "--atomic", "--prune", "origin",
-                    check=False, timeout=FETCH_TIMEOUT,
-                )
-                if result.returncode != 0:
-                    warning = result.stderr.strip() or "git fetch failed"
-                    state["error"] = warning
-                else:
-                    fetched = True
-                    warning = ""
-                    state["fetched_at"] = now
-                    state.pop("error", None)
-            except subprocess.TimeoutExpired:
-                warning = f"git fetch exceeded {FETCH_TIMEOUT} seconds"
+            state["topology"] = topology["identity"]
+            errors = []
+            for remote in topology["fetch_remotes"]:
+                try:
+                    result = repository_git(
+                        repository, "fetch", "--atomic", "--prune", remote,
+                        check=False, timeout=FETCH_TIMEOUT,
+                    )
+                    if result.returncode != 0:
+                        errors.append(f"{remote}: {result.stderr.strip() or 'git fetch failed'}")
+                    elif remote == topology["base_remote"]:
+                        fetched = True
+                except subprocess.TimeoutExpired:
+                    errors.append(f"{remote}: git fetch exceeded {FETCH_TIMEOUT} seconds")
+            warning = "; ".join(errors)
+            if warning:
                 state["error"] = warning
+            else:
+                state["fetched_at"] = now
+                state.pop("error", None)
             save_json(path, state)
 
         if warning and required:
-            raise RuntimeError(f"origin/main could not be refreshed: {warning}")
+            raise RuntimeError(f"{topology['base_name']} could not be refreshed: {warning}")
 
-        new_origin = git_value(repository, "rev-parse", "--verify", "refs/remotes/origin/main")
-        main_warning = fast_forward_main(repository, new_origin)
+        new_base = git_value(repository, "rev-parse", "--verify", topology["base_ref"])
+        main_warning = fast_forward_main(
+            repository, topology["base_ref"], topology["base_name"], new_base,
+        )
         warnings = [message for message in (warning, main_warning) if message]
         return {
             "fetched": fetched,
-            "old_origin": old_origin,
-            "origin_main": new_origin,
+            "old_base": old_base,
+            "base_main": new_base,
+            "base_name": topology["base_name"],
+            "fork": topology["fork"],
             "warning": "; ".join(warnings),
         }
 
@@ -259,9 +329,9 @@ def path_output(repository, *arguments):
     return {line for line in output.splitlines() if line}
 
 
-def work_paths(repository, origin_main):
+def work_paths(repository, base_main):
     found = set()
-    base = git_value(repository, "merge-base", "HEAD", origin_main) if origin_main else ""
+    base = git_value(repository, "merge-base", "HEAD", base_main) if base_main else ""
     if base:
         found.update(path_output(repository, "diff", "--name-only", f"{base}..HEAD", "--"))
     found.update(path_output(repository, "diff", "--name-only", "--"))
@@ -270,26 +340,39 @@ def work_paths(repository, origin_main):
     return found
 
 
-def main_progress(repository, state, origin_main):
+def main_progress(repository, state, base_main, base_name):
     base = state.get("base_main")
     seen = state.get("seen_main")
-    if not base or not origin_main or origin_main in (base, seen):
+    if not base or not base_main or base_main in (base, seen):
         return ""
 
-    changed = path_output(repository, "diff", "--name-only", f"{base}..{origin_main}", "--")
-    overlap = sorted(changed & work_paths(repository, origin_main))
-    count = git_value(repository, "rev-list", "--count", f"{base}..{origin_main}") or "unknown"
-    state["seen_main"] = origin_main
+    changed = path_output(repository, "diff", "--name-only", f"{base}..{base_main}", "--")
+    overlap = sorted(changed & work_paths(repository, base_main))
+    count = git_value(repository, "rev-list", "--count", f"{base}..{base_main}") or "unknown"
+    state["seen_main"] = base_main
     if overlap:
         preview = ", ".join(overlap[:8])
         suffix = ", …" if len(overlap) > 8 else ""
         return (
-            f"origin/main advanced by {count} commit(s) since this task began and overlaps this work in: "
+            f"{base_name} advanced by {count} commit(s) since this task began and overlaps this work in: "
             f"{preview}{suffix}. Refresh and integrate deliberately before publishing; no merge or rebase was run."
         )
     return (
-        f"origin/main advanced by {count} commit(s) since this task began without a changed-path overlap. "
+        f"{base_name} advanced by {count} commit(s) since this task began without a changed-path overlap. "
         "The working branch was left unchanged."
+    )
+
+
+def branch_lag(repository, base_main, base_name):
+    branch = git_value(repository, "symbolic-ref", "--short", "HEAD")
+    if not branch or branch == "main" or not base_main:
+        return ""
+    count = git_value(repository, "rev-list", "--count", f"HEAD..{base_main}")
+    if not count or count == "0":
+        return ""
+    return (
+        f"The current branch {branch} is {count} commit(s) behind {base_name}. "
+        "It was not rebased or merged automatically."
     )
 
 
@@ -310,20 +393,21 @@ def initialize(event):
         state = {
             "passed": fingerprint(),
             "failed": None,
-            "base_main": synchronization["origin_main"],
-            "seen_main": synchronization["origin_main"],
+            "base_main": synchronization["base_main"],
+            "seen_main": synchronization["base_main"],
         }
     else:
-        state.setdefault("base_main", synchronization["origin_main"])
-        state.setdefault("seen_main", synchronization["origin_main"])
+        state.setdefault("base_main", synchronization["base_main"])
+        state.setdefault("seen_main", synchronization["base_main"])
     save_state(state_path, state)
 
     branch = git_value(REPOSITORY, "symbolic-ref", "--short", "HEAD")
     branch_warning = ""
     if branch in ("", "main"):
         branch_warning = "Agent changes need their own topic branch and worktree; do not edit main or a detached HEAD."
-    emit({"systemMessage": messages(synchronization["warning"], branch_warning)} if
-         synchronization["warning"] or branch_warning else {})
+    lag_warning = branch_lag(REPOSITORY, synchronization["base_main"], synchronization["base_name"])
+    notice = messages(synchronization["warning"], branch_warning, lag_warning)
+    emit({"systemMessage": notice} if notice else {})
 
 
 def cleanup(event):
@@ -356,14 +440,16 @@ def stop(event):
         state = {
             "passed": current,
             "failed": None,
-            "base_main": synchronization["origin_main"],
-            "seen_main": synchronization["origin_main"],
+            "base_main": synchronization["base_main"],
+            "seen_main": synchronization["base_main"],
         }
         save_state(state_path, state)
         emit({"systemMessage": synchronization["warning"]} if synchronization["warning"] else {})
         return
 
-    progress = main_progress(REPOSITORY, state, synchronization["origin_main"])
+    progress = main_progress(
+        REPOSITORY, state, synchronization["base_main"], synchronization["base_name"],
+    )
     notice = messages(synchronization["warning"], progress)
     save_state(state_path, state)
 
@@ -402,15 +488,19 @@ def refresh(event):
     state_path, _ = state_paths(event)
     state = load_state(state_path) or {
         "passed": fingerprint(), "failed": None,
-        "base_main": synchronization["origin_main"],
-        "seen_main": synchronization["origin_main"],
+        "base_main": synchronization["base_main"],
+        "seen_main": synchronization["base_main"],
     }
-    state.setdefault("base_main", synchronization["origin_main"])
-    state.setdefault("seen_main", synchronization["origin_main"])
-    progress = main_progress(REPOSITORY, state, synchronization["origin_main"])
+    state.setdefault("base_main", synchronization["base_main"])
+    state.setdefault("seen_main", synchronization["base_main"])
+    progress = main_progress(
+        REPOSITORY, state, synchronization["base_main"], synchronization["base_name"],
+    )
     save_state(state_path, state)
-    origin = synchronization["origin_main"][:12] if synchronization["origin_main"] else "unavailable"
-    emit({"systemMessage": messages(f"origin/main is {origin}; local main is a safe fast-forward mirror.", progress)})
+    base = synchronization["base_main"][:12] if synchronization["base_main"] else "unavailable"
+    emit({"systemMessage": messages(
+        f"{synchronization['base_name']} is {base}; local main is a safe fast-forward mirror.", progress,
+    )})
 
 
 def main():

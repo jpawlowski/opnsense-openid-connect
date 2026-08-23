@@ -40,6 +40,15 @@ GitHub may hold the workflow of a first-time fork contributor for maintainer
 approval. That is an expected security review, not a failed check; do not close
 and recreate the pull request while it waits.
 
+For a fork clone, keep `origin` as the writable fork and use the canonical
+repository as a read-only `upstream`. Agent startup recognizes the fork from
+the `origin` fetch URL, creates that `upstream` with pushing disabled, and uses
+`upstream/main` as the base. A direct canonical clone needs no extra remote and
+uses `origin/main`. An existing `upstream` with another destination is never
+overwritten. GitHub's Sync fork button and a current fork `main` are optional:
+create and push the topic branch through `origin`, but derive and refresh it
+from the canonical ref.
+
 Before opening a pull request, an agent validates the exact proposed title and
 body locally:
 
@@ -172,11 +181,10 @@ clones, so the pipeline remains authoritative.
 For parallel agents, Git's ordinary repository configuration would be shared
 between linked worktrees. The agent hook therefore enables worktree-specific
 configuration and stores the absolute template path separately for each tree.
-It also serializes periodic `origin` fetches, treats `origin/main` as the
-remote source of truth, keeps local `main` as a safe
-fast-forward mirror, and reports overlap with work already in progress. It never
-rebases or merges an agent branch automatically. Before publishing, an agent
-runs:
+It also serializes periodic fetches of the selected canonical ref, keeps local
+`main` as a safe fast-forward mirror, and reports lag and overlap with work
+already in progress. It never rebases, merges, or pushes an agent branch
+automatically. Before publishing, an agent runs:
 
     python3 .agents/hooks/fast_gate.py refresh
 
