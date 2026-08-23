@@ -24,25 +24,34 @@ $config = Config::getInstance()->lock(true);
 $root = $config->object();
 $uid = null;
 $removedUser = false;
+$removedUids = [];
+$removedUsernames = [];
 $removedServer = false;
 $removedPending = 0;
+$cleanupUsernames = [$username, $username . '-inline'];
 
 for ($index = count($root->system->user) - 1; $index >= 0; $index--) {
     $user = $root->system->user[$index];
-    if ((string)$user->name === $username && (string)($user->scope ?? '') === 'automation') {
-        $uid = (string)$user->uid;
+    if (in_array((string)$user->name, $cleanupUsernames, true)
+        && (string)($user->scope ?? '') === 'automation') {
+        if ((string)$user->name === $username) {
+            $uid = (string)$user->uid;
+        }
         if ($action === 'cleanup') {
+            $removedUids[] = (string)$user->uid;
+            $removedUsernames[] = (string)$user->name;
             unset($root->system->user[$index]);
             $removedUser = true;
         }
     }
 }
 
-if ($uid !== null) {
+$uidsToUnlink = $action === 'cleanup' ? $removedUids : ($uid === null ? [] : [$uid]);
+if ($uidsToUnlink !== []) {
     foreach ($root->system->group as $group) {
         $members = array_values(array_filter(
             explode(',', implode(',', (array)$group->member)),
-            static fn($member) => $member !== '' && $member !== $uid
+            static fn($member) => $member !== '' && !in_array($member, $uidsToUnlink, true)
         ));
         unset($group->member);
         if ($members !== []) {
@@ -74,8 +83,8 @@ for ($index = count($root->system->authserver) - 1; $index >= 0; $index--) {
 
 $config->save();
 $config->unlock();
-if ($removedUser) {
-    (new Backend())->configdpRun('auth sync user', [$username]);
+foreach ($removedUsernames as $removedUsername) {
+    (new Backend())->configdpRun('auth sync user', [$removedUsername]);
 }
 
 foreach (PendingIdentityRegistry::listing($applicationCode) as $pending) {

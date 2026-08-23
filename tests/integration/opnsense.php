@@ -319,6 +319,11 @@ $aclWriterName = 'openidconnect-authserver-writer-' . bin2hex(random_bytes(6));
 $aclWriter->addChild('name', $aclWriterName);
 $aclWriter->addChild('uid', '65002');
 $aclWriter->addChild('priv', 'page-system-authservers');
+$aclAccountWriter = $system->addChild('user');
+$aclAccountWriterName = 'openidconnect-account-writer-' . bin2hex(random_bytes(6));
+$aclAccountWriter->addChild('name', $aclAccountWriterName);
+$aclAccountWriter->addChild('uid', '65003');
+$aclAccountWriter->addChild('priv', 'page-system-authservers,page-system-usermanager');
 $delegatedAcl = new ACL();
 $check($delegatedAcl->isPageAccessible($aclProbeName, '/system_authservers.php'),
     'authentication-server privilege retains the core server page');
@@ -349,6 +354,16 @@ try {
 } catch (\Throwable $e) {
     $check(true, 'the identity manager refuses a user-config-readonly mutation');
 }
+$accountGuardMethod = new ReflectionMethod(ApprovalController::class, 'mayCreateAccounts');
+$managerGuard->assumeUser($aclWriterName);
+$check(!$accountGuardMethod->invoke($managerGuard),
+    'authentication-server administration alone cannot create local accounts');
+$managerGuard->assumeUser($aclAccountWriterName);
+$check($accountGuardMethod->invoke($managerGuard),
+    'inline account creation also accepts the native access-management privilege');
+$managerGuard->assumeUser($aclProbeName);
+$check(!$accountGuardMethod->invoke($managerGuard),
+    'the read-only guard also disables inline account creation');
 $validated('runtime-core-acl');
 
 /* Exercise the connector against the real core configuration object without saving a

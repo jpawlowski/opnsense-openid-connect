@@ -28,6 +28,30 @@ class ApprovalController extends PrivateApiControllerBase
                 'subject_guidance' => $settings->subjectGuidance(),
                 'approval_enabled' => $settings->bootstrapMode() === 'approval',
                 'writable' => $this->mayWriteConfiguration(),
+                'account_creation_allowed' => $this->mayCreateAccounts(),
+            ];
+        } catch (\Throwable $e) {
+            return ['status' => 'error', 'message' => $e->getMessage()];
+        }
+    }
+
+    public function createAccountAction(): array
+    {
+        $this->response->setContentType('application/json', 'UTF-8');
+        try {
+            $this->requireAuthenticationServerAdministration(true);
+            $this->requireAccountAdministration();
+            $username = trim((string)$this->request->getPost('username', null, ''));
+            $account = $this->settings()->createManagedAccount($username);
+            if ($account === null) {
+                throw new \RuntimeException(gettext(
+                    'The local account could not be created. Choose a new valid username and try again.'
+                ));
+            }
+            return [
+                'status' => 'ok',
+                'message' => gettext('The local account was created with no local login password or privileges.'),
+                'account' => $account,
             ];
         } catch (\Throwable $e) {
             return ['status' => 'error', 'message' => $e->getMessage()];
@@ -161,6 +185,26 @@ class ApprovalController extends PrivateApiControllerBase
     private function mayWriteConfiguration(): bool
     {
         return !(new ACL())->hasPrivilege((string)$this->getUserName(), 'user-config-readonly');
+    }
+
+    private function requireAccountAdministration(): void
+    {
+        if (!$this->mayCreateAccounts()) {
+            throw new \RuntimeException(gettext(
+                'Creating a local account also requires the System: Access: Management privilege.'
+            ));
+        }
+    }
+
+    private function mayCreateAccounts(): bool
+    {
+        if (!$this->mayWriteConfiguration()) {
+            return false;
+        }
+        $acl = new ACL();
+        $username = (string)$this->getUserName();
+        return $acl->hasPrivilege($username, 'page-all')
+            || $acl->hasPrivilege($username, 'page-system-usermanager');
     }
 
     private function settings(): OpenIDConnect

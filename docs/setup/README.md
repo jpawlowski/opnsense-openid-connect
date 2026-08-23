@@ -216,11 +216,12 @@ recovery path when the provider or its configuration is unavailable.
 
 - **Strict** (the Generic profile default): save the server, open **Manage
   identities**, select **Add identity binding**, and map the exact verified
-  issuer and `sub` to an existing local account before the first login.
+  issuer and `sub` to an existing or newly created local account before the
+  first login.
 - **Administrator approval** (the default for every named profile): a valid but
   unbound identity receives no WebGUI session. It is queued for an administrator
-  to review and bind to an existing local account. This is recommended for social
-  login and other unknown first identities.
+  to review and bind to an existing or newly created local account. This is
+  recommended for social login and other unknown first identities.
 - **Bootstrap by exact local username**: allow one initial match using the
   configured username claim. This is practical for a controlled first test.
 - **Bootstrap by unique verified e-mail**: allow one initial match only when

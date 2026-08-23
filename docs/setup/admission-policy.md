@@ -32,11 +32,11 @@ select **Manage identities**. The modal window deliberately combines the two
 sides of admission:
 
 - **Bound identities** lists every durable exact issuer/subject binding. An
-  administrator can add, edit or remove a binding and choose the target from
-  eligible existing local accounts.
+  administrator can add, edit or remove a binding. A new binding can target an
+  eligible existing local account or create a new one in place.
 - **Pending administrator approvals** lists identities that completed a valid
   provider sign-in but received no WebGUI session. They can be approved into a
-  binding or denied.
+  binding with an existing or newly created local account, or denied.
 
 The raw storage representation is intentionally not exposed as a server-form
 field. Closing or saving the ordinary server form cannot overwrite a change
@@ -45,7 +45,14 @@ made in the manager.
 Reading the manager requires OPNsense's existing **System: Authentication
 Servers** privilege. Every create, edit, removal, approval and denial also
 honours **user-config-readonly**. These checks are repeated by the API; hiding
-or showing the button is not the security boundary.
+or showing the button is not the security boundary. Inline local-account
+creation additionally requires **System: Access: Management**.
+
+An inline-created account receives a scrambled password and no groups or
+privileges. It cannot sign in with a local password and receives no WebGUI
+access merely because it was bound. Assign the intended local groups or direct
+privileges under **System > Access > Users**; provider claims are never copied
+into them by this workflow.
 
 ### Recommended first-login workflow
 
@@ -57,20 +64,21 @@ or showing the button is not the security boundary.
    Access > Servers** and selects **Manage identities**.
 4. Compare the displayed provider hints, exact issuer and exact subject with
    information obtained from the user through a separate trusted channel.
-5. Choose an existing local account and select **Approve and bind**, or select
-   **Deny**. Approval does not copy provider privileges; the local account and
-   its local groups still decide authorization.
+5. Choose an existing local account or **Create a new local account**, then
+   select **Approve and bind**; alternatively, select **Deny**. Approval does
+   not copy provider privileges; the local account and its local groups still
+   decide authorization.
 6. The user starts a new login. Only the approved exact issuer/subject pair can
    use that binding.
 
 ### Add a binding manually
 
-Select **Add identity binding**, choose the local account, and enter the exact
-issuer and exact case-sensitive `sub` claim from a verified ID Token. The
-manager supplies provider-specific guidance and checks the issuer against the
-saved server. It also rejects an empty subject, control characters, overlong
-values, unavailable accounts and any attempt to bind an already-known
-`(issuer, sub)` to another account.
+Select **Add identity binding**, choose an existing local account or **Create a
+new local account**, and enter the exact issuer and exact case-sensitive `sub`
+claim from a verified ID Token. The manager supplies provider-specific guidance
+and checks the issuer against the saved server. It also rejects an empty
+subject, control characters, overlong values, unavailable accounts and any
+attempt to bind an already-known `(issuer, sub)` to another account.
 
 OIDC defines `sub` as an opaque identifier. Its visible form is not a portable
 validation rule: pairwise subject policies, federation and provider mappings
