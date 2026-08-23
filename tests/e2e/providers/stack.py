@@ -47,7 +47,10 @@ def bcrypt(password):
 
 
 def docker_run(name, network, image_reference, *arguments, environment=None, volumes=None, command=None):
-    command_line = ["docker", "run", "-d", "--name", name, "--network", network]
+    command_line = [
+        "docker", "run", "-d", "--name", name, "--network", network,
+        "--add-host", "opnsense.localhost:host-gateway",
+    ]
     for key, value in sorted((environment or {}).items()):
         command_line.extend(["-e", f"{key}={value}"])
     for source, target, options in volumes or []:

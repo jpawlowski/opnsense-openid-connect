@@ -7,6 +7,7 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repository=$(CDPATH= cd -- "$script_dir/../.." && pwd)
+. "$script_dir/ssh.sh"
 provider=
 canary=0
 
@@ -67,9 +68,9 @@ cleanup() {
     printf 'E2E resources retained in %s (exit %s).\n' "$work_dir" "$status" >&2
     exit "$status"
   fi
-  ssh -o BatchMode=yes "$E2E_OPNSENSE_SSH" \
+  e2e_ssh \
     "php '$remote_cleanup' '$E2E_TEST_USERNAME' '$E2E_APPLICATION_CODE'" >/dev/null 2>&1 || true
-  ssh -o BatchMode=yes "$E2E_OPNSENSE_SSH" \
+  e2e_ssh \
     "rm -f '$remote_cleanup' '$remote_ca' '$remote_package'; certctl rehash" >/dev/null 2>&1 || true
   python3 "$script_dir/providers/stack.py" stop --state "$state_file" >/dev/null 2>&1 || true
   # The directory contains only this run's random secrets and diagnostics.
@@ -85,14 +86,14 @@ python3 "$script_dir/providers/stack.py" start --provider "$provider" --run-id "
   --url "$provider_url" --work-dir "$work_dir" --state "$state_file" $canary_argument
 chmod 600 "$state_file"
 
-scp -q "$work_dir/ca.crt" "$E2E_OPNSENSE_SSH:$remote_ca"
-scp -q "$script_dir/remote-cleanup.php" "$E2E_OPNSENSE_SSH:$remote_cleanup"
-ssh -o BatchMode=yes "$E2E_OPNSENSE_SSH" "chmod 600 '$remote_ca' '$remote_cleanup'; certctl rehash"
+e2e_scp_to "$work_dir/ca.crt" "$remote_ca"
+e2e_scp_to "$script_dir/remote-cleanup.php" "$remote_cleanup"
+e2e_ssh "chmod 600 '$remote_ca' '$remote_cleanup'; certctl rehash"
 
 python3 "$repository/packaging/build.py" --version 0.0.0.e2e >/dev/null
 package="$repository/packaging/dist/os-openid-connect-0.0.0.e2e.pkg"
-scp -q "$package" "$E2E_OPNSENSE_SSH:$remote_package"
-ssh -o BatchMode=yes "$E2E_OPNSENSE_SSH" "pkg add -f '$remote_package' && pkg check -s os-openid-connect"
+e2e_scp_to "$package" "$remote_package"
+e2e_ssh "pkg add -f '$remote_package' && pkg check -s os-openid-connect"
 
 (cd "$script_dir" && npm ci --no-audit --no-fund >/dev/null && npx playwright install chromium >/dev/null)
 (cd "$script_dir" && npx playwright test --config provider.config.mjs)

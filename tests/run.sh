@@ -18,7 +18,8 @@ find src tests -type f \( -name '*.js' -o -name '*.mjs' \) \
     -not -path '*/node_modules/*' -print0 | xargs -0 -r -n1 node --check
 find .agents .codex packaging tests -name '*.py' -print0 | xargs -0 -n1 python3 -m py_compile
 python3 -m json.tool .codex/hooks.json >/dev/null
-for f in packaging/watch/openid-connect-watch packaging/hooks/* tests/run.sh; do sh -n "$f"; done
+for f in packaging/watch/openid-connect-watch packaging/hooks/* tests/run.sh tests/e2e/*.sh; do sh -n "$f"; done
+python3 tests/e2e/check.py
 echo 'all files parse'
 
 echo

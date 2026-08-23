@@ -7,6 +7,7 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repository=$(CDPATH= cd -- "$script_dir/../.." && pwd)
+. "$script_dir/ssh.sh"
 E2E_AUDIT_EXECUTION_STARTED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 if [ -n "${E2E_AUDIT_EVIDENCE:-}" ]; then
@@ -87,9 +88,9 @@ cleanup() {
     printf 'E2E resources retained for inspection in %s (exit %s).\n' "$work_dir" "$status" >&2
     exit "$status"
   fi
-  ssh -o BatchMode=yes "$E2E_OPNSENSE_SSH" \
+  e2e_ssh \
     "php '$remote_cleanup' '$E2E_TEST_USERNAME' '$E2E_APPLICATION_CODE'" >/dev/null 2>&1 || true
-  ssh -o BatchMode=yes "$E2E_OPNSENSE_SSH" \
+  e2e_ssh \
     "rm -f '$remote_cleanup' '$remote_ca' /tmp/os-openid-connect-e2e-${run_id}.pkg; certctl rehash" >/dev/null 2>&1 || true
   docker rm -f "$keycloak_container" "$proxy_container" "$zap_container" >/dev/null 2>&1 || true
   rm -rf "$work_dir"
@@ -139,6 +140,7 @@ http {
 EOF
 
 docker run -d --name "$proxy_container" -p "${E2E_BACKCHANNEL_PORT}:8443" \
+  --add-host "opnsense.localhost:host-gateway" \
   -v "$work_dir/nginx.conf:/etc/nginx/nginx.conf:ro" \
   -v "$work_dir/server.crt:/etc/nginx/tls/server.crt:ro" \
   -v "$work_dir/server.key:/etc/nginx/tls/server.key:ro" \
@@ -146,6 +148,7 @@ docker run -d --name "$proxy_container" -p "${E2E_BACKCHANNEL_PORT}:8443" \
 
 keycloak_image=${E2E_KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak@sha256:831330513f55695572286e521f94fcd3c7e285250ed5b848090265a33192f669}
 docker run -d --name "$keycloak_container" -p "${keycloak_port}:8443" \
+  --add-host "${keycloak_host}:host-gateway" \
   -e "KC_BOOTSTRAP_ADMIN_USERNAME=${E2E_KEYCLOAK_ADMIN_USERNAME}" \
   -e "KC_BOOTSTRAP_ADMIN_PASSWORD=${E2E_KEYCLOAK_ADMIN_PASSWORD}" \
   -e KC_TRUSTSTORE_PATHS=/opt/keycloak/conf/e2e-ca.crt \
@@ -188,10 +191,10 @@ printf '%s\n' "$default_role" | jq '[.]' | curl -ksSf -o /dev/null -X POST \
   --data-binary @- \
   "${keycloak_origin}/admin/realms/${E2E_KEYCLOAK_REALM}/users/${test_user_id}/role-mappings/realm"
 
-scp -q "$work_dir/ca.crt" "$E2E_OPNSENSE_SSH:$remote_ca"
-scp -q "$script_dir/remote-cleanup.php" "$E2E_OPNSENSE_SSH:$remote_cleanup"
-ssh -o BatchMode=yes "$E2E_OPNSENSE_SSH" "chmod 600 '$remote_ca' '$remote_cleanup'; certctl rehash"
-ssh -o BatchMode=yes "$E2E_OPNSENSE_SSH" \
+e2e_scp_to "$work_dir/ca.crt" "$remote_ca"
+e2e_scp_to "$script_dir/remote-cleanup.php" "$remote_cleanup"
+e2e_ssh "chmod 600 '$remote_ca' '$remote_cleanup'; certctl rehash"
+e2e_ssh \
   "fetch -qo- '${keycloak_origin}/realms/${E2E_KEYCLOAK_REALM}/.well-known/openid-configuration' >/dev/null"
 
 python3 "$repository/packaging/build.py" --version 0.0.0.e2e >/dev/null
@@ -210,11 +213,11 @@ if [ -n "${E2E_AUDIT_EVIDENCE:-}" ]; then
     E2E_AUDIT_SOURCE_DIRTY=true
   fi
 fi
-scp -q "$package" "$E2E_OPNSENSE_SSH:/tmp/os-openid-connect-e2e-${run_id}.pkg"
-ssh -o BatchMode=yes "$E2E_OPNSENSE_SSH" \
+e2e_scp_to "$package" "/tmp/os-openid-connect-e2e-${run_id}.pkg"
+e2e_ssh \
   "pkg add -f '/tmp/os-openid-connect-e2e-${run_id}.pkg' && pkg check -s os-openid-connect"
 if [ -n "${E2E_AUDIT_EVIDENCE:-}" ]; then
-  E2E_AUDIT_OPNSENSE_VERSION=$(ssh -o BatchMode=yes "$E2E_OPNSENSE_SSH" \
+  E2E_AUDIT_OPNSENSE_VERSION=$(e2e_ssh \
     "opnsense-version -v 2>/dev/null || pkg query '%v' os-core" | sed -n '1p')
 fi
 

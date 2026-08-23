@@ -159,7 +159,10 @@ async function configureServer(page) {
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(/-authentik-blueprint\.yaml$/);
     await provisionAuthentik(await download.path());
-    await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click();
+    const setup = page.getByRole('dialog').locator('.oidc-setup-result[data-provider="authentik"]');
+    await setup.getByRole('button', { name: 'Next' }).click();
+    await setup.getByRole('button', { name: 'Next' }).click();
+    await setup.getByRole('button', { name: 'Done' }).click();
   }
   await page.locator('input[name="openidconnect_provider_url"]').fill(state.issuer);
   await page.locator('input[name="openidconnect_client_id"]').fill(state.client_id);
@@ -206,6 +209,7 @@ async function providerLogin(page) {
   }
   await expect(page).toHaveURL(/\/ui\/core\/dashboard/);
   const after = (await page.context().cookies(origin)).find(cookie => cookie.name === 'PHPSESSID')?.value;
+  expect(authorization).toBeTruthy();
   expect(authorization.searchParams.get('code_challenge_method')).toBe('S256');
   expect(authorization.searchParams.get('state')).toBeTruthy();
   expect(authorization.searchParams.get('nonce')).toBeTruthy();

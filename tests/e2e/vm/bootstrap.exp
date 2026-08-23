@@ -1,0 +1,109 @@
+#!/usr/bin/expect -f
+
+# Copyright (C) 2026 Julian Pawlowski
+# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
+
+if {$argc != 3} {
+    puts stderr "usage: bootstrap.exp qemu SERIAL_PORT PAYLOAD | utm SERIAL_DEVICE PAYLOAD"
+    exit 2
+}
+
+set backend [lindex $argv 0]
+if {$backend eq "qemu"} {
+    set serial_port [lindex $argv 1]
+    set payload [lindex $argv 2]
+    spawn -noecho nc 127.0.0.1 $serial_port
+} elseif {$backend eq "utm"} {
+    set serial_device [lindex $argv 1]
+    set payload [lindex $argv 2]
+    spawn -noecho /usr/bin/cu -l $serial_device -s 115200
+} else {
+    puts stderr "invalid bootstrap backend arguments"
+    exit 2
+}
+
+set timeout 1200
+set logged_in 0
+while {!$logged_in} {
+    expect {
+        -re {Do you want to configure LAGGs now.*\[y/N\]} {
+            after 400
+            send -- "n\r"
+        }
+        -re {Do you want to configure VLANs now.*\[y/N\]} {
+            after 400
+            send -- "n\r"
+        }
+        -re {Should VLANs be set up now.*\[y\|n\]} {
+            send -- "n\r"
+        }
+        -re {Enter the WAN interface name.*:} {
+            after 500
+            send -- "vtnet0\r"
+        }
+        -re {Enter the LAN interface name.*:} {
+            after 500
+            send -- "vtnet1\r"
+        }
+        -re {Enter the Optional.*interface name.*:} {
+            after 500
+            send -- "\r"
+        }
+        -re {Do you want to proceed.*\[y\|n\]} {
+            send -- "y\r"
+        }
+        -re {login: *$} {
+            send -- "root\r"
+        }
+        -re {Password: *$} {
+            send -- "opnsense\r"
+        }
+        -re {Enter an option: *$} {
+            send -- "8\r"
+        }
+        -re {root@[^\r\n]+:[^\r\n]*# *$} {
+            set logged_in 1
+        }
+        timeout {
+            puts stderr "timed out waiting for the OPNsense console"
+            exit 1
+        }
+        eof {
+            puts stderr "OPNsense console closed during bootstrap"
+            exit 1
+        }
+    }
+}
+
+send -- ": > /tmp/opnsense-oidc-vm-bootstrap.b64\r"
+expect -re {root@[^\r\n]+:[^\r\n]*# *$}
+set offset 0
+set payload_length [string length $payload]
+while {$offset < $payload_length} {
+    # FreeBSD's serial console canonical-input buffer is deliberately small.
+    # Keep the complete shell line comfortably below it, not merely the data.
+    set chunk [string range $payload $offset [expr {$offset + 191}]]
+    send -- "printf '%s' '$chunk' >> /tmp/opnsense-oidc-vm-bootstrap.b64\r"
+    expect -re {root@[^\r\n]+:[^\r\n]*# *$}
+    incr offset 192
+}
+send -- "/usr/bin/base64 -d /tmp/opnsense-oidc-vm-bootstrap.b64 > /tmp/opnsense-oidc-vm-bootstrap.sh && /bin/sh /tmp/opnsense-oidc-vm-bootstrap.sh\r"
+expect {
+    -re {OPNSENSE_OIDC_VM_BOOTSTRAP_OK} {}
+    timeout {
+        puts stderr "OPNsense bootstrap command did not complete"
+        exit 1
+    }
+    eof {
+        puts stderr "OPNsense console closed before bootstrap completed"
+        exit 1
+    }
+}
+send -- "/sbin/shutdown -p now\r"
+expect {
+    eof {}
+    timeout {
+        puts stderr "OPNsense did not power off after bootstrap"
+        exit 1
+    }
+}

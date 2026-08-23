@@ -2,7 +2,7 @@
   "name": "opnsense-openid-connect-e2e",
   "private": true,
   "version": "0.0.0",
-  "description": "Disposable Keycloak and Playwright tests for the OPNsense OpenID Connect plugin",
+  "description": "Disposable OPNsense and multi-provider browser E2E tests for the OpenID Connect plugin",
   "license": "BSD-2-Clause",
   "devDependencies": {
     "@playwright/test": "1.62.1"

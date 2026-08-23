@@ -596,7 +596,10 @@ async function removeLocalPrivileges() {
     'php', helper, process.env.E2E_TEST_USERNAME,
     process.env.E2E_APPLICATION_CODE, 'remove-privileges',
   ].map(value => `'${value.replaceAll("'", "'\\''")}'`).join(' ');
-  await runCommand('ssh', ['-o', 'BatchMode=yes', process.env.E2E_OPNSENSE_SSH, remoteCommand]);
+  const sshArguments = process.env.E2E_OPNSENSE_SSH_CONFIG
+    ? ['-F', process.env.E2E_OPNSENSE_SSH_CONFIG, 'opnsense-e2e', remoteCommand]
+    : ['-o', 'BatchMode=yes', process.env.E2E_OPNSENSE_SSH, remoteCommand];
+  await runCommand('ssh', sshArguments);
 }
 
 test('real OPNsense login, session binding and logout interoperability', async ({ browser }) => {

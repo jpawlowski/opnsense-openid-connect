@@ -1,109 +1,100 @@
-# Disposable browser-to-firewall test
+# Disposable browser-to-firewall tests
 
-This is the destructive integration test for a disposable OPNsense instance.
-It creates an isolated Keycloak realm in Docker, installs a two-day test CA and
-the current package on OPNsense, configures the authentication server through
-the real WebGUI, and drives the browsers with Playwright.
+This directory contains the destructive end-to-end tests. They install the package on a disposable OPNsense system,
+configure an authentication server through the real WebGUI, start a real identity provider and complete the sign-in in
+Chromium. The normal host-independent checks in `../run.sh` never start a VM, Docker or a browser.
 
-It verifies the authorization code flow, Discovery, PKCE S256, nonce and state,
-JIT account creation, the `admins` bootstrap group, stable subject binding with
-JIT subsequently disabled, assisted create/edit/remove operations in the
-combined identity manager, the administrator-approval queue and subsequent
-approved sign-in, session-ID rotation, callback replay rejection,
-local-password fallback, explicit denial without a session after the admitted
-local account loses its effective WebGUI privileges, RP-initiated logout,
-Keycloak back-channel logout,
-Keycloak front-channel logout, `form_post`, and `client_secret_post`. It also
-checks the social-login labels, complete named-profile presets, fixed versus
-editable fields, profile-default restoration and Microsoft-only conditional
-settings in the real form. A pinned local OWASP ZAP instance passively observes
-the OPNsense traffic created by these flows and independently parses cache,
-content-type, clickjacking and CSP headers. Runtime cryptography, registry
-permissions, package checks and the watchdog remain in
-`../integration/opnsense.php` and `../run.sh`.
+## Local OPNsense VM on macOS
 
-Before contacting Keycloak, it downloads and inspects the generated partial
-import from the unsaved form, then saves and reopens a disabled draft with no
-issuer, Client ID or Client Secret. This guards both the no-secret onboarding
-contract and the UX rule that Discovery is an optional preflight, never a hidden
-prerequisite for preserving work.
+On an Apple Silicon Mac, the shortest complete run is:
 
-The container image is the official Keycloak 26.7.2 image pinned by digest;
-the small TLS proxy is likewise pinned. The test switches the same Keycloak
-client between back-channel and front-channel logout because Keycloak treats
-them as alternatives. Keeping **Front channel logout** enabled prevents the
-back-channel URL from receiving the same event.
+    tests/e2e/local.sh
 
-## Requirements
+`local.sh` finds Homebrew QEMU and UTM. An OPNsense amd64 guest cannot use Apple Virtualization on arm64, so both
+variants use QEMU's native-arm64 TCG emulator; Rosetta is not involved. Direct QEMU is the automatic default when both
+are installed because it avoids UTM's frontend and automation overhead. Select a backend explicitly when diagnosing a
+backend-specific problem:
 
-- A newly installed or otherwise disposable OPNsense host reachable by HTTPS
-  and certificate-authenticated root SSH.
-- A Docker host address reachable from OPNsense and from the browser runner.
-- Docker, Node.js, npm, OpenSSL, `jq`, SSH and SCP on the runner.
-- Two unused host ports, normally 18443 for Keycloak and 19443 for the isolated
-  back-channel TLS proxy.
+    tests/e2e/local.sh --backend qemu
+    tests/e2e/local.sh --backend utm
 
-The ZAP API and proxy use a random loopback-only port. ZAP runs locally in its
-pinned official container, can reach private firewall addresses and accepts the
-self-signed WebGUI certificate as part of this isolated test. The Playwright
-browser sends only OPNsense traffic through ZAP; provider traffic is bypassed.
+The first run downloads the current official OPNsense Nano image, verifies the signed checksum list, verifies the
+signature of the unpacked image and bootstraps a reusable base disk through the serial console. The repository pins the
+26.7 public key and image checksum in `vm/trust.json`. A future release key is accepted only when its `.pub.sig` chains
+to that anchor; otherwise the run stops and asks for a reviewed trust-manifest update. Downloads and prepared disks are
+kept under `~/Library/Caches/opnsense-openid-connect/e2e`, while every test gets a new qcow2 overlay.
 
-Copy `.env.example` to a file outside version control, replace the documentation
-addresses and password, load it into the shell, then run:
+The Nano image is deliberately used as the preinstalled, persistent serial image: it grows to the 8 GiB virtual disk
+on first boot and avoids automating the interactive installer. The bootstrap assigns WAN to `vtnet0`, LAN to `vtnet1`,
+enables key-only root SSH using a cache-local test key and preserves the normal local `root` / `opnsense` WebGUI login.
+Both forwarded management ports bind only to loopback. Refresh the authenticated image and rebuild the base with:
+
+    tests/e2e/local.sh --refresh-opnsense
+
+Use `tests/e2e/vm.py status` to see the cache and available backends. `--keep` retains a failed VM and provider stack and
+prints the exact stop command. Otherwise cleanup removes only the random run overlay, its generated SSH host-key file
+and the provider containers.
+
+## Provider matrix
+
+The default `core` suite runs the two high-value implementations:
+
+- **Keycloak** is the deep interoperability suite. It covers Discovery, PKCE, state/nonce, JIT and approval workflows,
+  stable subject binding, local fallback, session rotation, callback replay, `form_post`, both client-secret transport
+  methods, RP/front-channel/back-channel logout and passive response-header checks with ZAP.
+- **authentik** exercises the second primary deployment target and imports the exact Blueprint downloaded from the
+  unsaved OPNsense form before completing a real login.
+
+The `full` suite adds three low-cost implementations whose official arm64 container images are small or self-contained:
+
+- **Authelia** checks a file-backed provider, group claims, local SQLite state and a different Discovery/userinfo shape.
+- **Dex** checks a minimal provider with a path-based issuer and no userinfo or RP-logout dependency.
+- **Pocket ID** checks an API-provisioned, passkey-only provider with a virtual WebAuthn authenticator and group-restricted
+  client access.
+
+Every reviewed container is pinned by both tag and digest in `providers/images.json`. A canary run resolves the latest
+official GitHub release once and then resolves its registry digest before starting it:
+
+    tests/e2e/local.sh --suite full
+    tests/e2e/local.sh --provider authentik
+    tests/e2e/local.sh --provider pocketid --canary
+
+The matrix wrapper reports all provider failures rather than hiding later results after the first failure. Provider
+stacks use a per-run CA and TLS proxy. `provider.localhost` resolves to the Mac for the browser and is pinned to QEMU's
+host gateway inside OPNsense; `opnsense.localhost` is mapped to Docker Desktop's host gateway for logout callbacks.
+
+## Prepared lab or CI runner
+
+CI must not construct an amd64 firewall VM. Point the same provider runner at a disposable, pre-provisioned OPNsense
+machine instead:
 
     set -a
     . /secure/path/opnsense-oidc-e2e.env
     set +a
-    tests/e2e/run.sh
+    tests/e2e/run.sh --suite core
 
-`E2E_KEYCLOAK_URL` must be an HTTPS origin whose host resolves to this Docker
-machine and is reachable from OPNsense. The runner creates a private CA with
-that host in the certificate SAN; it never turns TLS verification off in the
-plugin. The WebGUI certificate may remain self-signed and does not need to name
-its management IP: the back-channel test uses a disposable TLS reverse proxy.
+The required variables are shown in `.env.example`. `E2E_KEYCLOAK_URL` or `E2E_PROVIDER_HOST` must name this Docker host
+and be reachable from OPNsense and the browser runner. Root SSH must use certificate or public-key authentication. The
+WebGUI certificate may remain self-signed; the provider-facing connection always uses the per-run trusted CA.
 
-Secrets are random per run and are passed only in the process environment.
-No internal address, password, realm, client secret or subject is stored in the
-repository. Cleanup targets only the random `oidc-e2e-*` user and `e2e-*`
-application code, removes the temporary CA, and removes all disposable
-containers. The package remains installed because it is the system under test.
-Set `E2E_KEEP=1` only on an isolated machine when failed resources must remain
-for diagnosis; then remove them manually afterwards.
+The tests generate provider passwords, client secrets and database keys for each run. They are passed through process
+environments and temporary files with restrictive permissions and are never written to the repository. Cleanup removes
+only resources carrying that run's random identifier. The package remains installed because it is the system under test.
 
-To retain machine-readable evidence for the security audit, supply an absolute
-path outside the disposable working directory before starting the Keycloak
-run:
+To retain machine-readable evidence for the security audit, supply an absolute path outside the disposable working
+directory before starting the deep Keycloak run:
 
     export E2E_AUDIT_EVIDENCE=/secure/audit/browser-e2e.json
     tests/e2e/run.sh --provider keycloak
 
-The runner removes an older file at that exact path before starting and writes
-a mode-`0600` replacement only after both Playwright and passive ZAP complete
-successfully. The evidence uses schema
-`opnsense-openid-connect.audit-evidence/v1`, binds the result to the Git
-revision, deterministic package SHA-256 and audit-harness SHA-256, and records
-only versioned test subjects and passed capability slugs. It never includes
-target/provider hosts, usernames, realm names, subjects, cookies, request data,
-tokens or secrets.
+The runner removes an older file at that exact path before starting and writes a mode-`0600` replacement only after
+Playwright and passive ZAP both succeed. The evidence binds the result to the Git revision, deterministic package
+SHA-256 and audit-harness SHA-256. It records only versioned test subjects and capability slugs, never target or provider
+hosts, usernames, realm names, subjects, cookies, request data, tokens or secrets.
 
-## Passive response-header validation
+## ZAP boundary
 
-ZAP is not used as a spider and performs no active scan. Playwright remains
-responsible for reaching authenticated APIs, single-use callbacks and each
-browser outcome in a valid order; ZAP inspects the resulting responses. The
-final report fails when any required response class was not observed, or when
-the curated passive rules find an unexpected missing content type, unsafe
-caching, missing MIME protection, missing anti-clickjacking protection, a
-missing enforceable CSP, or a malformed/unsafe CSP on a plugin-owned response.
-
-The policy deliberately does not turn a generic scanner grade into the
-contract. It records rather than fails expected findings for host-owned HSTS,
-non-HTML JSON APIs, the required front-channel iframe, reviewed inline styling
-and cacheable validated icons. A missing response media type is accepted only
-on a `3xx` produced by core authentication before an API controller runs; the
-same finding on a successful API response remains blocking. Exact endpoint
-assertions in `oidc.spec.mjs` remain authoritative for `no-store`,
-`no-referrer`, `nosniff` and every CSP directive. A sanitized JSON report is
-written inside the temporary E2E directory; it contains paths and rule names,
-but no hosts, query strings, tokens, cookies or response bodies. It is retained
-only with `E2E_KEEP=1`.
+ZAP remains part of the deep Keycloak test only. It passively observes traffic that Playwright deliberately sends through
+its random loopback proxy; it does not spider or actively scan the firewall. The sanitized report records paths and rule
+names but no hosts, query strings, tokens, cookies or bodies. Exact assertions in `oidc.spec.mjs` remain authoritative for
+plugin-owned cache, content-type, clickjacking, referrer and CSP headers.
