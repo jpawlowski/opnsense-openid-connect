@@ -70,13 +70,21 @@ TOUCHPOINTS="
 /usr/local/opnsense/mvc/app/library/OPNsense/Mvc/Session.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Mvc/Dispatcher.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Mvc/Router.php
+/usr/local/opnsense/mvc/app/library/OPNsense/Core/Backend.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Core/SanitizeFilter.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Core/Config.php
 /usr/local/opnsense/mvc/app/controllers/OPNsense/Base/ApiControllerBase.php
 /usr/local/opnsense/mvc/app/models/OPNsense/Base/Menu/MenuItem.php
+/usr/local/opnsense/mvc/app/models/OPNsense/Auth/FieldTypes/UidField.php
+/usr/local/opnsense/mvc/app/models/OPNsense/Auth/FieldTypes/UsernameField.php
+/usr/local/opnsense/mvc/app/models/OPNsense/Auth/User.php
+/usr/local/opnsense/mvc/app/models/OPNsense/Auth/User.xml
 /usr/local/opnsense/mvc/app/models/OPNsense/Core/ACL.php
 /usr/local/opnsense/mvc/app/models/OPNsense/Core/ACL/ACL.php
+/usr/local/opnsense/mvc/app/models/OPNsense/Core/ACL/ACL.xml
 /usr/local/etc/inc/script/load_phalcon.php
+/usr/local/opnsense/scripts/auth/add_user.php
+/usr/local/opnsense/service/conf/actions.d/actions_auth.conf
 "
 
 digest() {

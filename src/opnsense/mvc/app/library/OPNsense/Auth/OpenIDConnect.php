@@ -1154,6 +1154,17 @@ class OpenIDConnect extends Base implements IAuthConnector
             'approvalSeen' => gettext('First / last seen'),
             'approvalAccount' => gettext('Local account'),
             'approvalChooseAccount' => gettext('Choose a local account'),
+            'approvalCreateAccount' => gettext('Create a new local account…'),
+            'approvalNewAccount' => gettext('New local account'),
+            'approvalUsername' => gettext('Username'),
+            'approvalAccountCreationHelp' => gettext(
+                'The account receives a scrambled password and no groups or privileges. Assign its local WebGUI ' .
+                'access under System > Access > Users after saving the binding.'
+            ),
+            'approvalAccountCreateFailed' => gettext('Enter a new valid local username and try again.'),
+            'approvalAccountCreatedBindingFailed' => gettext(
+                'The local account was created, but the identity was not bound. Select the new account and retry.'
+            ),
             'approvalApprove' => gettext('Approve and bind'),
             'approvalDeny' => gettext('Deny'),
             'approvalRefresh' => gettext('Refresh'),
@@ -1469,6 +1480,26 @@ class OpenIDConnect extends Base implements IAuthConnector
         }
         usort($accounts, static fn(array $a, array $b): int => strcasecmp($a['name'], $b['name']));
         return $accounts;
+    }
+
+    /** @return array{uid:string,name:string}|null a newly created local account for an administrator-managed binding */
+    public function createManagedAccount(string $username): ?array
+    {
+        $username = trim($username);
+        if ($username === '' || strlen($username) > 320 || static::hasControlCharacters($username)
+            || $this->getUser($username) !== null) {
+            return null;
+        }
+
+        $user = $this->provisionAccount($username, false);
+        $uid = $user === null ? '' : (string)($user->uid ?? '');
+        $name = $user === null ? '' : (string)($user->name ?? '');
+        if ($uid === '' || !ctype_digit($uid) || !hash_equals($username, $name) || !$this->accountMayBeUsed($user)) {
+            return null;
+        }
+
+        syslog(LOG_NOTICE, sprintf('OIDC: administrator created local account %s for an identity binding', $name));
+        return ['uid' => $uid, 'name' => $name];
     }
 
     /** @return array<int,array<string,mixed>> durable issuer/subject mappings for the manager */
@@ -2067,6 +2098,16 @@ class OpenIDConnect extends Base implements IAuthConnector
             return null;
         }
 
+        return $this->provisionAccount($username, true);
+    }
+
+    /** Core's configd action owns local-account validation, UID allocation, password hashing and synchronization. */
+    private function provisionAccount(string $username, bool $firstLogin): ?object
+    {
+        if ($username === '') {
+            return null;
+        }
+
         $output = (new Backend())->configdpRun('auth add user', [$username]);
 
         /*
@@ -2083,12 +2124,16 @@ class OpenIDConnect extends Base implements IAuthConnector
             $answer = json_decode($output, true);
             $status = is_array($answer) ? (string)($answer['status'] ?? 'unknown') : 'invalid response';
             syslog(LOG_ERR, sprintf('OIDC: could not create a local account for %s', $username));
-            $this->trace(sprintf('configd account creation failed (%s)', $status));
+            if ($firstLogin) {
+                $this->trace(sprintf('configd account creation failed (%s)', $status));
+            }
             return null;
         }
 
-        syslog(LOG_NOTICE, sprintf('OIDC: created local account %s after a first login', $username));
-        $this->trace(sprintf('account %s did not exist and was created', $username));
+        if ($firstLogin) {
+            syslog(LOG_NOTICE, sprintf('OIDC: created local account %s after a first login', $username));
+            $this->trace(sprintf('account %s did not exist and was created', $username));
+        }
 
         return $user;
     }

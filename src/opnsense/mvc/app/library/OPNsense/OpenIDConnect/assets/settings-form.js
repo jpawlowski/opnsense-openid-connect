@@ -462,7 +462,9 @@
             });
         }
 
-        function accountPicker(accounts, selected) {
+        var newAccountValue = '__openidconnect_new_local_account__';
+
+        function accountPicker(accounts, selected, allowCreate) {
             var picker = $('<select class="form-control input-sm">')
                 .append($('<option value="">').text(
                     accounts.length ? (options.approvalChooseAccount || 'Choose a local account')
@@ -471,8 +473,71 @@
             accounts.forEach(function (candidate) {
                 picker.append($('<option>').val(candidate.uid).text(candidate.name));
             });
+            if (allowCreate) {
+                picker.append($('<option>').val(newAccountValue)
+                    .text(options.approvalCreateAccount || 'Create a new local account…'));
+            }
             picker.val(selected || '');
             return picker;
+        }
+
+        function accountCreationEditor(picker) {
+            var username = $('<input class="form-control input-sm" type="text" autocomplete="off" spellcheck="false">')
+                .attr({ maxlength: 320, placeholder: options.approvalUsername || 'Username' })
+                .css({ width: '100%', maxWidth: 'none' });
+            var container = $('<div class="form-group oidc-account-creation">')
+                .append($('<label>').text(options.approvalNewAccount || 'New local account'))
+                .append(username)
+                .append($('<p class="help-block">').text(
+                    options.approvalAccountCreationHelp
+                        || 'The account receives a scrambled password and no groups or privileges.'
+                ));
+            function creating() {
+                return picker.val() === newAccountValue;
+            }
+            function valid() {
+                var value = username.val().trim();
+                return !creating() || (value !== '' && value.length <= 320
+                    && !/[\u0000-\u001f\u007f]/.test(value));
+            }
+            function update() {
+                container.toggle(creating());
+                if (creating()) {
+                    username.focus();
+                }
+            }
+            picker.on('change', update);
+            update();
+            return { container: container, username: username, creating: creating, valid: valid };
+        }
+
+        function resolveAccount(picker, creation) {
+            var deferred = $.Deferred();
+            if (!creation.creating()) {
+                deferred.resolve(picker.val(), false);
+                return deferred.promise();
+            }
+            if (!creation.valid()) {
+                deferred.reject(options.approvalAccountCreateFailed || 'Enter a valid new local username.');
+                return deferred.promise();
+            }
+            request('create_account', { username: creation.username.val().trim() }).done(function (answer) {
+                var created = answer && answer.account ? answer.account : {};
+                if (answer && answer.status === 'ok' && /^\d+$/.test(created.uid || '') && created.name) {
+                    picker.find('option[value="' + created.uid + '"]').remove();
+                    picker.find('option[value="' + newAccountValue + '"]')
+                        .before($('<option>').val(created.uid).text(created.name));
+                    picker.val(created.uid).trigger('change');
+                    deferred.resolve(created.uid, true);
+                } else {
+                    deferred.reject((answer && answer.message)
+                        || options.approvalAccountCreateFailed || 'The local account could not be created.');
+                }
+            }).fail(function (xhr) {
+                deferred.reject(xhr.responseText
+                    || options.approvalAccountCreateFailed || 'The local account could not be created.');
+            });
+            return deferred.promise();
         }
 
         function editBinding(panel, answer, dialog, binding) {
@@ -490,8 +555,13 @@
                 .attr({ maxlength: 255, placeholder: guidance.placeholder || 'Paste the exact sub claim' })
                 .css({ width: '100%', maxWidth: 'none' })
                 .val(binding ? binding.subject : '');
-            var account = accountPicker(answer.accounts || [], binding ? binding.uid : '');
+            var account = accountPicker(
+                answer.accounts || [],
+                binding ? binding.uid : '',
+                !binding && answer.account_creation_allowed
+            );
             account.css({ width: '100%', maxWidth: 'none' });
+            var creation = accountCreationEditor(account);
             var result = $('<div class="help-block oidc-binding-result">');
             var save = $('<button class="btn btn-primary btn-sm" type="button">')
                 .text(options.bindingSave || 'Save binding');
@@ -499,46 +569,65 @@
                 .text(options.bindingCancel || 'Cancel')
                 .on('click', function () { editor.remove(); });
 
+            var saving = false;
             function valid() {
                 var value = subject.val().trim();
                 var byteLength = window.TextEncoder
                     ? new window.TextEncoder().encode(value).length
                     : unescape(encodeURIComponent(value)).length;
                 return issuer.val().trim() !== '' && byteLength > 0 && byteLength <= 255
-                    && !/[\u0000-\u001f\u007f]/.test(value) && account.val() !== '';
+                    && !/[\u0000-\u001f\u007f]/.test(value) && account.val() !== '' && creation.valid();
             }
             function update() {
-                save.prop('disabled', !answer.writable || !valid());
+                save.prop('disabled', saving || !answer.writable || !valid());
             }
             issuer.on('input change', update);
             subject.on('input change', update);
             account.on('change', update);
+            creation.username.on('input change', update);
             save.on('click', function () {
                 if (!valid()) {
-                    subject.focus();
+                    (creation.creating() ? creation.username : subject).focus();
                     return;
                 }
-                save.prop('disabled', true);
+                saving = true;
+                update();
                 var action = binding ? 'update' : 'create';
-                request(action, {
-                    binding_id: binding ? binding.id : '',
-                    issuer: issuer.val().trim(),
-                    subject: subject.val().trim(),
-                    uid: account.val()
-                }).done(function (savedBinding) {
-                    if (savedBinding && savedBinding.status === 'ok') {
-                        load(dialog);
-                    } else {
-                        result.empty().addClass('text-danger').text(
-                            (savedBinding && savedBinding.message)
-                                || options.bindingSaveFailed || 'The identity binding could not be saved.'
-                        );
+                resolveAccount(account, creation).done(function (uid, created) {
+                    request(action, {
+                        binding_id: binding ? binding.id : '',
+                        issuer: issuer.val().trim(),
+                        subject: subject.val().trim(),
+                        uid: uid
+                    }).done(function (savedBinding) {
+                        if (savedBinding && savedBinding.status === 'ok') {
+                            load(dialog);
+                        } else {
+                            var message = (savedBinding && savedBinding.message)
+                                || options.bindingSaveFailed || 'The identity binding could not be saved.';
+                            if (created) {
+                                message = (options.approvalAccountCreatedBindingFailed
+                                    || 'The local account was created, but the identity was not bound.')
+                                    + ' ' + message;
+                            }
+                            result.empty().addClass('text-danger').text(message);
+                            saving = false;
+                            update();
+                        }
+                    }).fail(function (xhr) {
+                        var message = xhr.responseText
+                            || options.bindingSaveFailed || 'The identity binding could not be saved.';
+                        if (created) {
+                            message = (options.approvalAccountCreatedBindingFailed
+                                || 'The local account was created, but the identity was not bound.') + ' ' + message;
+                        }
+                        result.empty().addClass('text-danger').text(message);
+                        saving = false;
                         update();
-                    }
-                }).fail(function (xhr) {
-                    result.empty().addClass('text-danger').text(
-                        xhr.responseText || options.bindingSaveFailed || 'The identity binding could not be saved.'
-                    );
+                    });
+                }).fail(function (message) {
+                    result.empty().addClass('text-danger').text(message);
+                    saving = false;
                     update();
                 });
             });
@@ -558,6 +647,7 @@
                     .append($('<label>').text(entry[0]))
                     .append(entry[1]));
             });
+            body.append(creation.container);
             body.append($('<p class="help-block">').append(inlineCode(options.bindingValidation || '')));
             body.append(result, $('<div>').append(save, ' ', cancel));
             editor.append($('<div class="panel-heading">').append($('<strong>').text(
@@ -677,25 +767,57 @@
                         + new Date((pending.last_seen || 0) * 1000).toLocaleString()
                     )));
                 var controls = $('<div class="form-inline">');
-                var account = accountPicker(accounts, '');
+                var account = accountPicker(accounts, '', answer.account_creation_allowed);
+                var creation = accountCreationEditor(account);
+                var result = $('<div class="help-block oidc-approval-result-message">');
+                var approving = false;
                 var approve = $('<button class="btn btn-success btn-sm" type="button">')
-                    .prop('disabled', !answer.writable || accounts.length === 0)
                     .text(options.approvalApprove || 'Approve and bind')
                     .on('click', function () {
-                        if (!account.val()) {
-                            account.focus();
+                        if (!account.val() || !creation.valid()) {
+                            (creation.creating() ? creation.username : account).focus();
                             return;
                         }
-                        approve.prop('disabled', true);
-                        request('approve', { request_id: pending.id, uid: account.val() }).done(function (result) {
-                            if (result && result.status === 'ok') {
-                                load(dialog);
-                            } else {
-                                BootstrapDialog.alert((result && result.message) || 'Approval failed.');
-                                approve.prop('disabled', false);
-                            }
+                        approving = true;
+                        updateApprove();
+                        resolveAccount(account, creation).done(function (uid, created) {
+                            request('approve', { request_id: pending.id, uid: uid }).done(function (answer) {
+                                if (answer && answer.status === 'ok') {
+                                    load(dialog);
+                                } else {
+                                    var message = (answer && answer.message) || 'Approval failed.';
+                                    if (created) {
+                                        message = (options.approvalAccountCreatedBindingFailed
+                                            || 'The local account was created, but the identity was not bound.')
+                                            + ' ' + message;
+                                    }
+                                    result.empty().addClass('text-danger').text(message);
+                                    approving = false;
+                                    updateApprove();
+                                }
+                            }).fail(function (xhr) {
+                                var message = xhr.responseText || 'Approval failed.';
+                                if (created) {
+                                    message = (options.approvalAccountCreatedBindingFailed
+                                        || 'The local account was created, but the identity was not bound.')
+                                        + ' ' + message;
+                                }
+                                result.empty().addClass('text-danger').text(message);
+                                approving = false;
+                                updateApprove();
+                            });
+                        }).fail(function (message) {
+                            result.empty().addClass('text-danger').text(message);
+                            approving = false;
+                            updateApprove();
                         });
                     });
+                function updateApprove() {
+                    approve.prop('disabled', approving || !answer.writable
+                        || !account.val() || !creation.valid());
+                }
+                account.on('change', updateApprove);
+                creation.username.on('input change', updateApprove);
                 var deny = $('<button class="btn btn-danger btn-sm" type="button">')
                     .prop('disabled', !answer.writable)
                     .text(options.approvalDeny || 'Deny')
@@ -718,9 +840,10 @@
                         });
                     });
                 controls.append(account, ' ', approve, ' ', deny);
-                body.append(controls);
+                body.append(controls, creation.container, result);
                 card.append(heading, body);
                 panel.append(card);
+                updateApprove();
             });
         }
 

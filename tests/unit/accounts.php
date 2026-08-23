@@ -264,6 +264,32 @@ Checks::that('the approved exact subject signs in even when Apple no longer repe
     $approval->localAccountFor(claims(['sub' => 'apple-private-subject'])), 'mikah');
 Checks::that('approval consumes the pending request', $approval->pendingApprovals(), []);
 
+Checks::group('Administrator-managed local account creation');
+directory($ok);
+$accountManager = connector(['openidconnect_bootstrap_mode' => 'strict']);
+$managedAccount = $accountManager->createManagedAccount('new-local-account');
+Checks::that('an administrator can create a local account independently of first-login provisioning',
+    $managedAccount, ['uid' => '1001', 'name' => 'new-local-account']);
+Checks::that('managed creation uses the same native configd account action', Recorder::$backendCalls,
+    [['event' => 'auth add user', 'params' => ['new-local-account']]]);
+Checks::that('the newly returned uid can be bound without another account lookup',
+    $accountManager->createSubjectBinding(
+        'https://id.example.net',
+        'new-local-subject',
+        (string)($managedAccount['uid'] ?? '')
+    ), true);
+Checks::that('the new account resolves through its durable binding',
+    $accountManager->localAccountFor(claims(['sub' => 'new-local-subject'])), 'new-local-account');
+Checks::that('the managed creation path never reuses an existing local account',
+    $accountManager->createManagedAccount('new-local-account'), null);
+Checks::that('reusing an account does not ask configd a second time', count(Recorder::$backendCalls), 1);
+
+directory();
+Directory::$creationWorks = false;
+Checks::that('a refused native account creation cannot yield a managed account',
+    connector([])->createManagedAccount('not-created'), null);
+
+Checks::group('Administrator-managed identity bindings');
 directory($ok, ['name' => 'anna', 'email' => 'anna@example.net']);
 $manager = connector(['openidconnect_bootstrap_mode' => 'strict']);
 $issuer = 'https://id.example.net';

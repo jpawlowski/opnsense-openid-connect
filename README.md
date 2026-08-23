@@ -56,7 +56,7 @@ The admission decision is deliberately conservative:
 1. An existing binding wins.
 2. Without one, strict mode refuses the login.
 3. Administrator approval can queue the unknown identity without a session and
-   bind it explicitly to an existing local account.
+   bind it explicitly to an existing or newly created local account.
 4. An administrator may instead allow a first match by exact username, unique
    verified e-mail, or either. The resulting stable binding is saved.
 5. Optional just-in-time creation uses OPNsense's own account mechanism and
@@ -65,7 +65,9 @@ The admission decision is deliberately conservative:
 Every saved OIDC server has a **Manage identities** action. It combines durable
 binding creation/editing/removal with pending administrator approvals, uses the
 existing **System: Authentication Servers** privilege and honours OPNsense's
-read-only administrator restriction for every mutation.
+read-only administrator restriction for every mutation. Inline local-account
+creation additionally requires **System: Access: Management** and grants no
+groups or privileges by itself.
 
 Disabled and expired accounts remain disabled; UID 0 is refused unless an
 administrator explicitly opts in. Provider-controlled groups are off by

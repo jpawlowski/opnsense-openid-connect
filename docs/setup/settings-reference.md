@@ -105,7 +105,10 @@ deliberately.
 lists durable bindings, supports assisted creation/editing/removal and handles
 pending approvals when the Administrator approval policy is active. It is not a
 stored setting and requires OPNsense's **System: Authentication Servers**
-privilege; write actions additionally honour **user-config-readonly**. See the
+privilege; write actions additionally honour **user-config-readonly**. Creating
+a local account inside a new binding or approval also requires **System: Access:
+Management**. The account starts with a scrambled password and no groups or
+privileges, which remain explicit local choices. See the
 [admission policy guide](admission-policy.md).
 
 Back-channel and front-channel logout are notifications from the provider to

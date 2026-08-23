@@ -162,7 +162,7 @@ flowchart TD
 | `RelyingParty` | authorization transaction, optional PAR, code exchange, claim-source composition, logout/revocation requests | perform cryptography or grant privileges |
 | `ProviderMetadata` | exact Discovery validation and immutable per-login metadata snapshot | guess provider endpoints |
 | `TestController` | authenticated and CSRF-protected initiation of a saved provider's non-mutating browser test | accept an unsaved secret, grant a session or change local identity state |
-| `ApprovalController` | authenticated CRUD for durable bindings plus approval/denial of identities queued for one saved server; rechecks the core authentication-server and read-only privileges | authenticate the identity, create a session, trust button visibility as authorization or choose a local account automatically |
+| `ApprovalController` | authenticated CRUD for durable bindings, explicit local-account creation and approval/denial of identities queued for one saved server; rechecks the core authentication-server, user-manager and read-only privileges | authenticate the identity, create a session, trust button visibility as authorization or choose a local account automatically |
 | `SetupController` / `ProviderSetup` | authenticated, no-secret provider import generation from an unfinished form | contact the provider, persist credentials or mutate either system |
 | `HttpClient` | the only provider network transport; HTTPS, TLS, limits and redirect policy | follow credentials through redirects |
 | `JwtVerifier` | JWS and OIDC/logout claim validation using OPNsense phpseclib | accept token-selected keys or symmetric ID Token signatures |
