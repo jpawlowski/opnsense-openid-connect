@@ -73,6 +73,14 @@ def pushed_span(repo):
 
     event = forge_event()
 
+    # Creating a tag names commits that already exist; it does not introduce a
+    # new message. In particular, GitHub reports an all-zero `before` value for
+    # the first tag in a repository. Letting that fall through to the history
+    # fallback below would make the first release re-lint every old commit.
+    ref = event.get("ref") or os.environ.get("GITHUB_REF", "")
+    if ref.startswith("refs/tags/"):
+        return f"{head}..{head}"
+
     candidates = [
         ((event.get("pull_request") or {}).get("base") or {}).get("sha") or "",
         event.get("before") or "",

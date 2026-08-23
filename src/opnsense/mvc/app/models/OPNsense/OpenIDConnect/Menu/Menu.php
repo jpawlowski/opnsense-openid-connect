@@ -11,6 +11,7 @@ use OPNsense\Auth\AuthenticationFactory;
 use OPNsense\Auth\OpenIDConnect;
 use OPNsense\Base\Menu\MenuContainer;
 use OPNsense\Core\Config;
+use OPNsense\OpenIDConnect\SessionGrant;
 
 /**
  * Points Lobby > Log Out at this plugin, so that leaving the web interface also ends the
@@ -29,7 +30,8 @@ class Menu extends MenuContainer
 {
     public function collect()
     {
-        if (!$this->anyProviderWantsIt()) {
+        $provider = SessionGrant::currentProvider();
+        if ($provider === '' || !$this->providerWantsIt($provider)) {
             return;
         }
 
@@ -41,7 +43,7 @@ class Menu extends MenuContainer
         ]);
     }
 
-    private function anyProviderWantsIt(): bool
+    private function providerWantsIt(string $provider): bool
     {
         try {
             $config = Config::getInstance()->object();
@@ -49,15 +51,16 @@ class Menu extends MenuContainer
                 return false;
             }
 
+            $found = false;
             foreach ($config->system->authserver as $server) {
-                if ((string)$server->type !== OpenIDConnect::TYPE) {
-                    continue;
-                }
-                $settings = (new AuthenticationFactory())->get((string)$server->name);
-                if ($settings instanceof OpenIDConnect && $settings->redirectsLogoutMenu()) {
-                    return true;
+                if ((string)$server->type === OpenIDConnect::TYPE
+                    && hash_equals($provider, (string)$server->name)) {
+                    $found = true;
+                    break;
                 }
             }
+            $settings = $found ? (new AuthenticationFactory())->get($provider) : null;
+            return $settings instanceof OpenIDConnect && $settings->redirectsLogoutMenu();
         } catch (\Throwable $e) {
             /* the menu is drawn on every page; never let this be the reason one fails */
             return false;

@@ -162,6 +162,7 @@ Start with these fields:
 | Required authentication | Provider policy only by default; optionally require verified MFA or phishing-resistant context and method claims |
 | Admission policy | Administrator approval for named profiles; Strict for Generic |
 | Identity manager | after saving, map exact issuer/`sub` identities to existing local accounts and review pending approvals |
+| Shared Signals | optional push receiver; enter the transmitter issuer and assigned audience, then generate a delivery secret |
 | Login button wording | localized OPNsense sentence, provider label only or an exact custom text; fixed global services use their familiar short name |
 | Icon URL | every profile starts with a package-owned SVG, including a neutral OIDC mark for Generic; replace it only for installation-specific branding |
 
@@ -173,6 +174,7 @@ https://firewall.example.com/api/openidconnect/auth/callback/main
 https://firewall.example.com/
 https://firewall.example.com/api/openidconnect/auth/backchannel/main
 https://firewall.example.com/api/openidconnect/auth/frontchannel/main
+https://firewall.example.com/api/openidconnect/ssf/push/main
 ```
 
 Use exact callback URLs at the provider; do not use wildcards. Saving is

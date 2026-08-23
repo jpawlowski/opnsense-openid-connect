@@ -1,0 +1,276 @@
+<?php
+
+/*
+ * Copyright (C) 2026 Julian Pawlowski
+ * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
+ */
+
+use OPNsense\OpenIDConnect\HttpClient;
+use OPNsense\OpenIDConnect\JwtVerifier;
+use OPNsense\OpenIDConnect\SecurityEventVerifier;
+use OPNsense\OpenIDConnect\SessionRegistry;
+use OPNsense\OpenIDConnect\SharedSignalsMetadata;
+use OPNsense\OpenIDConnect\Api\SsfController;
+use OPNsense\Auth\Directory;
+use OPNsense\Mvc\Request;
+
+Checks::group('Shared Signals settings');
+$ssfOptions = (new OPNsense\Auth\OpenIDConnect())->getConfigurationOptions();
+Checks::that('Shared Signals is off by default', $ssfOptions['openidconnect_ssf_enabled']['default'], '0');
+$_POST = ['type' => 'openidconnect', 'openidconnect_ssf_enabled' => '1'];
+Checks::that(
+    'an enabled receiver requires an exact issuer',
+    count($ssfOptions['openidconnect_ssf_issuer']['validate']('http://id.example.net')),
+    1
+);
+Checks::that(
+    'an enabled receiver requires a generated secret',
+    count($ssfOptions['openidconnect_ssf_push_secret']['validate']('short')),
+    1
+);
+Checks::that(
+    'a 256-bit base64url secret is accepted',
+    $ssfOptions['openidconnect_ssf_push_secret']['validate'](str_repeat('a', 43)),
+    []
+);
+$_POST = [];
+$ssfConnector = connector([
+    'openidconnect_ssf_enabled' => '1',
+    'openidconnect_ssf_issuer' => 'https://signals.example.net/tenant',
+    'openidconnect_ssf_audience' => 'firewall-receiver',
+    'openidconnect_ssf_push_secret' => str_repeat('b', 43),
+]);
+Checks::that('the receiver setting has a typed accessor', $ssfConnector->receivesSharedSignals(), true);
+Checks::that(
+    'the transmitter issuer has a typed accessor',
+    $ssfConnector->sharedSignalsIssuer(),
+    'https://signals.example.net/tenant'
+);
+
+Checks::group('Shared Signals push boundary');
+Directory::reset();
+connector([
+    'name' => 'Signals provider',
+    'openidconnect_ssf_enabled' => '1',
+    'openidconnect_ssf_issuer' => 'https://signals.example.net',
+    'openidconnect_ssf_audience' => 'firewall-receiver',
+    'openidconnect_ssf_push_secret' => str_repeat('b', 43),
+]);
+$push = new SsfController(new Request(
+    'https',
+    'firewall.example.net',
+    [],
+    [],
+    ['CONTENT_TYPE' => 'application/secevent+jwt', 'AUTHORIZATION' => 'Bearer wrong'],
+    'signed',
+    'POST'
+));
+$push->beforeExecuteRoute(new class {
+    public function getActionName(): string
+    {
+        return 'push';
+    }
+});
+Checks::that('the public push boundary retains a private response policy', [
+    $push->response->headers['Cache-Control'],
+    $push->response->headers['Referrer-Policy'],
+    $push->response->headers['X-Content-Type-Options'],
+], ['no-store', 'no-referrer', 'nosniff']);
+$pushFailure = json_decode($push->pushAction('main'), true);
+Checks::that('a wrong delivery secret fails before transmitter discovery', [
+    $push->response->status,
+    $pushFailure['err'] ?? '',
+], [[400, 'Bad Request'], 'authentication_failed']);
+$unknownPush = new SsfController(new Request(
+    'https',
+    'firewall.example.net',
+    [],
+    [],
+    ['CONTENT_TYPE' => 'application/secevent+jwt'],
+    'signed',
+    'POST'
+));
+$unknownFailure = json_decode($unknownPush->pushAction('unknown'), true);
+Checks::that('an unknown receiver reveals only the generic authorization result', [
+    $unknownPush->response->status,
+    $unknownFailure['err'] ?? '',
+], [[400, 'Bad Request'], 'access_denied']);
+
+Checks::group('Shared Signals discovery');
+Checks::that(
+    'well-known discovery precedes an issuer path',
+    SharedSignalsMetadata::discoveryUrl('https://signals.example.net/tenant'),
+    'https://signals.example.net/.well-known/ssf-configuration/tenant'
+);
+$ssfMetadata = SharedSignalsMetadata::fromArray('https://signals.example.net', [
+    'spec_version' => '1_0',
+    'issuer' => 'https://signals.example.net',
+    'jwks_uri' => 'https://signals.example.net/keys',
+    'delivery_methods_supported' => [SharedSignalsMetadata::PUSH_METHOD],
+    'critical_subject_members' => ['user'],
+]);
+Checks::that('push metadata exposes its exact issuer', $ssfMetadata->issuer(), 'https://signals.example.net');
+Checks::throws(
+    'metadata for another issuer is refused',
+    fn() => SharedSignalsMetadata::fromArray('https://signals.example.net', [
+        'issuer' => 'https://other.example.net',
+        'jwks_uri' => 'https://signals.example.net/keys',
+    ]),
+    'exactly match'
+);
+Checks::throws(
+    'metadata that excludes push is refused',
+    fn() => SharedSignalsMetadata::fromArray('https://signals.example.net', [
+        'issuer' => 'https://signals.example.net',
+        'jwks_uri' => 'https://signals.example.net/keys',
+        'delivery_methods_supported' => ['urn:ietf:rfc:8936'],
+    ]),
+    'push delivery'
+);
+
+Checks::group('Shared Signals event profile');
+$now = time();
+$eventClaims = [
+    'iss' => 'https://signals.example.net',
+    'aud' => 'firewall-receiver',
+    'iat' => $now,
+    'jti' => 'signal-once',
+    'sub_id' => ['format' => 'iss_sub', 'iss' => 'https://id.example.net', 'sub' => 'subject-1'],
+    'events' => [SecurityEventVerifier::CAEP_SESSION_REVOKED => ['event_timestamp' => $now - 5]],
+];
+$fakeJwt = new class(new HttpClient()) extends JwtVerifier {
+    public array $header = ['typ' => 'secevent+jwt', 'alg' => 'RS256'];
+    public array $claims = [];
+    public function verifySignedJwt(string $jwt, string $jwksUri, array $advertisedAlgorithms = []): array
+    {
+        return ['header' => $this->header, 'claims' => $this->claims, 'key' => []];
+    }
+};
+$fakeJwt->claims = $eventClaims;
+$events = new SecurityEventVerifier($fakeJwt);
+$accepted = $events->verify(
+    'signed',
+    $ssfMetadata,
+    'firewall-receiver',
+    'https://id.example.net',
+    false,
+    $now
+);
+Checks::that('a supported event is actionable', $accepted['actionable'], true);
+Checks::that('the subject remains opaque to local account policy', $accepted['subject'], 'subject-1');
+Checks::that('the event time limits affected sessions', $accepted['cutoff'], $now - 5);
+
+$fakeJwt->claims = array_replace($eventClaims, [
+    'events' => ['https://schemas.example.net/informational' => []],
+]);
+Checks::that(
+    'an unknown valid event is acknowledged without action',
+    $events->verify('signed', $ssfMetadata, 'firewall-receiver', 'https://id.example.net', false, $now)['actionable'],
+    false
+);
+$fakeJwt->claims = array_replace($eventClaims, [
+    'events' => [
+        'https://schemas.example.net/alternate' => [],
+        SecurityEventVerifier::RISC_ACCOUNT_DISABLED => ['event_timestamp' => $now - 9],
+    ],
+]);
+$multiple = $events->verify(
+    'signed',
+    $ssfMetadata,
+    'firewall-receiver',
+    'https://id.example.net',
+    false,
+    $now
+);
+Checks::that('multiple event URIs retain a supported session action', $multiple['actionable'], true);
+Checks::that('multiple event URIs retain the earliest supported event time', $multiple['cutoff'], $now - 9);
+$fakeJwt->claims = array_replace($eventClaims, [
+    'sub_id' => ['format' => 'iss_sub', 'iss' => 'https://another.example.net', 'sub' => 'subject-1'],
+]);
+Checks::that(
+    'an issuer and subject from another namespace cannot target a local session',
+    $events->verify('signed', $ssfMetadata, 'firewall-receiver', 'https://id.example.net', false, $now)['actionable'],
+    false
+);
+$fakeJwt->claims = $eventClaims + ['exp' => $now + 60];
+Checks::throws(
+    'an SSF SET may not carry exp',
+    fn() => $events->verify('signed', $ssfMetadata, 'firewall-receiver', 'https://id.example.net', false, $now),
+    'forbidden'
+);
+$fakeJwt->claims = array_replace($eventClaims, ['aud' => 'another-receiver']);
+Checks::throws(
+    'a SET for another audience is refused',
+    fn() => $events->verify('signed', $ssfMetadata, 'firewall-receiver', 'https://id.example.net', false, $now),
+    'receiver'
+);
+$fakeJwt->claims = $eventClaims;
+unset($fakeJwt->claims['sub_id']);
+$fakeJwt->claims['events'] = [SecurityEventVerifier::CAEP_CREDENTIAL_CHANGE => [
+    'subject' => ['format' => 'iss_sub', 'iss' => 'https://id.example.net', 'sub' => 'okta-subject'],
+    'event_timestamp' => ($now - 2) * 1000,
+]];
+$okta = $events->verify('signed', $ssfMetadata, 'firewall-receiver', 'https://id.example.net', true, $now);
+Checks::that('Okta legacy event subjects are narrowly accepted', $okta['subject'], 'okta-subject');
+Checks::that('Okta millisecond timestamps are normalized', $okta['cutoff'], $now - 2);
+$fakeJwt->claims['sub_id'] = [
+    'format' => 'complex',
+    'user' => ['format' => 'iss_sub', 'iss' => 'https://id.example.net', 'sub' => 'subject-1'],
+    'device' => ['format' => 'opaque', 'id' => 'device'],
+];
+$criticalMetadata = SharedSignalsMetadata::fromArray('https://signals.example.net', [
+    'issuer' => 'https://signals.example.net',
+    'jwks_uri' => 'https://signals.example.net/keys',
+    'critical_subject_members' => ['device'],
+]);
+Checks::throws(
+    'an unsupported critical subject member discards the event',
+    fn() => $events->verify('signed', $criticalMetadata, 'firewall-receiver', 'https://id.example.net', true, $now),
+    'critical subject'
+);
+
+Checks::group('Shared Signals replay and session cutoff');
+$oldId = 'oldsession123456789';
+$newId = 'newsession123456789';
+$otherIssuerId = 'otherissuer12345678';
+file_put_contents(constant('OPENIDCONNECT_TEST_SESSION_DIRECTORY') . '/sess_' . $oldId, 'old');
+file_put_contents(constant('OPENIDCONNECT_TEST_SESSION_DIRECTORY') . '/sess_' . $newId, 'new');
+file_put_contents(constant('OPENIDCONNECT_TEST_SESSION_DIRECTORY') . '/sess_' . $otherIssuerId, 'other');
+SessionRegistry::record($oldId, 'SSO', 'https://id.example.net', 'subject-1', '', $now + 600, $now - 60);
+SessionRegistry::record($newId, 'SSO', 'https://id.example.net', 'subject-1', '', $now + 600, $now + 120);
+SessionRegistry::record(
+    $otherIssuerId,
+    'SSO',
+    'https://another.example.net',
+    'subject-1',
+    '',
+    $now + 600,
+    $now - 60
+);
+Checks::that(
+    'only sessions existing at the event time are terminated',
+    SessionRegistry::terminateForSecurityEvent('SSO', 'https://id.example.net', 'subject-1', $now),
+    1
+);
+Checks::that('the newer session remains', file_exists(
+    constant('OPENIDCONNECT_TEST_SESSION_DIRECTORY') . '/sess_' . $newId
+), true);
+Checks::that('the same subject from another issuer remains', file_exists(
+    constant('OPENIDCONNECT_TEST_SESSION_DIRECTORY') . '/sess_' . $otherIssuerId
+), true);
+Checks::that(
+    'a security event replay is accepted once',
+    SessionRegistry::acceptSecurityEvent('SSO', 'https://signals.example.net', 'aud', 'one'),
+    true
+);
+Checks::that(
+    'the same security event replay is then refused',
+    SessionRegistry::acceptSecurityEvent('SSO', 'https://signals.example.net', 'aud', 'one'),
+    false
+);
+SessionRegistry::releaseSecurityEvent('SSO', 'https://signals.example.net', 'aud', 'one');
+Checks::that(
+    'a failed action can release its replay marker',
+    SessionRegistry::acceptSecurityEvent('SSO', 'https://signals.example.net', 'aud', 'one'),
+    true
+);

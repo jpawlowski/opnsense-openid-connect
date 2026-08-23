@@ -14,6 +14,8 @@ use OPNsense\OpenIDConnect\JwtVerifier;
 use OPNsense\OpenIDConnect\PendingIdentityRegistry;
 use OPNsense\OpenIDConnect\ProviderMetadata;
 use OPNsense\OpenIDConnect\SessionRegistry;
+use OPNsense\OpenIDConnect\SecurityEventVerifier;
+use OPNsense\OpenIDConnect\SharedSignalsMetadata;
 use OPNsense\OpenIDConnect\TransactionRegistry;
 use OPNsense\OpenIDConnect\WebGuiAccess;
 use OPNsense\OpenIDConnect\Api\ApprovalController;
@@ -51,7 +53,11 @@ if ($evidencePath !== null) {
 require_once('/usr/local/etc/inc/legacy_bindings.inc');
 
 $library = '/usr/local/opnsense/mvc/app/library/OPNsense/OpenIDConnect/';
-foreach (['ProtocolException', 'HttpResponse', 'HttpClient', 'ProviderMetadata', 'JwtVerifier', 'PendingIdentityRegistry', 'SessionRegistry', 'TransactionRegistry', 'WebGuiAccess'] as $class) {
+foreach ([
+    'ProtocolException', 'SecurityEventException', 'HttpResponse', 'HttpClient', 'ProviderMetadata',
+    'SharedSignalsMetadata', 'JwtVerifier', 'SecurityEventVerifier', 'PendingIdentityRegistry',
+    'SessionRegistry', 'TransactionRegistry', 'WebGuiAccess',
+] as $class) {
     require_once $library . $class . '.php';
 }
 require_once '/usr/local/opnsense/mvc/app/library/OPNsense/Auth/OpenIDConnect.php';
@@ -210,6 +216,42 @@ $ecSignature = $ec->withHash('sha256')->withSignatureFormat('IEEE')->sign($paylo
 $check($verifier->signature('ES256', $ecJwk, $payload, $ecSignature), 'ES256 IEEE signature through OPNsense phpseclib');
 $validated('runtime-jws-crypto');
 
+$ssfIssuer = 'https://signals.runtime.example.com';
+$ssfAudience = 'runtime-receiver';
+$ssfHeader = JwtVerifier::base64UrlEncode((string)json_encode([
+    'typ' => 'secevent+jwt', 'alg' => 'RS256', 'kid' => 'runtime',
+], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+$ssfClaims = JwtVerifier::base64UrlEncode((string)json_encode([
+    'iss' => $ssfIssuer,
+    'aud' => $ssfAudience,
+    'iat' => time(),
+    'jti' => 'runtime-security-event',
+    'sub_id' => ['format' => 'iss_sub', 'iss' => $ssfIssuer, 'sub' => 'runtime-subject'],
+    'events' => [SecurityEventVerifier::CAEP_SESSION_REVOKED => []],
+], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+$ssfSigningInput = $ssfHeader . '.' . $ssfClaims;
+$ssfSignature = $rsa->withHash('sha256')->withPadding(RSA::SIGNATURE_PKCS1)->sign($ssfSigningInput);
+$ssfSet = $ssfSigningInput . '.' . JwtVerifier::base64UrlEncode($ssfSignature);
+$ssfHttp = new HttpClient(static fn(): array => [
+    'status' => 200,
+    'content_type' => 'application/jwk-set+json',
+    'body' => (string)json_encode(['keys' => [['kid' => 'runtime'] + $rsaJwk]], JSON_THROW_ON_ERROR),
+    'location' => '',
+]);
+$ssfMetadata = SharedSignalsMetadata::fromArray($ssfIssuer, [
+    'issuer' => $ssfIssuer,
+    'jwks_uri' => $ssfIssuer . '/keys',
+    'delivery_methods_supported' => [SharedSignalsMetadata::PUSH_METHOD],
+]);
+$ssfEvent = (new SecurityEventVerifier(new JwtVerifier($ssfHttp)))->verify(
+    $ssfSet,
+    $ssfMetadata,
+    $ssfAudience,
+    $ssfIssuer
+);
+$check($ssfEvent['actionable'] && $ssfEvent['subject'] === 'runtime-subject', 'signed SSF SET through phpseclib');
+$validated('runtime-shared-signals');
+
 $jti = JwtVerifier::base64UrlEncode(random_bytes(24));
 $check(SessionRegistry::acceptLogoutToken('https://runtime.example.com/', $jti, time() + 60), 'first logout token is accepted');
 $check(!SessionRegistry::acceptLogoutToken('https://runtime.example.com/', $jti, time() + 60), 'replayed logout token is refused');
@@ -217,6 +259,14 @@ SessionRegistry::releaseLogoutToken('https://runtime.example.com/', $jti);
 $check(
     SessionRegistry::acceptLogoutToken('https://runtime.example.com/', $jti, time() + 60),
     'a failed logout can release its replay marker for a provider retry'
+);
+$check(
+    SessionRegistry::acceptSecurityEvent('runtime', $ssfIssuer, $ssfAudience, 'runtime-replay'),
+    'first Shared Signals event is accepted'
+);
+$check(
+    !SessionRegistry::acceptSecurityEvent('runtime', $ssfIssuer, $ssfAudience, 'runtime-replay'),
+    'replayed Shared Signals event is refused'
 );
 
 $sessionId = bin2hex(random_bytes(16));
@@ -240,7 +290,10 @@ $pendingId = PendingIdentityRegistry::record(
 );
 $check(PendingIdentityRegistry::find($pendingId, 'runtime') !== null, 'pending identity is stored');
 $check(PendingIdentityRegistry::remove($pendingId, 'runtime'), 'pending identity is removed');
-foreach (['.openidconnect-sessions', '.openidconnect-logout-tokens', '.openidconnect-transactions', '.openidconnect-pending-identities'] as $file) {
+foreach ([
+    '.openidconnect-sessions', '.openidconnect-logout-tokens', '.openidconnect-security-events',
+    '.openidconnect-transactions', '.openidconnect-pending-identities',
+] as $file) {
     $path = rtrim((string)ini_get('session.save_path'), '/') . '/' . $file;
     $check(is_file($path) && (fileperms($path) & 0777) === 0600, $file . ' has mode 0600');
 }

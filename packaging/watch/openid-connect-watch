@@ -68,6 +68,7 @@ TOUCHPOINTS="
 /usr/local/opnsense/mvc/app/library/OPNsense/Auth/SSOProviders/Provider.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Auth/SSOProviders/ISSOContainer.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Mvc/Session.php
+/usr/local/opnsense/mvc/app/library/OPNsense/Mvc/Request.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Mvc/Dispatcher.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Mvc/Router.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Core/Backend.php

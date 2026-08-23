@@ -75,6 +75,12 @@ HOST_CAPABILITIES = {
         "Back-channel logout token claims",
         "Strict endpoint responses and logout binding",
     ),
+    "shared-signals-policy": (
+        "Shared Signals settings",
+        "Shared Signals discovery",
+        "Shared Signals event profile",
+        "Shared Signals replay and session cutoff",
+    ),
     "login-content-safety": (
         "Where the login button gets its icon",
         "What the login page is handed",

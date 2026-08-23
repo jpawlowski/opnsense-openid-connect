@@ -11,10 +11,12 @@ loose lets a change reach a release with nothing said about it in the note. The
 second is the one nobody notices.
 """
 import importlib.util
+import os
 import pathlib
 import subprocess
 import sys
 import tempfile
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "packaging"))
@@ -160,6 +162,40 @@ def main():
         check("the next release starts after the previous tag", second_span, "v1.0.0..v1.1.0")
         check("the next release names its predecessor", second_earlier, "v1.0.0")
 
+        first = subprocess.run(
+            ["git", "-C", str(repository), "rev-parse", "v1.0.0^{commit}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        second = subprocess.run(
+            ["git", "-C", str(repository), "rev-parse", "v1.1.0^{commit}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        with mock.patch.dict(os.environ, {"GITHUB_SHA": first}):
+            with mock.patch.object(
+                linter,
+                "forge_event",
+                return_value={"ref": "refs/tags/v1.0.0", "before": "0" * 40},
+            ):
+                tag_span = linter.pushed_span(str(repository))
+
+        with mock.patch.dict(os.environ, {"GITHUB_SHA": second}):
+            with mock.patch.object(
+                linter,
+                "forge_event",
+                return_value={"ref": "refs/heads/main", "before": first},
+            ):
+                branch_span = linter.pushed_span(str(repository))
+
+        check("the first tag introduces no commit messages", tag_span, f"{first}..{first}")
+        check("and therefore re-lints none of the history", commits.read(tag_span, str(repository)), [])
+        check("a branch push still checks what it introduced", branch_span, f"{first}..{second}")
+        check("and that range contains the new commit", len(commits.read(branch_span, str(repository))), 1)
+
         rendered = subprocess.run(
             [
                 sys.executable,
@@ -241,6 +277,10 @@ def main():
           "id-token: write" in workflow and "attestations: write" in workflow, True)
     check("the provenance statement covers the exact package built by this job",
           "subject-path: ${{ steps.build.outputs.path }}" in workflow, True)
+    check("release immutability is required before the package is built",
+          workflow.index("Require immutable GitHub releases")
+          < workflow.index("Build the package")
+          < workflow.index("Publish the complete immutable GitHub release"), True)
     check("provenance is created before any release is published",
           workflow.index("Attest package build provenance")
           < workflow.index("Publish the complete immutable GitHub release"), True)

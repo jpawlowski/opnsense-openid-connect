@@ -36,8 +36,16 @@ outside this project's explicit purpose.
 | Groups | off by default, explicit assignable scope | group claim, create/update groups documented |
 | WebGUI address policy | follows OPNsense names, actual local addresses, virtual IPs and WebGUI port by default, with additions or an exact provider-specific replacement | not documented publicly |
 | Logout | local, RP-initiated, revocation, front/back-channel | public WebGUI section does not document logout controls |
+| Shared Signals | optional signed SSF push receiver for selected CAEP/RISC events; session termination only | not documented publicly |
 | Diagnostics | authenticated discovery probe, non-mutating full browser sign-in test, generic public errors, audit references, watchdog | general setup fields documented; equivalent diagnostics not documented |
 | Core integration/support | external plugin; compatibility watchdog and best-effort project support | vendor-integrated commercial firmware path |
+
+The packages use separate configuration keys, authentication-server types,
+namespaces and API paths. The plugin also redirects the Lobby logout menu only
+for a session it created, leaving local and other integrations' session paths
+alone. Parallel installation with Business Edition is nevertheless described
+as structurally compatible rather than practically verified until it has been
+tested on a licensed disposable installation.
 
 ## Cost and operational trade-off
 
