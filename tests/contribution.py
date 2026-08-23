@@ -215,7 +215,22 @@ def main():
           all("merely to satisfy the issue-first rule" in text
               and "continuous" in text and "independently" in text for text in reuse_rules), True)
     check("an ambiguous split returns to the user",
-          all(re.search(r"asks? the user before", text) for text in reuse_rules), True)
+          all(re.search(r"ask(?:s)? the user (?:before|once)", text) for text in reuse_rules), True)
+    check("agents ask once before broad work is split into a new session",
+          "ask the user once" in contribution_skill
+          and "new session" in contribution_skill
+          and "Do not ask repeatedly" in contribution_skill, True)
+    check("agents prefer meaningful native sub-issues without manufacturing hierarchy",
+          "native sub-issue relationship" in contribution_skill
+          and "placeholder parent" in contribution_skill
+          and "not the first choice" in contribution_skill, True)
+    check("the sub-issue workflow is not imposed on human contributors",
+          "native sub-issue relationship" not in contributing
+          and "new session" not in contributing, True)
+    check("agents without triage suggest rather than fabricate a sub-issue relation",
+          "requires repository triage permission" in contribution_skill
+          and "Sub-issue of #N" in contribution_skill
+          and "suggestion for a maintainer" in contribution_skill, True)
     work_claim_rules = [re.sub(r"\s+", " ", text) for text in (contribution_skill, contributing)]
     check("active work is assigned when permission allows",
           all("write access" in text and "assign" in text and re.search(r"work (?:starts|begins)", text)

@@ -24,8 +24,23 @@ reviewed, and accepted or rejected as one change.
 
 Create another issue only when the work is independently decidable, needs a
 separate security path, or would force more than one real decision into `To decide`.
-If separation is ambiguous, ask the user before opening another issue or pull
-request.
+If the current issue or pull request is becoming too broad, pause before
+creating another one and ask the user once. Propose a concrete boundary and
+recommend handling the separated work in a new session. Do not ask repeatedly
+after the user has decided the boundary.
+
+When an approved split produces thematically related issues, prefer GitHub's
+native sub-issue relationship over another top-level issue. The parent must
+truthfully describe the shared outcome, and every child must remain independently
+decidable. Link an existing suitable issue as a child instead of creating a new
+one merely to build a hierarchy. Never create a placeholder parent or a
+sub-issue solely because the work happened in the same session.
+
+Managing sub-issues requires repository triage permission. When the publishing
+account lacks it, identify the intended parent as `Sub-issue of #N` under
+`Where`; this is a suggestion for a maintainer to apply, not a reason for an
+extra comment. A separate top-level issue remains valid when there is no honest
+parent-child relationship, but it is not the first choice for a coherent split.
 
 An agent-authored pull request must close one same-repository issue that already
 exists before the pull request is opened. Create the issue first only when no
