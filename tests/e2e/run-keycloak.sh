@@ -65,12 +65,25 @@ export E2E_OPNSENSE_USERNAME E2E_KEYCLOAK_REALM E2E_KEYCLOAK_ADMIN_USERNAME
 export E2E_KEYCLOAK_ADMIN_PASSWORD E2E_KEYCLOAK_CLIENT_ID E2E_KEYCLOAK_CLIENT_SECRET
 export E2E_TEST_USERNAME E2E_TEST_PASSWORD E2E_SERVER_NAME E2E_APPLICATION_CODE
 
-url_parts=$(node -e 'const u=new URL(process.argv[1]); console.log([u.hostname,u.port||"443",u.origin].join("\n"))' "$E2E_KEYCLOAK_URL")
+url_parts=$(node -e \
+  'const u=new URL(process.argv[1]); console.log([u.hostname,u.port||"443",u.origin].join("\n"))' \
+  "$E2E_KEYCLOAK_URL")
 keycloak_host=$(printf '%s\n' "$url_parts" | sed -n '1p')
 keycloak_port=$(printf '%s\n' "$url_parts" | sed -n '2p')
 keycloak_origin=$(printf '%s\n' "$url_parts" | sed -n '3p')
-opnsense_origin=$(node -e 'const u=new URL(process.argv[1]); if(u.protocol!=="https:") process.exit(2); console.log(u.origin)' "$E2E_OPNSENSE_URL")
+opnsense_origin=$(node -e \
+  'const u=new URL(process.argv[1]); if(u.protocol!=="https:") process.exit(2); console.log(u.origin)' \
+  "$E2E_OPNSENSE_URL")
 opnsense_authority=$(node -e 'console.log(new URL(process.argv[1]).host)' "$E2E_OPNSENSE_URL")
+opnsense_host=$(node -e 'console.log(new URL(process.argv[1]).hostname)' "$E2E_OPNSENSE_URL")
+
+keycloak_curl() {
+  if [ -n "${E2E_PROVIDER_BROWSER_IP:-}" ]; then
+    command curl --resolve "${keycloak_host}:${keycloak_port}:${E2E_PROVIDER_BROWSER_IP}" "$@"
+  else
+    command curl "$@"
+  fi
+}
 
 case "$keycloak_host" in
   *:*) certificate_san="IP:${keycloak_host}" ;;
@@ -90,8 +103,9 @@ cleanup() {
   fi
   e2e_ssh \
     "php '$remote_cleanup' '$E2E_TEST_USERNAME' '$E2E_APPLICATION_CODE'" >/dev/null 2>&1 || true
-  e2e_ssh \
-    "rm -f '$remote_cleanup' '$remote_ca' /tmp/os-openid-connect-e2e-${run_id}.pkg; certctl rehash" >/dev/null 2>&1 || true
+  remote_package="/tmp/os-openid-connect-e2e-${run_id}.pkg"
+  e2e_ssh "rm -f '$remote_cleanup' '$remote_ca' '$remote_package'; certctl rehash" \
+    >/dev/null 2>&1 || true
   docker rm -f "$keycloak_container" "$proxy_container" "$zap_container" >/dev/null 2>&1 || true
   rm -rf "$work_dir"
   exit "$status"
@@ -120,7 +134,41 @@ jq -n \
   --arg origin "$opnsense_origin" \
   --arg backchannel "${E2E_BACKCHANNEL_URL}/api/openidconnect/auth/backchannel/${E2E_APPLICATION_CODE}" \
   --arg frontchannel "${opnsense_origin}/api/openidconnect/auth/frontchannel/${E2E_APPLICATION_CODE}" \
-  '{realm:$realm,enabled:true,users:[{username:$username,email:($username+"@example.com"),emailVerified:true,firstName:"OIDC",lastName:"E2E",enabled:true,credentials:[{type:"password",value:$password,temporary:false}]}],clients:[{clientId:$client,name:"OPNsense OIDC E2E",protocol:"openid-connect",enabled:true,publicClient:false,secret:$secret,standardFlowEnabled:true,directAccessGrantsEnabled:false,implicitFlowEnabled:false,frontchannelLogout:false,redirectUris:[$callback],webOrigins:[$origin],attributes:{"pkce.code.challenge.method":"S256","post.logout.redirect.uris":($origin+"/*"),"backchannel.logout.url":$backchannel,"backchannel.logout.session.required":"true","frontchannel.logout.url":$frontchannel,"frontchannel.logout.session.required":"true"}}]}' \
+  '{
+    realm: $realm,
+    enabled: true,
+    users: [{
+      username: $username,
+      email: ($username + "@example.com"),
+      emailVerified: true,
+      firstName: "OIDC",
+      lastName: "E2E",
+      enabled: true,
+      credentials: [{type: "password", value: $password, temporary: false}]
+    }],
+    clients: [{
+      clientId: $client,
+      name: "OPNsense OIDC E2E",
+      protocol: "openid-connect",
+      enabled: true,
+      publicClient: false,
+      secret: $secret,
+      standardFlowEnabled: true,
+      directAccessGrantsEnabled: false,
+      implicitFlowEnabled: false,
+      frontchannelLogout: false,
+      redirectUris: [$callback],
+      webOrigins: [$origin],
+      attributes: {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": ($origin + "/*"),
+        "backchannel.logout.url": $backchannel,
+        "backchannel.logout.session.required": "true",
+        "frontchannel.logout.url": $frontchannel,
+        "frontchannel.logout.session.required": "true"
+      }
+    }]
+  }' \
   > "$work_dir/realm.json"
 
 cat > "$work_dir/nginx.conf" <<EOF
@@ -139,14 +187,17 @@ http {
 }
 EOF
 
+nginx_image='nginx@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236'
 docker run -d --name "$proxy_container" -p "${E2E_BACKCHANNEL_PORT}:8443" \
-  --add-host "opnsense.localhost:host-gateway" \
+  --add-host "${opnsense_host}:host-gateway" \
   -v "$work_dir/nginx.conf:/etc/nginx/nginx.conf:ro" \
   -v "$work_dir/server.crt:/etc/nginx/tls/server.crt:ro" \
   -v "$work_dir/server.key:/etc/nginx/tls/server.key:ro" \
-  nginx@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236 >/dev/null
+  "$nginx_image" >/dev/null
 
-keycloak_image=${E2E_KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak@sha256:831330513f55695572286e521f94fcd3c7e285250ed5b848090265a33192f669}
+keycloak_repository='quay.io/keycloak/keycloak'
+default_keycloak_image="${keycloak_repository}@sha256:831330513f55695572286e521f94fcd3c7e285250ed5b848090265a33192f669"
+keycloak_image=${E2E_KEYCLOAK_IMAGE:-$default_keycloak_image}
 docker run -d --name "$keycloak_container" -p "${keycloak_port}:8443" \
   --add-host "${keycloak_host}:host-gateway" \
   -e "KC_BOOTSTRAP_ADMIN_USERNAME=${E2E_KEYCLOAK_ADMIN_USERNAME}" \
@@ -163,7 +214,8 @@ docker run -d --name "$keycloak_container" -p "${keycloak_port}:8443" \
   --hostname="$keycloak_origin" --hostname-strict=true --http-enabled=false >/dev/null
 
 attempt=0
-until curl -ksSf "${keycloak_origin}/realms/${E2E_KEYCLOAK_REALM}/.well-known/openid-configuration" >/dev/null 2>&1; do
+discovery_path="/realms/${E2E_KEYCLOAK_REALM}/.well-known/openid-configuration"
+until keycloak_curl -ksSf "${keycloak_origin}${discovery_path}" >/dev/null 2>&1; do
   attempt=$((attempt + 1))
   if [ "$(docker inspect -f '{{.State.Running}}' "$keycloak_container")" != "true" ]; then
     docker logs "$keycloak_container" >&2
@@ -176,17 +228,18 @@ done
 # Imported users do not receive the realm's default role automatically. The
 # account console needs its inherited account roles for the IdP-initiated
 # front-channel logout scenario, so grant exactly that generated default role.
-admin_token=$(curl -ksSf \
+admin_token=$(keycloak_curl -ksSf \
   --data-urlencode grant_type=password \
   --data-urlencode client_id=admin-cli \
   --data-urlencode "username=${E2E_KEYCLOAK_ADMIN_USERNAME}" \
   --data-urlencode "password=${E2E_KEYCLOAK_ADMIN_PASSWORD}" \
   "${keycloak_origin}/realms/master/protocol/openid-connect/token" | jq -r .access_token)
-test_user_id=$(curl -ksSf -H "Authorization: Bearer ${admin_token}" \
-  "${keycloak_origin}/admin/realms/${E2E_KEYCLOAK_REALM}/users?username=${E2E_TEST_USERNAME}&exact=true" | jq -r '.[0].id')
-default_role=$(curl -ksSf -H "Authorization: Bearer ${admin_token}" \
+users_api="${keycloak_origin}/admin/realms/${E2E_KEYCLOAK_REALM}/users"
+test_user_id=$(keycloak_curl -ksSf -H "Authorization: Bearer ${admin_token}" \
+  "${users_api}?username=${E2E_TEST_USERNAME}&exact=true" | jq -r '.[0].id')
+default_role=$(keycloak_curl -ksSf -H "Authorization: Bearer ${admin_token}" \
   "${keycloak_origin}/admin/realms/${E2E_KEYCLOAK_REALM}/roles/default-roles-${E2E_KEYCLOAK_REALM}")
-printf '%s\n' "$default_role" | jq '[.]' | curl -ksSf -o /dev/null -X POST \
+printf '%s\n' "$default_role" | jq '[.]' | keycloak_curl -ksSf -o /dev/null -X POST \
   -H "Authorization: Bearer ${admin_token}" -H 'Content-Type: application/json' \
   --data-binary @- \
   "${keycloak_origin}/admin/realms/${E2E_KEYCLOAK_REALM}/users/${test_user_id}/role-mappings/realm"
@@ -194,6 +247,7 @@ printf '%s\n' "$default_role" | jq '[.]' | curl -ksSf -o /dev/null -X POST \
 e2e_scp_to "$work_dir/ca.crt" "$remote_ca"
 e2e_scp_to "$script_dir/remote-cleanup.php" "$remote_cleanup"
 e2e_ssh "chmod 600 '$remote_ca' '$remote_cleanup'; certctl rehash"
+e2e_ssh "fetch -qo- '${keycloak_origin}/realms/${E2E_KEYCLOAK_REALM}/.well-known/openid-configuration' >/dev/null"
 e2e_ssh \
   "fetch -qo- '${keycloak_origin}/realms/${E2E_KEYCLOAK_REALM}/.well-known/openid-configuration' >/dev/null"
 
@@ -226,12 +280,17 @@ fi
 # silently turn a later run red. Its API is exposed on a random loopback port
 # without a key; nothing outside this runner can reach it.
 zap_image="ghcr.io/zaproxy/zaproxy@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef"
-opnsense_host=$(node -e 'console.log(new URL(process.argv[1]).hostname)' "$E2E_OPNSENSE_URL")
 zap_host_args=
 case "$opnsense_host" in
   *:*) ;;
   *[!0-9.]*)
-    opnsense_address=$(python3 -c 'import socket,sys; print(socket.getaddrinfo(sys.argv[1], None, type=socket.SOCK_STREAM)[0][4][0])' "$opnsense_host")
+    if [ -n "${E2E_PROVIDER_BROWSER_IP:-}" ]; then
+      opnsense_address=host-gateway
+    else
+      opnsense_address=$(python3 -c \
+        'import socket,sys; print(socket.getaddrinfo(sys.argv[1],None,type=socket.SOCK_STREAM)[0][4][0])' \
+        "$opnsense_host")
+    fi
     zap_host_args="--add-host=${opnsense_host}:${opnsense_address}"
     ;;
 esac

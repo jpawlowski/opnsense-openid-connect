@@ -42,7 +42,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$suite" in core|full) ;; *) usage ;; esac
-case "$provider" in ''|keycloak|authentik|authelia|dex|pocketid) ;; *) usage ;; esac
+case "$provider" in ''|keycloak|authentik|authelia|pocketid) ;; *) usage ;; esac
 : "${E2E_OPNSENSE_URL:?Set the HTTPS origin of the disposable OPNsense instance}"
 : "${E2E_OPNSENSE_SSH:?Set the certificate-authenticated SSH target}"
 : "${E2E_OPNSENSE_PASSWORD:?Set the local WebGUI password}"
@@ -52,7 +52,7 @@ if [ -n "$provider" ]; then
 elif [ "$suite" = core ]; then
   providers='keycloak authentik'
 else
-  providers='keycloak authentik authelia dex pocketid'
+  providers='keycloak authentik authelia pocketid'
 fi
 
 if [ -z "${E2E_PROVIDER_HOST:-}" ]; then

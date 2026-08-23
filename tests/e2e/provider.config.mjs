@@ -7,6 +7,12 @@ import { defineConfig } from '@playwright/test';
 
 const browserIp = process.env.E2E_PROVIDER_BROWSER_IP;
 const providerHost = process.env.E2E_PROVIDER_HOST;
+const resolverRules = [];
+if (browserIp && providerHost) resolverRules.push(`MAP ${providerHost} ${browserIp}`);
+if (process.env.E2E_OPNSENSE_BROWSER_IP && process.env.E2E_OPNSENSE_URL) {
+  const opnsenseHost = new URL(process.env.E2E_OPNSENSE_URL).hostname;
+  resolverRules.push(`MAP ${opnsenseHost} ${process.env.E2E_OPNSENSE_BROWSER_IP}`);
+}
 
 export default defineConfig({
   testDir: '.',
@@ -24,8 +30,8 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     actionTimeout: 15_000,
     navigationTimeout: 45_000,
-    launchOptions: browserIp && providerHost ? {
-      args: [`--host-resolver-rules=MAP ${providerHost} ${browserIp}`],
+    launchOptions: resolverRules.length ? {
+      args: [`--host-resolver-rules=${resolverRules.join(',')}`],
     } : {},
   },
 });
