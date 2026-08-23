@@ -169,6 +169,7 @@ flowchart TD
 | `SetupController` / `ProviderSetup` | authenticated, no-secret provider import generation from an unfinished form | contact the provider, persist credentials or mutate either system |
 | `HttpClient` | the only provider network transport; HTTPS, TLS, limits and redirect policy | follow credentials through redirects |
 | `JwtVerifier` | JWS and OIDC/logout claim validation using OPNsense phpseclib | accept token-selected keys or symmetric ID Token signatures |
+| `AuthenticationRequirement` | freeze one requested MFA/phishing-resistant policy and validate its verified `acr`/`acrs` plus `amr` evidence | infer provider semantics or inspect an unverified token |
 | `OpenIDConnect` | settings, stable identity binding, local account and group policy | establish browser sessions |
 | `WebGuiAccess` | apply OPNsense's effective user/group/source-network ACL and choose a navigable landing page | grant privileges or treat logout/API routes as human access |
 | `SessionRegistry` | minimal session lookup and logout replay protection | store ID/access/refresh tokens or client secrets |
@@ -235,6 +236,10 @@ The exact endpoint matrix and the reasons for the two exceptions are recorded in
 - ID, access and refresh tokens live only in the authenticated PHP session for
   optional provider logout/revocation. They are never logged or placed in the
   logout index.
+- An optional authentication requirement is frozen into the same one-time login
+  transaction as issuer, nonce, PKCE and metadata. The callback refuses a
+  configuration mismatch and validates only the signed ID Token before local
+  account or session processing.
 - The logout index contains PHP session ID, issuer, subject, provider `sid` and
   expiry. The replay index contains only a hash of issuer plus logout `jti`.
 

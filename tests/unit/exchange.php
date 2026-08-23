@@ -336,6 +336,89 @@ $testTransaction = RelyingParty::consumeTransaction(
 );
 Checks::that('a sign-in test is marked server-side and not by a browser parameter', $testTransaction['purpose'], 'test');
 
+$strengthSession = new Session();
+$strengthController = new Controller(new Request('https', 'firewall.example.net'), $strengthSession);
+$strengthSettings = connector([
+    'openidconnect_client_id' => 'client-id',
+    'openidconnect_client_secret' => 'secret',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_app_code' => 'strong-login',
+    'openidconnect_required_authentication' => 'multi-factor',
+]);
+$strengthParty = new RelyingParty(
+    $strengthSettings,
+    $strengthController,
+    new HttpClient(fn() => jsonAnswer(metadata()))
+);
+$strengthAuthorization = $strengthParty->authorizationUrl('strong', '/', true);
+parse_str((string)parse_url($strengthAuthorization, PHP_URL_QUERY), $strengthParameters);
+$strengthClaims = json_decode($strengthParameters['claims'], true, 16, JSON_THROW_ON_ERROR);
+Checks::that(
+    'Generic MFA requests the REFEDS context as an essential ID Token claim',
+    $strengthClaims['id_token']['acr']['values'],
+    ['https://refeds.org/profile/mfa']
+);
+$strengthTransaction = RelyingParty::consumeTransaction(
+    $strengthSession,
+    ['state' => $strengthParameters['state']],
+    'strong-login'
+);
+Checks::that(
+    'the exact authentication requirement is frozen into the one-time transaction',
+    $strengthTransaction['authentication_requirement'],
+    $strengthSettings->authenticationRequirement()->toArray()
+);
+Checks::that('the authentication requirement remains server-side', isset($strengthParameters['authentication_requirement']), false);
+
+$oktaStrengthController = new Controller(new Request('https', 'firewall.example.net'), new Session());
+$oktaStrengthSettings = connector([
+    'openidconnect_provider_profile' => 'okta',
+    'openidconnect_provider_url' => 'https://id.example.net',
+    'openidconnect_client_id' => 'client-id',
+    'openidconnect_client_secret' => 'secret',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_app_code' => 'okta-strong',
+    'openidconnect_required_authentication' => 'multi-factor',
+]);
+$oktaStrengthUrl = (new RelyingParty(
+    $oktaStrengthSettings,
+    $oktaStrengthController,
+    new HttpClient(fn() => jsonAnswer(metadata()))
+))->authorizationUrl('okta', '/');
+parse_str((string)parse_url($oktaStrengthUrl, PHP_URL_QUERY), $oktaStrengthParameters);
+Checks::that(
+    'Okta receives its documented MFA acr_values parameter',
+    $oktaStrengthParameters['acr_values'],
+    'urn:okta:loa:2fa:any'
+);
+Checks::that('Okta is not also sent a conflicting essential acr request', isset($oktaStrengthParameters['claims']), false);
+
+$entraStrengthController = new Controller(new Request('https', 'firewall.example.net'), new Session());
+$entraStrengthSettings = connector([
+    'openidconnect_provider_profile' => 'entra',
+    'openidconnect_provider_url' => 'https://id.example.net',
+    'openidconnect_microsoft_audience' => 'tenant',
+    'openidconnect_client_id' => 'client-id',
+    'openidconnect_client_secret' => 'secret',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_app_code' => 'entra-strong',
+    'openidconnect_required_authentication' => 'phishing-resistant',
+    'openidconnect_entra_auth_context' => 'c3',
+]);
+$entraStrengthUrl = (new RelyingParty(
+    $entraStrengthSettings,
+    $entraStrengthController,
+    new HttpClient(fn() => jsonAnswer(metadata()))
+))->authorizationUrl('entra', '/');
+parse_str((string)parse_url($entraStrengthUrl, PHP_URL_QUERY), $entraStrengthParameters);
+$entraStrengthClaims = json_decode($entraStrengthParameters['claims'], true, 16, JSON_THROW_ON_ERROR);
+Checks::that(
+    'Entra receives its tenant-local context as an essential ID Token claim',
+    $entraStrengthClaims['id_token']['acrs'],
+    ['essential' => true, 'value' => 'c3']
+);
+Checks::that('Entra is not sent a generic acr_values parameter', isset($entraStrengthParameters['acr_values']), false);
+
 $secondController = new Controller(new Request('https', 'firewall.example.net'), $session);
 $secondParty = new RelyingParty($settings, $secondController, new HttpClient(fn() => jsonAnswer(metadata())));
 $secondParty->begin('authentik', '/');

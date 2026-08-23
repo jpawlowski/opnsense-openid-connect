@@ -30,6 +30,7 @@ namespace OPNsense\Auth;
 
 use OPNsense\Core\Backend;
 use OPNsense\Core\Config;
+use OPNsense\OpenIDConnect\AuthenticationRequirement;
 use OPNsense\OpenIDConnect\PendingIdentityRegistry;
 use OPNsense\OpenIDConnect\ProviderMetadata;
 
@@ -75,6 +76,8 @@ class OpenIDConnect extends Base implements IAuthConnector
     public const BOOTSTRAP_MODES = ['strict', 'approval', 'username', 'verified_email', 'either'];
     public const MICROSOFT_AUDIENCES = ['tenant', 'organizations', 'consumers', 'common'];
     public const ORIGIN_POLICIES = ['opnsense', 'custom'];
+    public const REQUIRED_AUTHENTICATION = AuthenticationRequirement::TIERS;
+    public const ACR_REQUEST_MODES = AuthenticationRequirement::REQUEST_MODES;
 
     /** Global services whose familiar public login name has no installation-specific variant. */
     private const FIXED_PROVIDER_BUTTON_LABELS = [
@@ -298,6 +301,86 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'options' => ['query' => gettext('Query'), 'form_post' => gettext('Form POST')],
                 'validate' => fn($value) => in_array($value ?: 'query', self::RESPONSE_MODES, true)
                     ? [] : [gettext('Unknown response mode.')],
+            ],
+            'openidconnect_required_authentication' => [
+                'name' => gettext('Required authentication'),
+                'help' => gettext(
+                    'Require the verified ID Token to report both an accepted authentication context and an ' .
+                    'accepted authentication method before OPNsense resolves an account or creates a WebGUI ' .
+                    'session. Provider policy only preserves the provider\'s normal sign-in decision. ' .
+                    'Multi-factor accepts ordinary MFA; phishing-resistant is intended for Passkeys, FIDO2, ' .
+                    'WebAuthn or an equivalent provider policy.'
+                ),
+                'type' => 'dropdown',
+                'default' => '',
+                'options' => [
+                    '' => gettext('Provider policy only'),
+                    AuthenticationRequirement::MULTI_FACTOR => gettext('Multi-factor authentication'),
+                    AuthenticationRequirement::PHISHING_RESISTANT => gettext('Phishing-resistant authentication'),
+                ],
+                'validate' => fn($value) => $this->validateRequiredAuthentication($value),
+            ],
+            'openidconnect_acr_request' => [
+                'name' => gettext('Authentication context request'),
+                'help' => gettext(
+                    'Advanced. Following the provider uses an essential ID Token claim for Generic OpenID ' .
+                    'Connect and acr_values for Okta. Change this only when the provider documents another ' .
+                    'request form. Microsoft Entra uses its separate authentication context below.'
+                ),
+                'type' => 'dropdown',
+                'default' => '',
+                'options' => [
+                    '' => gettext('Follow the provider preset'),
+                    AuthenticationRequirement::ESSENTIAL_CLAIM => gettext('Essential ID Token acr claim'),
+                    AuthenticationRequirement::ACR_VALUES => gettext('acr_values authorization parameter'),
+                ],
+                'validate' => fn($value) => in_array($value, array_merge(self::ACR_REQUEST_MODES, ['']), true)
+                    ? [] : [gettext('Unknown authentication context request.')],
+            ],
+            'openidconnect_acr_values' => [
+                'name' => gettext('Accepted authentication contexts'),
+                'help' => gettext(
+                    'Advanced. Exact, case-sensitive acr values, separated by commas or lines. Empty restores ' .
+                    'the documented preset. A provider may use installation-specific values only when their ' .
+                    'meaning is agreed and enforced there.'
+                ),
+                'type' => 'text',
+                'validate' => fn($value) => static::validateRequirementList(
+                    $value,
+                    8,
+                    256,
+                    gettext('authentication context')
+                ),
+            ],
+            'openidconnect_amr_values' => [
+                'name' => gettext('Accepted authentication methods'),
+                'help' => gettext(
+                    'Advanced. Exact, case-sensitive amr values; any one may satisfy the method check. Empty ' .
+                    'restores the documented preset. user means presence only and is not a cryptographic method; ' .
+                    'the registered hardware-key value is hwk, not hw.'
+                ),
+                'type' => 'text',
+                'validate' => fn($value) => static::validateRequirementList(
+                    $value,
+                    16,
+                    64,
+                    gettext('authentication method')
+                ),
+            ],
+            'openidconnect_entra_auth_context' => [
+                'name' => gettext('Microsoft authentication context'),
+                'help' => gettext(
+                    'Microsoft Entra Conditional Access authentication context assigned to this application ' .
+                    'requirement. Configure the selected c1-c25 context in the tenant with the corresponding ' .
+                    'authentication strength. It is required because these identifiers have tenant-local meaning.'
+                ),
+                'type' => 'dropdown',
+                'default' => '',
+                'options' => ['' => gettext('Select the tenant context')] + array_combine(
+                    array_map(static fn($number) => 'c' . $number, range(1, 25)),
+                    array_map(static fn($number) => 'c' . $number, range(1, 25))
+                ),
+                'validate' => fn($value) => $this->validateMicrosoftAuthenticationContext($value),
             ],
             'openidconnect_email_match' => [
                 'name' => gettext('Match by e-mail address'),
@@ -849,6 +932,54 @@ class OpenIDConnect extends Base implements IAuthConnector
         return $profiles;
     }
 
+    /**
+     * Safe starting points for the authentication requirement form and accessor.
+     * Provider-specific values override the standards-oriented generic values.
+     *
+     * @return array<string,array<string,array{request:string,acr:string,amr:string}>>
+     */
+    public static function authenticationRequirementPresets(): array
+    {
+        return [
+            'general' => [
+                AuthenticationRequirement::MULTI_FACTOR => [
+                    'request' => AuthenticationRequirement::ESSENTIAL_CLAIM,
+                    'acr' => 'https://refeds.org/profile/mfa',
+                    'amr' => 'mfa',
+                ],
+                AuthenticationRequirement::PHISHING_RESISTANT => [
+                    'request' => AuthenticationRequirement::ESSENTIAL_CLAIM,
+                    'acr' => 'phr,phrh',
+                    'amr' => 'fido,pop,hwk,swk',
+                ],
+            ],
+            'okta' => [
+                AuthenticationRequirement::MULTI_FACTOR => [
+                    'request' => AuthenticationRequirement::ACR_VALUES,
+                    'acr' => 'urn:okta:loa:2fa:any',
+                    'amr' => 'mfa',
+                ],
+                AuthenticationRequirement::PHISHING_RESISTANT => [
+                    'request' => AuthenticationRequirement::ACR_VALUES,
+                    'acr' => 'phr,phrh',
+                    'amr' => 'fido,pop,hwk,swk',
+                ],
+            ],
+            'entra' => [
+                AuthenticationRequirement::MULTI_FACTOR => [
+                    'request' => AuthenticationRequirement::ENTRA_CONTEXT,
+                    'acr' => '',
+                    'amr' => 'mfa',
+                ],
+                AuthenticationRequirement::PHISHING_RESISTANT => [
+                    'request' => AuthenticationRequirement::ENTRA_CONTEXT,
+                    'acr' => '',
+                    'amr' => 'fido,hwk,x509',
+                ],
+            ],
+        ];
+    }
+
     /** The local public address used by provider profile presets. */
     public static function providerIconUrl(string $profile): string
     {
@@ -896,6 +1027,7 @@ class OpenIDConnect extends Base implements IAuthConnector
             ], static::configuredApplicationCodes()),
             'applicationCodeConflictLabel' => gettext('Already used by authentication server'),
             'profilePresets' => static::providerProfilePresets(),
+            'authenticationRequirementPresets' => static::authenticationRequirementPresets(),
             'fixedButtonProfiles' => array_keys(static::fixedProviderButtonLabels()),
             'configuredFields' => array_values(array_filter(
                 array_keys($this->settings),
@@ -1145,6 +1277,7 @@ class OpenIDConnect extends Base implements IAuthConnector
             ),
             'sections' => [
                 'openidconnect_enabled' => gettext('Provider and client'),
+                'openidconnect_required_authentication' => gettext('Authentication requirement'),
                 'openidconnect_username_claim' => gettext('Claims and local identity'),
                 'openidconnect_group_claim' => gettext('Local authorization'),
                 'openidconnect_logout_menu' => gettext('Logout'),
@@ -2073,6 +2206,68 @@ class OpenIDConnect extends Base implements IAuthConnector
         return [];
     }
 
+    private function validateRequiredAuthentication($value): array
+    {
+        $value = trim((string)$value);
+        if (!in_array($value, array_merge(self::REQUIRED_AUTHENTICATION, ['']), true)) {
+            return [gettext('Unknown required authentication policy.')];
+        }
+        if ($value !== '' && $this->submittedChoice(
+            'openidconnect_provider_profile',
+            self::PROVIDER_PROFILES,
+            'general'
+        ) === 'entra' && $this->submittedChoice(
+            'openidconnect_microsoft_audience',
+            self::MICROSOFT_AUDIENCES,
+            'tenant'
+        ) !== 'tenant') {
+            return [gettext(
+                'Microsoft authentication contexts require One specific Entra tenant because c1-c25 have tenant-local meaning.'
+            )];
+        }
+        return [];
+    }
+
+    private function validateMicrosoftAuthenticationContext($value): array
+    {
+        $value = trim((string)$value);
+        if ($value !== '' && !preg_match('/^c(?:[1-9]|1[0-9]|2[0-5])$/D', $value)) {
+            return [gettext('Microsoft authentication context must be c1 through c25.')];
+        }
+        $required = $this->submittedChoice(
+            'openidconnect_required_authentication',
+            self::REQUIRED_AUTHENTICATION,
+            ''
+        );
+        $profile = $this->submittedChoice('openidconnect_provider_profile', self::PROVIDER_PROFILES, 'general');
+        if ($required !== '' && $profile === 'entra' && $value === '' && !$this->allowsIncompleteDraft()) {
+            return [gettext('Select the Microsoft authentication context enforced by Conditional Access.')];
+        }
+        return [];
+    }
+
+    private static function validateRequirementList($value, int $maximum, int $maximumBytes, string $label): array
+    {
+        $values = static::splitList($value);
+        if (count($values) > $maximum) {
+            return [sprintf(gettext('Enter at most %d values for %s.'), $maximum, $label)];
+        }
+        foreach ($values as $entry) {
+            if (strlen($entry) > $maximumBytes || preg_match('/[\x00-\x20\x7f]/', $entry)) {
+                return [sprintf(gettext('Each %s must be a bounded value without spaces or control characters.'), $label)];
+            }
+        }
+        return [];
+    }
+
+    private function submittedChoice(string $field, array $allowed, string $default): string
+    {
+        $value = isset($_POST['type']) && (string)$_POST['type'] === self::TYPE
+            ? trim((string)($_POST[$field] ?? ''))
+            : $this->text($field);
+        return in_array($value, $allowed, true) ? $value : $default;
+    }
+
     private function submittedButtonTextMode(): string
     {
         $value = isset($_POST['type']) && (string)$_POST['type'] === self::TYPE
@@ -2468,6 +2663,58 @@ class OpenIDConnect extends Base implements IAuthConnector
             'openidconnect_response_mode',
             self::RESPONSE_MODES,
             $this->profileDefault('openidconnect_response_mode', 'query')
+        );
+    }
+
+    public function requiredAuthentication(): string
+    {
+        return $this->choice('openidconnect_required_authentication', self::REQUIRED_AUTHENTICATION, '');
+    }
+
+    /** The exact policy a relying-party transaction requests and later verifies. */
+    public function authenticationRequirement(): ?AuthenticationRequirement
+    {
+        $tier = $this->requiredAuthentication();
+        if ($tier === '') {
+            return null;
+        }
+
+        $profile = $this->providerProfile();
+        $presets = static::authenticationRequirementPresets();
+        $presetProfile = in_array($profile, ['okta', 'entra'], true) ? $profile : 'general';
+        $preset = $presets[$presetProfile][$tier];
+        $methods = static::splitList($this->rawText('openidconnect_amr_values'));
+        if ($methods === []) {
+            $methods = static::splitList($preset['amr']);
+        }
+
+        if ($profile === 'entra') {
+            if ($this->microsoftAudience() !== 'tenant') {
+                throw new \OPNsense\OpenIDConnect\ProtocolException(
+                    'Microsoft authentication contexts require one specific Entra tenant'
+                );
+            }
+            return new AuthenticationRequirement(
+                $tier,
+                AuthenticationRequirement::ENTRA_CONTEXT,
+                [$this->rawText('openidconnect_entra_auth_context')],
+                array_values(array_unique($methods))
+            );
+        }
+
+        $contexts = static::splitList($this->rawText('openidconnect_acr_values'));
+        if ($contexts === []) {
+            $contexts = static::splitList($preset['acr']);
+        }
+        $requestMode = $this->text('openidconnect_acr_request');
+        if (!in_array($requestMode, self::ACR_REQUEST_MODES, true)) {
+            $requestMode = $preset['request'];
+        }
+        return new AuthenticationRequirement(
+            $tier,
+            $requestMode,
+            array_values(array_unique($contexts)),
+            array_values(array_unique($methods))
         );
     }
 

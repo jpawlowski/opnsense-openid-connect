@@ -78,6 +78,8 @@ PROTOCOL_HOSTS = {
     "login", "login.microsoftonline.com", "accounts.google.com",
     "appleid.apple.com", "www.linkedin.com", "slack.com",
     "api.login.yahoo.com", "orcid.org", "gitlab.com",
+    # Standards-profile identifier used as an authentication context, not a builder host.
+    "refeds.org",
     # Prefixes captured before a {region} placeholder, not complete hostnames.
     "cognito-idp.", "oauth.id.",
 }
