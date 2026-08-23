@@ -37,10 +37,30 @@ function suggestedArea(body) {
   return match && AREA_CHOICES.has(match[1]) ? match[1] : "";
 }
 
-async function applySuggestedArea(github, owner, repo, issue) {
+async function removeNamedLabel(github, owner, repo, issueNumber, name) {
+  try {
+    await github.rest.issues.removeLabel({owner, repo, issue_number: issueNumber, name});
+  } catch (error) {
+    if (error.status !== 404) throw error;
+  }
+}
+
+async function applySuggestedArea(github, owner, repo, issue, previousBody = "") {
   const suggestion = suggestedArea(issue.body);
   const assigned = (issue.labels || []).map((label) => typeof label === "string" ? label : label.name);
-  if (!suggestion || assigned.some((label) => AREA_CHOICES.has(label))) return;
+  const assignedAreas = assigned.filter((label) => AREA_CHOICES.has(label));
+  const previousSuggestion = suggestedArea(previousBody);
+  const replacesAutomatedSuggestion = previousSuggestion && assignedAreas.length === 1 &&
+    assignedAreas[0] === previousSuggestion && suggestion !== previousSuggestion;
+
+  if (replacesAutomatedSuggestion) {
+    await removeNamedLabel(github, owner, repo, issue.number, previousSuggestion);
+  } else if (assignedAreas.length) {
+    // An area that differs from the form's previous suggestion is a maintainer
+    // decision. Automation never replaces it.
+    return;
+  }
+  if (!suggestion) return;
   await ensureLabel(github, owner, repo, suggestion, AREA_CHOICES.get(suggestion));
   await github.rest.issues.addLabels({owner, repo, issue_number: issue.number, labels: [suggestion]});
 }
@@ -63,9 +83,9 @@ async function reconcile({github, context, result}) {
   if (!result.valid && issue.state === "closed") return;
 
   // An outside contributor cannot apply labels directly. The form therefore
-  // carries one allow-listed suggestion. An existing area is a maintainer's
-  // decision and is never overwritten by automation.
-  await applySuggestedArea(github, owner, repo, issue);
+  // carries one allow-listed suggestion. Reconcile a known earlier suggestion,
+  // but preserve a different area as a maintainer's decision.
+  await applySuggestedArea(github, owner, repo, issue, context.payload.changes?.body?.from || "");
 
   const comments = await markerComments(github, owner, repo, issueNumber);
   if (result.valid) {

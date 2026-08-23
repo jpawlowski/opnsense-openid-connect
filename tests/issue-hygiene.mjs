@@ -80,4 +80,22 @@ assert(!maintained.state.calls.some(([name, arguments_]) =>
   name === "addLabels" && arguments_.labels.includes("area: contribution")),
 "automation does not overwrite a maintainer-assigned area");
 
-console.log("6 issue hygiene checks passed");
+const revised = fixture();
+revised.context.payload.issue.body = "### Suggested area\n\narea: ui\n\n### TL;DR\n\nShort.";
+revised.context.payload.issue.labels = [{name: "area: contribution"}];
+revised.context.payload.changes = {body: {from: suggested.context.payload.issue.body}};
+revised.state.labels.add("area: contribution");
+await hygiene.reconcile({...revised, result: valid});
+assert(!revised.state.labels.has("area: contribution"), "the obsolete automated suggestion is removed");
+assert(revised.state.labels.has("area: ui"), "a contributor can revise an automated area suggestion");
+
+const revisedAfterMaintenance = fixture();
+revisedAfterMaintenance.context.payload.issue.body = revised.context.payload.issue.body;
+revisedAfterMaintenance.context.payload.issue.labels = [{name: "area: oidc"}];
+revisedAfterMaintenance.context.payload.changes = {body: {from: suggested.context.payload.issue.body}};
+revisedAfterMaintenance.state.labels.add("area: oidc");
+await hygiene.reconcile({...revisedAfterMaintenance, result: valid});
+assert(revisedAfterMaintenance.state.labels.has("area: oidc"), "a maintainer area survives a form edit");
+assert(!revisedAfterMaintenance.state.labels.has("area: ui"), "a form edit does not replace maintainer choice");
+
+console.log("10 issue hygiene checks passed");

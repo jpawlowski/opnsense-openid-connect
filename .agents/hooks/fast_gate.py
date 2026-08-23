@@ -22,6 +22,7 @@ RELEVANT_PATHS = (
     ".codex",
     ".forgejo/workflows",
     ".github/hooks",
+    ".github/scripts",
     ".github/workflows",
     "LICENSE",
     "packaging",
@@ -31,7 +32,10 @@ RELEVANT_PATHS = (
 START_FETCH_TTL = 5 * 60
 ACTIVE_FETCH_TTL = 10 * 60
 FETCH_TIMEOUT = 20
-LOCK_TIMEOUT = 5
+# A fork can fetch the canonical and publishing remotes sequentially while
+# holding the shared lock. Another session must be able to consume that refresh
+# instead of failing while both bounded fetches are still legitimate.
+LOCK_TIMEOUT = FETCH_TIMEOUT * 2 + 10
 CANONICAL_REPOSITORY = "jpawlowski/opnsense-openid-connect"
 CANONICAL_FETCH_URL = f"https://github.com/{CANONICAL_REPOSITORY}.git"
 READ_ONLY_PUSH_URL = "disabled://canonical-upstream-is-read-only"
@@ -187,10 +191,11 @@ class RepositoryLock:
                 self.acquired = True
                 return self
             except FileExistsError:
-                # Fetches have their own short timeout. An empty lock older than
-                # twice that interval can only be debris from an interrupted hook.
+                # Fetches have their own short timeout. Leave enough margin for
+                # both fork remotes and the ref update before treating an empty
+                # lock as debris from an interrupted hook.
                 try:
-                    stale = time.time() - self.path.stat().st_mtime > FETCH_TIMEOUT * 2
+                    stale = time.time() - self.path.stat().st_mtime > LOCK_TIMEOUT + FETCH_TIMEOUT
                 except FileNotFoundError:
                     stale = False
                 if stale:

@@ -59,12 +59,16 @@ def main():
     ]
     check("every command uses the shared implementation",
           all("/.agents/hooks/fast_gate.py\"" in command for command in commands))
+    start_timeout = configuration["hooks"]["SessionStart"][0]["hooks"][0]["timeout"]
+    check("SessionStart allows both bounded fork fetches", start_timeout, 60)
     stop_timeout = configuration["hooks"]["Stop"][0]["hooks"][0]["timeout"]
     check("the Stop hook allows two bounded fetches and the test gate", stop_timeout, 120)
     copilot = json.loads((ROOT / ".github" / "hooks" / "agent-hygiene.json").read_text(encoding="utf-8"))
     copilot_hooks = [hook for hooks in copilot["hooks"].values() for hook in hooks]
     check("Copilot's schema adapter uses only the shared implementation",
           all(".agents/hooks/fast_gate.py" in hook["bash"] for hook in copilot_hooks), True)
+    check("Copilot receives the same bounded SessionStart timeout",
+          copilot["hooks"]["SessionStart"][0]["timeoutSec"], start_timeout)
     check("Copilot receives the same bounded Stop timeout", copilot["hooks"]["Stop"][0]["timeoutSec"], 120)
     adapter_readme = (ROOT / ".github" / "hooks" / "README.md").read_text(encoding="utf-8")
     check("the strict Copilot adapter has an adjacent copyright exception",
@@ -72,6 +76,10 @@ def main():
 
     group("An agent task prepares its clone")
     hook = load_hook()
+    check("parallel sessions wait longer than two bounded fork fetches",
+          hook.LOCK_TIMEOUT > hook.FETCH_TIMEOUT * 2, True)
+    check("classifier scripts participate in the Stop fingerprint",
+          ".github/scripts" in hook.RELEVANT_PATHS, True)
     with tempfile.TemporaryDirectory() as temporary:
         state = pathlib.Path(temporary) / "existing-state.json"
         state.write_text("{}", encoding="utf-8")

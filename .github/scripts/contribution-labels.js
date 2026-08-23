@@ -118,7 +118,9 @@ async function reconcilePullRequest({github, context}) {
     }
   }
 
-  if (names(issueLabels).includes("accessibility") && !assigned.has("accessibility")) add.add("accessibility");
+  const issueNeedsAccessibility = names(issueLabels).includes("accessibility");
+  if (issueNeedsAccessibility && !assigned.has("accessibility")) add.add("accessibility");
+  if (!issueNeedsAccessibility && assigned.has("accessibility")) remove.add("accessibility");
   for (const label of remove) await removeLabel(github, owner, repo, number, label);
   if (add.size) {
     await github.rest.issues.addLabels({owner, repo, issue_number: number, labels: [...add]});

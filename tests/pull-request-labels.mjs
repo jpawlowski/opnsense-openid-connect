@@ -45,9 +45,29 @@ assert(explicit.state.has("impact: breaking"));
 assert(explicit.state.has("area: contribution"));
 assert(!explicit.state.has("change: maintenance"));
 
+const accessibilityRemoved = fixture({
+  title: "fix(ui): keep labels current",
+  body: "## Issue\n\nFixes #42\n\n## Area\n\nSame as issue",
+  assigned: ["change: fix", "area: ui", "accessibility"],
+  issue: [{name: "type: change"}, {name: "area: ui"}],
+});
+await labels.reconcilePullRequest(accessibilityRemoved);
+assert(!accessibilityRemoved.state.has("accessibility"),
+  "accessibility is removed when the linked issue no longer carries it");
+
+const accessibilityAdded = fixture({
+  title: "fix(ui): keep labels current",
+  body: "## Issue\n\nFixes #42\n\n## Area\n\nSame as issue",
+  assigned: ["change: fix", "area: ui"],
+  issue: [{name: "type: change"}, {name: "area: ui"}, {name: "accessibility"}],
+});
+await labels.reconcilePullRequest(accessibilityAdded);
+assert(accessibilityAdded.state.has("accessibility"),
+  "accessibility is added when the linked issue carries it");
+
 assert.deepEqual(labels.requestedAreas("## Area\n\narea: oidc\narea: ui"), ["area: oidc", "area: ui"]);
 assert.deepEqual(labels.requestedAreas("## Area\n\narea: unknown"), []);
 assert.equal(labels.titleClassification("docs: explain labels").change, "change: docs");
 assert.equal(labels.titleClassification("not a title").change, "");
 
-console.log("13 pull request label checks passed");
+console.log("15 pull request label checks passed");
