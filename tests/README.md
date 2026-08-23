@@ -30,15 +30,16 @@ This is the fast, host-independent gate used by hand, by an agent Stop hook and
 by the pipeline, so a failure looks the same in all three places. Nothing in it
 needs Composer, PHPUnit, containers, a browser, a network or an OPNsense.
 
-There are deliberately three test tiers:
+There are deliberately four test tiers:
 
 | Tier | Command | When it runs |
 |---|---|---|
 | Host-independent | `./tests/run.sh` | On every relevant change and in CI |
 | Installed integration | `php tests/integration/opnsense.php` | Explicitly, on an installed OPNsense |
 | Destructive browser E2E | `./tests/e2e/run.sh` | Explicitly, with a disposable firewall and containers |
+| OIDF RP pilot | [Hosted procedure](conformance/README.md) | Explicitly and manually |
 
-Only the first tier belongs in an automatic Stop hook. The other two require a
+Only the first tier belongs in an automatic Stop hook. The other three require a
 deliberate decision and must never be started merely because an agent is done.
 
 ## What is covered
@@ -124,6 +125,14 @@ session rotation, replay rejection, both Keycloak logout channels, Form POST,
 POST client authentication and the local-password recovery path. This deliberately
 destructive test is manual because it needs a fresh OPNsense host and a Docker
 address reachable from it.
+
+The external [OpenID Foundation relying-party conformance
+pilot](conformance/README.md) uses the Foundation's hosted fake provider for a
+small, fixed set of successful and deliberately invalid protocol responses. It
+adds an independent end-to-end check of signature, claim, Discovery and signing
+key rotation decisions without claiming certification. It remains manual,
+serial and outside the audit report until a future runner can produce sanitized,
+revision-bound evidence.
 
 The stubs do keep a list of local accounts and record what was asked of core,
 because *what this plugin decides* about an account — which one a claim is,
