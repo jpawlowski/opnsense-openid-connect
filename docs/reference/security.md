@@ -16,6 +16,8 @@ The implementation targets these normative parts:
 - OpenID Connect Extended Authentication Profile `phr` and `phrh` contexts
 - OIDC RP-Initiated Logout 1.0, Front-Channel Logout 1.0 and Back-Channel
   Logout 1.0
+- OpenID Shared Signals Framework 1.0 signed SET profile and transmitter discovery
+- RFC 8935 push delivery, for selected CAEP 1.0 and RISC 1.0 session-ending events
 - JWS asymmetric algorithms `RS*`, `PS*`, and `ES*` listed in the README
 
 Supported client authentication is `client_secret_basic` and
@@ -36,6 +38,8 @@ These are optional protocol features, not silently accepted variants:
 - symmetric `HS*` ID Token signatures and EdDSA
 - distributed/aggregated claims and automated Graph/API fallback for Entra group
   overage
+- SSF polling, automatic stream management, subject administration and full
+  CAEP interoperability certification
 
 Providers requiring one of these need a future explicit implementation; checks
 must not be disabled to emulate support.
@@ -55,6 +59,10 @@ must not be disabled to emulate support.
 - [OpenID Connect RP-Initiated Logout 1.0](https://openid.net/specs/openid-connect-rpinitiated-1_0.html)
 - [OpenID Connect Front-Channel Logout 1.0](https://openid.net/specs/openid-connect-frontchannel-1_0.html)
 - [OpenID Connect Back-Channel Logout 1.0](https://openid.net/specs/openid-connect-backchannel-1_0.html)
+- [OpenID Shared Signals Framework 1.0](https://openid.net/specs/openid-sharedsignals-framework-1_0-final.html)
+- [OpenID Continuous Access Evaluation Profile 1.0](https://openid.net/specs/openid-caep-1_0-final.html)
+- [OpenID RISC Profile 1.0](https://openid.net/specs/openid-risc-1_0-final.html)
+- [Push-Based SET Delivery (RFC 8935)](https://www.rfc-editor.org/rfc/rfc8935.html)
 
 ## Threats and controls
 
@@ -77,6 +85,8 @@ must not be disabled to emulate support.
 | Microsoft multitenant issuer substitution | Microsoft-only authority modes require GUID `tid`, exact tenant issuer, selected organizations/consumers population and matching signing-key issuer |
 | provider grants excessive privilege | no group claim by default, explicit assignable local groups, root denied |
 | logout forgery/replay | signed logout token, issuer/audience/event/integer `exp`/time/`jti`, replay cache retained through signed expiry, exact `sid`/`sub` lookup, bounded session-lock retry and retryable failure without consuming the replay marker |
+| forged or replayed Shared Signals event | exact transmitter discovery issuer and audience, asymmetric SET signature, mandatory `secevent+jwt` type, pre-crypto bearer authentication, bounded `jti` digest cache and provider-and-issuer-scoped subject lookup |
+| delayed security event ends a new session | each indexed session records its creation time; an event acts only on sessions present at `event_timestamp` or `iat`, with the fixed clock tolerance |
 | credential leakage by HTTP redirect | POST and credential-bearing GET redirects rejected |
 | resource exhaustion | response limits, field/key/claim limits, connection/total timeouts, bounded transaction/session/replay indexes and at most 100 deduplicated pending identities |
 | account/configuration enumeration | every missing, disabled, expired, privileged or approval-pending account receives the same public refusal; precise reasons remain in the log |
@@ -93,6 +103,7 @@ been returned.
 | Response class | Cache, referrer and MIME policy | Content and framing policy |
 |---|---|---|
 | Public login, callback, logout, back-channel logout and protocol errors | `Cache-Control: no-store`, legacy `Pragma: no-cache`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff` | deny-by-default CSP with `frame-ancestors 'none'` and `base-uri 'none'` |
+| Public Shared Signals push success and error | same private policy; RFC 8935 success is empty `202`, validation errors are bounded JSON | deny-by-default CSP; no subject, token or claim value is reflected |
 | Sign-in-test and WebGUI-access-denied pages | same private policy; cross-site `form_post` results also remove the temporary session's `Set-Cookie` | self-contained HTML; only inline styling is allowed, with all other sources, framing, base-URL changes and form submission denied |
 | Front-channel logout | private policy | `default-src 'none'; frame-ancestors *` is an intentional exception because the provider must load this endpoint in an iframe |
 | Successful package-owned or proxied login icon | `Cache-Control: public, max-age=86400`, `no-referrer`, `nosniff` | sandboxed image response; package assets are reviewed and self-contained; remote responses cannot execute as page markup |
@@ -144,7 +155,8 @@ inside the isolated test boundary.
 - Front-channel logout depends on browser iframe/CSP behaviour and is less
   reliable than back-channel logout. Prefer back-channel where available.
 - Removing access at the provider does not end an already established local
-  session unless the provider sends logout or its normal OPNsense timeout ends.
+  session unless the provider sends OIDC logout, an enabled supported Shared
+  Signals event, or its normal OPNsense timeout ends.
 - Under the explicit HTTP-backend TLS-offloading exception, reverse-proxy
   isolation and response-cookie hardening are administrator responsibilities.
   The plugin cannot prove that no alternate route reaches the listener.

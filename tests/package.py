@@ -245,6 +245,8 @@ def main():
           "/var/lib/php/sessions/.openidconnect-sessions" in deinstall)
     check("uninstalling takes the logout replay index with it",
           "/var/lib/php/sessions/.openidconnect-logout-tokens" in deinstall)
+    check("uninstalling takes the Shared Signals replay index with it",
+          "/var/lib/php/sessions/.openidconnect-security-events" in deinstall)
     check("uninstalling takes the form-post transaction index with it",
           "/var/lib/php/sessions/.openidconnect-transactions" in deinstall)
     check("uninstalling takes pending identity hints with it",

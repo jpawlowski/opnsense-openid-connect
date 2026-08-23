@@ -245,7 +245,9 @@ namespace OPNsense\Mvc {
             private string $host = 'firewall.example.net',
             array $query = [],
             array $post = [],
-            array $headers = []
+            array $headers = [],
+            private string $rawBody = '',
+            private string $method = 'GET'
         ) {
             $this->query = $query;
             $this->post = $post;
@@ -271,6 +273,16 @@ namespace OPNsense\Mvc {
         public function getPost(string $name, $filters = null, $default = null)
         {
             return $this->post[$name] ?? $default;
+        }
+
+        public function getRawBody(): string
+        {
+            return $this->rawBody;
+        }
+
+        public function isPost(): bool
+        {
+            return strtoupper($this->method) === 'POST';
         }
     }
 
@@ -346,6 +358,11 @@ namespace OPNsense\Base {
         public function beforeExecuteRoute($dispatcher)
         {
             return true;
+        }
+
+        protected function isExternalClient(): bool
+        {
+            return false;
         }
     }
 }

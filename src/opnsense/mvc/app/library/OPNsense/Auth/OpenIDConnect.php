@@ -618,6 +618,58 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'type' => 'checkbox',
                 'validate' => fn($value) => [],
             ],
+            'openidconnect_ssf_enabled' => [
+                'name' => gettext('Receive Shared Signals'),
+                'help' => gettext(
+                    'Allow this provider to end matching OpenID Connect WebGUI sessions by sending signed ' .
+                    'Shared Signals Framework events. This exposes a public receiver endpoint, so it is off ' .
+                    'until an exact transmitter, audience and strong delivery secret are configured.'
+                ),
+                'type' => 'checkbox',
+                'default' => '0',
+                'validate' => fn($value) => [],
+            ],
+            'openidconnect_ssf_issuer' => [
+                'name' => gettext('Shared Signals transmitter issuer'),
+                'help' => gettext(
+                    'The exact HTTPS issuer published by the SSF transmitter. It may differ from the OpenID ' .
+                    'Connect issuer; its discovered metadata and every received SET must match it exactly.'
+                ),
+                'type' => 'text',
+                'validate' => function ($value): array {
+                    $value = trim((string)$value);
+                    return !$this->submittedSsfEnabled() || static::isIssuerUrl($value)
+                        ? [] : [gettext('An exact HTTPS Shared Signals transmitter issuer is required.')];
+                },
+            ],
+            'openidconnect_ssf_audience' => [
+                'name' => gettext('Shared Signals audience'),
+                'help' => gettext(
+                    'The exact audience assigned to this receiver by the transmitter when the stream is created. ' .
+                    'It is case-sensitive and is not inferred from a WebGUI address.'
+                ),
+                'type' => 'text',
+                'validate' => function ($value): array {
+                    $value = trim((string)$value);
+                    return !$this->submittedSsfEnabled()
+                        || ($value !== '' && strlen($value) <= 255 && !static::hasControlCharacters($value))
+                        ? [] : [gettext('A bounded Shared Signals audience without control characters is required.')];
+                },
+            ],
+            'openidconnect_ssf_push_secret' => [
+                'name' => gettext('Shared Signals delivery secret'),
+                'help' => gettext(
+                    'A 256-bit bearer secret authenticates the transmitter before the firewall fetches keys or ' .
+                    'performs signature work. Generate it here and copy the complete Authorization value into ' .
+                    'the transmitter stream. Rotating it immediately invalidates the old value.'
+                ),
+                'type' => 'text',
+                'validate' => function ($value): array {
+                    $value = trim((string)$value);
+                    return !$this->submittedSsfEnabled() || preg_match('/^[A-Za-z0-9_-]{43}$/D', $value)
+                        ? [] : [gettext('Generate a 256-bit Shared Signals delivery secret before enabling it.')];
+                },
+            ],
             'openidconnect_button_style' => [
                 'name' => gettext('Login button style'),
                 'type' => 'dropdown',
@@ -1304,6 +1356,11 @@ class OpenIDConnect extends Base implements IAuthConnector
             'backchannelEndpointLabel' => gettext('Back-channel logout URI (server-to-server choice)'),
             'frontchannelEndpointLabel' => gettext('Front-channel logout URI (browser-based alternative)'),
             'sectorEndpointLabel' => gettext('Pairwise sector identifier URI'),
+            'ssfEndpointLabel' => gettext('Shared Signals push URI'),
+            'ssfGenerateSecretLabel' => gettext('Generate secret'),
+            'ssfTestLabel' => gettext('Test Shared Signals'),
+            'ssfDiscoveryAccepted' => gettext('Shared Signals discovery accepted.'),
+            'ssfAuthorizationLabel' => gettext('Authorization header'),
             'endpointHelp' => gettext(
                 'Do not register logout addresses as authorization redirect URIs. Provider terminology differs; ' .
                 'the provider guide explains which field receives which address.'
@@ -1314,6 +1371,7 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'openidconnect_username_claim' => gettext('Claims and local identity'),
                 'openidconnect_group_claim' => gettext('Local authorization'),
                 'openidconnect_logout_menu' => gettext('Logout'),
+                'openidconnect_ssf_enabled' => gettext('Shared Signals'),
                 'openidconnect_button_style' => gettext('Login button'),
             ],
             'tokenizerCss' => function_exists('get_themed_filename')
@@ -2309,6 +2367,14 @@ class OpenIDConnect extends Base implements IAuthConnector
         return in_array($value, self::BUTTON_TEXT_MODES, true) ? $value : 'localized';
     }
 
+    private function submittedSsfEnabled(): bool
+    {
+        $value = isset($_POST['type']) && (string)$_POST['type'] === self::TYPE
+            ? (string)($_POST['openidconnect_ssf_enabled'] ?? '')
+            : ($this->flag('openidconnect_ssf_enabled') ? '1' : '0');
+        return in_array(strtolower(trim($value)), ['1', 'yes', 'true', 'on'], true);
+    }
+
     /** @return array<int,array{position:int,code:string,name:string,refid:string}> */
     private static function configuredApplicationCodes(): array
     {
@@ -2603,6 +2669,26 @@ class OpenIDConnect extends Base implements IAuthConnector
     public function applicationCode(): string
     {
         return $this->text('openidconnect_app_code', 'main');
+    }
+
+    public function receivesSharedSignals(): bool
+    {
+        return $this->flag('openidconnect_ssf_enabled');
+    }
+
+    public function sharedSignalsIssuer(): string
+    {
+        return $this->text('openidconnect_ssf_issuer');
+    }
+
+    public function sharedSignalsAudience(): string
+    {
+        return $this->text('openidconnect_ssf_audience');
+    }
+
+    public function sharedSignalsPushSecret(): string
+    {
+        return $this->text('openidconnect_ssf_push_secret');
     }
 
     public function providerProfile(): string

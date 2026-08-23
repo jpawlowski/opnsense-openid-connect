@@ -10,8 +10,18 @@
 $root = dirname(__DIR__);
 
 define('OPENIDCONNECT_TEST_PENDING_REGISTRY', sys_get_temp_dir() . '/openidconnect-pending-' . getmypid() . '.json');
+$sessionTestDirectory = sys_get_temp_dir() . '/openidconnect-sessions-' . getmypid();
+@mkdir($sessionTestDirectory, 0700);
+define('OPENIDCONNECT_TEST_SESSION_DIRECTORY', $sessionTestDirectory);
+define('OPENIDCONNECT_TEST_SESSION_REGISTRY', $sessionTestDirectory . '/index.json');
+define('OPENIDCONNECT_TEST_SIGNAL_REPLAYS', $sessionTestDirectory . '/signals.json');
+ini_set('session.save_path', $sessionTestDirectory);
 register_shutdown_function(static function (): void {
     @unlink((string)constant('OPENIDCONNECT_TEST_PENDING_REGISTRY'));
+    foreach (glob((string)constant('OPENIDCONNECT_TEST_SESSION_DIRECTORY') . '/*') ?: [] as $file) {
+        @unlink($file);
+    }
+    @rmdir((string)constant('OPENIDCONNECT_TEST_SESSION_DIRECTORY'));
 });
 
 require __DIR__ . '/stubs/opnsense.php';
@@ -25,14 +35,19 @@ require $root . '/src/opnsense/mvc/app/library/OPNsense/Auth/SSOProviders/OpenID
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/HttpResponse.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/HttpClient.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderMetadata.php';
+require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SharedSignalsMetadata.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderSetup.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/JwtVerifier.php';
+require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SecurityEventException.php';
+require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SecurityEventVerifier.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/PendingIdentityRegistry.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SessionRegistry.php';
+require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SessionGrant.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/TransactionRegistry.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/WebGuiAccess.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RelyingParty.php';
 require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/AuthController.php';
+require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/SsfController.php';
 
 foreach (glob(__DIR__ . '/unit/*.php') as $file) {
     require $file;

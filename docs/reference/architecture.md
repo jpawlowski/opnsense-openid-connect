@@ -44,6 +44,7 @@ flowchart TD
         PhpSession["Rotated OPNsense PHP session"]
         SessionRegistry["SessionRegistry"]
         Logout["Front/back-channel logout"]
+        SharedSignals["SSF push receiver"]
     end
 
     LoginPage -->|"Provider selection + optional local target"| AuthController
@@ -64,6 +65,7 @@ flowchart TD
     GroupMapping --> PhpSession
     AdminApproval --> NewSignIn
     PhpSession --> SessionRegistry --> Logout
+    SharedSignals -->|"verified subject + event cutoff"| SessionRegistry
 
     classDef entry fill:#E8F1FB,stroke:#2B6CB0,color:#13293D,stroke-width:1.5px;
     classDef process fill:#F4F6F8,stroke:#5F6B73,color:#202A30,stroke-width:1.5px;
@@ -74,7 +76,7 @@ flowchart TD
     class LoginPage,IdpTile entry;
     class AuthController,RelyingParty,ProviderServices,TokenVerification process;
     class Connector,UidBinding,PendingRegistry,AccountPolicy,GroupMapping process;
-    class SessionRegistry,Logout process;
+    class SessionRegistry,Logout,SharedSignals process;
     class ExistingSession decision;
     class VerifiedClaims,LocalRedirect,PhpSession success;
     class PendingIdentity,AdminApproval,NewSignIn warning;
@@ -170,6 +172,7 @@ flowchart TD
 | `OpenIDConnect` | settings, stable identity binding, local account and group policy | establish browser sessions |
 | `WebGuiAccess` | apply OPNsense's effective user/group/source-network ACL and choose a navigable landing page | grant privileges or treat logout/API routes as human access |
 | `SessionRegistry` | minimal session lookup and logout replay protection | store ID/access/refresh tokens or client secrets |
+| `SsfController` / `SecurityEventVerifier` | authenticate RFC 8935 delivery, validate SSF metadata and signed SETs, end matching pre-event sessions | change accounts, bindings, groups or privileges |
 | `TransactionRegistry` | one-time `form_post` transactions when SameSite=Lax suppresses the original session cookie | store grants, secrets or long-lived state |
 | `PendingIdentityRegistry` | bounded seven-day holding area for exact unknown identities and short display hints | grant access or let unauthenticated requests write `config.xml` |
 | `OpenIDConnectContainer` | safe login-page button descriptors, fixed public labels and reuse of core's localized login sentence | inject administrator-authored raw HTML or confuse the server lookup name with its visible label |
@@ -199,6 +202,9 @@ The exact endpoint matrix and the reasons for the two exceptions are recorded in
 - The identity provider is trusted to authenticate users and assert configured
   identity/authorization claims, but not to choose its own verification key,
   redirect target, issuer, client audience or local account.
+- An enabled Shared Signals transmitter is separately trusted to report the
+  configured CAEP/RISC events for its exact issuer and audience. Its bearer
+  delivery secret is checked before outbound discovery or signature work.
 - A configured provider is an administrator-approved network peer. Private
   provider addresses are intentionally supported for self-hosted IdPs; therefore
   provider URL configuration is privileged and effectively grants bounded
@@ -241,7 +247,9 @@ The exact endpoint matrix and the reasons for the two exceptions are recorded in
   configuration mismatch and validates only the signed ID Token before local
   account or session processing.
 - The logout index contains PHP session ID, issuer, subject, provider `sid` and
-  expiry. The replay index contains only a hash of issuer plus logout `jti`.
+  creation time and expiry. The logout replay index contains only a hash of
+  issuer plus logout `jti`; the SSF replay index likewise stores only a bounded
+  digest and expiry.
 
 ## Failure model
 
@@ -252,3 +260,6 @@ account has no usable WebGUI ACL receives an explicit 403 explanation; no local
 session is created. Logout always
 destroys the local session before attempting best-effort remote revocation or
 provider redirect, so a provider outage cannot strand a locally valid session.
+Shared Signals failures never change local identity state. Invalid deliveries
+receive the RFC 8935 error class without revealing whether a subject or session
+exists; a valid event with no matching session is still accepted.
