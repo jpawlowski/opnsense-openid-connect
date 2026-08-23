@@ -210,6 +210,12 @@ def main():
     check("both paths use the permission-neutral Development link",
           all("Development link" in text and "Fixes #N" in text
               for text in (contribution_skill, contributing)), True)
+    reuse_rules = [re.sub(r"\s+", " ", text) for text in (contribution_skill, contributing)]
+    check("agents reuse a coherent issue and pull request before creating more",
+          all("merely to satisfy the issue-first rule" in text
+              and "continuous" in text and "independently" in text for text in reuse_rules), True)
+    check("an ambiguous split returns to the user",
+          all(re.search(r"asks? the user before", text) for text in reuse_rules), True)
     rules_readme = (ROOT / ".github" / "rulesets" / "README.md").read_text(encoding="utf-8")
     json.loads((ROOT / ".github" / "rulesets" / "main.json").read_text(encoding="utf-8"))
     check("the strict ruleset import has a documented adjacent copyright exception",

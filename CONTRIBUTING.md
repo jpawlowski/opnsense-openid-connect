@@ -52,6 +52,15 @@ while this wait prevents a late Codex review from arriving only after merge.
 
 ## Issues and public conversation
 
+Search before opening another issue. Extend an existing open issue and its
+active pull request when follow-up work belongs to the same continuous request,
+serves the same outcome, and can be reviewed and accepted or rejected together.
+Update the issue title and body when its coherent scope grows. A shared area
+alone is not enough; create a separate issue when the work is independently
+decidable, needs a separate security path, or requires another real decision.
+An agent never creates an issue merely to satisfy the issue-first rule and asks
+the user before splitting an ambiguous continuous request.
+
 Bug and Change forms ask for `TL;DR`, `Where`, `Now`, `Want`, and `To decide`.
 Keep the complete issue to at most 175 counted prose words. The last field names
 one decision and suggests a direction at a high level; implementation detail

@@ -16,11 +16,22 @@ a contribution or when the existing conversation is mixed.
 
 ## Issues before pull requests
 
+Reuse before creating. Search open issues and pull requests for the same
+user-requested outcome. Never open an issue merely to satisfy the issue-first
+rule. During one continuous user task, update the current issue's title and body
+and extend its active pull request when the added work can be understood,
+reviewed, and accepted or rejected as one change.
+
+Create another issue only when the work is independently decidable, needs a
+separate security path, or would force more than one real decision into `To decide`.
+If separation is ambiguous, ask the user before opening another issue or pull
+request.
+
 An agent-authored pull request must close one same-repository issue that already
-exists before the pull request is opened. Create the issue first when there is
-no suitable one. Use the Bug or Change form and retain these headings in order:
-`TL;DR`, `Where`, `Now`, `Want`, `To decide`. Keep implementation detail out;
-`To decide` names one decision and recommends a direction at a high level.
+exists before the pull request is opened. Create the issue first only when no
+suitable one exists. Use the Bug or Change form and retain these headings in
+order: `TL;DR`, `Where`, `Now`, `Want`, `To decide`. Keep implementation detail
+out; `To decide` names one decision and recommends a direction at a high level.
 
 Keep counted issue prose to 175 words. The issue workflow helps with structure
 and length but does not close an issue or grant permission to start work.
