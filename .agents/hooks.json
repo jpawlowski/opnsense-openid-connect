@@ -7,7 +7,8 @@
           {
             "type": "command",
             "command": "python3 \"$(git rev-parse --show-toplevel)/.agents/hooks/fast_gate.py\" initialize",
-            "timeout": 5
+            "statusMessage": "Preparing the worktree and refreshing origin/main",
+            "timeout": 30
           }
         ]
       }
@@ -19,7 +20,7 @@
             "type": "command",
             "command": "python3 \"$(git rev-parse --show-toplevel)/.agents/hooks/fast_gate.py\" stop",
             "statusMessage": "Running the fast host-independent checks",
-            "timeout": 30
+            "timeout": 45
           }
         ]
       }

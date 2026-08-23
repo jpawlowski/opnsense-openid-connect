@@ -31,6 +31,11 @@ impact. Intermediate branch commits may be ordinary work in progress; the
 pipeline judges the future squash commit shown by the pull request. A title or
 description edit triggers that check again.
 
+The `Area` section is a visible label request. Use `Same as issue` only when the
+implementation belongs to the linked issue's areas; otherwise list one or two
+exact `area:*` labels. This lets a fork contributor classify the implementation
+without label permission.
+
 GitHub may hold the workflow of a first-time fork contributor for maintainer
 approval. That is an expected security review, not a failed check; do not close
 and recreate the pull request while it waits.
@@ -82,12 +87,17 @@ security advisory, never a public issue.
 
 ### Labels and triage
 
-New issues and pull requests use a small label vocabulary. Exactly one `type:*`
-label says what the contribution is: `bug`, `change`, `docs`, or `question`.
-Up to two `area:*` labels locate it in `oidc`, `opnsense`, `ui`, `packaging`, or
-`contribution`. The issue forms set the initial type and let any author suggest
-an area; the workflow applies only a known area when no area has been assigned.
-Maintainers may correct that suggestion.
+Issues and pull requests share a small vocabulary without mirroring one another.
+Every issue has exactly one `type:*`: `bug`, `change`, `docs`, or `question`.
+Every pull request instead has exactly one title-derived `change:*`: `feature`,
+`fix`, `performance`, `docs`, or `maintenance`. A breaking title also carries
+`impact: breaking`; issue `type:*` labels never belong on a pull request.
+
+One or two `area:*` labels locate either item in `oidc`, `opnsense`, `ui`,
+`packaging`, or `contribution`. Pull requests deliberately confirm the issue
+areas or name their implementation areas; automation reconciles both paths,
+including fork contributions. `accessibility` follows a linked issue when
+relevant, but workflow labels such as `needs decision` are not copied.
 
 `needs revision` belongs to the hygiene workflow. Maintainers use `needs decision`,
 `needs reproduction`, or `blocked` only while that action is needed; `help wanted`
@@ -158,6 +168,17 @@ guidance consists only of comments and does not become part of the commit. The
 hook refuses a message the release note could not read, before the commit
 exists rather than after. Neither Git config nor hooks are part of what Git
 clones, so the pipeline remains authoritative.
+
+For parallel agents, Git's ordinary repository configuration would be shared
+between linked worktrees. The agent hook therefore enables worktree-specific
+configuration and stores the absolute template path separately for each tree.
+It also serializes periodic `origin` fetches, treats `origin/main` as the
+remote source of truth, keeps local `main` as a safe
+fast-forward mirror, and reports overlap with work already in progress. It never
+rebases or merges an agent branch automatically. Before publishing, an agent
+runs:
+
+    python3 .agents/hooks/fast_gate.py refresh
 
 For a pull request, the pipeline checks its title, description and linked issue
 instead. On `main` and tag pushes it checks the commits that arrived, so the

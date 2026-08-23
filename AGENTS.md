@@ -36,6 +36,7 @@ separation is not decoration — keep it.
     python3 packaging/build.py --check                does it still build
     python3 packaging/release-notes.py --tag vX.Y.Z   what a release would say
     python3 packaging/commit-lint.py --range main..HEAD
+    python3 .agents/hooks/fast_gate.py refresh           refresh remote main before publishing
     python3 packaging/contribution-lint.py --help     what an issue or PR may contain
 
 Installed integration and destructive browser E2E are deliberate manual runs;
@@ -43,6 +44,20 @@ they never belong in an automatic agent Stop hook. See `tests/README.md`.
 
 There is no linter beyond `php -l`; keep to 120 columns and to the style of the
 file being edited.
+
+## Parallel agent work
+
+Every concurrent agent uses its own linked worktree and topic branch. No two
+agents write the same worktree or branch. One integrating agent owns a pull
+request branch; supporting agents hand over commits instead of editing or
+pushing that branch themselves.
+
+`origin/main` after a fetch is the remote source of truth. The shared startup
+and Stop hook serializes fetches, keeps a clean local `main` as a fast-forward
+mirror, and reports path overlap without changing the current topic branch.
+Before any push, pull-request update, or review handoff, run the explicit
+refresh command above. Rebase an unpublished branch; do not routinely rewrite
+a published branch, and request a new review after any head change.
 
 ## Rules that are not preferences
 

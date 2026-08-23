@@ -31,12 +31,31 @@ import commits  # noqa: E402
 ISSUE_LIMIT = 175
 PULL_REQUEST_LIMIT = 125
 ISSUE_HEADINGS = ("TL;DR", "Where", "Now", "Want", "To decide")
-PULL_REQUEST_HEADINGS = ("Issue", "Change", "Resolution", "Validation", "Upgrade impact")
+PULL_REQUEST_HEADINGS = ("Issue", "Area", "Change", "Resolution", "Validation", "Upgrade impact")
 AI_NOTICES = (
     "*An AI agent wrote this text on my behalf; I am responsible for its content.*",
     "*Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.*",
 )
 KNOWN_HEADINGS = set(ISSUE_HEADINGS + PULL_REQUEST_HEADINGS + ("Suggested area",))
+AREA_LABELS = {
+    "area: oidc", "area: opnsense", "area: ui", "area: packaging", "area: contribution",
+}
+CHANGE_BY_COMMIT = {
+    "feat": "change: feature",
+    "fix": "change: fix",
+    "perf": "change: performance",
+    "docs": "change: docs",
+    "refactor": "change: maintenance",
+    "build": "change: maintenance",
+    "ci": "change: maintenance",
+    "test": "change: maintenance",
+    "chore": "change: maintenance",
+    "style": "change: maintenance",
+    "revert": "change: maintenance",
+}
+CHANGE_LABELS = set(CHANGE_BY_COMMIT.values())
+ISSUE_TYPE_LABELS = {"type: bug", "type: change", "type: docs", "type: question"}
+BREAKING_LABEL = "impact: breaking"
 
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 FENCED_CODE = re.compile(r"^\s*(```|~~~).*?^\s*\1\s*$", re.M | re.S)
@@ -87,6 +106,8 @@ def without_authored_markup(text):
         if PLACEHOLDER.fullmatch(re.sub(r"[*_~]", "", line.strip())):
             continue
         if line.strip() == "None":
+            continue
+        if line.strip() == "Same as issue":
             continue
         line = re.sub(r"^\s*BREAKING[ -]CHANGE:\s*", "", line)
         line = re.sub(r"^\s*[-*+]\s+\[[ xX]\]\s*", "", line)
@@ -225,7 +246,35 @@ def validate_issue_reference(number, repository, pull_request_created, issue_rea
     return []
 
 
-def validate_pull_request(title, body, repository="", created_at="", issue_reader=github_issue):
+def label_names(labels):
+    return [label if isinstance(label, str) else label.get("name", "") for label in (labels or [])]
+
+
+def requested_areas(area_text, issue_match, repository, issue_reader):
+    if area_text == "Same as issue":
+        if not issue_match:
+            return [], ["`Area` can use `Same as issue` only with `Fixes #N`"]
+        if not repository:
+            return [], ["the repository is needed to inherit the issue area"]
+        number = int(issue_match.group("number"))
+        try:
+            issue = issue_reader(repository, number)
+        except ValueError as error:
+            return [], [str(error)]
+        if issue.get("pull_request") is not None:
+            return [], [f"#{number} is a pull request, not an issue"]
+        areas = [name for name in label_names(issue.get("labels")) if name in AREA_LABELS]
+        if not 1 <= len(areas) <= 2:
+            return [], [f"issue #{number} needs one or two `area:*` labels before the pull request can inherit them"]
+        return areas, []
+
+    areas = [line.strip() for line in area_text.splitlines() if line.strip()]
+    if not 1 <= len(areas) <= 2 or len(set(areas)) != len(areas) or any(area not in AREA_LABELS for area in areas):
+        return [], ["`Area` must contain `Same as issue`, or one or two supported `area:*` labels"]
+    return areas, []
+
+
+def validate_pull_request(title, body, repository="", created_at="", issue_reader=github_issue, labels=None):
     problems = []
     future = commits.Commit(f"{title.strip()}\n\n{body.strip()}")
     if future.generated:
@@ -245,6 +294,9 @@ def validate_pull_request(title, body, repository="", created_at="", issue_reade
     if issue_text != "None" and not issue_match:
         problems.append("`Issue` must contain exactly `Fixes #N`, or `None` for a human-authored direct contribution")
 
+    areas, area_errors = requested_areas(by_name.get("Area", "").strip(), issue_match, repository, issue_reader)
+    problems.extend(area_errors)
+
     for heading in ("Change", "Resolution"):
         if heading in by_name and not prose_words(by_name[heading]):
             problems.append(f"`{heading}` must contain authored prose")
@@ -263,6 +315,21 @@ def validate_pull_request(title, body, repository="", created_at="", issue_reade
         problems.append("a `!` title needs a concrete `BREAKING CHANGE:` operator instruction")
     if footer and not title_breaking:
         problems.append("a `BREAKING CHANGE:` instruction also needs `!` in the pull request title")
+
+    if labels is not None:
+        assigned = set(label_names(labels))
+        future_change = CHANGE_BY_COMMIT.get(future.type)
+        assigned_changes = assigned & CHANGE_LABELS
+        if not future_change or assigned_changes != {future_change}:
+            expected = future_change or "a supported change:* label"
+            problems.append(f"pull request labels must contain exactly `{expected}`")
+        assigned_areas = assigned & AREA_LABELS
+        if areas and assigned_areas != set(areas):
+            problems.append("pull request `area:*` labels must match its `Area` section")
+        if assigned & ISSUE_TYPE_LABELS:
+            problems.append("issue `type:*` labels do not belong on pull requests")
+        if title_breaking != (BREAKING_LABEL in assigned):
+            problems.append(f"`{BREAKING_LABEL}` must match the `!` in the pull request title")
 
     notice_errors, agent_authored = notice_problems(body)
     problems.extend(notice_errors)
@@ -320,6 +387,7 @@ def main():
                 request.get("body") or "",
                 repository,
                 request.get("created_at") or "",
+                labels=request.get("labels") or [],
             )
         else:
             if not args.body_file:

@@ -75,6 +75,31 @@ the work signal.
 
 ## Pull requests
 
+### Parallel local work
+
+Use one topic branch and one linked worktree per agent session. Never let two
+agents write the same worktree or branch. When several agents support one pull
+request, exactly one agent owns its publishing branch; the others hand over
+focused commits for that agent to integrate.
+
+The startup hook serializes remote access across worktrees, refreshes the shared
+`origin/main` at most once per interval, and fast-forwards clean local `main`
+only. It never changes an agent's topic branch. Treat `origin/main` after that
+fetch as the source of truth. If the hook reports overlapping paths, pause and
+integrate deliberately before publishing.
+
+Immediately before a push, pull request update, or review handoff, require a
+fresh remote view:
+
+    python3 .agents/hooks/fast_gate.py refresh
+
+Rebase an unpublished private branch onto `origin/main`. Do not routinely
+rewrite a published branch; merge `origin/main` only when its changes are
+relevant or GitHub requires an up-to-date branch. Either operation changes the
+head and invalidates an earlier review.
+
+### Publishing
+
 Resolve the publishing path before pushing. Query the upstream repository's
 viewer permission. With write access, push a topic branch there.
 Without write access, reuse or create a personal fork and push the branch to
@@ -101,6 +126,14 @@ checks under `Validation`, and any operator action under `Upgrade impact`. Keep
 counted pull-request prose to 125 words. The closing reference creates the
 Development link even from a fork; do not depend on the write-only manual
 Development picker.
+
+Under `Area`, use `Same as issue` only after confirming that the implementation
+belongs to the issue's one or two `area:*` labels. Otherwise list the actual
+areas explicitly. Issue `type:*` labels describe requests and never belong on a
+pull request. Automation derives exactly one `change:*` label from the title:
+`feat` is `feature`, `fix` is `fix`, `perf` is `performance`, `docs` is `docs`,
+and every other allowed type is `maintenance`. A `!` also adds
+`impact: breaking`. Verify the resulting labels after publication.
 
 Before publishing, save the proposed body and validate the exact title and body:
 

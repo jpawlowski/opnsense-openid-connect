@@ -2,18 +2,11 @@
 // All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
 "use strict";
 
+const {AREA_CHOICES} = require("./contribution-labels.js");
+
 const LABEL = "needs revision";
 const MARKER = "<!-- contribution-hygiene:issue -->";
 const BOT = "github-actions[bot]";
-const AREA_CHOICES = new Map([
-  ["area: oidc", {color: "1D76DB", description: "OpenID Connect protocol, tokens, claims, and sessions"}],
-  ["area: opnsense", {color: "5319E7", description: "OPNsense core and WebGUI integration"}],
-  ["area: ui", {color: "C5DEF5", description: "Contributor-facing or operator-facing user interface"}],
-  ["area: packaging", {color: "0E8A16", description: "Package, build, release, and distribution"}],
-  ["area: contribution", {
-    color: "FBCA04", description: "Contribution guidance, GitHub automation, and community process",
-  }],
-]);
 
 function commentBody(result) {
   const details = result.problems.map((problem) => `- ${problem}`).join("\n");
