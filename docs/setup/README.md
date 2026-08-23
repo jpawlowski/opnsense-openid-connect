@@ -120,6 +120,13 @@ defaults** reverses later experiments without affecting provider-independent
 authorization or WebGUI settings. The complete behaviour is documented in
 [provider profiles and defaults](provider-profiles.md).
 
+Leave **Required authentication** at **Provider policy only** until the provider
+has been configured to return and enforce the corresponding ID Token evidence.
+MFA and phishing-resistant policies fail closed when either their exact
+authentication context or method evidence is missing. Provider-specific setup,
+especially Microsoft Entra Conditional Access, is described in its provider
+guide. Run **Test sign-in** before enabling such a requirement for normal login.
+
 While the server remains disabled, the exact **Issuer URL**, **Client ID** and
 **Client Secret** may be empty so either side can be prepared first. Before
 enabling login, the three provider values are required; a selected custom address

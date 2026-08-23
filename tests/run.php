@@ -18,9 +18,10 @@ require __DIR__ . '/stubs/opnsense.php';
 require __DIR__ . '/harness.php';
 
 /* the code under test, in dependency order */
+require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProtocolException.php';
+require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/AuthenticationRequirement.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/Auth/OpenIDConnect.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/Auth/SSOProviders/OpenIDConnectContainer.php';
-require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProtocolException.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/HttpResponse.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/HttpClient.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderMetadata.php';
@@ -31,6 +32,7 @@ require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SessionReg
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/TransactionRegistry.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/WebGuiAccess.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RelyingParty.php';
+require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/AuthController.php';
 
 foreach (glob(__DIR__ . '/unit/*.php') as $file) {
     require $file;

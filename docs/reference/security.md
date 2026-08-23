@@ -9,7 +9,11 @@ The implementation targets these normative parts:
 - OpenID Connect Discovery 1.0 with exact issuer matching
 - OAuth 2.0 Authorization Server Issuer Identification (RFC 9207)
 - PKCE (RFC 7636), always `S256`, following OAuth 2.0 Security BCP (RFC 9700)
+- OAuth 2.0 Pushed Authorization Requests (RFC 9126), automatically when the
+  validated Discovery document advertises its HTTPS endpoint
 - OAuth 2.0 Token Revocation (RFC 7009), when advertised
+- REFEDS Multi-Factor Authentication Profile for its exact MFA context
+- OpenID Connect Extended Authentication Profile `phr` and `phrh` contexts
 - OIDC RP-Initiated Logout 1.0, Front-Channel Logout 1.0 and Back-Channel
   Logout 1.0
 - JWS asymmetric algorithms `RS*`, `PS*`, and `ES*` listed in the README
@@ -23,9 +27,11 @@ The client is confidential and still always uses PKCE.
 These are optional protocol features, not silently accepted variants:
 
 - public clients and `token_endpoint_auth_method=none`
-- `private_key_jwt`, `client_secret_jwt`, mutual-TLS or DPoP client authentication
+- `private_key_jwt`, `client_secret_jwt` or mutual-TLS client authentication
+- DPoP sender-constrained access and refresh tokens
 - implicit/hybrid/device/password/client-credentials flows
-- Dynamic Client Registration, PAR, JAR, JARM, CIBA and Rich Authorization Requests
+- Dynamic Client Registration, JAR, JARM, CIBA and Rich Authorization Requests
+- login-time `id_token_hint` or `login_hint` authorization parameters
 - encrypted ID Tokens or UserInfo (JWE)
 - symmetric `HS*` ID Token signatures and EdDSA
 - distributed/aggregated claims and automated Graph/API fallback for Entra group
@@ -41,7 +47,11 @@ must not be disabled to emulate support.
 - [OAuth 2.0 Authorization Server Issuer Identification (RFC 9207)](https://www.rfc-editor.org/rfc/rfc9207.html)
 - [Proof Key for Code Exchange (RFC 7636)](https://www.rfc-editor.org/rfc/rfc7636.html)
 - [OAuth 2.0 Security Best Current Practice (RFC 9700)](https://www.rfc-editor.org/rfc/rfc9700.html)
+- [OAuth 2.0 Pushed Authorization Requests (RFC 9126)](https://www.rfc-editor.org/rfc/rfc9126.html)
 - [OAuth 2.0 Token Revocation (RFC 7009)](https://www.rfc-editor.org/rfc/rfc7009.html)
+- [REFEDS Multi-Factor Authentication Profile](https://refeds.org/profile/mfa)
+- [OpenID Connect Extended Authentication Profile ACR Values 1.0](https://openid.net/specs/openid-connect-eap-acr-values-1_0.html)
+- [Authentication Method Reference Values (RFC 8176)](https://www.rfc-editor.org/rfc/rfc8176.html)
 - [OpenID Connect RP-Initiated Logout 1.0](https://openid.net/specs/openid-connect-rpinitiated-1_0.html)
 - [OpenID Connect Front-Channel Logout 1.0](https://openid.net/specs/openid-connect-frontchannel-1_0.html)
 - [OpenID Connect Back-Channel Logout 1.0](https://openid.net/specs/openid-connect-backchannel-1_0.html)
@@ -50,9 +60,10 @@ must not be disabled to emulate support.
 
 | Threat | Control |
 |---|---|
-| forged/replayed callback | random server-bound state, nonce and PKCE; state consumed before processing; bounded one-time server index for `form_post` under SameSite=Lax |
+| forged/replayed callback | random server-bound state, nonce and PKCE; state consumed before processing; bounded one-time server index for `form_post` under SameSite=Lax; PAR keeps the complete request server-to-server when advertised |
 | authorization-server mix-up | frozen exact issuer/endpoints, distinct callback per provider, RFC 9207 when advertised |
 | forged ID Token | asymmetric JWKS signature, algorithm allow-list, key metadata/curve/use checks, minimum 2048-bit RSA |
+| provider ignores or misinterprets a requested authentication strength | an enabled requirement needs exact signed `acr`/`acrs` context and bounded `amr` evidence frozen into the login transaction; missing or mismatched evidence is refused before account lookup |
 | token for another client | exact `aud` and `azp` rules |
 | stale/future token | strict integer `exp`, `iat`, optional `nbf`, 60-second clock tolerance |
 | UserInfo substitution | access token over TLS, credential redirects forbidden, exact ID Token/UserInfo `sub` binding |
@@ -61,14 +72,14 @@ must not be disabled to emulate support.
 | session fixation | fail-closed PHP session ID regeneration with old ID removal after elevation |
 | identity reassignment after rename | persistent exact `(issuer, sub)` to numeric UID binding |
 | unverified e-mail takeover | strict admission by default; automatic e-mail admission requires a unique verified address unless unsafe matching is explicitly selected |
-| any global social account reaches the firewall | unknown identities are refused; Administrator approval queues an exact issuer/subject without a session, with bounded 0600 storage and no unauthenticated config write |
+| any global social account reaches the firewall | unknown identities are refused with the same public response as every unusable account; Administrator approval privately queues an exact issuer/subject without a session, with bounded 0600 storage and no unauthenticated config write |
 | unauthorized identity rebinding | the manager API extends core's System: Authentication Servers ACL, repeats that privilege check in the controller and applies `user-config-readonly` to every mutation; operations target one exact saved server and use record IDs to detect concurrent changes |
 | Microsoft multitenant issuer substitution | Microsoft-only authority modes require GUID `tid`, exact tenant issuer, selected organizations/consumers population and matching signing-key issuer |
 | provider grants excessive privilege | no group claim by default, explicit assignable local groups, root denied |
-| logout forgery/replay | signed logout token, issuer/audience/event/time/`jti`, replay cache, exact `sid`/`sub` lookup |
+| logout forgery/replay | signed logout token, issuer/audience/event/integer `exp`/time/`jti`, replay cache retained through signed expiry, exact `sid`/`sub` lookup, bounded session-lock retry and retryable failure without consuming the replay marker |
 | credential leakage by HTTP redirect | POST and credential-bearing GET redirects rejected |
 | resource exhaustion | response limits, field/key/claim limits, connection/total timeouts, bounded transaction/session/replay indexes and at most 100 deduplicated pending identities |
-| account/configuration enumeration | generic public errors with random log reference |
+| account/configuration enumeration | every missing, disabled, expired, privileged or approval-pending account receives the same public refusal; precise reasons remain in the log |
 | third-party content or administrator text on login page | named profiles use reviewed package-owned SVGs; custom remote icons are proxied by the firewall with content-type/size checks and an SVG sandbox; provider labels and custom wording are bounded plain text and HTML-escaped; no raw custom markup reaches the page |
 | authorization codes, state, identity details or failure references retained or leaked by the browser | private responses use `no-store`, `no-referrer`, `nosniff` and a deny-by-default CSP; successful package-owned or proxied icons are the only cacheable plugin responses |
 
@@ -82,7 +93,7 @@ been returned.
 | Response class | Cache, referrer and MIME policy | Content and framing policy |
 |---|---|---|
 | Public login, callback, logout, back-channel logout and protocol errors | `Cache-Control: no-store`, legacy `Pragma: no-cache`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff` | deny-by-default CSP with `frame-ancestors 'none'` and `base-uri 'none'` |
-| Sign-in test, administrator-approval and WebGUI-access-denied pages | same private policy; cross-site `form_post` results also remove the temporary session's `Set-Cookie` | self-contained HTML; only inline styling is allowed, with all other sources, framing, base-URL changes and form submission denied |
+| Sign-in-test and WebGUI-access-denied pages | same private policy; cross-site `form_post` results also remove the temporary session's `Set-Cookie` | self-contained HTML; only inline styling is allowed, with all other sources, framing, base-URL changes and form submission denied |
 | Front-channel logout | private policy | `default-src 'none'; frame-ancestors *` is an intentional exception because the provider must load this endpoint in an iframe |
 | Successful package-owned or proxied login icon | `Cache-Control: public, max-age=86400`, `no-referrer`, `nosniff` | sandboxed image response; package assets are reviewed and self-contained; remote responses cannot execute as page markup |
 | Missing, failed or rejected login icon | `no-store`, `no-referrer`, `nosniff`, explicit plain-text type | sandboxed deny-by-default CSP with framing denied |

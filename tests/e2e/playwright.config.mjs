@@ -24,6 +24,11 @@ if (process.env.E2E_ZAP_PROXY) {
   };
 }
 
+const reporter = [['list'], ['html', { open: 'never' }]];
+if (process.env.E2E_PLAYWRIGHT_AUDIT_RESULT) {
+  reporter.push(['./audit-reporter.mjs', { outputFile: process.env.E2E_PLAYWRIGHT_AUDIT_RESULT }]);
+}
+
 export default defineConfig({
   testDir: '.',
   testMatch: 'oidc.spec.mjs',
@@ -31,6 +36,6 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
-  reporter: [['list'], ['html', { open: 'never' }]],
+  reporter,
   use,
 });

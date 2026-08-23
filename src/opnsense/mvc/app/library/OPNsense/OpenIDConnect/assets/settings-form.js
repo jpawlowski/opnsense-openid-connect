@@ -105,6 +105,30 @@
             && !!policy && policy.value === 'custom' && effectiveOrigins().length > 0;
     }
 
+    function sectorOriginOptions() {
+        var select = field('openidconnect_sector_origin');
+        if (!select) {
+            return;
+        }
+        var selected = select.value || storedValue(select);
+        $(select).empty().append($('<option>').attr('value', '').text(options.sectorOffLabel || 'Off'));
+        effectiveOrigins().forEach(function (origin) {
+            $(select).append($('<option>').attr('value', origin).text(origin));
+        });
+        select.value = effectiveOrigins().indexOf(selected) === -1 ? '' : selected;
+
+        function update() {
+            selected = select.value;
+            $(select).empty().append($('<option>').attr('value', '').text(options.sectorOffLabel || 'Off'));
+            effectiveOrigins().forEach(function (origin) {
+                $(select).append($('<option>').attr('value', origin).text(origin));
+            });
+            select.value = effectiveOrigins().indexOf(selected) === -1 ? '' : selected;
+        }
+        $(field('openidconnect_redirect_urls')).on('input change', update);
+        $(field('openidconnect_origin_policy')).on('change', update);
+    }
+
     function currentServerId() {
         var id = field('id');
         var value = id ? id.value : '';
@@ -785,6 +809,7 @@
                 application_code: field('openidconnect_app_code').value,
                 display_name: field('name') ? field('name').value : '',
                 origins: effectiveOrigins().join(','),
+                sector_origin: field('openidconnect_sector_origin').value,
                 post_logout_redirect: $(field('openidconnect_logout_redirect')).is(':checked') ? '1' : '0',
                 logout_channel: channel.val()
             };
@@ -794,6 +819,21 @@
             var appCode = field('openidconnect_app_code');
             if (appCode && applicationCodeConflict(appCode.value)) {
                 $(appCode).trigger('input').trigger('focus');
+                return;
+            }
+            var sectorOrigin = field('openidconnect_sector_origin').value;
+            var enabled = $(field('openidconnect_enabled')).is(':checked');
+            if (sectorOrigin && (currentServerId() === null || enabled || options.savedServerEnabled
+                || sectorOrigin !== options.savedSectorOrigin
+                || appCode.value !== options.savedApplicationCode)) {
+                BootstrapDialog.show({
+                    title: download
+                        ? (options.setupLabel || 'Download provider setup')
+                        : (options.setupGuideLabel || 'Open setup guide'),
+                    message: $('<div>').text(options.setupPairwiseSaveHelp ||
+                        'Save this server as a disabled draft before generating pairwise-subject setup.').html(),
+                    type: BootstrapDialog.TYPE_WARNING
+                });
                 return;
             }
             button.prop('disabled', true);
@@ -1039,6 +1079,13 @@
                 [options.backchannelEndpointLabel || 'Back-channel logout URI', base + 'backchannel/' + encodeURIComponent(code)],
                 [options.frontchannelEndpointLabel || 'Front-channel logout URI', base + 'frontchannel/' + encodeURIComponent(code)]
             ];
+            var sectorOrigin = field('openidconnect_sector_origin').value;
+            if (sectorOrigin) {
+                destinations.push([
+                    options.sectorEndpointLabel || 'Pairwise sector identifier URI',
+                    sectorOrigin + '/api/openidconnect/auth/sector/' + encodeURIComponent(code)
+                ]);
+            }
             destinations.forEach(function (destination) {
                 $('<div>').append($('<span>').text(destination[0] + ': '))
                     .append($('<code>').text(destination[1])).appendTo(output);
@@ -1048,6 +1095,7 @@
         $(field('openidconnect_app_code')).on('input change', update);
         $(field('openidconnect_redirect_urls')).on('input change', update);
         $(field('openidconnect_origin_policy')).on('change', update);
+        $(field('openidconnect_sector_origin')).on('change', update);
         update();
     }
 
@@ -1058,10 +1106,16 @@
             var automatic = ['username', 'verified_email', 'either'].indexOf(admission) !== -1;
             var groupClaim = (field('openidconnect_group_claim').value || '').trim() !== '';
             var provider = field('openidconnect_provider_profile').value || 'general';
+            var authentication = field('openidconnect_required_authentication').value || '';
+            var authenticationRequired = authentication !== '';
             var buttonTextMode = field('openidconnect_button_text_mode').value || 'localized';
             var buttonTextCustomizable = (options.fixedButtonProfiles || []).indexOf(provider) === -1;
             row('openidconnect_tls_offloading').toggle(options.webGuiProtocol === 'http');
             row('openidconnect_microsoft_audience').toggle(provider === 'entra');
+            row('openidconnect_acr_request').toggle(authenticationRequired && provider !== 'entra');
+            row('openidconnect_acr_values').toggle(authenticationRequired && provider !== 'entra');
+            row('openidconnect_amr_values').toggle(authenticationRequired);
+            row('openidconnect_entra_auth_context').toggle(authenticationRequired && provider === 'entra');
             row('openidconnect_create_users').toggle(automatic);
             row('openidconnect_default_groups').toggle(automatic && creates);
             row('openidconnect_assignable_groups').toggle(groupClaim);
@@ -1081,8 +1135,46 @@
         $(field('openidconnect_origin_policy')).on('change', update);
         $(field('openidconnect_bootstrap_mode')).on('change', update);
         $(field('openidconnect_provider_profile')).on('change', update);
+        $(field('openidconnect_required_authentication')).on('change', update);
         $(field('openidconnect_button_text_mode')).on('change', update);
         update();
+    }
+
+    function authenticationRequirementPresets() {
+        var requirement = field('openidconnect_required_authentication');
+        var profile = field('openidconnect_provider_profile');
+        var requestMode = field('openidconnect_acr_request');
+        var contexts = field('openidconnect_acr_values');
+        var methods = field('openidconnect_amr_values');
+        var presets = options.authenticationRequirementPresets || {};
+        if (!requirement || !profile || !requestMode || !contexts || !methods) {
+            return;
+        }
+
+        function selectedPreset() {
+            var provider = ['okta', 'entra'].indexOf(profile.value) !== -1 ? profile.value : 'general';
+            return ((presets[provider] || {})[requirement.value || '']) || null;
+        }
+
+        function apply(force) {
+            var preset = selectedPreset();
+            if (!preset) {
+                return;
+            }
+            if (force || requestMode.value === '') {
+                requestMode.value = preset.request === 'entra_context' ? '' : (preset.request || '');
+            }
+            if (force || contexts.value.trim() === '') {
+                contexts.value = preset.acr || '';
+            }
+            if (force || methods.value.trim() === '') {
+                methods.value = preset.amr || '';
+            }
+        }
+
+        $(requirement).on('change', function () { apply(true); });
+        $(profile).on('change', function () { apply(true); });
+        apply(false);
     }
 
     function webGuiTransportNotice() {
@@ -1321,6 +1413,7 @@
         if (options.originPolicy === 'opnsense' || options.originPolicy === 'custom') {
             $(field('openidconnect_origin_policy')).val(options.originPolicy);
         }
+        sectorOriginOptions();
         withDiscoveryTest();
         withSignInTest();
         withApprovalManager();
@@ -1328,6 +1421,7 @@
         addSections();
         applicationCodeAvailability();
         var updateProfileDecorations = providerPresets();
+        authenticationRequirementPresets();
         conditionalFields();
         webGuiTransportNotice();
         endpointPreview();

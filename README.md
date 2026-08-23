@@ -13,6 +13,8 @@ cryptographic primitives.
 
 - Authorization Code flow only, always with transaction-specific `state`,
   `nonce`, and PKCE `S256`.
+- Pushed Authorization Requests (PAR) are used automatically when Discovery
+  publishes an endpoint; a failed push never falls back to browser parameters.
 - Exact issuer validation from OIDC Discovery; endpoints and the metadata
   snapshot are bound to the pending browser transaction.
 - A distinct callback per provider plus RFC 9207 `iss` validation when offered,
@@ -32,12 +34,15 @@ cryptographic primitives.
   `form_post` uses a bounded server-side transaction index so OPNsense's
   `SameSite=Lax` session cookie remains unchanged.
 - RP-Initiated, Front-Channel and Back-Channel Logout are supported. Signed
-  back-channel logout messages require a unique `jti` and are replay-protected.
+  back-channel logout messages require integer `exp`, a unique `jti` and are
+  replay-protected until their signed expiry.
+- Optional account selection and an exact-origin sector identifier endpoint
+  support multi-account sign-in and provider-issued pairwise subjects.
 
 The exact supported standards and intentionally unsupported optional extensions
 are listed in [the security and conformance document](docs/reference/security.md).
-The complete pre-release review and remaining release gates are in the
-[audit report](docs/reference/audit-report.md).
+The generated, evidence-backed security validation is in the
+[security validation report](docs/reference/audit-report.md).
 
 ## Local identity and privileges
 
@@ -152,6 +157,7 @@ Start with these fields:
 | WebGUI transport | native HTTPS required by default; an HTTP backend needs an explicit trusted-proxy exception with exact custom public HTTPS origins |
 | Username claim | keep the profile default unless the provider guide differs |
 | Claims source | Automatic normally; force ID Token or UserInfo only when needed |
+| Required authentication | Provider policy only by default; optionally require verified MFA or phishing-resistant context and method claims |
 | Admission policy | Administrator approval for named profiles; Strict for Generic |
 | Identity manager | after saving, map exact issuer/`sub` identities to existing local accounts and review pending approvals |
 | Login button wording | localized OPNsense sentence, provider label only or an exact custom text; fixed global services use their familiar short name |

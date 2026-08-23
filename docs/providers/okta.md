@@ -34,10 +34,27 @@ Do not mix endpoints or signing keys between those issuers.
 | Authorization response mode | Query |
 | Scopes | `openid,email,profile` |
 | Authentication method | Follow the provider |
+| Required authentication | Provider policy only, or the tested MFA/phishing-resistant policy below |
 
 For group authorization, add a filtered groups claim in Okta. Depending on the
 authorization server and claim settings, include the `groups` scope. Avoid an
 unbounded “all groups” claim and restrict OPNsense assignable groups as well.
+
+## Optional authentication-strength enforcement
+
+Okta Identity Engine can perform step-up authentication from the authorization
+request. Select **Multi-factor authentication** to send the documented
+`acr_values=urn:okta:loa:2fa:any`, or **Phishing-resistant authentication** to
+request `phr`/`phrh`. The verified ID Token must return an accepted `acr` and an
+accepted `amr`; an unsupported request that Okta ignores therefore still fails
+closed at OPNsense rather than creating a session.
+
+Ensure the authorization server includes AMR in the ID Token and that the app
+sign-in policy permits the requested authenticators. For phishing resistance,
+Okta currently documents Passkey/FIDO2 WebAuthn for `phr`; `phrh` additionally
+requires hardware protection. Use **Test sign-in** before enabling the login
+button. Classic Engine and tenant-specific custom authorization-server behavior
+must be checked against the installed Okta policy.
 
 ## Defaults and remaining settings
 
@@ -50,4 +67,5 @@ reference](../setup/settings-reference.md).
 
 References: [Okta web application](https://developer.okta.com/docs/guides/sign-into-web-app-redirect/main/),
 [authorization servers](https://developer.okta.com/docs/concepts/auth-servers/),
+[step-up authentication](https://developer.okta.com/docs/guides/step-up-authentication/main/),
 [groups claim](https://developer.okta.com/docs/guides/customize-tokens-groups-claim/main/).

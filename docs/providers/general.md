@@ -18,8 +18,16 @@ confidential web client.
   `client_secret_basic` or `client_secret_post`.
 - Publish OIDC Discovery at the standard location. Its `issuer` must exactly
   equal the configured issuer, including trailing slash.
+- When Discovery publishes `pushed_authorization_request_endpoint`, OPNsense
+  automatically uses PAR with the same confidential-client authentication and
+  does not fall back if the push fails.
 - Optionally register the displayed front/back-channel logout URLs and the
   WebGUI origin as post-logout redirect.
+- For provider-managed pairwise subjects, choose **Pairwise subject sector** and
+  give the provider the resulting
+  `https://<chosen-origin>/api/openidconnect/auth/sector/<application-code>`
+  sector identifier URI. It returns the exact callback URI array as JSON only
+  at that saved origin.
 
 ## Enter or change these OPNsense values
 

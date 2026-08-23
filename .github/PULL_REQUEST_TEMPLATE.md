@@ -1,36 +1,52 @@
 <!--
-The pull request title becomes the squash commit and a release-note entry. Use:
+Keep the complete pull request body to at most 125 counted prose words. Code,
+commands, paths, URLs, `Fixes #N`, `None`, template text and the AI notice do
+not count.
 
-    type(scope)!: concise description of the observable change
+The title becomes the squash commit and release-note entry. Before opening the
+pull request, validate it with packaging/contribution-lint.py. The title is at
+most 100 characters and has this form:
 
-For example: fix(auth): keep local login available when discovery fails
-See CONTRIBUTING.md for the allowed types and the breaking-change convention.
+    type(scope)!: lower-case description without a full stop
+
+Allowed types: feat, fix, perf, refactor, docs, build, ci, test, chore, style,
+revert. A breaking change requires both `!` and a concrete `BREAKING CHANGE:`
+operator instruction below.
+
+Describe the problem in the issue. Here, describe only the change and how it
+resolves the issue. English and German are accepted; prefer English when in
+doubt.
 -->
 
-## Why
+## Issue
 
-<!-- Describe the problem, risk or opportunity this pull request addresses. -->
+<!-- Use exactly `Fixes #N`. A human-authored direct contribution may use exactly `None`. -->
 
-## What changes
+## Change
 
-<!-- Describe the resulting behaviour and the important implementation choices. -->
+<!-- What changed? Do not repeat the problem statement from the issue. -->
+
+## Resolution
+
+<!-- How does this change resolve the linked issue? -->
 
 ## Validation
 
 - [ ] `./tests/run.sh`
 
-<!--
-List additional relevant checks below. Container, live-provider and browser
-tests are deliberately explicit and are only expected when the change needs
-them.
--->
+<!-- Check at least one test, or add `Not run: <reason>`. -->
 
 ## Upgrade impact
 
 <!--
-Leave "None" when existing installations need no action. Otherwise replace it
-with the exact operator action. A breaking change must use this final line:
-
-BREAKING CHANGE: what an installation has to do before upgrading.
+Keep `None` when no operator action is needed. Otherwise give the exact action.
+A breaking pull request must use: `BREAKING CHANGE: <operator instruction>`.
 -->
 None
+
+<!--
+Agent-authored text must add exactly one of these as its own final paragraph:
+
+AI notice: An AI agent wrote this text on my behalf; I am responsible for its content.
+KI-Hinweis: Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.
+-->

@@ -42,6 +42,7 @@ Unless the table below says otherwise, every named profile starts with:
 | Authorization response mode | Query |
 | Match by e-mail address | Only a verified address |
 | Scopes | `openid,email,profile` |
+| Required authentication | Provider policy only; no additional ID Token strength requirement |
 | Admission policy | Administrator approval |
 | Login button wording | localized OPNsense sentence; an empty provider label follows Descriptive name |
 
@@ -74,8 +75,8 @@ the whole visible string and is intentionally literal rather than translated.
 | JumpCloud | enter the exact regional issuer | shared defaults |
 | Keycloak | enter realm issuer | shared defaults |
 | LinkedIn | fixed `https://www.linkedin.com/oauth` | username `email`; ID Token only; fixed `client_secret_post` |
-| Microsoft Entra ID / Microsoft account | enter one tenant's v2 issuer; broader audience modes manage their authority automatically | ID Token only; audience selector shown only for this profile |
-| Okta | enter organization or custom authorization-server issuer | shared defaults |
+| Microsoft Entra ID / Microsoft account | enter one tenant's v2 issuer; broader audience modes manage their authority automatically | ID Token only; a required authentication policy additionally needs one tenant and its configured `c1`-`c25` Conditional Access context |
+| Okta | enter organization or custom authorization-server issuer | MFA uses `urn:okta:loa:2fa:any`; phishing-resistant authentication uses `phr`/`phrh` when deliberately enabled |
 | OneLogin | enter exact v2 issuer | shared defaults |
 | ORCID | fixed `https://orcid.org` | username `sub`; ID Token only; fixed `client_secret_post`; fixed sole scope `openid` |
 | Oracle Identity Cloud / OCI IAM | enter identity-domain issuer | shared defaults; adjust the claim only when explicitly mapped differently |

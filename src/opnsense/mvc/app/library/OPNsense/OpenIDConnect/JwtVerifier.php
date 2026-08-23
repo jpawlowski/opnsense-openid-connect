@@ -167,8 +167,10 @@ class JwtVerifier
             || $claims['iat'] > $now + self::CLOCK_TOLERANCE) {
             throw new ProtocolException('The logout token has no recent issue time');
         }
-        if (isset($claims['exp'])
-            && (!is_int($claims['exp']) || $claims['exp'] < $now - self::CLOCK_TOLERANCE)) {
+        if (!is_int($claims['exp'] ?? null)) {
+            throw new ProtocolException('The logout token has no valid expiry');
+        }
+        if ($claims['exp'] < $now - self::CLOCK_TOLERANCE) {
             throw new ProtocolException('The logout token is expired');
         }
         if (isset($claims['nonce'])) {

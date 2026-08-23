@@ -92,6 +92,65 @@ Checks::that('maximum age, legacy empty value', connector(['openidconnect_max_ag
 Checks::that('maximum age, set', connector(['openidconnect_max_age' => '3600'])->maximumAuthenticationAge(), 3600);
 Checks::that('maximum age, explicitly zero', connector(['openidconnect_max_age' => '0'])->maximumAuthenticationAge(), 0);
 Checks::that('maximum age, not a number', connector(['openidconnect_max_age' => 'soon'])->maximumAuthenticationAge(), 14400);
+Checks::that('no authentication strength is required unless asked for', connector([])->requiredAuthentication(), '');
+Checks::that(
+    'an unknown authentication requirement falls back to provider policy only',
+    connector(['openidconnect_required_authentication' => 'passwordless'])->requiredAuthentication(),
+    ''
+);
+$genericMfa = connector([
+    'openidconnect_required_authentication' => 'multi-factor',
+])->authenticationRequirement();
+Checks::that('Generic MFA uses the REFEDS essential claim preset', $genericMfa->toArray(), [
+    'tier' => 'multi-factor',
+    'request_mode' => 'essential_claim',
+    'contexts' => ['https://refeds.org/profile/mfa'],
+    'methods' => ['mfa'],
+]);
+$oktaMfa = connector([
+    'openidconnect_provider_profile' => 'okta',
+    'openidconnect_required_authentication' => 'multi-factor',
+])->authenticationRequirement();
+Checks::that('Okta MFA uses its documented ACR preset', $oktaMfa->toArray(), [
+    'tier' => 'multi-factor',
+    'request_mode' => 'acr_values',
+    'contexts' => ['urn:okta:loa:2fa:any'],
+    'methods' => ['mfa'],
+]);
+$customStrength = connector([
+    'openidconnect_required_authentication' => 'phishing-resistant',
+    'openidconnect_acr_request' => 'acr_values',
+    'openidconnect_acr_values' => 'company:phr,company:phr-hardware',
+    'openidconnect_amr_values' => 'company-key',
+])->authenticationRequirement();
+Checks::that('an installation can override its provider-agreed ACR and AMR values', $customStrength->toArray(), [
+    'tier' => 'phishing-resistant',
+    'request_mode' => 'acr_values',
+    'contexts' => ['company:phr', 'company:phr-hardware'],
+    'methods' => ['company-key'],
+]);
+$entraStrength = connector([
+    'openidconnect_provider_profile' => 'entra',
+    'openidconnect_microsoft_audience' => 'tenant',
+    'openidconnect_required_authentication' => 'phishing-resistant',
+    'openidconnect_entra_auth_context' => 'c4',
+])->authenticationRequirement();
+Checks::that('Entra binds its tenant context to documented method evidence', $entraStrength->toArray(), [
+    'tier' => 'phishing-resistant',
+    'request_mode' => 'entra_context',
+    'contexts' => ['c4'],
+    'methods' => ['fido', 'hwk', 'x509'],
+]);
+Checks::throws(
+    'a broad Microsoft audience cannot assign tenant-local authentication context semantics',
+    fn() => connector([
+        'openidconnect_provider_profile' => 'entra',
+        'openidconnect_microsoft_audience' => 'organizations',
+        'openidconnect_required_authentication' => 'multi-factor',
+        'openidconnect_entra_auth_context' => 'c1',
+    ])->authenticationRequirement(),
+    'one specific Entra tenant'
+);
 Checks::that('token auth, unset', connector([])->tokenAuthMethod(), null);
 Checks::that(
     'token auth, insisted on',
@@ -99,6 +158,36 @@ Checks::that(
     'client_secret_post'
 );
 Checks::that('token auth, nonsense value', connector(['openidconnect_token_auth' => 'wobble'])->tokenAuthMethod(), null);
+Checks::that('account selection is off unless asked for', connector([])->selectAccount(), false);
+Checks::that('account selection can be requested', connector([
+    'openidconnect_select_account' => '1',
+])->selectAccount(), true);
+$sectorSettings = connector([
+    'openidconnect_origin_policy' => 'custom',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net,https://backup.example.net:8443',
+    'openidconnect_sector_origin' => 'https://firewall.example.net',
+]);
+Checks::that('the pairwise sector is an exact accepted origin', $sectorSettings->sectorOrigin(),
+    'https://firewall.example.net');
+$sectorOptions = $sectorSettings->getConfigurationOptions()['openidconnect_sector_origin'];
+Checks::that('the pairwise sector dropdown lists effective origins', array_keys($sectorOptions['options']), [
+    '', 'https://firewall.example.net', 'https://backup.example.net:8443',
+]);
+Checks::that(
+    'an accepted pairwise sector validates',
+    $sectorOptions['validate']('https://backup.example.net:8443'),
+    []
+);
+Checks::that(
+    'an unrelated pairwise sector is refused',
+    count($sectorOptions['validate']('https://other.example.net')),
+    1
+);
+Checks::that('an invalid saved pairwise sector is disabled', connector([
+    'openidconnect_origin_policy' => 'custom',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_sector_origin' => 'https://other.example.net',
+])->sectorOrigin(), '');
 Checks::that('group claim is off unless asked for', connector([])->groupClaim(), '');
 Checks::that('tracing is off unless asked for', connector([])->isTracing(), false);
 Checks::that('e-mail matching asks the provider to have checked', connector([])->emailMatching(), 'verified');
@@ -125,6 +214,21 @@ Checks::that(
     '0'
 );
 Checks::that('identity bootstrap is strict unless asked for', connector([])->bootstrapMode(), 'strict');
+Checks::that(
+    'a saved beta configuration keeps its earlier matching behaviour',
+    connector(['refid' => 'legacy-server'])->bootstrapMode(),
+    'either'
+);
+Checks::that(
+    'an explicit strict policy overrides the saved beta fallback',
+    connector(['refid' => 'legacy-server', 'openidconnect_bootstrap_mode' => 'strict'])->bootstrapMode(),
+    'strict'
+);
+Checks::that(
+    'the settings form preserves the saved beta fallback until an admission policy is chosen',
+    connector(['refid' => 'legacy-server'])->getConfigurationOptions()['openidconnect_bootstrap_mode']['default'],
+    'either'
+);
 Checks::that('provider profile is standards-based unless named', connector([])->providerProfile(), 'general');
 $profileOptions = OpenIDConnect::providerProfileOptions();
 Checks::that('the generic provider profile is always first', array_key_first($profileOptions), 'general');
@@ -586,3 +690,38 @@ Checks::that('an empty age is refused', count($age('')), 1);
 Checks::that('a number', $age('43200'), []);
 Checks::that('not a number', count($age('soon')), 1);
 Checks::that('zero requests re-authentication every time', $age('0'), []);
+
+$savedPost = $_POST;
+$_POST = [
+    'type' => 'openidconnect',
+    'openidconnect_enabled' => '1',
+    'openidconnect_provider_profile' => 'entra',
+    'openidconnect_microsoft_audience' => 'tenant',
+    'openidconnect_required_authentication' => 'multi-factor',
+];
+$strengthOptions = (new OpenIDConnect())->getConfigurationOptions();
+$requiredAuthentication = $strengthOptions['openidconnect_required_authentication']['validate'];
+$entraContext = $strengthOptions['openidconnect_entra_auth_context']['validate'];
+Checks::that('the two supported authentication policies can be saved', $requiredAuthentication('multi-factor'), []);
+Checks::that('the removed passwordless category is refused', count($requiredAuthentication('passwordless')), 1);
+Checks::that('an enabled Entra requirement needs its tenant context', count($entraContext('')), 1);
+Checks::that('the first Microsoft authentication context is accepted', $entraContext('c1'), []);
+Checks::that('the last Microsoft authentication context is accepted', $entraContext('c25'), []);
+Checks::that('a Microsoft context outside the tenant range is refused', count($entraContext('c26')), 1);
+$_POST['openidconnect_microsoft_audience'] = 'organizations';
+Checks::that(
+    'the form refuses tenant-local context semantics for a broad Microsoft audience',
+    count($requiredAuthentication('multi-factor')),
+    1
+);
+$_POST['openidconnect_enabled'] = '0';
+$_POST['openidconnect_microsoft_audience'] = 'tenant';
+Checks::that('a disabled Entra draft may leave its context incomplete', $entraContext(''), []);
+$_POST = $savedPost;
+
+$acrValues = validator('openidconnect_acr_values');
+$amrValues = validator('openidconnect_amr_values');
+Checks::that('several exact ACR values are accepted', $acrValues("phr\nphrh"), []);
+Checks::that('an ACR value containing spaces is refused', count($acrValues('not an acr')), 1);
+Checks::that('a bounded provider-specific AMR value is accepted', $amrValues('company-key'), []);
+Checks::that('an AMR value containing a control character is refused', count($amrValues("fido\tother")), 1);

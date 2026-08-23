@@ -20,12 +20,27 @@ defaults below.
 | Username claim | `preferred_username` | the provider guide specifies `email`, a vendor claim or a custom mapping |
 | Claims source | Automatic | all required claims must come only from the ID Token, or UserInfo is explicitly required |
 | Authorization response mode | Query | Apple with requested user scopes requires Form POST |
+| Required authentication | Provider policy only; no additional `acr`/`amr` decision | require the verified ID Token to prove MFA or phishing-resistant authentication before local account and session processing |
+| Authentication context request | provider preset; essential `acr` for Generic and `acr_values` for Okta | the provider documents a different request form |
+| Accepted authentication contexts | requirement/provider preset | the provider uses an installation-specific, documented exact `acr` value |
+| Accepted authentication methods | requirement/provider preset | the provider documents different exact `amr` values; any configured value may satisfy the method check |
+| Microsoft authentication context | empty and shown only for Entra | choose the tenant Conditional Access context `c1`-`c25` that enforces this requirement |
 | Match by e-mail address | Only a verified address | username-only matching is required, or a provider omitting `email_verified` has been assessed |
 | Scopes | profile preset, normally `openid,email,profile` | another scope such as `groups` is required; `openid` is always included |
+| Always show account selection | Off | users commonly have several accounts at the provider and should choose explicitly on every new login; this sends `prompt=select_account` |
 | WebGUI address policy | Follow OPNsense WebGUI settings | select Custom origins for this provider only to replace the inherited set for a provider restriction, reverse proxy or different external port |
 | Trusted reverse-proxy TLS offloading | Off and hidden while OPNsense itself serves HTTPS | only for an HTTP backend exclusively reachable through one trusted public HTTPS proxy; Custom origins and explicit public HTTPS addresses are mandatory, the proxy must preserve Host and add Secure to the session cookie, and source-network ACLs require trusted client-address propagation |
 | Additional or overridden WebGUI origins | empty; Follow mode inherits configured names, actual local interface addresses and virtual IPs at the WebGUI port | add exact browser-facing HTTPS origins in Follow mode, or define the complete replacement set in Custom mode; never enter callback paths |
+| Pairwise subject sector | Off; the choices are the effective exact WebGUI origins | a provider should issue pairwise `sub` values and accepts a sector identifier URI; choose a stable origin before creating the provider client, save the server as a disabled draft, and do not change it after identity bindings exist |
 | Maximum authentication age | `14400` seconds (four hours) | use `3600` for one hour, `28800` for eight hours, or `0` to require active authentication at the provider for every new OPNsense login; this does not limit an OPNsense session that is already established |
+
+The authentication requirement checks both context and method evidence from the
+already signature-verified ID Token. Missing, malformed or nonmatching evidence
+ends the login before a local account is resolved. `user` means only that a user
+was present; it is not cryptographic evidence. The registered hardware-key AMR
+is `hwk`, not `hw`. Passwordless is deliberately not a separate policy because
+it describes the sign-in experience rather than a portable assurance level;
+Passkeys and FIDO2 belong under phishing-resistant authentication.
 
 ## Local identity and privileges
 
@@ -75,6 +90,16 @@ tester and does not apply to OIDC. The setup
 download and its independently reopenable guide are offered only where an
 official, safely repeatable import format is implemented; see [provider
 onboarding files](provider-onboarding.md).
+
+When Discovery advertises a valid PAR endpoint, the plugin automatically pushes
+the complete authorization request there using the configured client
+authentication method. The browser then receives only `client_id` and the
+returned `request_uri`. PAR has no setting and no failure fallback.
+
+Changing a provider from public to pairwise subjects, changing its sector or
+recreating its pairwise salt can change `sub`. Existing issuer/subject bindings
+are not migrated automatically; verify and rebind affected identities
+deliberately.
 
 **Manage identities** is available on every saved OpenID Connect server. It
 lists durable bindings, supports assisted creation/editing/removal and handles

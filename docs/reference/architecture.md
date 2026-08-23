@@ -51,7 +51,7 @@ flowchart TD
     AuthController --> ExistingSession
     ExistingSession -->|"Yes"| LocalRedirect
     ExistingSession -->|"No; accepted WebGUI origin"| RelyingParty
-    RelyingParty --> ProviderServices
+    RelyingParty -->|"Discovery and optional PAR"| ProviderServices
     RelyingParty --> TokenVerification
     RelyingParty -->|"Server-side state, nonce and PKCE;<br/>exact provider callback"| VerifiedClaims
     VerifiedClaims --> Connector
@@ -95,7 +95,7 @@ result.
 ```mermaid
 flowchart TD
     accTitle: Browser-visible OpenID Connect outcomes
-    accDescr: A validated callback can produce a test result, an authorized WebGUI session, an approval request, an access refusal or a generic logged failure.
+    accDescr: A validated callback can produce a test result, an authorized WebGUI session, a uniform account refusal, an access refusal or a generic logged failure.
 
     subgraph CallbackProcessing["Protocol and transaction"]
         Callback["OpenID Connect callback"]
@@ -117,8 +117,7 @@ flowchart TD
 
     subgraph NoSessionOutcomes["No-session browser outcomes"]
         AuthenticationRefusal(["Authentication too old<br/>HTTP 403; no session"])
-        Approval(["Administrator approval required<br/>HTTP 403; no session"])
-        AccountRefusal(["Account cannot be used<br/>HTTP 403; no session"])
+        AccountRefusal(["Account cannot be used<br/>Same HTTP 403 for every reason; no session"])
         AccessDenied(["WebGUI access denied<br/>HTTP 403; no session"])
         Failure(["Generic browser error with reference<br/>Precise reason only in logs; no session"])
     end
@@ -130,8 +129,7 @@ flowchart TD
     Purpose -->|"Login"| Recent
     Recent -->|"No"| AuthenticationRefusal
     Recent -->|"Yes"| Identity
-    Identity -->|"Unknown; approval policy"| Approval
-    Identity -->|"No usable account"| AccountRefusal
+    Identity -->|"No usable account; unknown approval identities are queued privately"| AccountRefusal
     Identity -->|"Yes"| WebGuiAccess
     WebGuiAccess -->|"No"| AccessDenied
     WebGuiAccess -->|"Yes"| Session
@@ -148,7 +146,6 @@ flowchart TD
     class Callback entry;
     class ProtocolValid,Purpose,Recent,Identity,WebGuiAccess decision;
     class TestResult,Session,Redirect success;
-    class Approval warning;
     class AuthenticationRefusal,AccountRefusal,AccessDenied,Failure denied;
 
     style CallbackProcessing fill:#F8FAFC,stroke:#A0AEC0,color:#202A30;
@@ -161,14 +158,15 @@ flowchart TD
 
 | Component | Responsibility | Must not do |
 |---|---|---|
-| `AuthController` | public protocol endpoints, package-owned and safely proxied login icons, generic browser errors, audit records, session elevation/logout | decide JWT validity or account policy |
-| `RelyingParty` | authorization transaction, code exchange, claim-source composition, logout/revocation requests | perform cryptography or grant privileges |
+| `AuthController` | public protocol endpoints including the exact-origin pairwise-sector document, package-owned and safely proxied login icons, generic browser errors, audit records, session elevation/logout | decide JWT validity or account policy |
+| `RelyingParty` | authorization transaction, optional PAR, code exchange, claim-source composition, logout/revocation requests | perform cryptography or grant privileges |
 | `ProviderMetadata` | exact Discovery validation and immutable per-login metadata snapshot | guess provider endpoints |
 | `TestController` | authenticated and CSRF-protected initiation of a saved provider's non-mutating browser test | accept an unsaved secret, grant a session or change local identity state |
 | `ApprovalController` | authenticated CRUD for durable bindings plus approval/denial of identities queued for one saved server; rechecks the core authentication-server and read-only privileges | authenticate the identity, create a session, trust button visibility as authorization or choose a local account automatically |
 | `SetupController` / `ProviderSetup` | authenticated, no-secret provider import generation from an unfinished form | contact the provider, persist credentials or mutate either system |
 | `HttpClient` | the only provider network transport; HTTPS, TLS, limits and redirect policy | follow credentials through redirects |
 | `JwtVerifier` | JWS and OIDC/logout claim validation using OPNsense phpseclib | accept token-selected keys or symmetric ID Token signatures |
+| `AuthenticationRequirement` | freeze one requested MFA/phishing-resistant policy and validate its verified `acr`/`acrs` plus `amr` evidence | infer provider semantics or inspect an unverified token |
 | `OpenIDConnect` | settings, stable identity binding, local account and group policy | establish browser sessions |
 | `WebGuiAccess` | apply OPNsense's effective user/group/source-network ACL and choose a navigable landing page | grant privileges or treat logout/API routes as human access |
 | `SessionRegistry` | minimal session lookup and logout replay protection | store ID/access/refresh tokens or client secrets |
@@ -225,6 +223,9 @@ The exact endpoint matrix and the reasons for the two exceptions are recorded in
   elevate or replace the initiating WebGUI session.
 - Discovery is performed when login begins; the exact validated metadata is
   frozen into that transaction so endpoints cannot change halfway through it.
+  When it advertises PAR, the complete authorization request is authenticated
+  and pushed before the transaction is stored; a failed push leaves no pending
+  state and never falls back to exposing the parameters through the browser.
 - Identity bindings live in the normal `<system><authserver>` OPNsense
   configuration and bind an issuer/subject pair to a numeric local UID. Their
   opaque storage field is administered only through the combined identity
@@ -235,6 +236,10 @@ The exact endpoint matrix and the reasons for the two exceptions are recorded in
 - ID, access and refresh tokens live only in the authenticated PHP session for
   optional provider logout/revocation. They are never logged or placed in the
   logout index.
+- An optional authentication requirement is frozen into the same one-time login
+  transaction as issuer, nonce, PKCE and metadata. The callback refuses a
+  configuration mismatch and validates only the signed ID Token before local
+  account or session processing.
 - The logout index contains PHP session ID, issuer, subject, provider `sid` and
   expiry. The replay index contains only a hash of issuer plus logout `jti`.
 

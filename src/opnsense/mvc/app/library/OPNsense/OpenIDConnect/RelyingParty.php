@@ -22,10 +22,11 @@ class RelyingParty
 
     private const TRANSACTIONS = 'openidconnect_transactions_v2';
     private const TOKEN_MAX_BYTES = 1048576;
+    private const PAR_MAX_BYTES = 262144;
     private const USERINFO_MAX_BYTES = 1048576;
     private const PROTOCOL_CLAIMS = [
         'iss', 'aud', 'exp', 'iat', 'nbf', 'jti', 'nonce', 'at_hash', 'c_hash',
-        'azp', 'sid', 'typ', 'auth_time', 'acr', 'amr',
+        'azp', 'sid', 'typ', 'auth_time', 'acr', 'acrs', 'amr',
     ];
     private const HOST_HEADER = '/^(?:[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?'
         . '(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?)*\.?'
@@ -117,6 +118,7 @@ class RelyingParty
     public function authorizationUrl(string $providerName, string $target, bool $testOnly = false): string
     {
         $metadata = $this->discoverMetadata();
+        $this->metadata = $metadata;
         $pkceMethods = $metadata->get('code_challenge_methods_supported', []);
         if (is_array($pkceMethods) && $pkceMethods !== [] && !in_array('S256', $pkceMethods, true)) {
             throw new ProtocolException('The provider explicitly advertises no PKCE S256 support');
@@ -131,6 +133,7 @@ class RelyingParty
         $nonce = self::randomValue(32);
         $verifier = self::randomValue(64);
         $challenge = JwtVerifier::base64UrlEncode(hash('sha256', $verifier, true));
+        $authenticationRequirement = $this->settings->authenticationRequirement();
 
         $transaction = [
             'created' => time(),
@@ -144,12 +147,9 @@ class RelyingParty
             'code_verifier' => $verifier,
             'metadata' => $metadata->toArray(),
         ];
-        if ($formPost) {
-            TransactionRegistry::store($state, $transaction);
-        } else {
-            $this->storeTransaction($state, $transaction);
+        if ($authenticationRequirement !== null) {
+            $transaction['authentication_requirement'] = $authenticationRequirement->toArray();
         }
-
         $parameters = [
             'response_type' => 'code',
             'client_id' => $this->settings->clientId(),
@@ -165,16 +165,73 @@ class RelyingParty
         if ($this->settings->responseMode() === 'form_post') {
             $parameters['response_mode'] = 'form_post';
         }
+        if ($authenticationRequirement !== null) {
+            $parameters = array_replace($parameters, $authenticationRequirement->authorizationParameters());
+        }
+        if ($this->settings->selectAccount()) {
+            $parameters['prompt'] = 'select_account';
+        }
+
+        $parEndpoint = $metadata->pushedAuthorizationRequestEndpoint();
+        if ($parEndpoint === null) {
+            $separator = str_contains($metadata->authorizationEndpoint(), '?') ? '&' : '?';
+            $authorizationUrl = $metadata->authorizationEndpoint() . $separator
+                . http_build_query($parameters, '', '&', PHP_QUERY_RFC3986);
+        } else {
+            $authorizationUrl = $this->pushedAuthorizationUrl($metadata, $parEndpoint, $parameters);
+        }
+
+        /* A failed PAR must leave no state that could later be mistaken for a pending login. */
+        if ($formPost) {
+            TransactionRegistry::store($state, $transaction);
+        } else {
+            $this->storeTransaction($state, $transaction);
+        }
 
         $this->settings->trace(sprintf(
-            'exchange prepared for exact issuer %s, callback %s, PKCE S256, response mode %s',
+            'exchange prepared for exact issuer %s, callback %s, PKCE S256, response mode %s%s',
             $metadata->issuer(),
             $this->redirectUri,
-            $this->settings->responseMode()
+            $this->settings->responseMode(),
+            $parEndpoint === null ? '' : ', pushed authorization request'
         ));
+        return $authorizationUrl;
+    }
+
+    /** @param array<string,string> $parameters */
+    private function pushedAuthorizationUrl(
+        ProviderMetadata $metadata,
+        string $endpoint,
+        array $parameters
+    ): string {
+        $headers = ['Accept: application/json'];
+        $this->authenticateClient($parameters, $headers);
+        $response = $this->http->postForm($endpoint, $parameters, self::PAR_MAX_BYTES, $headers);
+        if ($response->status !== 201) {
+            throw new ProtocolException(sprintf(
+                'The pushed authorization request endpoint returned HTTP %d',
+                $response->status
+            ));
+        }
+        if ($response->contentType !== 'application/json') {
+            throw new ProtocolException('The pushed authorization request endpoint did not return application/json');
+        }
+        $answer = $response->jsonObject();
+        $requestUri = $answer['request_uri'] ?? null;
+        if (!is_string($requestUri) || $requestUri === '' || strlen($requestUri) > 4096
+            || preg_match('/[\x00-\x1f\x7f]/', $requestUri)) {
+            throw new ProtocolException('The pushed authorization request endpoint returned no usable request URI');
+        }
+        if (!is_int($answer['expires_in'] ?? null) || $answer['expires_in'] <= 0) {
+            throw new ProtocolException('The pushed authorization request endpoint returned no valid expiry');
+        }
+        $browserParameters = [
+            'client_id' => $this->settings->clientId(),
+            'request_uri' => $requestUri,
+        ];
         $separator = str_contains($metadata->authorizationEndpoint(), '?') ? '&' : '?';
         return $metadata->authorizationEndpoint() . $separator
-            . http_build_query($parameters, '', '&', PHP_QUERY_RFC3986);
+            . http_build_query($browserParameters, '', '&', PHP_QUERY_RFC3986);
     }
 
     /** @param array<string,mixed> $parameters @return array<string,mixed> */
@@ -208,6 +265,18 @@ class RelyingParty
         if (!hash_equals($this->metadata->issuer(), (string)$transaction['issuer'])
             || !hash_equals($this->redirectUri, (string)$transaction['redirect_uri'])) {
             throw new ProtocolException('The login transaction no longer matches this provider');
+        }
+        $frozenRequirement = null;
+        if (array_key_exists('authentication_requirement', $transaction)) {
+            if (!is_array($transaction['authentication_requirement'])) {
+                throw new ProtocolException('The login transaction carries an invalid authentication requirement');
+            }
+            $frozenRequirement = AuthenticationRequirement::fromArray($transaction['authentication_requirement']);
+        }
+        $currentRequirement = $this->settings->authenticationRequirement();
+        if (($frozenRequirement === null) !== ($currentRequirement === null)
+            || ($frozenRequirement !== null && !$frozenRequirement->equals($currentRequirement))) {
+            throw new ProtocolException('The authentication requirement changed while the login was pending');
         }
 
         $responseIssuer = $parameters['iss'] ?? null;
@@ -245,6 +314,13 @@ class RelyingParty
             $issuerValidator
         );
         $this->idTokenClaims = $verified['claims'];
+        if ($frozenRequirement !== null) {
+            $frozenRequirement->assertSatisfied($this->idTokenClaims);
+            $this->settings->trace(sprintf(
+                'the verified ID Token satisfies the %s authentication requirement',
+                str_replace('-', ' ', $frozenRequirement->tier())
+            ));
+        }
 
         return $this->claimsForAccount($accessToken);
     }
@@ -260,15 +336,7 @@ class RelyingParty
             'code_verifier' => $verifier,
         ];
         $headers = ['Accept: application/json'];
-        $method = $this->tokenAuthMethod();
-        if ($method === 'client_secret_basic') {
-            $credentials = urlencode($this->settings->clientId()) . ':' . urlencode($this->settings->clientSecret());
-            $headers[] = 'Authorization: Basic ' . base64_encode($credentials);
-        } elseif ($method === 'client_secret_post') {
-            $fields['client_secret'] = $this->settings->clientSecret();
-        } else {
-            throw new ProtocolException('No supported token endpoint authentication method is available');
-        }
+        $this->authenticateClient($fields, $headers);
 
         $response = $this->http->postForm($this->metadata->tokenEndpoint(), $fields, self::TOKEN_MAX_BYTES, $headers);
         if ($response->status !== 200) {
@@ -315,6 +383,22 @@ class RelyingParty
         }
 
         throw new ProtocolException('The provider offers no supported token endpoint authentication method');
+    }
+
+    /** @param array<string,string> $fields @param string[] $headers */
+    private function authenticateClient(array &$fields, array &$headers): void
+    {
+        $method = $this->tokenAuthMethod();
+        if ($method === 'client_secret_basic') {
+            $credentials = urlencode($this->settings->clientId()) . ':' . urlencode($this->settings->clientSecret());
+            $headers[] = 'Authorization: Basic ' . base64_encode($credentials);
+            return;
+        }
+        if ($method === 'client_secret_post') {
+            $fields['client_secret'] = $this->settings->clientSecret();
+            return;
+        }
+        throw new ProtocolException('No supported token endpoint authentication method is available');
     }
 
     private function claimsForAccount(?string $accessToken): object
@@ -419,12 +503,7 @@ class RelyingParty
             $fields['token_type_hint'] = $hint;
         }
         $headers = [];
-        if ($this->tokenAuthMethod() === 'client_secret_basic') {
-            $credentials = urlencode($this->settings->clientId()) . ':' . urlencode($this->settings->clientSecret());
-            $headers[] = 'Authorization: Basic ' . base64_encode($credentials);
-        } else {
-            $fields['client_secret'] = $this->settings->clientSecret();
-        }
+        $this->authenticateClient($fields, $headers);
         $response = $this->http->postForm($endpoint, $fields, 262144, $headers);
         if (!in_array($response->status, [200, 204], true)) {
             throw new ProtocolException(sprintf('Token revocation returned HTTP %d', $response->status));
@@ -438,7 +517,10 @@ class RelyingParty
     public function requireIssuer(string $expected): void
     {
         $metadata = $this->discoverMetadata();
-        if (!$this->responseIssuerMatches($expected)) {
+        $matches = $this->settings->discoveryIssuerTemplate() === null
+            ? hash_equals($metadata->issuer(), $expected)
+            : $this->settings->acceptsMicrosoftIssuerValue($expected);
+        if (!$matches) {
             throw new ProtocolException('The configured issuer changed since this session was created');
         }
         $this->metadata = $metadata;

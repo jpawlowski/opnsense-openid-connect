@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "providers": {
+    "keycloak": {
+      "image": "quay.io/keycloak/keycloak",
+      "tag": "26.7.2",
+      "digest": "sha256:831330513f55695572286e521f94fcd3c7e285250ed5b848090265a33192f669",
+      "release_repository": "keycloak/keycloak",
+      "release_tag": "strip-v",
+      "capabilities": ["backchannel_logout", "frontchannel_logout", "form_post", "rp_logout", "userinfo"]
+    },
+    "authentik": {
+      "image": "ghcr.io/goauthentik/server",
+      "tag": "2026.8.0",
+      "digest": "sha256:7421753cfea67e89a6d295a1f0173ccea3866b33768c88dad90453b151cdcfd5",
+      "release_repository": "goauthentik/authentik",
+      "release_tag": "strip-v",
+      "capabilities": ["backchannel_logout", "blueprint", "rp_logout", "userinfo"]
+    },
+    "authelia": {
+      "image": "ghcr.io/authelia/authelia",
+      "tag": "4.39.20",
+      "digest": "sha256:1b363e9279e742397966333f364e0876ae02bf5c876de73e83af6d48c57ff51b",
+      "release_repository": "authelia/authelia",
+      "release_tag": "strip-v",
+      "capabilities": ["groups", "rp_logout", "userinfo_json"]
+    },
+    "dex": {
+      "image": "ghcr.io/dexidp/dex",
+      "tag": "v2.45.1",
+      "digest": "sha256:8499afd690c437f52301efd2b05b2455da5bd2dfc20332cd697dc9937f808462",
+      "release_repository": "dexidp/dex",
+      "release_tag": "as-is",
+      "capabilities": ["path_issuer"]
+    },
+    "pocketid": {
+      "image": "ghcr.io/pocket-id/pocket-id",
+      "tag": "v2.14.0",
+      "digest": "sha256:01540977dcf4c7b41b1159f34d68e4632f2658d62790e460ca65a42722b13c4a",
+      "release_repository": "pocket-id/pocket-id",
+      "release_tag": "as-is",
+      "capabilities": ["allowed_groups", "rp_logout", "webauthn"]
+    }
+  },
+  "support": {
+    "nginx": {
+      "image": "nginx",
+      "tag": "1.29.3-alpine",
+      "digest": "sha256:b3c656d55d7ad751196f21b7fd2e8d4da9cb430e32f646adcf92441b72f82b14"
+    },
+    "postgres": {
+      "image": "postgres",
+      "tag": "16-alpine",
+      "digest": "sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685"
+    }
+  }
+}

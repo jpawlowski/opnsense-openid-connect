@@ -26,6 +26,9 @@ $person = inspect($party, 'personClaims', [
     'nonce' => 'n',
     'at_hash' => 'h',
     'auth_time' => 90,
+    'acr' => 'phr',
+    'acrs' => ['c1'],
+    'amr' => ['fido'],
 ]);
 
 Checks::that('a username claim remains available', $person['preferred_username'], 'mikah@example.net');
@@ -33,7 +36,10 @@ Checks::that('a list claim survives intact', $person['groups'], ['admins']);
 Checks::that('the stable subject remains available', $person['sub'], 'pairwise-abc');
 Checks::that(
     'protocol claims cannot turn into account attributes',
-    array_values(array_intersect(array_keys($person), ['iss', 'aud', 'exp', 'nonce', 'at_hash', 'auth_time'])),
+    array_values(array_intersect(
+        array_keys($person),
+        ['iss', 'aud', 'exp', 'nonce', 'at_hash', 'auth_time', 'acr', 'acrs', 'amr']
+    )),
     []
 );
 

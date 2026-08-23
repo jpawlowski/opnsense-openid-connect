@@ -1,0 +1,585 @@
+{
+  "schema_version": 1,
+  "evidence_tiers": {
+    "host-independent": {
+      "runner": "./tests/run.sh",
+      "description": "Current-tree protocol, policy, package and source regression checks",
+      "capabilities": [
+        "discovery-exact-issuer",
+        "authorization-code-pkce",
+        "mix-up-replay-protection",
+        "jwt-claim-policy",
+        "provider-http-policy",
+        "userinfo-subject-binding",
+        "issuer-bound-logout-grants",
+        "stable-subject-binding",
+        "account-admission-policy",
+        "group-scope-policy",
+        "webgui-access-policy",
+        "form-post-transaction",
+        "logout-token-policy",
+        "login-content-safety",
+        "package-archive-integrity",
+        "release-provenance-policy",
+        "provider-onboarding-invariants"
+      ]
+    },
+    "installed-integration": {
+      "runner": "php tests/integration/opnsense.php --evidence=/absolute/path.json",
+      "description": "Installed OPNsense runtime, phpseclib, filesystem and core integration",
+      "capabilities": [
+        "runtime-jws-crypto",
+        "runtime-state-registries",
+        "runtime-core-acl",
+        "runtime-login-presentation",
+        "runtime-transport-policy",
+        "public-provider-discovery"
+      ]
+    },
+    "browser-e2e": {
+      "runner": "E2E_AUDIT_EVIDENCE=/absolute/path.json tests/e2e/run-keycloak.sh",
+      "description": "Disposable OPNsense and Keycloak browser interoperability with passive ZAP",
+      "capabilities": [
+        "browser-authorization-code-flow",
+        "browser-session-rotation",
+        "browser-local-group-assignment",
+        "browser-local-password-fallback",
+        "browser-form-post",
+        "browser-rp-logout",
+        "browser-backchannel-logout",
+        "browser-frontchannel-logout",
+        "browser-generic-refusals",
+        "browser-provider-setup",
+        "browser-profile-ui",
+        "browser-response-headers",
+        "passive-zap-response-headers"
+      ]
+    }
+  },
+  "sections": [
+    {
+      "slug": "protocol-conformance",
+      "title": "OIDC and OAuth protocol validation",
+      "controls": [
+        {
+          "slug": "discovery-exact-issuer",
+          "claim": "Discovery accepts only a well-formed HTTPS document whose issuer exactly matches the configured authority and whose advertised endpoints and capabilities satisfy the supported profile.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderMetadata.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/HttpClient.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["discovery-exact-issuer"],
+                "validation": ["tests/unit/exchange.php", "tests/unit/settings.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "authorization-code-pkce",
+          "claim": "Every login uses the Authorization Code flow with random server-side state, nonce and PKCE S256, and binds the response to the intended provider callback.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RelyingParty.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/TransactionRegistry.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["authorization-code-pkce"],
+                "validation": ["tests/unit/exchange.php", "tests/unit/redirects.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "public-provider-discovery-runtime",
+          "claim": "The installed OPNsense transport and strict Discovery policy accept the currently documented public metadata of the explicitly exercised providers without weakening issuer validation.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderMetadata.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/HttpClient.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "installed-integration",
+                "capabilities": ["public-provider-discovery"],
+                "validation": ["tests/integration/opnsense.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "mix-up-and-replay-protection",
+          "claim": "Frozen provider metadata, distinct callbacks, RFC 9207 issuer checking when advertised and one-time transaction consumption prevent mix-up and callback replay.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RelyingParty.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderMetadata.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["mix-up-replay-protection"],
+                "validation": ["tests/unit/exchange.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "jwt-claim-policy",
+          "claim": "ID Tokens are restricted to the supported asymmetric algorithms and validated for signature-key metadata, issuer, subject, audience, authorized party, time, nonce and access-token binding.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/JwtVerifier.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["jwt-claim-policy"],
+                "validation": ["tests/unit/exchange.php"]
+              },
+              {
+                "tier": "installed-integration",
+                "capabilities": ["runtime-jws-crypto"],
+                "validation": ["tests/integration/opnsense.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "provider-http-policy",
+          "claim": "Provider communication is HTTPS-only and bounded by media-type, body-size, timeout and redirect rules that refuse credential-bearing redirects.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/HttpClient.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["provider-http-policy"],
+                "validation": ["tests/unit/exchange.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "userinfo-subject-binding",
+          "claim": "UserInfo data is accepted only over the protected provider transport and only when its subject exactly matches the validated ID Token subject.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RelyingParty.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["userinfo-subject-binding"],
+                "validation": ["tests/unit/claims.php", "tests/unit/exchange.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "installed-webgui-transport-policy",
+          "claim": "The real OPNsense configuration blocks native HTTP for OIDC and permits TLS offloading only with the explicit offloading option and exact custom HTTPS origins.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/Auth/OpenIDConnect.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "installed-integration",
+                "capabilities": ["runtime-transport-policy"],
+                "validation": ["tests/integration/opnsense.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "browser-authorization-interoperability",
+          "claim": "The complete Authorization Code, state, nonce and PKCE flow interoperates through a real Keycloak provider and the installed OPNsense WebGUI.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RelyingParty.php",
+            "src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/AuthController.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "browser-e2e",
+                "capabilities": ["browser-authorization-code-flow"],
+                "validation": ["tests/e2e/oidc.spec.mjs", "tests/e2e/run-keycloak.sh"]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "slug": "identity-and-authorization",
+      "title": "Local identity and authorization",
+      "controls": [
+        {
+          "slug": "stable-subject-binding",
+          "claim": "A durable identity binds the exact issuer and subject to a numeric local UID, so mutable usernames and e-mail addresses cannot silently reassign it.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/Auth/OpenIDConnect.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["stable-subject-binding"],
+                "validation": ["tests/unit/accounts.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "account-admission-policy",
+          "claim": "Unknown, disabled, expired and privileged local accounts fail closed; strict admission and explicit administrator approval remain the safe paths.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/Auth/OpenIDConnect.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/PendingIdentityRegistry.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["account-admission-policy"],
+                "validation": ["tests/unit/accounts.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "group-scope-policy",
+          "claim": "Provider-controlled groups are disabled by default and can affect only explicitly assignable local groups unless full delegation is deliberately enabled.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/Auth/OpenIDConnect.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["group-scope-policy"],
+                "validation": ["tests/unit/groups.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "webgui-access-policy",
+          "claim": "Provider authentication alone grants no WebGUI access; effective OPNsense user, group, page and source-network authorization must also produce a safe local landing page.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/WebGuiAccess.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["webgui-access-policy"],
+                "validation": ["tests/unit/webgui-access.php"]
+              },
+              {
+                "tier": "installed-integration",
+                "capabilities": ["runtime-core-acl"],
+                "validation": ["tests/integration/opnsense.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "browser-group-assignment",
+          "claim": "A configured default local group is applied by the real OPNsense login path and is visible on the resulting local account.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/Auth/OpenIDConnect.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "browser-e2e",
+                "capabilities": ["browser-local-group-assignment"],
+                "validation": ["tests/e2e/oidc.spec.mjs"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "local-password-recovery",
+          "claim": "The native local-password login remains usable independently of the configured identity provider.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/Auth/SSOProviders/OpenIDConnectContainer.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "browser-e2e",
+                "capabilities": ["browser-local-password-fallback"],
+                "validation": ["tests/e2e/oidc.spec.mjs"]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "slug": "session-and-logout",
+      "title": "Session and logout security",
+      "controls": [
+        {
+          "slug": "form-post-transaction",
+          "claim": "Cross-site form_post responses use a bounded, mode-0600, expiring and single-use transaction registry without weakening the WebGUI session cookie.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/TransactionRegistry.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["form-post-transaction"],
+                "validation": ["tests/unit/exchange.php"]
+              },
+              {
+                "tier": "installed-integration",
+                "capabilities": ["runtime-state-registries"],
+                "validation": ["tests/integration/opnsense.php"]
+              },
+              {
+                "tier": "browser-e2e",
+                "capabilities": ["browser-form-post"],
+                "validation": ["tests/e2e/oidc.spec.mjs"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "session-id-rotation",
+          "claim": "Successful elevation replaces the pre-authentication PHP session identifier before access to the authenticated WebGUI is granted.",
+          "implementation": [
+            "src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/AuthController.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "browser-e2e",
+                "capabilities": ["browser-session-rotation"],
+                "validation": ["tests/e2e/oidc.spec.mjs"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "logout-token-policy",
+          "claim": "Back-channel logout tokens require a trusted asymmetric signature, exact issuer and audience, logout event, time bounds, jti replay protection and a matching sid or subject.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/JwtVerifier.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SessionRegistry.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["logout-token-policy"],
+                "validation": ["tests/unit/exchange.php"]
+              },
+              {
+                "tier": "installed-integration",
+                "capabilities": ["runtime-state-registries"],
+                "validation": ["tests/integration/opnsense.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "issuer-bound-logout-grants",
+          "claim": "Logout and revocation grants are sent only after Discovery resolves the exact issuer stored with the local session, so reusing an authentication-server name for another issuer cannot receive earlier grants.",
+          "implementation": [
+            "src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/AuthController.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RelyingParty.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["issuer-bound-logout-grants"],
+                "validation": ["tests/unit/exchange.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "browser-logout-interoperability",
+          "claim": "RP-initiated, provider back-channel and provider front-channel logout each invalidate the intended local session in the real browser flow.",
+          "implementation": [
+            "src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/AuthController.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SessionRegistry.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "browser-e2e",
+                "capabilities": [
+                  "browser-rp-logout",
+                  "browser-backchannel-logout",
+                  "browser-frontchannel-logout"
+                ],
+                "validation": ["tests/e2e/oidc.spec.mjs"]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "slug": "browser-response-security",
+      "title": "Browser response security",
+      "controls": [
+        {
+          "slug": "generic-public-refusals",
+          "claim": "Missing, unusable and approval-pending accounts receive the same public refusal, while protocol and WebGUI authorization failures reveal no account-admission detail and create no authenticated session.",
+          "implementation": [
+            "src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/AuthController.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "browser-e2e",
+                "capabilities": ["browser-generic-refusals"],
+                "validation": ["tests/e2e/oidc.spec.mjs"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "endpoint-response-headers",
+          "claim": "Plugin-owned browser and API responses apply endpoint-specific no-store, referrer, MIME, framing and Content Security Policy controls, including the deliberate front-channel iframe exception.",
+          "implementation": [
+            "src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/AuthController.php",
+            "src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/PrivateApiControllerBase.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "browser-e2e",
+                "capabilities": [
+                  "browser-response-headers",
+                  "passive-zap-response-headers"
+                ],
+                "validation": ["tests/e2e/oidc.spec.mjs", "tests/e2e/zap-report.mjs"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "login-content-safety",
+          "claim": "Provider labels remain escaped plain text and package or proxied icons are restricted to reviewed, bounded and sandboxed image content.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/Auth/SSOProviders/OpenIDConnectContainer.php",
+            "src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/AuthController.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["login-content-safety"],
+                "validation": ["tests/unit/loginpage.php", "tests/package.py"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "installed-login-presentation",
+          "claim": "The installed OPNsense authentication container renders package-owned provider presentation and localized login captions without persisting an unsafe presentation override.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/Auth/SSOProviders/OpenIDConnectContainer.php",
+            "src/opnsense/mvc/app/library/OPNsense/Auth/OpenIDConnect.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "installed-integration",
+                "capabilities": ["runtime-login-presentation"],
+                "validation": ["tests/integration/opnsense.php"]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "slug": "delivery-and-onboarding",
+      "title": "Package and provider onboarding integrity",
+      "controls": [
+        {
+          "slug": "package-archive-integrity",
+          "claim": "The package is built with a complete manifest, exact checksums, root ownership, constrained permissions and no bundled third-party OIDC client.",
+          "implementation": ["packaging/build.py"],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["package-archive-integrity"],
+                "validation": ["tests/package.py"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "release-provenance-policy",
+          "claim": "The release workflow attests the exact package built by a GitHub tag push, inventories all draft assets, refuses replacement of a published release, verifies immutability after publication and documents provenance verification before installation; the package also installs a nightly core-drift watchdog.",
+          "implementation": [
+            ".github/workflows/build.yml",
+            "packaging/release-notes.py",
+            "packaging/watch/openid-connect-watch",
+            "packaging/build.py"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["release-provenance-policy"],
+                "validation": ["tests/convention.py", "tests/package.py"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "provider-onboarding-invariants",
+          "claim": "Named provider presets cover every provider-dependent field, and generated Keycloak or authentik setup files contain exact redirects without embedding a client secret.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/Auth/OpenIDConnect.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderSetup.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["provider-onboarding-invariants"],
+                "validation": ["tests/unit/settings.php", "tests/unit/provider-setup.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "keycloak-onboarding-browser-validation",
+          "claim": "The real WebGUI generates and exercises the Keycloak onboarding path without persisting an unsaved client secret.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderSetup.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "browser-e2e",
+                "capabilities": ["browser-provider-setup", "browser-profile-ui"],
+                "validation": ["tests/e2e/oidc.spec.mjs"]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

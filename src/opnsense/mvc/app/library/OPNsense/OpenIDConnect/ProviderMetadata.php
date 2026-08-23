@@ -44,7 +44,10 @@ final class ProviderMetadata
             }
             HttpClient::assertHttpsUrl($values[$required]);
         }
-        foreach (['userinfo_endpoint', 'end_session_endpoint', 'revocation_endpoint'] as $optional) {
+        foreach ([
+            'userinfo_endpoint', 'end_session_endpoint', 'revocation_endpoint',
+            'pushed_authorization_request_endpoint',
+        ] as $optional) {
             if (isset($values[$optional])) {
                 if (!is_string($values[$optional])) {
                     throw new ProtocolException(sprintf('Discovery carries an invalid %s', $optional));
@@ -85,6 +88,14 @@ final class ProviderMetadata
         if (isset($values['authorization_response_iss_parameter_supported'])
             && !is_bool($values['authorization_response_iss_parameter_supported'])) {
             throw new ProtocolException('Discovery carries an invalid authorization response issuer flag');
+        }
+        if (isset($values['require_pushed_authorization_requests'])
+            && !is_bool($values['require_pushed_authorization_requests'])) {
+            throw new ProtocolException('Discovery carries an invalid pushed authorization request requirement');
+        }
+        if (($values['require_pushed_authorization_requests'] ?? false) === true
+            && !isset($values['pushed_authorization_request_endpoint'])) {
+            throw new ProtocolException('Discovery requires pushed authorization requests but offers no endpoint');
         }
         $algorithms = $values['id_token_signing_alg_values_supported'] ?? null;
         if (!is_array($algorithms) || array_intersect($algorithms, JwtVerifier::ALGORITHMS) === []) {
@@ -164,6 +175,12 @@ final class ProviderMetadata
     public function revocationEndpoint(): ?string
     {
         return isset($this->values['revocation_endpoint']) ? (string)$this->values['revocation_endpoint'] : null;
+    }
+
+    public function pushedAuthorizationRequestEndpoint(): ?string
+    {
+        return isset($this->values['pushed_authorization_request_endpoint'])
+            ? (string)$this->values['pushed_authorization_request_endpoint'] : null;
     }
 
     public function authorizationResponseIssuerSupported(): bool

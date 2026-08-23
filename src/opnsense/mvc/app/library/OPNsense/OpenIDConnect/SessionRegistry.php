@@ -18,6 +18,8 @@ final class SessionRegistry
     private const LOGOUT_REPLAYS = '/var/lib/php/sessions/.openidconnect-logout-tokens';
     private const MAX_BYTES = 1048576;
     private const MAX_RECORDS = 2048;
+    private const SESSION_LOCK_ATTEMPTS = 40;
+    private const SESSION_LOCK_DELAY_MICROSECONDS = 50000;
 
     public static function record(
         string $sessionId,
@@ -61,7 +63,8 @@ final class SessionRegistry
             return 0;
         }
         $terminated = 0;
-        self::change(function (array &$records) use ($issuer, $sid, $subject, &$terminated): void {
+        $incomplete = false;
+        self::change(function (array &$records) use ($issuer, $sid, $subject, &$terminated, &$incomplete): void {
             foreach ($records as $sessionId => $record) {
                 if (!is_array($record) || !is_string($record['issuer'] ?? null)
                     || !hash_equals($issuer, $record['issuer'])) {
@@ -70,12 +73,19 @@ final class SessionRegistry
                 $matches = $sid !== null && $sid !== ''
                     ? is_string($record['sid'] ?? null) && hash_equals($sid, $record['sid'])
                     : is_string($record['sub'] ?? null) && hash_equals((string)$subject, $record['sub']);
-                if ($matches && self::destroySessionFile((string)$sessionId)) {
-                    unset($records[$sessionId]);
-                    $terminated++;
+                if ($matches) {
+                    if (self::destroySessionFile((string)$sessionId)) {
+                        unset($records[$sessionId]);
+                        $terminated++;
+                    } else {
+                        $incomplete = true;
+                    }
                 }
             }
         });
+        if ($incomplete) {
+            throw new ProtocolException('A matching local session could not be invalidated');
+        }
         return $terminated;
     }
 
@@ -90,7 +100,7 @@ final class SessionRegistry
         }
         $now = time();
         $expires = min(max($expires, $now + 1), $now + 600);
-        $key = JwtVerifier::base64UrlEncode(hash('sha256', $issuer . "\0" . $jti, true));
+        $key = self::logoutTokenKey($issuer, $jti);
         $accepted = false;
         self::changeFile(
             self::LOGOUT_REPLAYS,
@@ -110,6 +120,22 @@ final class SessionRegistry
             }
         );
         return $accepted;
+    }
+
+    /** Remove a replay marker after logout failed, so the provider may safely retry the same signed request. */
+    public static function releaseLogoutToken(string $issuer, string $jti): void
+    {
+        $key = self::logoutTokenKey($issuer, $jti);
+        self::changeFile(
+            self::LOGOUT_REPLAYS,
+            static function (array &$records) use ($key): void {
+                unset($records[$key]);
+            },
+            static function (string $id, $record, int $now): bool {
+                return !preg_match('/^[A-Za-z0-9_-]{43}$/D', $id)
+                    || !is_int($record) || $record < $now;
+            }
+        );
     }
 
     /** @param callable(array<string,array<string,mixed>>&):void $callback */
@@ -187,7 +213,7 @@ final class SessionRegistry
             /* A session that has already expired is already logged out. */
             return !file_exists($path);
         }
-        if (!flock($handle, LOCK_EX | LOCK_NB)) {
+        if (!self::lockSessionFile($handle)) {
             fclose($handle);
             return false;
         }
@@ -196,6 +222,28 @@ final class SessionRegistry
         flock($handle, LOCK_UN);
         fclose($handle);
         return @unlink($path) || !file_exists($path);
+    }
+
+    /** A live request holds the PHP session lock briefly; logout waits a bounded time instead of losing the race. */
+    private static function lockSessionFile($handle): bool
+    {
+        for ($attempt = 0; $attempt < self::SESSION_LOCK_ATTEMPTS; $attempt++) {
+            if (flock($handle, LOCK_EX | LOCK_NB)) {
+                return true;
+            }
+            if ($attempt + 1 < self::SESSION_LOCK_ATTEMPTS) {
+                usleep(self::SESSION_LOCK_DELAY_MICROSECONDS);
+            }
+        }
+        return false;
+    }
+
+    private static function logoutTokenKey(string $issuer, string $jti): string
+    {
+        if ($issuer === '' || $jti === '' || strlen($jti) > 255 || preg_match('/[\x00-\x1f\x7f]/', $jti)) {
+            throw new ProtocolException('The logout token cannot be indexed safely');
+        }
+        return JwtVerifier::base64UrlEncode(hash('sha256', $issuer . "\0" . $jti, true));
     }
 
     private static function validSessionId(string $sessionId): bool

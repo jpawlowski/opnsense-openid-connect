@@ -116,6 +116,8 @@ class Commit:
             found.append(f"the first line is {len(self.header)} characters, at most {HEADER_MAX}")
         if self.subject.endswith("."):
             found.append("the first line ends in a full stop")
+        if self.subject[:1].isupper():
+            found.append("the subject starts with an upper-case letter")
         if not self.subject.strip():
             found.append("it says nothing after the colon")
         if not self.blank_line_after_header:

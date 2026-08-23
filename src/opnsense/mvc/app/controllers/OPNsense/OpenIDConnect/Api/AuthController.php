@@ -29,6 +29,7 @@ use OPNsense\OpenIDConnect\WebGuiAccess;
  *   /api/openidconnect/auth/logout    end here and at the provider
  *   /api/openidconnect/auth/icon      hand on a provider's logo for the login button
  *   /api/openidconnect/auth/builtinicon hand out a package-owned provider mark
+ *   /api/openidconnect/auth/sector    publish callback URIs for pairwise subjects
  *
  * These endpoints answer before anyone is logged in, so doAuth() declines the usual
  * session check. What protects them is the protocol: the provider's answer has to carry
@@ -99,6 +100,33 @@ class AuthController extends ApiControllerBase
         return parent::beforeExecuteRoute($dispatcher);
     }
 
+    /** Publish the saved redirect URIs only through this server's exact configured sector origin. */
+    public function sectorAction(string $applicationCode = '')
+    {
+        $settings = $this->settingsForApplicationCode($applicationCode);
+        $sectorOrigin = $settings?->sectorOrigin() ?? '';
+        if ($settings === null || $sectorOrigin === '') {
+            return $this->refuse(404, 'Not Found', 'Not Found.');
+        }
+        try {
+            $requestOrigin = OpenIDConnect::normalizeHttpsOrigin(RelyingParty::intendedOrigin(
+                $this->request,
+                $settings->usesTrustedTlsOffloading()
+            ));
+        } catch (\Throwable $e) {
+            return $this->refuse(404, 'Not Found', 'Not Found.');
+        }
+        if ($requestOrigin === null || !hash_equals($sectorOrigin, $requestOrigin)) {
+            return $this->refuse(404, 'Not Found', 'Not Found.');
+        }
+
+        $this->response->setContentType('application/json', 'UTF-8');
+        return array_map(
+            static fn(string $origin): string => $origin . RelyingParty::callbackPath($applicationCode),
+            $settings->effectiveWebGuiOrigins()
+        );
+    }
+
     /* ------------------------------------------------------ federated session logout */
 
     /** Receive a signed OIDC Back-Channel Logout token from a configured provider. */
@@ -111,6 +139,7 @@ class AuthController extends ApiControllerBase
             return $this->refuse(400, 'Bad Request', 'The logout request was not accepted.');
         }
 
+        $acceptedReplay = null;
         try {
             $http = new HttpClient();
             $metadata = ProviderMetadata::discover(
@@ -128,10 +157,11 @@ class AuthController extends ApiControllerBase
                 $issuerValidator
             );
             $logoutIssuer = (string)$claims['iss'];
-            $replayExpires = is_int($claims['exp'] ?? null) ? $claims['exp'] + JwtVerifier::CLOCK_TOLERANCE : time() + 600;
+            $replayExpires = $claims['exp'] + JwtVerifier::CLOCK_TOLERANCE;
             if (!SessionRegistry::acceptLogoutToken($logoutIssuer, $claims['jti'], $replayExpires)) {
                 throw new ProtocolException('The back-channel logout token was already processed');
             }
+            $acceptedReplay = [$logoutIssuer, (string)$claims['jti']];
             $count = SessionRegistry::terminate(
                 $logoutIssuer,
                 is_string($claims['sid'] ?? null) ? $claims['sid'] : null,
@@ -139,6 +169,13 @@ class AuthController extends ApiControllerBase
             );
             syslog(LOG_NOTICE, sprintf('OIDC: back-channel logout invalidated %d local session(s)', $count));
         } catch (\Throwable $e) {
+            if ($acceptedReplay !== null) {
+                try {
+                    SessionRegistry::releaseLogoutToken($acceptedReplay[0], $acceptedReplay[1]);
+                } catch (\Throwable $releaseError) {
+                    syslog(LOG_ERR, 'OIDC: a failed back-channel logout replay marker could not be released');
+                }
+            }
             return $this->protocolFailure('', 'the back-channel logout was not accepted', $e, 400);
         }
 
@@ -256,9 +293,6 @@ class AuthController extends ApiControllerBase
         if ($account === null) {
             /* localAccountFor() has already said in the log which of its reasons it was */
             $this->auditRefusal($name, 'no local account this login may use');
-            if ($settings->pendingApprovalId() !== '') {
-                return $this->approvalRequiredResult($settings->pendingApprovalId());
-            }
             return $this->refuse(403, 'Forbidden', 'There is no local account for this user, or it may not be used.');
         }
 
@@ -795,52 +829,6 @@ class AuthController extends ApiControllerBase
         $value = preg_replace('/[\x00-\x1f\x7f]/', ' ', (string)$value);
 
         return strlen($value) > 512 ? substr($value, 0, 509) . '...' : $value;
-    }
-
-    private function approvalRequiredResult(string $requestId): string
-    {
-        $this->response->setStatusCode(403, 'Approval required');
-        $this->response->setContentType('text/html', 'UTF-8');
-        $this->response->setHeader(
-            'Content-Security-Policy',
-            "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
-        );
-        if ($this->request->isPost()) {
-            header_remove('Set-Cookie');
-        }
-        $escape = static fn(string $value): string => htmlspecialchars(
-            $value,
-            ENT_QUOTES | ENT_SUBSTITUTE,
-            'UTF-8'
-        );
-        return '<!doctype html><html><head><meta charset="utf-8">'
-            . '<meta name="viewport" content="width=device-width,initial-scale=1">'
-            . '<title>' . $escape(gettext('Administrator approval required')) . '</title>'
-            . '<style>:root{color-scheme:light dark;--bg:#f3f5f7;--panel:#fff;--text:#263238;--muted:#5d6b73;'
-            . '--line:#d8dee2;--accent:#805400;--accent-bg:#fff4d6}*{box-sizing:border-box}body{margin:0;background:var(--bg);'
-            . 'color:var(--text);font:16px/1.55 system-ui,-apple-system,sans-serif}main{max-width:44rem;margin:4rem auto;padding:0 1rem}'
-            . '.panel{background:var(--panel);border:1px solid var(--line);border-radius:.7rem;box-shadow:0 .25rem 1.25rem #00000012;'
-            . 'overflow:hidden}.hero{display:flex;gap:1rem;align-items:center;padding:1.6rem;background:var(--accent-bg);border-bottom:1px solid var(--line)}'
-            . '.mark{display:grid;place-items:center;flex:0 0 3rem;height:3rem;border-radius:50%;background:var(--accent);color:#fff;'
-            . 'font-size:1.5rem;font-weight:800}.hero h1{margin:0;color:var(--accent);font-size:1.55rem}.hero p{margin:.2rem 0 0;color:var(--muted)}'
-            . '.content{padding:1.6rem}.reference{margin:1rem 0;padding:1rem;border:1px solid var(--line);border-radius:.4rem;background:var(--accent-bg)}'
-            . '.reference strong{display:block;margin-bottom:.25rem}.reference code{font-size:1.15rem;font-weight:700;overflow-wrap:anywhere}'
-            . 'ol{padding-left:1.3rem}li+li{margin-top:.45rem}a{display:inline-block;margin-top:.5rem;padding:.6rem .85rem;background:#337ab7;'
-            . 'color:#fff;text-decoration:none;border-radius:.3rem;font-weight:600}@media(max-width:600px){main{margin:1rem auto}.hero{align-items:flex-start}}'
-            . '@media(prefers-color-scheme:dark){:root{--bg:#172126;--panel:#202c32;--text:#edf2f4;--muted:#bdc9ce;'
-            . '--line:#405159;--accent:#ffd166;--accent-bg:#493a13}}</style></head><body><main><section class="panel oidc-approval-required">'
-            . '<header class="hero"><span class="mark" aria-hidden="true">!</span><div><h1>'
-            . $escape(gettext('Administrator approval required')) . '</h1><p>'
-            . $escape(gettext('The identity provider accepted the sign-in, but this firewall has not admitted the identity.'))
-            . '</p></div></header><div class="content"><p>'
-            . $escape(gettext('No WebGUI session was created. Give this request reference to a firewall administrator:'))
-            . '</p><div class="reference"><strong>' . $escape(gettext('Approval request')) . '</strong><code>'
-            . $escape($requestId) . '</code></div><ol><li>'
-            . $escape(gettext('An administrator opens the saved OpenID Connect server and reviews identity approvals.'))
-            . '</li><li>' . $escape(gettext('The administrator verifies the exact provider identity and binds or denies it.'))
-            . '</li><li>' . $escape(gettext('After approval, start a new sign-in from the login page.'))
-            . '</li></ol><a href="/">' . $escape(gettext('Return to login'))
-            . '</a></div></section></main></body></html>';
     }
 
     /** Explain a successful provider authentication that local OPNsense ACLs do not admit. */

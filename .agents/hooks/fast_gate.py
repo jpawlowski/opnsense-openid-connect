@@ -2,7 +2,7 @@
 #
 # Copyright (C) 2026 Julian Pawlowski
 # All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
-"""Run the small deterministic test tier once per relevant workspace state."""
+"""Prepare an agent's clone and run the deterministic test tier when needed."""
 
 import hashlib
 import json
@@ -15,6 +15,8 @@ import tempfile
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 RELEVANT_PATHS = (
+    ".agents",
+    ".claude",
     ".codex",
     ".forgejo/workflows",
     ".github/workflows",
@@ -32,7 +34,7 @@ def event_input():
 def state_paths(event):
     identity = f"{REPOSITORY}\0{event.get('session_id', 'unknown')}".encode()
     key = hashlib.sha256(identity).hexdigest()
-    directory = Path(tempfile.gettempdir()) / "codex-opnsense-openid-connect-hooks"
+    directory = Path(tempfile.gettempdir()) / "opnsense-openid-connect-agent-hooks"
     return directory / f"{key}.json", directory / f"{key}.log"
 
 
@@ -43,6 +45,20 @@ def git_output(*arguments):
         check=True,
         stdout=subprocess.PIPE,
     ).stdout
+
+
+def configure_repository(repository):
+    """Install the clone-local commit guidance before an agent changes files."""
+    settings = (
+        ("commit.template", str(repository / ".gitmessage")),
+        ("core.hooksPath", "packaging/hooks"),
+    )
+    for key, value in settings:
+        subprocess.run(
+            ("git", "config", "--local", key, value),
+            cwd=repository,
+            check=True,
+        )
 
 
 def fingerprint():
@@ -85,6 +101,7 @@ def emit(value):
 
 
 def initialize(event):
+    configure_repository(REPOSITORY)
     state_path, _ = state_paths(event)
     if not state_path.exists():
         save_state(state_path, {"passed": fingerprint(), "failed": None})
