@@ -15,6 +15,9 @@ for (const name of [
 const state = JSON.parse(await readFile(process.env.E2E_PROVIDER_STATE_FILE, 'utf8'));
 const origin = new URL(process.env.E2E_OPNSENSE_URL).origin;
 const providerOrigin = new URL(state.url).origin;
+const providerApiOrigin = process.env.E2E_PROVIDER_BROWSER_IP
+  ? providerOrigin.replace(new URL(providerOrigin).hostname, process.env.E2E_PROVIDER_BROWSER_IP)
+  : providerOrigin;
 const callbackPath = `/api/openidconnect/auth/callback/${state.application_code}`;
 
 async function localLogin(page) {
@@ -43,7 +46,11 @@ async function setGroupList(page, name, values) {
 }
 
 async function apiContext(extraHTTPHeaders = {}) {
-  return playwrightRequest.newContext({ ignoreHTTPSErrors: true, extraHTTPHeaders });
+  const localHostHeader = process.env.E2E_PROVIDER_BROWSER_IP ? { Host: state.authority } : {};
+  return playwrightRequest.newContext({
+    ignoreHTTPSErrors: true,
+    extraHTTPHeaders: { ...localHostHeader, ...extraHTTPHeaders },
+  });
 }
 
 async function checkedJson(response, description) {
@@ -57,22 +64,22 @@ async function checked(response, description) {
 
 async function provisionAuthentik(blueprintPath) {
   const api = await apiContext({ Authorization: `Bearer ${state.admin_token}` });
-  const user = await checkedJson(await api.post(`${providerOrigin}/api/v3/core/users/`, {
+  const user = await checkedJson(await api.post(`${providerApiOrigin}/api/v3/core/users/`, {
     data: {
       username: state.username, name: 'OIDC E2E', email: `${state.username}@example.com`,
       is_active: true, type: 'internal', path: 'users',
     },
   }), 'authentik user creation');
-  await checked(await api.post(`${providerOrigin}/api/v3/core/users/${user.pk}/set_password/`, {
+  await checked(await api.post(`${providerApiOrigin}/api/v3/core/users/${user.pk}/set_password/`, {
     data: { password: state.password },
   }), 'authentik password creation');
   const blueprint = await readFile(blueprintPath);
-  const imported = await api.post(`${providerOrigin}/api/v3/managed/blueprints/import/`, {
+  const imported = await api.post(`${providerApiOrigin}/api/v3/managed/blueprints/import/`, {
     multipart: { file: { name: 'opnsense-authentik-blueprint.yaml', mimeType: 'application/yaml', buffer: blueprint } },
   });
   const importResult = await checkedJson(imported, 'authentik Blueprint import');
   expect(importResult.success).toBeTruthy();
-  const list = await checkedJson(await api.get(`${providerOrigin}/api/v3/providers/oauth2/`, {
+  const list = await checkedJson(await api.get(`${providerApiOrigin}/api/v3/providers/oauth2/`, {
     params: { search: `opnsense-${state.application_code}` },
   }), 'authentik provider lookup');
   const provider = list.results.find(candidate => candidate.name.includes(state.application_code));
@@ -86,10 +93,10 @@ async function provisionAuthentik(blueprintPath) {
 async function provisionPocketId() {
   const headers = { 'X-API-KEY': state.admin_token };
   const api = await apiContext(headers);
-  const group = await checkedJson(await api.post(`${providerOrigin}/api/user-groups`, {
+  const group = await checkedJson(await api.post(`${providerApiOrigin}/api/user-groups`, {
     data: { name: `e2e-${state.run_id}`, friendlyName: 'OPNsense E2E' },
   }), 'Pocket ID group creation');
-  const client = await checkedJson(await api.post(`${providerOrigin}/api/oidc/clients`, {
+  const client = await checkedJson(await api.post(`${providerApiOrigin}/api/oidc/clients`, {
     data: {
       id: state.client_id, name: state.server_name, description: 'Disposable OPNsense browser E2E',
       callbackURLs: [`${origin}${callbackPath}`], logoutCallbackURLs: [`${origin}/`],
@@ -98,13 +105,13 @@ async function provisionPocketId() {
       isGroupRestricted: true, accessTokenDurationMinutes: 5, refreshTokenDurationMinutes: 60,
     },
   }), 'Pocket ID client creation');
-  await checkedJson(await api.post(`${providerOrigin}/api/oidc/clients/${client.id}/secrets`, {
+  await checkedJson(await api.post(`${providerApiOrigin}/api/oidc/clients/${client.id}/secrets`, {
     data: { secret: state.client_secret },
   }), 'Pocket ID client secret creation');
-  await checkedJson(await api.put(`${providerOrigin}/api/oidc/clients/${client.id}/allowed-user-groups`, {
+  await checkedJson(await api.put(`${providerApiOrigin}/api/oidc/clients/${client.id}/allowed-user-groups`, {
     data: { userGroupIds: [group.id] },
   }), 'Pocket ID group restriction');
-  const signup = await checkedJson(await api.post(`${providerOrigin}/api/signup-tokens`, {
+  const signup = await checkedJson(await api.post(`${providerApiOrigin}/api/signup-tokens`, {
     data: { ttl: '1h', usageLimit: 1, userGroupIds: [group.id] },
   }), 'Pocket ID signup token creation');
   state.signup_token = signup.token;
