@@ -1,0 +1,15 @@
+# Copyright (C) 2026 Julian Pawlowski
+# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
+#
+# type(scope)!: concise description of the observable change
+#
+# Explain why the change is needed and any decision that is not obvious from
+# the diff. Wrap freely; only the first line is limited to 100 characters.
+#
+# BREAKING CHANGE: state exactly what an installation has to do before upgrade.
+#
+# Remove the ! and BREAKING CHANGE footer when the change is not breaking.
+# The scope is optional. Common scopes are auth, oidc, api, packaging and watch.
+#
+# Types: feat, fix, perf, refactor, docs, build, ci, test, chore, style, revert
+# Subject: lower case after the colon and no full stop.
