@@ -99,10 +99,23 @@ function inspect(object $subject, string $method, ...$arguments)
 /** build a configured connector without going near a config file */
 function connector(array $settings): OPNsense\Auth\OpenIDConnect
 {
+    $settings += [
+        'type' => 'openidconnect',
+        'openidconnect_app_code' => 'main',
+        'openidconnect_provider_url' => 'https://id.example.net',
+    ];
     $connector = new OPNsense\Auth\OpenIDConnect();
     $connector->setProperties($settings);
+    OPNsense\Core\Config::getInstance()->addAuthServer($settings);
 
     return $connector;
+}
+
+/** Stable issuer/subject binding as stored by the connector. */
+function binding(string $issuer, string $subject, string $identity): string
+{
+    $key = rtrim(strtr(base64_encode($issuer . "\0" . $subject), '+/', '-_'), '=');
+    return $key . '=' . $identity;
 }
 
 /** the local accounts of the machine a test is pretending to be, and a clean recorder */
@@ -118,6 +131,10 @@ function directory(array ...$users): void
 /** a set of claims, the shape a verified answer reaches the connector in */
 function claims(array $values): object
 {
+    if (!array_key_exists('sub', $values)) {
+        $seed = (string)($values['preferred_username'] ?? $values['email'] ?? 'test-subject');
+        $values['sub'] = 'subject:' . $seed;
+    }
     return (object)$values;
 }
 

@@ -19,26 +19,65 @@ use OPNsense\Auth\Recorder;
 
 $ok = ['name' => 'mikah', 'email' => 'mikah@example.net'];
 
+/** Account matching in these examples is an explicitly enabled first-login bootstrap. */
+function accountConnector(array $settings): OPNsense\Auth\OpenIDConnect
+{
+    return connector($settings + ['openidconnect_bootstrap_mode' => 'either']);
+}
+
 Checks::group('Which local account a login is');
 
 directory($ok);
 Checks::that(
     'the username claim names one',
-    connector([])->localAccountFor(claims(['preferred_username' => 'mikah'])),
+    accountConnector([])->localAccountFor(claims(['preferred_username' => 'mikah'])),
     'mikah'
 );
 
 directory(['name' => 'Mikah', 'email' => 'mikah@example.net']);
 Checks::that(
-    'the name comes back as the configuration spells it, not as the claim does',
-    connector([])->localAccountFor(claims(['preferred_username' => 'mikah'])),
-    'Mikah'
+    'username bootstrap is exact and does not cross case variants',
+    accountConnector([])->localAccountFor(claims(['preferred_username' => 'mikah'])),
+    null
 );
 
 directory($ok);
 Checks::that(
     'nobody of that name, and nothing to fall back on',
-    connector(['openidconnect_email_match' => 'off'])->localAccountFor(claims(['preferred_username' => 'nobody'])),
+    accountConnector(['openidconnect_email_match' => 'off'])->localAccountFor(claims(['preferred_username' => 'nobody'])),
+    null
+);
+
+Checks::group('Stable issuer and subject bindings');
+directory($ok);
+$stable = accountConnector([]);
+Checks::that(
+    'an explicitly allowed first match creates the binding',
+    $stable->localAccountFor(claims(['sub' => 'opaque-subject', 'preferred_username' => 'mikah'])),
+    'mikah'
+);
+Directory::$users[0]->name = 'renamed-locally';
+Checks::that(
+    'a later local rename does not break or redirect the identity',
+    $stable->localAccountFor(claims(['sub' => 'opaque-subject', 'preferred_username' => 'someone-else'])),
+    'renamed-locally'
+);
+Checks::that(
+    'the same subject under a different issuer is a different identity',
+    $stable->localAccountFor(
+        claims(['sub' => 'opaque-subject', 'preferred_username' => 'someone-else']),
+        'https://other-id.example.net',
+        'opaque-subject'
+    ),
+    null
+);
+
+directory(['name' => 'mikah'], ['name' => 'anna']);
+Checks::that(
+    'conflicting manual mappings are refused instead of taking the first line',
+    connector([
+        'openidconnect_subject_bindings' => "opaque=subject=mikah\nopaque=subject=anna",
+    ])->localAccountFor(claims(['sub' => 'opaque=subject'])),
     null
 );
 
@@ -47,40 +86,40 @@ Checks::group('An account that may not be used');
 directory(['name' => 'mikah', 'disabled' => '1']);
 Checks::that(
     'a disabled account is refused, the way a password login is refused',
-    connector([])->localAccountFor(claims(['preferred_username' => 'mikah'])),
+    accountConnector([])->localAccountFor(claims(['preferred_username' => 'mikah'])),
     null
 );
 
 directory(['name' => 'mikah', 'expires' => date('m/d/Y', strtotime('-2 days'))]);
 Checks::that(
     'an expired account is refused',
-    connector([])->localAccountFor(claims(['preferred_username' => 'mikah'])),
+    accountConnector([])->localAccountFor(claims(['preferred_username' => 'mikah'])),
     null
 );
 
 directory(['name' => 'mikah', 'expires' => date('m/d/Y', strtotime('+2 days'))]);
 Checks::that(
     'an account that has not expired yet is not',
-    connector([])->localAccountFor(claims(['preferred_username' => 'mikah'])),
+    accountConnector([])->localAccountFor(claims(['preferred_username' => 'mikah'])),
     'mikah'
 );
 
 directory(['name' => 'root', 'uid' => '0']);
 Checks::that(
     'root is out of reach of an identity provider',
-    connector([])->localAccountFor(claims(['preferred_username' => 'root'])),
+    accountConnector([])->localAccountFor(claims(['preferred_username' => 'root'])),
     null
 );
 Checks::that(
     'unless an installation says otherwise',
-    connector(['openidconnect_allow_root' => '1'])->localAccountFor(claims(['preferred_username' => 'root'])),
+    accountConnector(['openidconnect_allow_root' => '1'])->localAccountFor(claims(['preferred_username' => 'root'])),
     'root'
 );
 
 directory(['name' => 'toor', 'uid' => '0']);
 Checks::that(
     'and uid 0 under another name is still root',
-    connector([])->localAccountFor(claims(['preferred_username' => 'toor'])),
+    accountConnector([])->localAccountFor(claims(['preferred_username' => 'toor'])),
     null
 );
 
@@ -95,32 +134,32 @@ Checks::group('Matching by e-mail address');
 directory($ok);
 Checks::that(
     'a verified address matches',
-    connector([])->localAccountFor(claims(['email' => 'mikah@example.net', 'email_verified' => true])),
+    accountConnector([])->localAccountFor(claims(['email' => 'mikah@example.net', 'email_verified' => true])),
     'mikah'
 );
 Checks::that(
     'so does the string some providers send instead',
-    connector([])->localAccountFor(claims(['email' => 'mikah@example.net', 'email_verified' => 'true'])),
+    accountConnector([])->localAccountFor(claims(['email' => 'mikah@example.net', 'email_verified' => 'true'])),
     'mikah'
 );
 Checks::that(
     'an address the provider says nothing about does not',
-    connector([])->localAccountFor(claims(['email' => 'mikah@example.net'])),
+    accountConnector([])->localAccountFor(claims(['email' => 'mikah@example.net'])),
     null
 );
 Checks::that(
     'nor one it reports as unverified',
-    connector([])->localAccountFor(claims(['email' => 'mikah@example.net', 'email_verified' => false])),
+    accountConnector([])->localAccountFor(claims(['email' => 'mikah@example.net', 'email_verified' => false])),
     null
 );
 Checks::that(
     'an installation may accept whatever the provider says, for one that reports nothing',
-    connector(['openidconnect_email_match' => 'always'])->localAccountFor(claims(['email' => 'mikah@example.net'])),
+    accountConnector(['openidconnect_email_match' => 'always'])->localAccountFor(claims(['email' => 'mikah@example.net'])),
     'mikah'
 );
 Checks::that(
     'or leave the decision to the username claim alone',
-    connector(['openidconnect_email_match' => 'off'])
+    accountConnector(['openidconnect_email_match' => 'off'])
         ->localAccountFor(claims(['email' => 'mikah@example.net', 'email_verified' => true])),
     null
 );
@@ -130,7 +169,7 @@ Checks::group('Creating an account on first sight');
 directory($ok);
 Checks::that(
     'off by default, so an unknown person is refused',
-    connector([])->localAccountFor(claims(['preferred_username' => 'anna'])),
+    accountConnector([])->localAccountFor(claims(['preferred_username' => 'anna'])),
     null
 );
 Checks::that('and nothing was asked of configd', Recorder::$backendCalls, []);
@@ -138,7 +177,7 @@ Checks::that('and nothing was asked of configd', Recorder::$backendCalls, []);
 directory($ok);
 Checks::that(
     'switched on, the username claim names the new account',
-    connector(['openidconnect_create_users' => '1'])->localAccountFor(claims(['preferred_username' => 'anna'])),
+    accountConnector(['openidconnect_create_users' => '1'])->localAccountFor(claims(['preferred_username' => 'anna'])),
     'anna'
 );
 Checks::that(
@@ -148,9 +187,21 @@ Checks::that(
 );
 
 directory($ok);
+Directory::$creationOutput = "\nWarning: Undefined variable in add_user.php\n" . json_encode([
+    'status' => 'ok',
+    'uid' => '1002',
+    'name' => 'anna',
+]);
+Checks::that(
+    'a saved account is accepted even when OPNsense prefixes its JSON with PHP warnings',
+    accountConnector(['openidconnect_create_users' => '1'])->localAccountFor(claims(['preferred_username' => 'anna'])),
+    'anna'
+);
+
+directory($ok);
 Checks::that(
     'an address may name it, where the provider vouches for the address',
-    connector(['openidconnect_create_users' => '1'])
+    accountConnector(['openidconnect_create_users' => '1'])
         ->localAccountFor(claims(['email' => 'anna@example.net', 'email_verified' => true])),
     'anna@example.net'
 );
@@ -158,7 +209,7 @@ Checks::that(
 directory($ok);
 Checks::that(
     'but an unverified address names nothing, so nothing is created',
-    connector(['openidconnect_create_users' => '1'])->localAccountFor(claims(['email' => 'anna@example.net'])),
+    accountConnector(['openidconnect_create_users' => '1'])->localAccountFor(claims(['email' => 'anna@example.net'])),
     null
 );
 Checks::that('and configd was left alone', Recorder::$backendCalls, []);
@@ -167,7 +218,96 @@ directory();
 Directory::$creationWorks = false;
 Checks::that(
     'a creation configd refuses is a login refused',
-    connector(['openidconnect_create_users' => '1'])->localAccountFor(claims(['preferred_username' => 'anna'])),
+    accountConnector(['openidconnect_create_users' => '1'])->localAccountFor(claims(['preferred_username' => 'anna'])),
     null
 );
 directory();
+
+Checks::group('Administrator approval admission policy');
+directory($ok);
+$approval = connector(['openidconnect_bootstrap_mode' => 'approval']);
+Checks::that(
+    'an unknown identity is refused even when its username already names a local account',
+    $approval->localAccountFor(claims([
+        'sub' => 'apple-private-subject',
+        'preferred_username' => 'mikah',
+        'email' => 'private-relay@privaterelay.example',
+        'email_verified' => true,
+    ])),
+    null
+);
+$requestId = $approval->pendingApprovalId();
+Checks::that('the refusal produces a short administrator request reference',
+    (bool)preg_match('/^[a-f0-9]{20}$/D', $requestId), true);
+$pending = $approval->pendingApprovals();
+Checks::that('the pending request retains the exact issuer and subject',
+    [$pending[0]['issuer'] ?? '', $pending[0]['subject'] ?? ''],
+    ['https://id.example.net', 'apple-private-subject']);
+Checks::that('the one-time relay address is retained only as an administrator hint',
+    $pending[0]['hints']['email'] ?? '', 'private-relay@privaterelay.example');
+Checks::that('an administrator can bind it to an existing local uid',
+    $approval->approvePendingIdentity($requestId, (string)Directory::$users[0]->uid), true);
+Checks::that('the approved exact subject signs in even when Apple no longer repeats the e-mail claim',
+    $approval->localAccountFor(claims(['sub' => 'apple-private-subject'])), 'mikah');
+Checks::that('approval consumes the pending request', $approval->pendingApprovals(), []);
+
+directory($ok, ['name' => 'anna', 'email' => 'anna@example.net']);
+$manager = connector(['openidconnect_bootstrap_mode' => 'strict']);
+$issuer = 'https://id.example.net';
+Checks::that('an administrator can add an exact subject binding without editing raw text',
+    $manager->createSubjectBinding($issuer, 'manual-subject', (string)Directory::$users[0]->uid), true);
+$managedBindings = $manager->subjectBindingRecords();
+Checks::that('the identity manager lists issuer, subject and resolved local account', [
+    $managedBindings[0]['issuer'] ?? '',
+    $managedBindings[0]['subject'] ?? '',
+    $managedBindings[0]['account'] ?? '',
+    $managedBindings[0]['canonical'] ?? false,
+], [$issuer, 'manual-subject', 'mikah', true]);
+Checks::that('the manually bound exact subject signs in under strict admission',
+    $manager->localAccountFor(claims(['sub' => 'manual-subject']), $issuer), 'mikah');
+Checks::that('the same issuer and subject cannot be rebound silently to another account',
+    $manager->createSubjectBinding($issuer, 'manual-subject', (string)Directory::$users[1]->uid), false);
+$bindingId = (string)($managedBindings[0]['id'] ?? '');
+Checks::that('an administrator can edit the subject and local account atomically',
+    $manager->updateSubjectBinding($bindingId, $issuer, 'replacement-subject',
+        (string)Directory::$users[1]->uid), true);
+Checks::that('the replaced subject no longer resolves',
+    $manager->localAccountFor(claims(['sub' => 'manual-subject']), $issuer), null);
+Checks::that('the replacement resolves to the selected account',
+    $manager->localAccountFor(claims(['sub' => 'replacement-subject']), $issuer), 'anna');
+$replacement = $manager->subjectBindingRecords()[0] ?? [];
+Checks::that('an administrator can remove a binding by its concurrency-safe identifier',
+    $manager->deleteSubjectBinding((string)($replacement['id'] ?? '')), true);
+Checks::that('a removed identity is refused by strict admission',
+    $manager->localAccountFor(claims(['sub' => 'replacement-subject']), $issuer), null);
+Checks::that('a manual binding cannot name a different issuer',
+    $manager->createSubjectBinding('https://lookalike.example.net', 'subject',
+        (string)Directory::$users[0]->uid), false);
+
+$entraManager = connector([
+    'openidconnect_provider_profile' => 'entra',
+    'openidconnect_microsoft_audience' => 'organizations',
+]);
+$entraTenantIssuer = 'https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0';
+Checks::that('a multitenant Microsoft binding accepts an exact admitted tenant issuer',
+    $entraManager->normalizeBindingIssuer($entraTenantIssuer), $entraTenantIssuer);
+Checks::that('the Microsoft subject guidance explicitly distinguishes sub from oid',
+    str_contains($entraManager->subjectGuidance()['text'], '`oid`'), true);
+
+directory($ok);
+$denied = connector(['openidconnect_bootstrap_mode' => 'approval']);
+$denied->localAccountFor(claims(['sub' => 'unknown-subject', 'preferred_username' => 'somebody']));
+$deniedId = $denied->pendingApprovalId();
+Checks::that('an administrator may deny an unknown identity', $denied->denyPendingIdentity($deniedId), true);
+Checks::that('a denied request is removed', $denied->pendingApprovals(), []);
+
+directory($ok);
+Checks::that(
+    'strict admission cannot be bypassed by enabling local account creation',
+    connector([
+        'openidconnect_bootstrap_mode' => 'strict',
+        'openidconnect_create_users' => '1',
+    ])->localAccountFor(claims(['preferred_username' => 'unexpected'])),
+    null
+);
+Checks::that('strict admission asks configd to create nothing', Recorder::$backendCalls, []);

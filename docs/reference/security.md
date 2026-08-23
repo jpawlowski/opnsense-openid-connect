@@ -1,0 +1,150 @@
+# Security, conformance and threat model
+
+## Supported standards profile
+
+The implementation targets these normative parts:
+
+- OpenID Connect Core 1.0 Authorization Code flow, ID Token validation and
+  UserInfo subject binding
+- OpenID Connect Discovery 1.0 with exact issuer matching
+- OAuth 2.0 Authorization Server Issuer Identification (RFC 9207)
+- PKCE (RFC 7636), always `S256`, following OAuth 2.0 Security BCP (RFC 9700)
+- OAuth 2.0 Token Revocation (RFC 7009), when advertised
+- OIDC RP-Initiated Logout 1.0, Front-Channel Logout 1.0 and Back-Channel
+  Logout 1.0
+- JWS asymmetric algorithms `RS*`, `PS*`, and `ES*` listed in the README
+
+Supported client authentication is `client_secret_basic` and
+`client_secret_post`. Both are standard and cover the named provider profiles.
+The client is confidential and still always uses PKCE.
+
+## Optional features outside this release
+
+These are optional protocol features, not silently accepted variants:
+
+- public clients and `token_endpoint_auth_method=none`
+- `private_key_jwt`, `client_secret_jwt`, mutual-TLS or DPoP client authentication
+- implicit/hybrid/device/password/client-credentials flows
+- Dynamic Client Registration, PAR, JAR, JARM, CIBA and Rich Authorization Requests
+- encrypted ID Tokens or UserInfo (JWE)
+- symmetric `HS*` ID Token signatures and EdDSA
+- distributed/aggregated claims and automated Graph/API fallback for Entra group
+  overage
+
+Providers requiring one of these need a future explicit implementation; checks
+must not be disabled to emulate support.
+
+## Normative references
+
+- [OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html)
+- [OpenID Connect Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html)
+- [OAuth 2.0 Authorization Server Issuer Identification (RFC 9207)](https://www.rfc-editor.org/rfc/rfc9207.html)
+- [Proof Key for Code Exchange (RFC 7636)](https://www.rfc-editor.org/rfc/rfc7636.html)
+- [OAuth 2.0 Security Best Current Practice (RFC 9700)](https://www.rfc-editor.org/rfc/rfc9700.html)
+- [OAuth 2.0 Token Revocation (RFC 7009)](https://www.rfc-editor.org/rfc/rfc7009.html)
+- [OpenID Connect RP-Initiated Logout 1.0](https://openid.net/specs/openid-connect-rpinitiated-1_0.html)
+- [OpenID Connect Front-Channel Logout 1.0](https://openid.net/specs/openid-connect-frontchannel-1_0.html)
+- [OpenID Connect Back-Channel Logout 1.0](https://openid.net/specs/openid-connect-backchannel-1_0.html)
+
+## Threats and controls
+
+| Threat | Control |
+|---|---|
+| forged/replayed callback | random server-bound state, nonce and PKCE; state consumed before processing; bounded one-time server index for `form_post` under SameSite=Lax |
+| authorization-server mix-up | frozen exact issuer/endpoints, distinct callback per provider, RFC 9207 when advertised |
+| forged ID Token | asymmetric JWKS signature, algorithm allow-list, key metadata/curve/use checks, minimum 2048-bit RSA |
+| token for another client | exact `aud` and `azp` rules |
+| stale/future token | strict integer `exp`, `iat`, optional `nbf`, 60-second clock tolerance |
+| UserInfo substitution | access token over TLS, credential redirects forbidden, exact ID Token/UserInfo `sub` binding |
+| open redirect/Host injection | local target sanitizer, strict Host grammar, HTTPS origin matched to OPNsense hostname/domain, alternate hostnames and core's IP-literal rule, or to an explicit exact custom list; disabling OPNsense DNS-rebinding checks does not widen hostname acceptance |
+| HTTP WebGUI or forged proxy scheme | native HTTP blocks enabled providers and sign-in tests; TLS offloading requires an explicit per-provider exception, exact custom HTTPS origins and exact Host matching; forwarded scheme headers and PROXY protocol are not treated as TLS proof |
+| session fixation | fail-closed PHP session ID regeneration with old ID removal after elevation |
+| identity reassignment after rename | persistent exact `(issuer, sub)` to numeric UID binding |
+| unverified e-mail takeover | strict admission by default; automatic e-mail admission requires a unique verified address unless unsafe matching is explicitly selected |
+| any global social account reaches the firewall | unknown identities are refused; Administrator approval queues an exact issuer/subject without a session, with bounded 0600 storage and no unauthenticated config write |
+| unauthorized identity rebinding | the manager API extends core's System: Authentication Servers ACL, repeats that privilege check in the controller and applies `user-config-readonly` to every mutation; operations target one exact saved server and use record IDs to detect concurrent changes |
+| Microsoft multitenant issuer substitution | Microsoft-only authority modes require GUID `tid`, exact tenant issuer, selected organizations/consumers population and matching signing-key issuer |
+| provider grants excessive privilege | no group claim by default, explicit assignable local groups, root denied |
+| logout forgery/replay | signed logout token, issuer/audience/event/time/`jti`, replay cache, exact `sid`/`sub` lookup |
+| credential leakage by HTTP redirect | POST and credential-bearing GET redirects rejected |
+| resource exhaustion | response limits, field/key/claim limits, connection/total timeouts, bounded transaction/session/replay indexes and at most 100 deduplicated pending identities |
+| account/configuration enumeration | generic public errors with random log reference |
+| third-party content or administrator text on login page | named profiles use reviewed package-owned SVGs; custom remote icons are proxied by the firewall with content-type/size checks and an SVG sandbox; provider labels and custom wording are bounded plain text and HTML-escaped; no raw custom markup reaches the page |
+| authorization codes, state, identity details or failure references retained or leaked by the browser | private responses use `no-store`, `no-referrer`, `nosniff` and a deny-by-default CSP; successful package-owned or proxied icons are the only cacheable plugin responses |
+
+## Browser response security
+
+Response headers complement the protocol controls above. State, nonce, PKCE and
+token validation decide whether an OIDC response is authentic; browser headers
+limit what happens to the resulting document, redirect or error after it has
+been returned.
+
+| Response class | Cache, referrer and MIME policy | Content and framing policy |
+|---|---|---|
+| Public login, callback, logout, back-channel logout and protocol errors | `Cache-Control: no-store`, legacy `Pragma: no-cache`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff` | deny-by-default CSP with `frame-ancestors 'none'` and `base-uri 'none'` |
+| Sign-in test, administrator-approval and WebGUI-access-denied pages | same private policy; cross-site `form_post` results also remove the temporary session's `Set-Cookie` | self-contained HTML; only inline styling is allowed, with all other sources, framing, base-URL changes and form submission denied |
+| Front-channel logout | private policy | `default-src 'none'; frame-ancestors *` is an intentional exception because the provider must load this endpoint in an iframe |
+| Successful package-owned or proxied login icon | `Cache-Control: public, max-age=86400`, `no-referrer`, `nosniff` | sandboxed image response; package assets are reviewed and self-contained; remote responses cannot execute as page markup |
+| Missing, failed or rejected login icon | `no-store`, `no-referrer`, `nosniff`, explicit plain-text type | sandboxed deny-by-default CSP with framing denied |
+| Authenticated Discovery, sign-in-test, provider-setup and identity-approval APIs | `no-store`, `Pragma: no-cache`, `no-referrer`, `nosniff` | JSON or download response; the headers are applied before core authentication and CSRF processing, so early `401`, `403` and redirects are covered too |
+
+`Strict-Transport-Security` is intentionally not emitted by individual plugin
+controllers. HSTS is a host-wide transport promise and belongs to the native
+OPNsense WebGUI listener, or to the reverse proxy that terminates TLS. The same
+boundary owns the WebGUI session cookie's `Secure`, `HttpOnly` and `SameSite`
+attributes; under the explicit TLS-offload exception the proxy must add the
+transport protection that an internal HTTP listener cannot infer safely.
+
+The plugin uses CSP `frame-ancestors` instead of duplicating it with
+`X-Frame-Options`, because front-channel logout needs one explicit framing
+exception that `X-Frame-Options` cannot express consistently. Blanket
+`Permissions-Policy`, COOP or COEP headers are not added: these static responses
+do not request powerful browser features, while cross-origin isolation can
+interfere with provider redirects and the required logout iframe without
+strengthening OIDC validation.
+
+The CSP from OPNsense core's `guiconfig.inc` protects normal WebGUI-rendered
+pages only. Direct controller responses do not pass through that renderer, so
+the plugin sets their complete policy itself before callback processing can
+produce a redirect, stand-alone document or error.
+
+The disposable browser E2E test adds an independent passive OWASP ZAP pass over
+the real responses. Playwright reaches the stateful and authenticated outcomes;
+ZAP parses only plugin traffic and applies an endpoint-aware failure policy.
+The scanner therefore cannot replace the exact assertions above: host-owned
+HSTS, JSON APIs, the front-channel iframe, inline styling and cacheable icons
+have intentionally different requirements. The firewall may remain private and
+use a self-signed WebGUI certificate because the proxy and browser run locally
+inside the isolated test boundary.
+
+## Accepted residual risks
+
+- A compromised identity provider can authenticate its users and assert any
+  configured group/role. Local scoping limits consequences but cannot restore
+  trust in that provider.
+- An administrator may configure an internal IdP. Blocking private IP space
+  would break that supported deployment, so provider and custom icon URLs are
+  privileged SSRF-capable settings. Named profile icons do not perform an
+  outbound request. Only administrators with the relevant
+  configuration/discovery permission should control custom URLs.
+- Tokens needed for logout are present in the authenticated PHP session. A
+  local root compromise or arbitrary WebGUI code execution already crosses the
+  firewall's security boundary and can read them.
+- Front-channel logout depends on browser iframe/CSP behaviour and is less
+  reliable than back-channel logout. Prefer back-channel where available.
+- Removing access at the provider does not end an already established local
+  session unless the provider sends logout or its normal OPNsense timeout ends.
+- Under the explicit HTTP-backend TLS-offloading exception, reverse-proxy
+  isolation and response-cookie hardening are administrator responsibilities.
+  The plugin cannot prove that no alternate route reaches the listener.
+
+## Release security
+
+The repository has no release signing key yet. A direct package install is
+therefore not publisher-authenticated by `pkg`. Until a public key is published,
+operators should verify a checksum through a separately trusted channel or
+build from a reviewed commit. This does not block development or local testing,
+but must be explicit in every release note.
+
+Do not publish client secrets, tokens, complete session files, or unredacted
+provider responses in issues. See [SECURITY.md](../../SECURITY.md).

@@ -71,8 +71,12 @@ TOUCHPOINTS="
 /usr/local/opnsense/mvc/app/library/OPNsense/Mvc/Dispatcher.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Mvc/Router.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Core/SanitizeFilter.php
+/usr/local/opnsense/mvc/app/library/OPNsense/Core/Config.php
 /usr/local/opnsense/mvc/app/controllers/OPNsense/Base/ApiControllerBase.php
 /usr/local/opnsense/mvc/app/models/OPNsense/Base/Menu/MenuItem.php
+/usr/local/opnsense/mvc/app/models/OPNsense/Core/ACL.php
+/usr/local/opnsense/mvc/app/models/OPNsense/Core/ACL/ACL.php
+/usr/local/etc/inc/script/load_phalcon.php
 "
 
 digest() {
@@ -84,6 +88,28 @@ digest() {
 # Fetches the login page over the loopback and judges it. Sets PROBE_DETAIL and
 # returns: 0 = well, 1 = login page broken, 2 = page loads but no SSO button.
 PROBE_DETAIL=""
+
+# Return 0 when an enabled OIDC server exists, 1 when none exists, and 2 when
+# configuration could not be inspected. Secrets and settings never leave PHP.
+has_enabled_provider() {
+    /usr/local/bin/php -q <<'PHP'
+<?php
+try {
+    require_once('script/load_phalcon.php');
+    $config = OPNsense\Core\Config::getInstance()->object();
+    foreach ($config->system->authserver ?? [] as $server) {
+        if ((string)($server->type ?? '') === 'openidconnect'
+            && (string)($server->openidconnect_enabled ?? '1') === '1') {
+            exit(0);
+        }
+    }
+    exit(1);
+} catch (Throwable $error) {
+    exit(2);
+}
+PHP
+}
+
 probe() {
     port=$(/usr/local/sbin/pluginctl -g system.webgui.port 2>/dev/null)
     [ -n "$port" ] || port=443
@@ -106,12 +132,21 @@ probe() {
         PROBE_DETAIL="The login page breaks off halfway (no clean closing tag)."
         rm -f "$page"; return 1
     fi
-    if ! grep -q '/api/openidconnect/auth/login' "$page"; then
-        PROBE_DETAIL="The login page loads cleanly, but the single sign-on button is missing."
+    has_enabled_provider; configured_rc=$?
+    if [ "$configured_rc" -eq 2 ]; then
+        PROBE_DETAIL="The login page loads, but the OpenID Connect configuration could not be inspected."
+        rm -f "$page"; return 1
+    fi
+    if [ "$configured_rc" -eq 0 ] && ! grep -q '/api/openidconnect/auth/login' "$page"; then
+        PROBE_DETAIL="The login page loads cleanly, but an enabled single sign-on button is missing."
         rm -f "$page"; return 2
     fi
 
-    PROBE_DETAIL="Login page in order: form present, single sign-on button present."
+    if [ "$configured_rc" -eq 0 ]; then
+        PROBE_DETAIL="Login page in order: form present, enabled single sign-on button present."
+    else
+        PROBE_DETAIL="Login page in order: form present, no single sign-on server enabled."
+    fi
     rm -f "$page"; return 0
 }
 
@@ -193,7 +228,7 @@ case "${1:---check}" in
 --status)
     probe; probe_rc=$?
     printf 'Package     %s\n' "$(pkg query '%n-%v' "$PKG")"
-    printf 'Bundles     %s\n' "$(pkg annotate -Sq "$PKG" bundled_library)"
+    printf 'Crypto      %s\n' "$(pkg annotate -Sq "$PKG" runtime_crypto)"
     printf 'Built from  %s\n' "$(pkg annotate -Sq "$PKG" built_from)"
     printf 'Anchored at %s\n' "${want_version:-not yet}"
     printf 'Running     %s\n' "$have_version"

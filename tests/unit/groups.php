@@ -21,7 +21,7 @@ use OPNsense\Auth\Recorder;
 function membership(array $settings, array $values, array $users = [['name' => 'mikah']]): ?array
 {
     directory(...$users);
-    connector($settings)->localAccountFor(claims($values));
+    connector($settings + ['openidconnect_bootstrap_mode' => 'username'])->localAccountFor(claims($values));
 
     return Recorder::$groupCalls[0] ?? null;
 }
@@ -52,9 +52,17 @@ Checks::that(
     ['admins', 'viewers']
 );
 Checks::that(
-    'an empty assignable list stays empty, which core reads as every local group',
+    'an empty assignable list grants no provider-controlled groups by default',
     membership(
         ['openidconnect_group_claim' => 'groups'],
+        ['preferred_username' => 'mikah', 'groups' => ['admins']]
+    ),
+    null
+);
+Checks::that(
+    'an explicit opt-in allows the provider to control every local group',
+    membership(
+        ['openidconnect_group_claim' => 'groups', 'openidconnect_allow_all_groups' => '1'],
         ['preferred_username' => 'mikah', 'groups' => ['admins']]
     )['scope'],
     []

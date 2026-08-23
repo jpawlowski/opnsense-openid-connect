@@ -1,171 +1,192 @@
-# OpenID Connect sign-in for the OPNsense web interface
+# OpenID Connect sign-in for the OPNsense WebGUI
 
-Adds a "Login with …" entry to the OPNsense login page and turns a successful
-OpenID Connect exchange into a web interface session. Local sign-in with a
-username and password is untouched and always remains available.
+This pre-release plugin adds OpenID Connect sign-in to the OPNsense web
+interface while keeping the local username/password form available. Its scope is
+deliberately narrow: **WebGUI administration only**. It does not implement
+Captive Portal or OPNWAF authentication.
 
-OPNsense itself offers OpenID Connect only in the Business Edition
-([`opnsense/core#6110`][core6110] is closed as not planned), which is why this
-exists.
+## Security and protocol profile
 
-## What it does
+The plugin contains its own small relying-party implementation. It bundles no
+general-purpose OIDC client and uses OPNsense's existing phpseclib package for
+cryptographic primitives.
 
-* Authorization Code flow with PKCE (`S256`) against any provider that publishes
-  a discovery document.
-* Maps the signed-in person to a **local** account, by the configured claim or by a
-  verified e-mail address. Creating accounts on first sight is possible and off by
-  default; an account that is disabled or expired locally is refused here as it is at
-  the password form, and `root` is out of the provider's reach unless asked for.
-* Ends the session at the provider as well, not only here.
-* Everything an installation differs on is a setting under
-  *System > Access > Servers*; nothing is compiled in.
+- Authorization Code flow only, always with transaction-specific `state`,
+  `nonce`, and PKCE `S256`.
+- Exact issuer validation from OIDC Discovery; endpoints and the metadata
+  snapshot are bound to the pending browser transaction.
+- A distinct callback per provider plus RFC 9207 `iss` validation when offered,
+  protecting multi-provider installations from mix-up attacks.
+- Asymmetric ID Token verification with RSA PKCS#1, RSA-PSS and ECDSA:
+  `RS256/384/512`, `PS256/384/512`, and `ES256/384/512`.
+- Strict `iss`, `sub`, `aud`, `azp`, `exp`, `iat`, `nbf`, `nonce`, `auth_time`
+  and `at_hash` checks. Token-supplied keys and critical JWT extensions are
+  rejected.
+- Optional plain or signed UserInfo, always bound to the verified ID Token by
+  exact `sub` equality.
+- HTTPS with normal certificate validation for discovery and every provider
+  endpoint. Responses, redirects, sizes and timeouts are bounded. Credentials
+  are never followed through redirects.
+- The PHP session identifier is replaced after login. Login transactions are
+  one-time, expire after ten minutes, and coexist safely across browser tabs.
+  `form_post` uses a bounded server-side transaction index so OPNsense's
+  `SameSite=Lax` session cookie remains unchanged.
+- RP-Initiated, Front-Channel and Back-Channel Logout are supported. Signed
+  back-channel logout messages require a unique `jti` and are replay-protected.
 
-**Privileges stay local unless you say otherwise.** No group claim is consumed
-until one is configured, so out of the box, taking over the identity provider
-does not by itself grant anyone rights on the firewall. Group mapping is there
-if you want it — see *Group claim* below — but it is a deliberate decision,
-because it hands part of this firewall's privilege assignment to the provider.
+The exact supported standards and intentionally unsupported optional extensions
+are listed in [the security and conformance document](docs/reference/security.md).
+The complete pre-release review and remaining release gates are in the
+[audit report](docs/reference/audit-report.md).
 
-## What it checks
+## Local identity and privileges
 
-The exchange is carried out by the bundled [Jumbojett client][jumbojett], which
-refuses `alg: none` and a key smuggled in through the token header, verifies TLS
-peer and host, and keeps the implicit flow off. What that library leaves to its
-caller is decided here, in `RelyingParty`, and deliberately **not** exposed as a
-setting — this is what the protocol asks for, not a matter of local taste:
+An accepted OIDC identity is bound to a local OPNsense account by the stable
+pair `(exact issuer, subject)`. A rename of the local account or a later change
+to an e-mail address therefore cannot silently redirect the identity to another
+account.
 
-| | |
-|---|---|
-| Signature algorithm | decided from what the provider advertises, asymmetric only. `HS*` keys the signature with the client secret, a different trust model — and the algorithm is named in the attacker-supplied token header. |
-| `exp`, `nonce` | required on the id_token. The library checks each only where the claim is present, so a token that simply leaves one out would pass. |
-| `azp` | required once a token names several audiences, [OIDC Core 3.1.3.7][core3137]. The library is satisfied by this firewall being among them, which a token minted for a neighbouring client would be too. |
-| `state` | checked before the answer is acted on, rather than after the code has been handed to the token endpoint. |
-| UserInfo subject | bound to the id_token subject, [OIDC Core 5.3.2][core532]. The library does this for a signed UserInfo response but not for the plain JSON one — which is the usual case, and the response the local account is identified from. |
-| Redirect address | chosen from an allow list by matching the name the browser used. A name that is not listed is refused, rather than the browser being sent off to finish somewhere it has no session. The list is required: without one, the address handed to the provider would be whatever name a browser asked under. |
-| Session id | rotated once the session gains privileges. |
-| Refusals | one sentence and one status code for every local-account outcome — no account, disabled, expired, root, an address the provider would not vouch for. Which one it was goes to the log alone, so a refusal answers nothing about who exists here. |
-| Local account | disabled, expired, and `root` are refused, the way core's own password login refuses them. Nothing looks at this again once a session exists. |
-| Provider addresses | every address out of the discovery document is fetched over http or https and nothing else; curl speaks a good deal more. |
-| `max_age` | optional; when set, the returned `auth_time` is checked rather than trusted, because a provider may ignore the request. |
-| Timeouts | every call to the provider is bounded, so nothing it does can hold the web interface open. |
+The admission decision is deliberately conservative:
 
-## Setting it up
+1. An existing binding wins.
+2. Without one, strict mode refuses the login.
+3. Administrator approval can queue the unknown identity without a session and
+   bind it explicitly to an existing local account.
+4. An administrator may instead allow a first match by exact username, unique
+   verified e-mail, or either. The resulting stable binding is saved.
+5. Optional just-in-time creation uses OPNsense's own account mechanism and
+   also saves the binding.
 
-Step-by-step guides per provider are in [`docs/`](docs/):
-[Microsoft Entra ID](docs/entra-id.md) ·
-[authentik](docs/authentik.md) ·
-[Keycloak](docs/keycloak.md) ·
-[Authelia](docs/authelia.md) ·
-[Zitadel](docs/zitadel.md).
-The [index](docs/README.md) covers what every provider has to offer, how someone
-becomes a local account, and what the refusal messages mean.
+Every saved OIDC server has a **Manage identities** action. It combines durable
+binding creation/editing/removal with pending administrator approvals, uses the
+existing **System: Authentication Servers** privilege and honours OPNsense's
+read-only administrator restriction for every mutation.
 
-## Settings
+Disabled and expired accounts remain disabled; UID 0 is refused unless an
+administrator explicitly opts in. Provider-controlled groups are off by
+default. When enabled, the provider may affect only the explicit local group
+allow-list, unless the administrator separately chooses to allow all groups.
+Before creating a session, the plugin also applies OPNsense's effective local
+WebGUI ACL, including direct privileges, group privileges and group
+source-network restrictions. An account without a usable WebGUI page receives
+an explicit 403 explanation instead of being sent through a silent logout loop.
 
-Under *System > Access > Servers*, add a server of type **OpenID Connect**.
+## Compatibility
 
-| Setting | |
-|---|---|
-| Provider URL | the issuer, or its discovery document |
-| Client ID / Secret | this firewall is a confidential client |
-| Username claim | which claim names the local account |
-| Match by e-mail address | whether the `email` claim may name it too, and whether the provider has to have verified it |
-| Scopes | requested alongside `openid` |
-| Accepted redirect URLs | the addresses the provider may return to; required, an empty list accepts nothing |
-| Maximum authentication age | seconds; empty accepts any session the provider has |
-| Authentication method | how the firewall proves itself at the token endpoint; follow the provider unless it advertises something it will not accept |
-| Create an account on first login | off by default, with the groups a new account starts in |
-| Allow the built-in root account | off by default |
-| Group claim | which claim carries group names; empty means membership is decided locally |
-| Assignable groups | the only local groups the provider may grant or withdraw |
-| Trace the exchange | writes the shape of a login to syslog while you work out why one is refused |
-| Redirect the Log Out menu entry | points *Lobby > Log Out* at the provider-aware logout |
-| Return here after logout | the provider must accept this firewall as a post logout redirect URI |
-| Login button style, Icon URL, Icon markup, Icon rendering | how the entry is drawn |
-| Custom button markup | full control, `%name%` `%url%` `%icon%` are filled in |
+The target lines are OPNsense Community Edition **26.1 and 26.7**. The package
+does not replace core files. A nightly watchdog checks the real login page and
+fingerprints the OPNsense interfaces on which the plugin depends.
 
-The provider needs `https://{firewall}/api/openidconnect/auth/callback` as a redirect URI.
+Named profiles provide a complete provider-dependent starting point, mark public
+provider invariants as read-only, and add provider-specific diagnostics without
+weakening validation:
 
-### The icon
+- Microsoft Entra ID and personal Microsoft accounts, Google / Google
+  Workspace, Okta, Auth0, AWS Cognito, JumpCloud and Apple
+- LinkedIn, Slack, Yahoo and ORCID social login
+- authentik, Keycloak, Authelia, ZITADEL, Dex, GitLab, Pocket ID and FusionAuth
+- Ping Identity, OneLogin, Cisco Duo Single Sign-On, IBM Security Verify,
+  Oracle Identity Cloud / OCI IAM and WSO2 Identity Server
+- **Generic OpenID Connect** for every standards-compliant provider not listed
 
-An **Icon URL** may be an absolute address (fetched by the firewall and handed
-on), a path on the firewall itself such as
-`/ui/themes/<theme>/build/images/icon-logo.svg` (served directly, no third-party
-request from the login page), or a `data:` URI. **Icon markup** takes SVG source
-instead, for when there is nowhere to host a file; it becomes a `data:` URI and
-is never inlined into the page, so it is only ever treated as an image.
+See the [profile-default matrix](docs/setup/provider-profiles.md) and
+[provider guide index](docs/providers/README.md). The guides state which parts are
+verified from vendor documentation and which still need real-world confirmation.
+GitHub, Discord and Login with Amazon are documented in the
+[social-login compatibility guide](docs/providers/social-login.md), but are not
+selectable because their official user-login flows are OAuth 2.0 rather than
+OpenID Connect.
 
-*Single colour* rendering redraws the icon in the button's text colour, which is
-what makes a dark provider logo readable on a coloured button in a light and a
-dark theme alike. It works for line art; a logo with a filled background becomes
-a solid block.
+## Install
 
-### What this deliberately does not do
-
-The Business Edition module covers three services; this one covers the web
-interface. **Captive Portal** and **OPNWAF** are not implemented — the first
-because writing an integration nobody here can exercise would be guesswork
-rather than work, the second because it is a Business Edition product.
-
-Tracing never writes tokens, secrets or claim values that are not needed to
-follow the flow. A trace that ends up in a support mail should not carry
-material that grants access.
-
-## Logging out
-
-`/api/openidconnect/auth/logout` ends the local session and continues into the provider's
-`end_session` endpoint, handing back the tokens on the way. The *Lobby > Log Out*
-menu entry can be pointed at it with a setting.
-
-**The link in the page header cannot be.** It is written into core's
-`authgui.inc`, out of a plugin's reach, and always ends locally.
-
-## Installing
-
-Download the `.pkg` from the [releases](../../releases) and install it:
+Download a package and its checksum from a release, verify it, then install it:
 
 ```sh
+sha256 -c <expected-checksum> /tmp/os-openid-connect-<version>.pkg
 pkg add /tmp/os-openid-connect-<version>.pkg
 ```
 
-`pkg` checks nothing about a file handed to it directly, so a release carries a
-`.sha256` next to the package, and a signature where a release key is
-configured. [`packaging/README.md`](packaging/README.md) says how to check both.
+Direct `pkg add` does not establish publisher trust. Releases may therefore be
+unsigned until a project release key exists; in that case verify the checksum
+against a trusted copy of the release page, or build from a reviewed commit.
+This is documented in [packaging/README.md](packaging/README.md).
 
-No restart, no service touched — PHP reads the files on the next request. The
-only runtime dependency beyond OPNsense itself is `phpseclib3`, which OPNsense
-already ships.
+No restart is required. To remove the plugin:
 
-Building it yourself needs neither FreeBSD nor `pkg`: `packaging/build.py`
-writes the package with nothing but the Python standard library. The version
-comes from the git tag, so it is stated in exactly one place. See
-[`packaging/README.md`](packaging/README.md) for that, for the watchdog that
-fetches the login page every night, and for the way back.
+```sh
+pkg delete os-openid-connect
+```
 
-The watchdog has nothing to configure. Findings go to the system log, and to
-`root` by mail where the machine has a mail transport — OPNsense ships none, so
-that means `os-postfix` or another package. Where to send root's mail is that
-package's own question, and asking it twice would not help.
+Settings remain in `/conf/config.xml`; the local password login remains usable.
 
-## Tests
+## Configure
 
-    ./tests/run.sh
+Under **System > Access > Servers**, add a server of type **OpenID Connect**.
+Start with these fields:
 
-Syntax for every language in the tree, behaviour checks against stand-ins for
-the OPNsense classes, what a commit message may be, and checks on the package
-that gets built — including that nothing of whoever built it travels along with
-it. No Composer, no PHPUnit, no network, no OPNsense needed. See
-[`tests/README.md`](tests/README.md) for what is covered and what deliberately
-is not, and [`CONTRIBUTING.md`](CONTRIBUTING.md) for the shape a commit message
-has and why the release note depends on it.
+| Field | Value |
+|---|---|
+| Provider profile | the named provider, or Generic OpenID Connect |
+| Application code | a unique URL-safe identifier such as `authentik-main` |
+| Exact issuer URL | the exact issuer, including any trailing slash |
+| Client ID / Client Secret | credentials of a confidential web client |
+| WebGUI address policy | follows OPNsense names, actual local addresses, virtual IPs and WebGUI port by default; optional additions or an exact provider-specific replacement remain available |
+| WebGUI transport | native HTTPS required by default; an HTTP backend needs an explicit trusted-proxy exception with exact custom public HTTPS origins |
+| Username claim | keep the profile default unless the provider guide differs |
+| Claims source | Automatic normally; force ID Token or UserInfo only when needed |
+| Admission policy | Administrator approval for named profiles; Strict for Generic |
+| Identity manager | after saving, map exact issuer/`sub` identities to existing local accounts and review pending approvals |
+| Login button wording | localized OPNsense sentence, provider label only or an exact custom text; fixed global services use their familiar short name |
+| Icon URL | named profiles start with a package-owned SVG; replace it only for installation-specific branding |
+
+The form displays the exact URLs to register. For application code `main` they
+have this shape:
+
+```text
+https://firewall.example.com/api/openidconnect/auth/callback/main
+https://firewall.example.com/
+https://firewall.example.com/api/openidconnect/auth/backchannel/main
+https://firewall.example.com/api/openidconnect/auth/frontchannel/main
+```
+
+Use exact callback URLs at the provider; do not use wildcards. Saving is
+independent of testing. Keep the server disabled, save it, run **Test
+discovery** and the non-mutating **Test sign-in**, then complete local identity
+policy before offering it on the login page. OPNsense's generic **System >
+Access > Tester** accepts username/password connectors only and cannot exercise
+OIDC browser redirects.
+
+## Architecture
+
+Network and protocol handling, verified claims, local identity resolution,
+session creation, logout indexing, UI integration and package monitoring are
+separate components. [Architecture](docs/reference/architecture.md) describes their trust
+boundaries and data flow.
+
+## Commercial OPNsense comparison
+
+The official implementation is a Business Edition feature and covers WebGUI,
+Captive Portal and OPNWAF. This plugin intentionally covers only the WebGUI and
+goes deeper there with provider profiles, explicit origin policy, stable
+issuer/subject bindings and documented protocol controls. The evidence-based
+comparison is in [commercial-comparison.md](docs/reference/commercial-comparison.md); an
+undocumented commercial feature is marked “not documented”, never assumed
+absent.
+
+## Test and build
+
+```sh
+./tests/run.sh
+python3 packaging/build.py
+```
+
+The suite checks syntax, protocol behaviour, identity and group policy, package
+contents and release conventions without Composer or network access. Real
+OPNsense integration remains a separate release gate; see
+[tests/README.md](tests/README.md) and [SUPPORT.md](SUPPORT.md).
 
 ## Licence
 
-BSD-2-Clause, see [`LICENSE`](LICENSE). One third-party file is bundled under
-Apache-2.0; its provenance and update rules are in
-[`packaging/VENDOR.md`](packaging/VENDOR.md).
-
-[core6110]: https://github.com/opnsense/core/issues/6110
-[core532]: https://openid.net/specs/openid-connect-core-1_0.html#UserInfoResponse
-[core3137]: https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation
-[jumbojett]: https://github.com/jumbojett/OpenID-Connect-PHP
+BSD-2-Clause, see [LICENSE](LICENSE). No third-party OIDC library is bundled.
+Runtime signature verification uses the phpseclib package already supplied by
+OPNsense.

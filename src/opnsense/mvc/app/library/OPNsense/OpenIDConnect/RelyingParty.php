@@ -7,577 +7,581 @@
 
 namespace OPNsense\OpenIDConnect;
 
-require_once __DIR__ . '/OpenIDConnectClient.php';
-
-use Jumbojett\OpenIDConnectClient;
-use Jumbojett\OpenIDConnectClientException;
 use OPNsense\Auth\OpenIDConnect;
 use OPNsense\Mvc\Controller;
 use OPNsense\Mvc\Request;
-use OPNsense\Mvc\Response;
 use OPNsense\Mvc\Session;
 
-/**
- * This firewall in its role as the relying party of an OpenID Connect exchange.
- *
- * The protocol itself is handled by the bundled Jumbojett client (Apache-2.0, see
- * VENDOR.md); this class is the seam between that client and OPNsense - its session, its
- * request and its response - and the place where the checks the library leaves to its
- * caller are made.
- *
- * Those checks are not settings. They are what the protocol asks for, and an installation
- * does not get to differ on them:
- *
- *  - the signature algorithm is decided here and not by the token's own header
- *  - an id_token without a usable exp, or with the wrong nonce, is refused
- *  - a token made out to several audiences has to name this firewall as the party it was
- *    issued for
- *  - the answer has to carry the state this firewall issued before any of it is acted on,
- *    the code included
- *  - the UserInfo response is bound to the id_token by its subject
- *  - every address the provider names is fetched over http or https and nothing else
- *  - PKCE is requested, and no call to the provider may hang the web interface
- */
-class RelyingParty extends OpenIDConnectClient
+/** A focused OpenID Connect relying party for OPNsense WebGUI sessions. */
+class RelyingParty
 {
-    /**
-     * Asymmetric only. HS* keys the signature with the client secret, which is a different
-     * trust model - and since the algorithm is named in the attacker-supplied token
-     * header, the acceptable set has to be decided on this side.
-     */
-    public const SIGNING_ALGORITHMS = ['RS256', 'RS384', 'RS512', 'PS256', 'PS512'];
+    public const SIGNING_ALGORITHMS = JwtVerifier::ALGORITHMS;
+    public const REQUEST_TIMEOUT = HttpClient::TOTAL_TIMEOUT;
+    public const TRANSACTION_LIFETIME = 600;
+    public const MAX_TRANSACTIONS = 5;
 
-    /**
-     * Claims that carry the protocol rather than the person. They are verified where they
-     * belong and are of no use in deciding which local account someone is, so they are
-     * kept out of the claim set handed on.
-     */
+    private const TRANSACTIONS = 'openidconnect_transactions_v2';
+    private const TOKEN_MAX_BYTES = 1048576;
+    private const USERINFO_MAX_BYTES = 1048576;
     private const PROTOCOL_CLAIMS = [
-        'iss', 'aud', 'exp', 'iat', 'nbf', 'jti', 'nonce',
-        'at_hash', 'c_hash', 'azp', 'sid', 'typ', 'auth_time', 'acr', 'amr',
+        'iss', 'aud', 'exp', 'iat', 'nbf', 'jti', 'nonce', 'at_hash', 'c_hash',
+        'azp', 'sid', 'typ', 'auth_time', 'acr', 'amr',
     ];
-
-    /** seconds; nothing the provider does should be able to hold the interface open */
-    public const REQUEST_TIMEOUT = 15;
-
-    /**
-     * A name, an address or a bracketed IPv6 address, with an optional port - what a Host
-     * header is allowed to look like. Anything else is somebody making one value out of
-     * two, and the callback address is built from this.
-     */
     private const HOST_HEADER = '/^(?:[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?'
         . '(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?)*\.?'
         . '|\[[0-9A-Fa-f:.]+\])(?::[0-9]{1,5})?$/';
 
-    private static bool $autoloaderReady = false;
-
     private OpenIDConnect $settings;
     private Session $session;
     private Request $request;
-    private Response $response;
+    private $response;
+    private HttpClient $http;
+    private JwtVerifier $verifier;
+    private string $redirectUri;
+    private ?ProviderMetadata $metadata = null;
+    /** @var array<string,mixed> */
+    private array $tokens = [];
+    /** @var array<string,mixed> */
+    private array $idTokenClaims = [];
 
-    /** set once the local session is gone, so that nothing writes a new one into being */
-    private bool $sessionSealed = false;
-
-    public function __construct(OpenIDConnect $settings, Controller $controller)
+    public function __construct(OpenIDConnect $settings, Controller $controller, ?HttpClient $http = null)
     {
-        self::prepareAutoloader();
-
-        parent::__construct($settings->issuerUrl(), $settings->clientId(), $settings->clientSecret());
-
         $this->settings = $settings;
         $this->session = $controller->session;
         $this->request = $controller->request;
         $this->response = $controller->response;
+        $this->http = $http ?? new HttpClient();
+        $this->verifier = new JwtVerifier($this->http);
 
-        $redirectUri = static::acceptedRedirectUri($settings, $controller->request);
-        if ($redirectUri === null) {
-            throw new OpenIDConnectClientException(sprintf(
-                'This firewall does not accept %s as a redirect URI',
-                static::intendedRedirectUri($controller->request)
-            ));
+        $redirect = static::acceptedRedirectUri($settings, $controller->request);
+        if ($redirect === null) {
+            throw new ProtocolException('This WebGUI origin is not accepted for OpenID Connect');
         }
-        $this->setRedirectURL($redirectUri);
-
-        $this->addScope($settings->scopes());
-        $this->setTimeout(self::REQUEST_TIMEOUT);
-
-        /* applied only when the provider advertises it, so asking is always safe */
-        $this->setCodeChallengeMethod('S256');
-
-        $maximumAge = $settings->maximumAuthenticationAge();
-        if ($maximumAge > 0) {
-            $this->addAuthParam(['max_age' => $maximumAge]);
-        }
-
-        $settings->trace(sprintf(
-            'exchange prepared for %s, returning to %s, scopes %s, max_age %s, token auth %s',
-            $settings->issuerUrl(),
-            $redirectUri,
-            implode('+', $settings->scopes()),
-            $maximumAge > 0 ? (string)$maximumAge : 'unset',
-            $settings->tokenAuthMethod() ?? 'as advertised'
-        ));
+        $this->redirectUri = $redirect;
     }
 
-    /**
-     * Decide how this firewall authenticates at the token endpoint.
-     *
-     * The library asks whether a method is acceptable to both sides, which is the right
-     * default. An installation may insist instead, for the one case that default cannot
-     * handle: a provider that advertises a method it does not actually accept.
-     */
-    public function supportsAuthMethod(string $auth_method, array $advertised): bool
+    public static function callbackPath(string $applicationCode): string
     {
-        $insisted = $this->settings->tokenAuthMethod();
-        if ($insisted !== null) {
-            return $auth_method === $insisted;
+        return OpenIDConnect::CALLBACK_PATH . '/' . rawurlencode($applicationCode);
+    }
+
+    public static function intendedOrigin(Request $request, bool $trustedTlsOffloading = false): string
+    {
+        $host = $request->getHeader('HOST');
+        if (!preg_match(self::HOST_HEADER, $host)) {
+            throw new ProtocolException('The request Host header is not a host name');
+        }
+        $scheme = strtolower($request->getScheme());
+        if ($scheme !== 'https' && !($trustedTlsOffloading && $scheme === 'http')) {
+            throw new ProtocolException('OpenID Connect is only available through an HTTPS WebGUI');
         }
 
-        return parent::supportsAuthMethod($auth_method, $advertised);
+        /* In the offloading exception the exact accepted public origin, not a forwarded
+         * header supplied by the request, is the authority for rendering HTTPS. */
+        return 'https://' . $host;
     }
 
-    /* ------------------------------------------------------------ redirect target */
-
-    /**
-     * @return string the callback address implied by the name the browser used
-     */
-    public static function intendedRedirectUri(Request $request): string
+    public static function intendedRedirectUri(OpenIDConnect $settings, Request $request): string
     {
-        return $request->getScheme() . '://' . $request->getHeader('HOST') . OpenIDConnect::CALLBACK_PATH;
+        return static::intendedOrigin($request, $settings->usesTrustedTlsOffloading())
+            . static::callbackPath($settings->applicationCode());
     }
 
-    /**
-     * Pick this request's callback address out of the configured list.
-     *
-     * An allow list rather than a single pinned address: a firewall reachable under
-     * several names keeps working, while a name that is not listed is refused instead of
-     * being sent off to finish somewhere it has no session.
-     *
-     * An empty list accepts nothing. Building the address from the Host header instead
-     * would hand whoever asked the address this firewall then names to the provider as
-     * its redirect_uri - leaving nothing but the provider's own strictness between a
-     * browser and finishing somewhere else with a code in hand. Refusing costs an
-     * installation that has not filled the field in one error page saying what to enter,
-     * and signing in with a username and password is not affected either way.
-     *
-     * @return string|null null when the browser arrived under a name that is not accepted
-     */
     public static function acceptedRedirectUri(OpenIDConnect $settings, Request $request): ?string
     {
-        /* whatever else happens, the name the browser used has to be a name */
-        if (!preg_match(self::HOST_HEADER, $request->getHeader('HOST'))) {
-            syslog(LOG_NOTICE, 'OIDC: refusing a login begun under a Host header that is not a host name');
+        try {
+            $origin = static::intendedOrigin($request, $settings->usesTrustedTlsOffloading());
+        } catch (ProtocolException $e) {
+            syslog(LOG_NOTICE, 'OIDC: refusing a login begun under an invalid WebGUI origin');
             return null;
         }
-
-        $accepted = $settings->acceptedRedirectUrls();
-        if ($accepted === []) {
-            syslog(LOG_ERR, 'OIDC: refusing a login, this server has no accepted redirect URLs configured');
-            return null;
+        if ($settings->acceptsWebGuiOrigin($origin)) {
+            return $origin . static::callbackPath($settings->applicationCode());
         }
-
-        $intended = static::intendedRedirectUri($request);
-
-        foreach ($accepted as $candidate) {
-            if (strcasecmp(rtrim($candidate, '/'), rtrim($intended, '/')) === 0) {
-                return $candidate;
-            }
-        }
-
         return null;
     }
 
-    /**
-     * @return string scheme://host[:port] of this firewall, as the provider knows it
-     */
-    public function ownOrigin(): string
+    /** Begin a normal login transaction and redirect to the authorization endpoint. */
+    public function begin(string $providerName, string $target): void
     {
-        $parts = parse_url((string)$this->getRedirectURL());
-        if (!empty($parts['scheme']) && !empty($parts['host'])) {
-            return $parts['scheme'] . '://' . $parts['host']
-                . (empty($parts['port']) ? '' : ':' . $parts['port']);
-        }
-
-        return $this->request->getScheme() . '://' . $this->request->getHeader('HOST');
+        $this->response->redirect($this->authorizationUrl($providerName, $target));
     }
 
-    /* ----------------------------------------------------------------- the checks */
-
     /**
-     * Check the state before the answer is acted on at all.
+     * Prepare an authorization transaction and return the provider address.
      *
-     * The library checks it too, but only after it has handed the code to the token
-     * endpoint - so an answer that was never asked for here gets a code redeemed for it
-     * first. Nothing is granted by that, but a firewall should not spend a round trip on
-     * a request it can already tell is not one of its own.
+     * The authenticated sign-in tester needs the address as JSON so its form can first
+     * pass normal WebGUI CSRF protection and only then navigate the browser. A normal
+     * login uses the same method through begin(), keeping both paths protocol-identical.
      */
-    public function authenticate(): bool
+    public function authorizationUrl(string $providerName, string $target, bool $testOnly = false): string
     {
-        if (isset($_REQUEST['code']) || isset($_REQUEST['id_token'])) {
-            $issued = $this->getState();
-            $returned = $_REQUEST['state'] ?? null;
+        $metadata = $this->discoverMetadata();
+        $pkceMethods = $metadata->get('code_challenge_methods_supported', []);
+        if (is_array($pkceMethods) && $pkceMethods !== [] && !in_array('S256', $pkceMethods, true)) {
+            throw new ProtocolException('The provider explicitly advertises no PKCE S256 support');
+        }
+        $responseModes = $metadata->get('response_modes_supported', []);
+        if (is_array($responseModes) && $responseModes !== []
+            && !in_array($this->settings->responseMode(), $responseModes, true)) {
+            throw new ProtocolException('The selected authorization response mode is not advertised');
+        }
+        $formPost = $this->settings->responseMode() === 'form_post';
+        $state = ($formPost ? 'p.' : '') . self::randomValue(32);
+        $nonce = self::randomValue(32);
+        $verifier = self::randomValue(64);
+        $challenge = JwtVerifier::base64UrlEncode(hash('sha256', $verifier, true));
 
-            if (!is_string($issued) || $issued === '' || !is_string($returned) || !hash_equals($issued, $returned)) {
-                throw new OpenIDConnectClientException('The answer does not carry the state this firewall issued');
-            }
+        $transaction = [
+            'created' => time(),
+            'provider' => $providerName,
+            'app_code' => $this->settings->applicationCode(),
+            'target' => $target,
+            'purpose' => $testOnly ? 'test' : 'login',
+            'issuer' => $metadata->issuer(),
+            'redirect_uri' => $this->redirectUri,
+            'nonce' => $nonce,
+            'code_verifier' => $verifier,
+            'metadata' => $metadata->toArray(),
+        ];
+        if ($formPost) {
+            TransactionRegistry::store($state, $transaction);
+        } else {
+            $this->storeTransaction($state, $transaction);
         }
 
-        return parent::authenticate();
-    }
-
-    /**
-     * Decide on the algorithm before the library acts on what the token claims to be.
-     */
-    public function verifyJWTSignature(string $jwt): bool
-    {
-        $header = $this->decodeJWT($jwt, 0);
-        $algorithm = is_object($header) ? ($header->alg ?? null) : null;
-
-        if ($algorithm === null || !in_array($algorithm, $this->permittedAlgorithms(), true)) {
-            throw new OpenIDConnectClientException(sprintf(
-                'Refusing a token signed with %s',
-                $algorithm === null ? 'no stated algorithm' : $algorithm
-            ));
-        }
-
-        return parent::verifyJWTSignature($jwt);
-    }
-
-    /**
-     * @return string[] what the provider advertises, minus anything symmetric
-     */
-    private function permittedAlgorithms(): array
-    {
-        $advertised = $this->getProviderConfigValue('id_token_signing_alg_values_supported', []);
-        $permitted = is_array($advertised)
-            ? array_values(array_intersect($advertised, self::SIGNING_ALGORITHMS))
-            : [];
-
-        $this->settings->trace('accepting signatures: ' . implode(', ', $permitted ?: self::SIGNING_ALGORITHMS));
-
-        return $permitted ?: self::SIGNING_ALGORITHMS;
-    }
-
-    /**
-     * The library checks exp and nonce only where the claim happens to be present, so a
-     * token that simply leaves one out passes. Require both on the id_token.
-     *
-     * $accessToken is given exactly on the id_token path; a signed UserInfo response is
-     * verified with null, where neither claim belongs and the library already ties the
-     * subject to the id_token itself.
-     */
-    protected function verifyJWTClaims($claims, ?string $accessToken = null): bool
-    {
-        if (!parent::verifyJWTClaims($claims, $accessToken)) {
-            return false;
-        }
-
-        if ($accessToken === null) {
-            return true;
-        }
-
-        if (!isset($claims->exp) || !is_int($claims->exp)) {
-            syslog(LOG_ERR, 'OIDC: refusing an id_token that carries no usable expiry');
-            return false;
-        }
-
-        $nonce = $this->getNonce();
-        if (!empty($nonce)) {
-            if (!isset($claims->nonce) || !hash_equals((string)$nonce, (string)$claims->nonce)) {
-                syslog(LOG_ERR, 'OIDC: refusing an id_token whose nonce does not match the request');
-                return false;
-            }
-        }
-
-        if (!static::issuedForThisFirewall($claims, $this->getClientID())) {
-            syslog(LOG_ERR, 'OIDC: refusing an id_token issued for several audiences without naming this one');
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Whether a token made out to several audiences names this firewall as the one it was
-     * issued for.
-     *
-     * The library is satisfied when this firewall is among the audiences at all. Where
-     * there is more than one, OIDC Core 3.1.3.7 asks for azp as well and asks that it name
-     * the client - otherwise a token minted for another client at the same provider, with
-     * this one merely listed alongside it, would do.
-     *
-     * @param object $claims the id_token payload
-     */
-    public static function issuedForThisFirewall(object $claims, string $clientId): bool
-    {
-        $audiences = is_array($claims->aud ?? null) ? $claims->aud : [$claims->aud ?? null];
-        if (count($audiences) < 2) {
-            return true;
-        }
-
-        $party = $claims->azp ?? null;
-
-        return is_string($party) && hash_equals($clientId, $party);
-    }
-
-    /**
-     * OpenID Connect Core 5.3.2 asks that the subject of the UserInfo response match the
-     * subject of the id_token. The library enforces that for a signed response but not for
-     * the plain JSON one, which is the usual case - and the JSON response is what the
-     * local account is identified from, so the binding matters most exactly there.
-     */
-    public function requestUserInfo(?string $attribute = null)
-    {
-        $reported = parent::requestUserInfo(null);
-        $this->assertSubjectBinding($reported);
-        $claims = $this->withIdTokenClaims($reported);
-
-        if ($attribute === null) {
-            return $claims;
-        }
-
-        return property_exists($claims, $attribute) ? $claims->$attribute : null;
-    }
-
-    /**
-     * Hand on what the id_token says as well as what UserInfo says.
-     *
-     * Providers disagree about where a claim belongs. Microsoft Entra ID is the clearest
-     * case: its UserInfo response can only ever carry sub, name, family_name, given_name,
-     * picture and email - preferred_username is in the id_token and nowhere else, and
-     * Microsoft's own advice is to read the id_token rather than call UserInfo. Others go
-     * the other way: Zitadel leaves the profile claims out of the id_token unless asked,
-     * and Keycloak returns custom claims from UserInfo only.
-     *
-     * Taking both is safe here because both have been verified: the id_token by signature,
-     * issuer, audience, nonce and expiry, and the UserInfo response by its subject matching
-     * that id_token. Where they overlap UserInfo wins - it is the endpoint made for this,
-     * and it answers with what is true now rather than what was true when the token was
-     * signed.
-     */
-    private function withIdTokenClaims(object $reported): object
-    {
-        $merged = new \stdClass();
-
-        foreach ((array)($this->getIdTokenPayload() ?? new \stdClass()) as $name => $value) {
-            if (!in_array($name, self::PROTOCOL_CLAIMS, true)) {
-                $merged->{$name} = $value;
-            }
-        }
-
-        $fromUserInfo = [];
-        foreach ((array)$reported as $name => $value) {
-            $merged->{$name} = $value;
-            $fromUserInfo[] = $name;
+        $parameters = [
+            'response_type' => 'code',
+            'client_id' => $this->settings->clientId(),
+            'redirect_uri' => $this->redirectUri,
+            'scope' => implode(' ', $this->settings->scopes()),
+            'state' => $state,
+            'nonce' => $nonce,
+            'code_challenge' => $challenge,
+            'code_challenge_method' => 'S256',
+        ];
+        /* max_age=0 is meaningful: OIDC Core defines it as active re-authentication. */
+        $parameters['max_age'] = (string)$this->settings->maximumAuthenticationAge();
+        if ($this->settings->responseMode() === 'form_post') {
+            $parameters['response_mode'] = 'form_post';
         }
 
         $this->settings->trace(sprintf(
-            'claims: %s from UserInfo, %d in total after adding the id_token',
-            implode(', ', $fromUserInfo) ?: 'none',
-            count((array)$merged)
+            'exchange prepared for exact issuer %s, callback %s, PKCE S256, response mode %s',
+            $metadata->issuer(),
+            $this->redirectUri,
+            $this->settings->responseMode()
         ));
-
-        return $merged;
+        $separator = str_contains($metadata->authorizationEndpoint(), '?') ? '&' : '?';
+        return $metadata->authorizationEndpoint() . $separator
+            . http_build_query($parameters, '', '&', PHP_QUERY_RFC3986);
     }
 
-    /**
-     * @throws OpenIDConnectClientException when the two subjects disagree
-     */
-    private function assertSubjectBinding($claims): void
+    /** @param array<string,mixed> $parameters @return array<string,mixed> */
+    public static function consumeTransaction(Session $session, array $parameters, string $applicationCode): array
     {
-        $signed = $this->getIdTokenPayload()->sub ?? null;
-        $reported = is_object($claims) ? ($claims->sub ?? null) : null;
+        $state = $parameters['state'] ?? null;
+        if (!is_string($state) || $state === '' || strlen($state) > 512) {
+            throw new ProtocolException('The authorization response carries no usable state');
+        }
+        $transactions = self::readTransactions($session);
+        $transaction = $transactions[$state] ?? null;
+        if ($transaction === null && str_starts_with($state, 'p.')) {
+            return TransactionRegistry::consume($state, $applicationCode);
+        }
+        if (!is_array($transaction) || !is_int($transaction['created'] ?? null)
+            || $transaction['created'] < time() - self::TRANSACTION_LIFETIME
+            || !is_string($transaction['app_code'] ?? null)
+            || !hash_equals($applicationCode, $transaction['app_code'])) {
+            throw new ProtocolException('The authorization response does not match a pending login');
+        }
+        unset($transactions[$state]);
+        self::writeTransactions($session, $transactions);
 
-        if ($signed !== null && $reported !== null && hash_equals((string)$signed, (string)$reported)) {
-            $this->settings->trace('UserInfo response is bound to the id_token');
-            return;
+        return $transaction;
+    }
+
+    /** @param array<string,mixed> $transaction @param array<string,mixed> $parameters */
+    public function complete(array $transaction, array $parameters): object
+    {
+        $this->metadata = ProviderMetadata::fromArray((array)$transaction['metadata']);
+        if (!hash_equals($this->metadata->issuer(), (string)$transaction['issuer'])
+            || !hash_equals($this->redirectUri, (string)$transaction['redirect_uri'])) {
+            throw new ProtocolException('The login transaction no longer matches this provider');
         }
 
-        /* says present or missing rather than the values, which identify a person */
-        $detail = sprintf(
-            'id_token subject %s, UserInfo subject %s',
-            $signed === null ? 'missing' : 'present',
-            $reported === null ? 'missing' : 'present'
+        $responseIssuer = $parameters['iss'] ?? null;
+        if ($responseIssuer !== null
+            && (!is_string($responseIssuer) || !$this->responseIssuerMatches($responseIssuer))) {
+            throw new ProtocolException('The authorization response came from a different issuer');
+        }
+        if ($this->metadata->authorizationResponseIssuerSupported() && $responseIssuer === null) {
+            throw new ProtocolException('The authorization response omitted its advertised issuer');
+        }
+        if (isset($parameters['error'])) {
+            $error = is_string($parameters['error']) && preg_match('/^[A-Za-z0-9_.-]{1,80}$/D', $parameters['error'])
+                ? $parameters['error'] : 'provider_error';
+            throw new ProtocolException('The identity provider declined the request (' . $error . ')');
+        }
+        $code = $parameters['code'] ?? null;
+        if (!is_string($code) || $code === '' || strlen($code) > 16384 || preg_match('/[\x00-\x1f\x7f]/', $code)) {
+            throw new ProtocolException('The authorization response carries no usable code');
+        }
+
+        $this->tokens = $this->exchangeCode($code, (string)$transaction['code_verifier']);
+        $idToken = $this->tokens['id_token'] ?? null;
+        if (!is_string($idToken) || $idToken === '') {
+            throw new ProtocolException('The token endpoint returned no ID token');
+        }
+        $accessToken = is_string($this->tokens['access_token'] ?? null) ? $this->tokens['access_token'] : null;
+        $issuerValidator = $this->settings->discoveryIssuerTemplate() === null ? null
+            : fn(array $claims, array $key) => $this->settings->validateMicrosoftIssuer($claims, $key);
+        $verified = $this->verifier->verify(
+            $idToken,
+            $this->metadata,
+            $this->settings->clientId(),
+            (string)$transaction['nonce'],
+            $accessToken,
+            $issuerValidator
         );
-        syslog(LOG_ERR, "OIDC: refusing a login, the UserInfo response is not bound to the id_token ($detail)");
+        $this->idTokenClaims = $verified['claims'];
 
-        throw new OpenIDConnectClientException('The UserInfo subject does not match the id_token subject');
+        return $this->claimsForAccount($accessToken);
     }
 
-    /**
-     * @return int|null when the provider says it last authenticated this person
-     */
-    public function authenticationTime(): ?int
+    /** @return array<string,mixed> */
+    private function exchangeCode(string $code, string $verifier): array
     {
-        $authTime = $this->getIdTokenPayload()->auth_time ?? null;
-
-        return is_int($authTime) ? $authTime : null;
-    }
-
-    /**
-     * Fetch something over the web, and nothing but the web.
-     *
-     * Both endpoints that reach out from this plugin want the same thing: http or https,
-     * a bounded time, a bounded size and a handful of redirects. Written once, because
-     * the protocol allow list is the point of it and a second copy is a second place to
-     * remember when the next option is added.
-     *
-     * The size is judged while the body arrives rather than afterwards. CURLOPT_MAXFILESIZE
-     * only bites when a length is announced, so an answer that announces none would be
-     * entirely in memory by the time anyone measured it - on an endpoint that answers
-     * before anyone has signed in.
-     *
-     * @return array{ok: bool, body: string, status: int, type: string, problem: string}
-     */
-    public static function fetchOverWeb(string $url, int $maxBytes): array
-    {
-        $body = '';
-        $handle = curl_init($url);
-        curl_setopt_array($handle, [
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_MAXREDIRS => 3,
-            /* curl speaks file://, ftp:// and more; this is for what the web serves */
-            CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
-            CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
-            CURLOPT_CONNECTTIMEOUT => self::REQUEST_TIMEOUT,
-            CURLOPT_TIMEOUT => self::REQUEST_TIMEOUT,
-            CURLOPT_MAXFILESIZE => $maxBytes,
-            CURLOPT_WRITEFUNCTION => function ($handle, string $chunk) use (&$body, $maxBytes): int {
-                $body .= $chunk;
-
-                /* a short count is how libcurl is told to give up on a transfer */
-                return strlen($body) > $maxBytes ? 0 : strlen($chunk);
-            },
-        ]);
-
-        $answer = [
-            'ok' => curl_exec($handle) !== false,
-            'body' => $body,
-            'status' => (int)curl_getinfo($handle, CURLINFO_HTTP_CODE),
-            /* "image/svg+xml; charset=utf-8" is the same thing as "image/svg+xml" */
-            'type' => strtolower(trim(explode(';', (string)curl_getinfo($handle, CURLINFO_CONTENT_TYPE))[0])),
-            'problem' => curl_error($handle),
+        $fields = [
+            'grant_type' => 'authorization_code',
+            'code' => $code,
+            'redirect_uri' => $this->redirectUri,
+            'client_id' => $this->settings->clientId(),
+            'code_verifier' => $verifier,
         ];
-        /* no curl_close(): it has done nothing since PHP 8.0 and says so since 8.5 */
-        unset($handle);
-
-        return $answer;
-    }
-
-    /**
-     * Everything the provider names is fetched over the web and nothing else.
-     *
-     * The token, UserInfo, jwks and revocation addresses all come out of the discovery
-     * document, which is the provider's to write. curl speaks file://, ftp:// and more,
-     * so the scheme is decided on this side rather than over there.
-     */
-    protected function fetchURL(string $url, ?string $post_body = null, array $headers = [])
-    {
-        if (!OpenIDConnect::isFetchableUrl($url)) {
-            throw new OpenIDConnectClientException('The provider names an address this firewall will not fetch');
+        $headers = ['Accept: application/json'];
+        $method = $this->tokenAuthMethod();
+        if ($method === 'client_secret_basic') {
+            $credentials = urlencode($this->settings->clientId()) . ':' . urlencode($this->settings->clientSecret());
+            $headers[] = 'Authorization: Basic ' . base64_encode($credentials);
+        } elseif ($method === 'client_secret_post') {
+            $fields['client_secret'] = $this->settings->clientSecret();
+        } else {
+            throw new ProtocolException('No supported token endpoint authentication method is available');
         }
 
-        return parent::fetchURL($url, $post_body, $headers);
+        $response = $this->http->postForm($this->metadata->tokenEndpoint(), $fields, self::TOKEN_MAX_BYTES, $headers);
+        if ($response->status !== 200) {
+            throw new ProtocolException(sprintf('The token endpoint returned HTTP %d', $response->status));
+        }
+        if ($response->contentType !== 'application/json') {
+            throw new ProtocolException('The token endpoint did not return application/json');
+        }
+        $tokens = $response->jsonObject();
+        if (count($tokens) > 32) {
+            throw new ProtocolException('The token endpoint returned too many fields');
+        }
+        foreach (['id_token', 'access_token', 'refresh_token'] as $tokenName) {
+            if (isset($tokens[$tokenName])
+                && (!is_string($tokens[$tokenName]) || $tokens[$tokenName] === ''
+                    || strlen($tokens[$tokenName]) > JwtVerifier::MAX_JWT_BYTES
+                    || preg_match('/[\x00-\x1f\x7f]/', $tokens[$tokenName]))) {
+                throw new ProtocolException(sprintf('The token endpoint returned an invalid %s', $tokenName));
+            }
+        }
+        if (isset($tokens['access_token']) && !isset($tokens['token_type'])) {
+            throw new ProtocolException('The token endpoint omitted the access token type');
+        }
+        if (isset($tokens['token_type'])
+            && (!is_string($tokens['token_type']) || strcasecmp($tokens['token_type'], 'Bearer') !== 0)) {
+            throw new ProtocolException('The token endpoint returned an unsupported token type');
+        }
+
+        return $tokens;
     }
 
-    /* --------------------------------------------------------- OPNsense plumbing */
-
-    /**
-     * The authorization and end_session addresses come from the provider as well, and
-     * this one ends up in a Location header rather than in a request of ours.
-     */
-    public function redirect(string $url)
+    private function tokenAuthMethod(): string
     {
-        if (!OpenIDConnect::isFetchableUrl($url)) {
-            throw new OpenIDConnectClientException(
-                'The provider names an address this firewall will not send anyone to'
+        $configured = $this->settings->tokenAuthMethod();
+        $advertised = $this->metadata->get('token_endpoint_auth_methods_supported', ['client_secret_basic']);
+        $advertised = is_array($advertised) ? $advertised : [];
+        if ($configured !== null) {
+            return $configured;
+        }
+        foreach (['client_secret_basic', 'client_secret_post'] as $method) {
+            if (in_array($method, $advertised, true)) {
+                return $method;
+            }
+        }
+
+        throw new ProtocolException('The provider offers no supported token endpoint authentication method');
+    }
+
+    private function claimsForAccount(?string $accessToken): object
+    {
+        $source = $this->settings->claimsSource();
+        $claims = $this->personClaims($this->idTokenClaims);
+        $required = array_filter([
+            $this->settings->usernameClaim(),
+            $this->settings->emailMatching() === 'off' ? null : 'email',
+            $this->settings->groupClaim() ?: null,
+        ]);
+        $missing = array_filter($required, fn(string $name): bool => !array_key_exists($name, $claims));
+        $endpoint = $this->metadata->userInfoEndpoint();
+        $callUserInfo = $source === 'userinfo'
+            || ($source === 'auto' && $endpoint !== null && $missing !== []);
+
+        if ($callUserInfo) {
+            if ($endpoint === null || $accessToken === null) {
+                throw new ProtocolException('The configured claims source needs UserInfo, but none is available');
+            }
+            $reported = $this->requestUserInfo($endpoint, $accessToken);
+            $signedSubject = $this->idTokenClaims['sub'];
+            if (!is_string($reported['sub'] ?? null) || !hash_equals($signedSubject, $reported['sub'])) {
+                throw new ProtocolException('The UserInfo subject does not match the ID token subject');
+            }
+            $claims = array_replace($claims, $this->personClaims($reported));
+        }
+        if (count($claims) > 256) {
+            throw new ProtocolException('The provider returned too many claims');
+        }
+        $groupClaim = $this->settings->groupClaim();
+        if ($this->settings->providerProfile() === 'entra' && $groupClaim !== ''
+            && !array_key_exists($groupClaim, $claims)
+            && ($this->idTokenClaims['hasgroups'] ?? false) === true) {
+            throw new ProtocolException(
+                'Microsoft Entra group overage omitted the configured claim; use application roles or a filtered group claim'
+            );
+        }
+        if ($this->settings->providerProfile() === 'entra' && $groupClaim !== ''
+            && !array_key_exists($groupClaim, $claims)
+            && is_array($this->idTokenClaims['_claim_names'] ?? null)
+            && isset($this->idTokenClaims['_claim_names']['groups'])) {
+            throw new ProtocolException(
+                'Microsoft Entra group overage omitted the configured claim; use application roles or a filtered group claim'
             );
         }
 
-        $this->response->redirect($url);
+        return (object)$claims;
+    }
+
+    /** @return array<string,mixed> */
+    private function requestUserInfo(string $endpoint, string $accessToken): array
+    {
+        $response = $this->http->get(
+            $endpoint,
+            self::USERINFO_MAX_BYTES,
+            ['Authorization: Bearer ' . $accessToken, 'Accept: application/json, application/jwt']
+        );
+        if ($response->status !== 200) {
+            throw new ProtocolException(sprintf('UserInfo returned HTTP %d', $response->status));
+        }
+        if ($response->contentType === 'application/jwt') {
+            $claims = $this->verifier->verifySignedClaims($response->body, $this->metadata);
+            if (isset($claims['iss'])
+                && (!is_string($claims['iss']) || !$this->responseIssuerMatches($claims['iss']))) {
+                throw new ProtocolException('The signed UserInfo issuer does not match discovery');
+            }
+            if (isset($claims['aud']) && !self::audienceContains($claims['aud'], $this->settings->clientId())) {
+                throw new ProtocolException('The signed UserInfo response was not issued to this client');
+            }
+            return $claims;
+        }
+        if ($response->contentType !== 'application/json') {
+            throw new ProtocolException('UserInfo did not return application/json or application/jwt');
+        }
+        return $response->jsonObject();
+    }
+
+    /** @param array<string,mixed> $claims @return array<string,mixed> */
+    private function personClaims(array $claims): array
+    {
+        $result = [];
+        foreach ($claims as $name => $value) {
+            if (!is_string($name) || strlen($name) > 128 || in_array($name, self::PROTOCOL_CLAIMS, true)) {
+                continue;
+            }
+            $result[$name] = $value;
+        }
+        $result['sub'] = $claims['sub'];
+        return $result;
+    }
+
+    public function revokeToken(string $token, string $hint = ''): void
+    {
+        $this->metadata ??= $this->discoverMetadata();
+        $endpoint = $this->metadata->revocationEndpoint();
+        if ($endpoint === null) {
+            return;
+        }
+        $fields = ['token' => $token, 'client_id' => $this->settings->clientId()];
+        if ($hint !== '') {
+            $fields['token_type_hint'] = $hint;
+        }
+        $headers = [];
+        if ($this->tokenAuthMethod() === 'client_secret_basic') {
+            $credentials = urlencode($this->settings->clientId()) . ':' . urlencode($this->settings->clientSecret());
+            $headers[] = 'Authorization: Basic ' . base64_encode($credentials);
+        } else {
+            $fields['client_secret'] = $this->settings->clientSecret();
+        }
+        $response = $this->http->postForm($endpoint, $fields, 262144, $headers);
+        if (!in_array($response->status, [200, 204], true)) {
+            throw new ProtocolException(sprintf('Token revocation returned HTTP %d', $response->status));
+        }
     }
 
     /**
-     * Stop writing to the session, for good.
-     *
-     * Called once the local session has been destroyed: the framework flushes what was
-     * written to the session on the way out, and would start a fresh one to do it - which
-     * would hand the browser a new cookie moments after it was told to drop the old one.
-     * Nothing in the sign-out path writes today; sealing it means nothing has to keep
-     * checking that this is still true after the next library update.
+     * Freeze logout and revocation to the issuer that created the local session.
+     * This must run before any stored grant is sent over the network.
      */
-    public function sealSession(): void
+    public function requireIssuer(string $expected): void
     {
-        $this->sessionSealed = true;
+        $metadata = $this->discoverMetadata();
+        if (!$this->responseIssuerMatches($expected)) {
+            throw new ProtocolException('The configured issuer changed since this session was created');
+        }
+        $this->metadata = $metadata;
     }
 
-    /**
-     * The framework owns the php session: it copies the payload, closes the session so
-     * that concurrent requests are not locked out, and writes changes back on close. So
-     * there is nothing to start or commit here, and values pass through serialize()
-     * because the wrapper hands back strings and arrays only.
-     */
-    protected function startSession()
+    public function signOut(string $idToken, ?string $returnTo): void
     {
-    }
-
-    protected function commitSession()
-    {
-    }
-
-    protected function getSessionKey(string $key)
-    {
-        $stored = $this->session->get($key, null);
-
-        /* strings and arrays are all that is ever put in, so nothing else comes back out */
-        return $stored === null ? false : unserialize($stored, ['allowed_classes' => false]);
-    }
-
-    protected function setSessionKey(string $key, $value)
-    {
-        if ($this->sessionSealed) {
+        $this->metadata ??= $this->discoverMetadata();
+        $endpoint = $this->metadata->endSessionEndpoint();
+        if ($endpoint === null) {
+            $this->response->redirect($returnTo ?? '/');
             return;
         }
-
-        $this->session->set($key, serialize($value));
+        $parameters = ['id_token_hint' => $idToken];
+        if ($returnTo !== null) {
+            HttpClient::assertHttpsUrl($returnTo);
+            $parameters['post_logout_redirect_uri'] = $returnTo;
+        }
+        $separator = str_contains($endpoint, '?') ? '&' : '?';
+        $this->response->redirect($endpoint . $separator . http_build_query($parameters, '', '&', PHP_QUERY_RFC3986));
     }
 
-    protected function unsetSessionKey(string $key)
+    public function ownOrigin(): string { return (string)static::originOf($this->redirectUri); }
+    public function authenticationTime(): ?int
     {
-        if ($this->sessionSealed) {
-            return;
-        }
-
-        $this->session->remove($key);
+        $value = $this->idTokenClaims['auth_time'] ?? null;
+        return is_int($value) ? $value : null;
+    }
+    public function issuer(): string
+    {
+        return is_string($this->idTokenClaims['iss'] ?? null)
+            ? $this->idTokenClaims['iss'] : ($this->metadata?->issuer() ?? '');
+    }
+    public function subject(): string
+    {
+        return is_string($this->idTokenClaims['sub'] ?? null) ? $this->idTokenClaims['sub'] : '';
+    }
+    public function sessionIdentifier(): string
+    {
+        return is_string($this->idTokenClaims['sid'] ?? null) ? $this->idTokenClaims['sid'] : '';
+    }
+    public function getIdToken(): string
+    {
+        return is_string($this->tokens['id_token'] ?? null) ? $this->tokens['id_token'] : '';
+    }
+    public function getAccessToken(): string
+    {
+        return is_string($this->tokens['access_token'] ?? null) ? $this->tokens['access_token'] : '';
+    }
+    public function getRefreshToken(): string
+    {
+        return is_string($this->tokens['refresh_token'] ?? null) ? $this->tokens['refresh_token'] : '';
     }
 
-    /**
-     * phpseclib ships with OPNsense but without an autoloader, so one is registered for
-     * the two namespaces the bundled client reaches for. Once per request; registering
-     * per instance would pile up handlers for no gain.
-     */
-    private static function prepareAutoloader(): void
+    public static function issuedForThisFirewall(object $claims, string $clientId): bool
     {
-        if (self::$autoloaderReady) {
+        $audiences = is_string($claims->aud ?? null) ? [$claims->aud] : ($claims->aud ?? []);
+        if (!is_array($audiences) || !in_array($clientId, $audiences, true)) {
+            return false;
+        }
+        return count($audiences) < 2
+            || (is_string($claims->azp ?? null) && hash_equals($clientId, $claims->azp));
+    }
+
+    private static function audienceContains($audience, string $clientId): bool
+    {
+        $audiences = is_string($audience) ? [$audience] : $audience;
+        return is_array($audiences) && array_is_list($audiences)
+            && array_filter($audiences, 'is_string') === $audiences
+            && in_array($clientId, $audiences, true);
+    }
+
+    public static function fetchOverWeb(string $url, int $maxBytes): array
+    {
+        try {
+            $response = (new HttpClient())->get($url, $maxBytes, ['Accept: image/*, application/json']);
+            return ['ok' => true, 'body' => $response->body, 'status' => $response->status,
+                'type' => $response->contentType, 'problem' => ''];
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'body' => '', 'status' => 0, 'type' => '', 'problem' => $e->getMessage()];
+        }
+    }
+
+    /** @param array<string,mixed> $transaction */
+    private function storeTransaction(string $state, array $transaction): void
+    {
+        $transactions = self::readTransactions($this->session);
+        $transactions = array_filter($transactions, fn($item): bool => is_array($item)
+            && is_int($item['created'] ?? null)
+            && $item['created'] >= time() - self::TRANSACTION_LIFETIME);
+        while (count($transactions) >= self::MAX_TRANSACTIONS) {
+            array_shift($transactions);
+        }
+        $transactions[$state] = $transaction;
+        self::writeTransactions($this->session, $transactions);
+    }
+
+    /** @return array<string,array<string,mixed>> */
+    private static function readTransactions(Session $session): array
+    {
+        $stored = json_decode((string)$session->get(self::TRANSACTIONS, '{}'), true);
+        return is_array($stored) ? $stored : [];
+    }
+
+    /** @param array<string,array<string,mixed>> $transactions */
+    private static function writeTransactions(Session $session, array $transactions): void
+    {
+        if ($transactions === []) {
+            $session->remove(self::TRANSACTIONS);
             return;
         }
-        self::$autoloaderReady = true;
+        $session->set(self::TRANSACTIONS, json_encode($transactions, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+    }
 
-        foreach ([
-            'phpseclib3' => '/usr/local/share/phpseclib',
-            'ParagonIE\\ConstantTime' => '/usr/local/share/phpseclib/paragonie',
-        ] as $namespace => $directory) {
-            spl_autoload_register(static function (string $class) use ($namespace, $directory): void {
-                $prefix = trim($namespace, '\\') . '\\';
-                if (!str_starts_with($class, $prefix)) {
-                    return;
-                }
-                $file = $directory . '/' . str_replace('\\', '/', substr($class, strlen($prefix))) . '.php';
-                if (is_file($file)) {
-                    require_once $file;
-                }
-            });
+    private static function randomValue(int $bytes): string
+    {
+        return JwtVerifier::base64UrlEncode(random_bytes($bytes));
+    }
+
+    private static function originOf(string $url): ?string
+    {
+        try {
+            HttpClient::assertHttpsUrl($url);
+        } catch (ProtocolException $e) {
+            return null;
         }
+        $parts = parse_url($url);
+        return 'https://' . $parts['host'] . (isset($parts['port']) ? ':' . $parts['port'] : '');
+    }
+
+    private function discoverMetadata(): ProviderMetadata
+    {
+        return ProviderMetadata::discover(
+            $this->settings->issuerUrl(),
+            $this->http,
+            $this->settings->discoveryIssuerTemplate()
+        );
+    }
+
+    private function responseIssuerMatches(string $issuer): bool
+    {
+        return $this->settings->discoveryIssuerTemplate() === null
+            ? hash_equals($this->metadata?->issuer() ?? '', $issuer)
+            : $this->settings->acceptsMicrosoftIssuerValue($issuer);
     }
 }

@@ -12,7 +12,9 @@ second is the one nobody notices.
 """
 import importlib.util
 import pathlib
+import subprocess
 import sys
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "packaging"))
@@ -33,6 +35,7 @@ def load(name, path):
 
 
 notes = load("release_notes", ROOT / "packaging" / "release-notes.py")
+linter = load("commit_lint", ROOT / "packaging" / "commit-lint.py")
 
 
 def refusals(message):
@@ -48,6 +51,26 @@ def main():
     check("a scope with a slash in it", refusals("ci(forgejo/build): something"), [])
     check("a body under a blank line", refusals("fix: something\n\nBecause of a reason."), [])
     check("every type this project uses", [t for t in commits.TYPES if refusals(f"{t}: x")], [])
+
+    group("A pull request becomes one release-note commit")
+    request = {
+        "pull_request": {
+            "title": "feat(auth)!: require an admitted identity",
+            "body": "Why this is safer.\n\nBREAKING CHANGE: approve existing identities before upgrading.",
+        }
+    }
+    squashed = commits.Commit(linter.pull_request_message(request))
+    check("the title is the future commit header", squashed.header, request["pull_request"]["title"])
+    check("the description remains its body", squashed.body, request["pull_request"]["body"])
+    check("the future commit is accepted", squashed.problems(), [])
+    check("its upgrade instruction reaches the note", squashed.breaking_detail,
+          "approve existing identities before upgrading.")
+    try:
+        linter.pull_request_message({"pull_request": {"body": "nothing names this change"}})
+        missing_title = False
+    except ValueError:
+        missing_title = True
+    check("an event without a title is refused", missing_title, True)
 
     group("A message it refuses")
     check("no type at all", len(refusals("Something in plain prose")), 1)
@@ -109,6 +132,64 @@ def main():
     check("what git wrote itself stays out", "Merge branch" not in note, True)
 
     check("nothing to say says nothing", notes.changes([]), "")
+
+    group("Tags bound the release note")
+    with tempfile.TemporaryDirectory() as temporary:
+        repository = pathlib.Path(temporary)
+        subprocess.run(["git", "init", "-q", str(repository)], check=True)
+        subprocess.run(["git", "-C", str(repository), "config", "user.name", "Release Test"], check=True)
+        subprocess.run(
+            ["git", "-C", str(repository), "config", "user.email", "nobody@example.net"], check=True
+        )
+
+        change = repository / "change"
+        change.write_text("first\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(repository), "add", "change"], check=True)
+        subprocess.run(["git", "-C", str(repository), "commit", "-q", "-m", "feat: first"], check=True)
+        subprocess.run(["git", "-C", str(repository), "tag", "-a", "v1.0.0", "-m", "v1.0.0"], check=True)
+
+        change.write_text("second\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(repository), "commit", "-qam", "fix: second"], check=True)
+        subprocess.run(["git", "-C", str(repository), "tag", "-a", "v1.1.0", "-m", "v1.1.0"], check=True)
+
+        first_span, first_earlier = notes.span_for("v1.0.0", str(repository))
+        second_span, second_earlier = notes.span_for("v1.1.0", str(repository))
+        check("the first release starts with the history", first_span, "v1.0.0")
+        check("the first release names no predecessor", first_earlier, None)
+        check("the next release starts after the previous tag", second_span, "v1.0.0..v1.1.0")
+        check("the next release names its predecessor", second_earlier, "v1.0.0")
+
+        rendered = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "packaging" / "release-notes.py"),
+                "--repo",
+                str(repository),
+                "--tag",
+                "v1.1.0",
+                "--file",
+                "os-openid-connect-1.1.0.pkg",
+                "--url",
+                "https://example.net/releases/os-openid-connect-1.1.0.pkg",
+                "--checksum",
+                "0123456789abcdef",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        check("the command includes only the new fix", "- second" in rendered and "- first" not in rendered, True)
+        check("the command identifies the previous tag", "1 commit(s) since v1.0.0." in rendered, True)
+        check("the complete note includes installation", "### Installing" in rendered, True)
+        check("an unsigned note promises no signature", ".sig" not in rendered, True)
+
+        signed = notes.installing(
+            "os-openid-connect-1.1.0.pkg",
+            "https://example.net/releases/os-openid-connect-1.1.0.pkg",
+            "0123456789abcdef",
+            True,
+        )
+        check("a signed note fetches and verifies the signature", ".sig" in signed and "openssl dgst" in signed, True)
 
     group("Every type reaches a section of the note")
     check(

@@ -68,9 +68,19 @@ EXTRA = [
 # PKG_UPGRADE is a best-effort guard: where pkg sets it, an upgrade keeps the
 # anchor and a real removal drops it. Where it does not, the anchor is written
 # again on the next run and the only cost is one line in the log.
+POST_INSTALL = """\
+rm -f /var/lib/php/tmp/opnsense_acl_cache.json /tmp/opnsense_acl_cache.json
+exit 0
+"""
+
 POST_DEINSTALL = """\
+rm -f /var/lib/php/tmp/opnsense_acl_cache.json /tmp/opnsense_acl_cache.json
 [ "${PKG_UPGRADE:-false}" = "true" ] && exit 0
 rm -f /var/db/openid-connect/core.digest /var/db/openid-connect/core.version
+rm -f /var/lib/php/sessions/.openidconnect-sessions
+rm -f /var/lib/php/sessions/.openidconnect-logout-tokens
+rm -f /var/lib/php/sessions/.openidconnect-transactions
+rm -f /var/lib/php/sessions/.openidconnect-pending-identities
 rmdir /var/db/openid-connect 2>/dev/null
 exit 0
 """
@@ -89,8 +99,8 @@ until a group claim is configured, so taking over the identity provider
 does not by itself grant anyone rights on the firewall.
 
 Checked on every exchange: the signature algorithm, the expiry, the nonce,
-that the UserInfo response is bound to the issued token, and that the
-login began under an accepted address. PKCE is requested and the session
+that every used UserInfo response is bound to the issued token, and that
+the login began under an accepted address. PKCE is required and the session
 id is rotated once the session gains privileges. Everything an
 installation differs on is a setting under System > Access > Servers.
 
@@ -98,8 +108,8 @@ Contains only additional files below /usr/local/opnsense/mvc/ plus the
 watchdog /usr/local/sbin/openid-connect-watch and its daily run. No file
 of the core package is replaced or altered.
 
-BSD-2-Clause. One bundled third-party file (Jumbojett, Apache-2.0) sits
-next to its licence text.
+BSD-2-Clause. Runtime cryptography is provided by the phpseclib package that
+is part of OPNsense; this package does not bundle an OpenID Connect library.
 """
 
 
@@ -148,15 +158,6 @@ def version_from_git():
     return pkg_version(described)
 
 
-def bundled_library():
-    """State of the single bundled third-party file, see VENDOR.md."""
-    try:
-        meta = json.loads((HERE / "vendor.json").read_text())["OpenIDConnectClient.php"]
-        return f"{meta['repo']}@{meta['ref'][:12]} ({meta['ref_date']})"
-    except (OSError, KeyError, ValueError):
-        return "unknown"
-
-
 def collect():
     """@return list[(archive path, contents, mode)] in a stable order"""
     entries = []
@@ -173,6 +174,9 @@ def collect():
 
 def manifest_for(version, entries):
     flatsize = sum(len(blob) for _, blob, _ in entries)
+    built_from = git("rev-parse", "HEAD", default="unknown")
+    if git("status", "--porcelain", default=""):
+        built_from += ".dirty"
     compact = {
         "name": NAME,
         "origin": ORIGIN,
@@ -186,15 +190,20 @@ def manifest_for(version, entries):
         "flatsize": flatsize,
         "desc": DESC,
         "categories": ["security"],
+        # Use the native FreeBSD/OPNsense identifier so `pkg info` exposes the
+        # license as structured package metadata. Keep SPDX in annotations for
+        # tools and readers outside the FreeBSD ports vocabulary.
+        "licenselogic": "single",
+        "licenses": ["BSD2CLAUSE"],
         # explicitly installed, so `pkg autoremove` - which a plugin sync runs -
         # never considers it something that came along for the ride
         "automatic": False,
-        "scripts": {"post-deinstall": POST_DEINSTALL},
+        "scripts": {"post-install": POST_INSTALL, "post-deinstall": POST_DEINSTALL},
         "annotations": {
             "license": "BSD-2-Clause",
-            "bundled_library": bundled_library(),
+            "runtime_crypto": "OPNsense phpseclib3",
             "source": SOURCE_URL,
-            "built_from": git("rev-parse", "HEAD", default="unknown"),
+            "built_from": built_from,
         },
     }
     full = dict(compact)
@@ -238,7 +247,7 @@ def main():
 
     print(f"{NAME}-{version}")
     print(f"  {len(entries)} files, {compact['flatsize'] / 1024:.0f} kB unpacked")
-    print(f"  bundles:    {compact['annotations']['bundled_library']}")
+    print(f"  crypto:     {compact['annotations']['runtime_crypto']}")
     print(f"  built from: {compact['annotations']['built_from'][:12]}")
 
     if args.check:

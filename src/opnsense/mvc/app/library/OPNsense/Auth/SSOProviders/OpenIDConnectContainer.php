@@ -10,6 +10,7 @@ namespace OPNsense\Auth\SSOProviders;
 use OPNsense\Auth\AuthenticationFactory;
 use OPNsense\Auth\OpenIDConnect;
 use OPNsense\Core\Config;
+use OPNsense\Core\SanitizeFilter;
 
 /**
  * Offers every configured OpenID Connect server to the login page.
@@ -32,14 +33,18 @@ class OpenIDConnectContainer implements ISSOContainer
                 if (!$settings instanceof OpenIDConnect) {
                     continue;
                 }
+                if (!$settings->isEnabled()) {
+                    continue;
+                }
 
                 $loginUri = '/api/openidconnect/auth/login?provider=' . rawurlencode($name);
+                $buttonLabel = $settings->buttonProviderLabel($name);
                 $properties = [
                     /* id and appcode are carried by core since 26.7; older releases ignore them */
                     'id' => 'openidconnect-' . $name,
                     'appcode' => OpenIDConnect::TYPE,
                     'service' => 'WebGui',
-                    'name' => $name,
+                    'name' => $buttonLabel,
                     'login_uri' => $loginUri,
                 ];
 
@@ -90,15 +95,23 @@ class OpenIDConnectContainer implements ISSOContainer
     private function entryMarkup(OpenIDConnect $settings, string $name, string $loginUri): ?string
     {
         $icon = $this->iconAddress($settings, $name);
-
-        $custom = $settings->customButton();
-        if ($custom !== '') {
-            return str_replace(['%icon%', '%name%', '%url%'], [$icon, $name, $loginUri], $custom);
-        }
+        $caption = $this->buttonCaption($settings, $name);
 
         if ($settings->buttonStyle() === 'link') {
-            return null;
+            /* Core already renders this exact localized case and preserves its normal
+             * local-target handling. The two wording overrides need their own link. */
+            if ($settings->buttonTextMode() === 'localized') {
+                return null;
+            }
+            $loginUri = $this->withLocalTarget($loginUri);
+            return sprintf(
+                '<a href="%s">%s</a>',
+                htmlspecialchars($loginUri, ENT_QUOTES),
+                htmlspecialchars($caption, ENT_QUOTES)
+            );
         }
+
+        $loginUri = $this->withLocalTarget($loginUri);
 
         $mark = '';
         if ($icon !== '') {
@@ -111,9 +124,63 @@ class OpenIDConnectContainer implements ISSOContainer
             '<a href="%s" class="btn btn-primary">%s%s</a><style>%s</style>',
             htmlspecialchars($loginUri, ENT_QUOTES),
             $mark,
-            sprintf(gettext('Login with %s'), htmlspecialchars($name, ENT_QUOTES)),
+            htmlspecialchars($caption, ENT_QUOTES),
             $this->stylesheet($icon)
         );
+    }
+
+    /** The visible text, separated from the server name used to locate configuration. */
+    private function buttonCaption(OpenIDConnect $settings, string $descriptiveName): string
+    {
+        $label = $settings->buttonProviderLabel($descriptiveName);
+        if ($settings->buttonTextMode() === 'label_only') {
+            return $label;
+        }
+        if ($settings->buttonTextMode() === 'custom') {
+            $custom = $settings->customButtonText();
+            if ($custom !== '') {
+                return $custom;
+            }
+        }
+        return $this->localizedCoreCaption($label);
+    }
+
+    /**
+     * Reuse the exact sentence OPNsense core translates in Provider::renderLink().
+     * Its anchor is only presentation, so a sentinel lets us retain the translated word
+     * order while rendering our own full-width link and optional icon safely.
+     */
+    private function localizedCoreCaption(string $label): string
+    {
+        $sentinel = 'OPENID_CONNECT_PROVIDER_LABEL';
+        try {
+            $translated = sprintf(
+                gettext("Login using <a href='%s'>%s</a>"),
+                '#',
+                $sentinel
+            );
+            $plain = trim(html_entity_decode(strip_tags($translated), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+            if (str_contains($plain, $sentinel)) {
+                return str_replace($sentinel, $label, $plain);
+            }
+        } catch (\Throwable $e) {
+            /* A broken system translation must not take down the recovery login page. */
+        }
+        return 'Login using ' . $label;
+    }
+
+    /** Preserve the local page target which core normally adds when it renders the link. */
+    private function withLocalTarget(string $loginUri): string
+    {
+        try {
+            $target = (new SanitizeFilter())->sanitize($_GET['url'] ?? '', 'local_uri');
+        } catch (\Throwable $e) {
+            return $loginUri;
+        }
+        if ($target === '') {
+            return $loginUri;
+        }
+        return $loginUri . (str_contains($loginUri, '?') ? '&' : '?') . 'redir=' . rawurlencode($target);
     }
 
     /**
@@ -178,7 +245,7 @@ class OpenIDConnectContainer implements ISSOContainer
             return '';
         }
 
-        if (OpenIDConnect::isLocalPath($configured) || str_starts_with($configured, 'data:')) {
+        if (OpenIDConnect::isLocalPath($configured) || OpenIDConnect::isIconDataUri($configured)) {
             return $configured;
         }
 

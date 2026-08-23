@@ -1,13 +1,8 @@
 name: Check and build the package
 
-# The same pipeline as .forgejo/workflows/build.yml, for the mirror on GitHub.
-# Each forge ignores the other's directory, so both run on their own side and
-# neither has to know about the other.
-#
-# The checks are the same commands on both, deliberately: ./tests/run.sh and
-# commit-lint.py, which is also what anyone runs by hand. Only the release step
-# differs, because the two forges do not offer releases the same way - Forgejo
-# through its API, GitHub through the gh CLI that its runners already carry.
+# GitHub is the source of truth and publishes releases. This file remains valid
+# Forgejo Actions syntax so the read-only mirror can run the same checks when
+# asked, but mirror synchronization is not a release event.
 on:
   push:
     branches: [main]
@@ -22,10 +17,13 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # v4 is pinned so a moving third-party tag cannot change release code.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           # without the history `git describe` sees no tags
           fetch-depth: 0
+          # Tests execute pull-request code and never need a Git credential.
+          persist-credentials: false
 
       - name: Provide PHP
         run: |
@@ -35,11 +33,17 @@ jobs:
 
       - name: Run the tests
         # Syntax for every language in the tree, the behaviour checks, and the
-        # package that gets built - the same ./tests/run.sh anyone can run
-        # locally, so a failure here reads the same as a failure there.
-        run: ./tests/run.sh
+        # package that gets built. The wrapper runs the same ./tests/run.sh
+        # anyone can run locally and also prevents its audit snapshot drifting.
+        run: python3 tests/update-audit-report.py --check
+
+      - name: Pull request title and description
+        if: github.event_name == 'pull_request'
+        # A squash merge turns these into the one commit the release note reads.
+        run: python3 packaging/commit-lint.py --pull-request
 
       - name: Commit messages
+        if: github.event_name != 'pull_request'
         # The release note is generated from these, so a message that cannot be
         # read is a note that cannot be written. The same check runs locally
         # through packaging/hooks/commit-msg; this is the one nobody can skip.
@@ -47,23 +51,23 @@ jobs:
         # which GitHub and Forgejo write to the same place in the same shape.
         run: python3 packaging/commit-lint.py --pushed
 
-      - name: Bundled library against its origin
-        # Deliberately not blocking: when upstream moves that should be
-        # visible, but it should not hold up an urgent release.
-        continue-on-error: true
-        run: python3 packaging/vendor-check.py
-
   release:
     needs: check
-    if: startsWith(github.ref, 'refs/tags/v')
+    # A manual dispatch from a tag is still only a check. Publishing happens
+    # exactly once: when GitHub receives the tag itself.
+    if: >-
+      github.server_url == 'https://github.com' &&
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       # the one thing this pipeline writes
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Build the package
         id: build
@@ -75,7 +79,7 @@ jobs:
           echo "file=$(basename "$path")" >> "$GITHUB_OUTPUT"
           echo "checksum=$(sha256sum "$path" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
-      - name: Create the release and attach the package
+      - name: Create the GitHub release and attach the package
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
@@ -83,7 +87,7 @@ jobs:
           PATH_PKG: ${{ steps.build.outputs.path }}
           FILE: ${{ steps.build.outputs.file }}
           CHECKSUM: ${{ steps.build.outputs.checksum }}
-          # An RSA or ED25519 private key in PEM form, or unset. `pkg add` verifies
+          # An RSA private key in PEM form, or unset. `pkg add` verifies
           # nothing about a file handed to it directly, so a package that changes how a
           # firewall authenticates should travel with something to check it against.
           # Without the secret the release is built and attached exactly as before, with
@@ -127,22 +131,30 @@ jobs:
 
           # The run has to be repeatable: a tag deleted and pushed again finds
           # the release still there, so look first and edit rather than fail.
-          prerelease=""
-          case "$TAG" in *-*) prerelease="--prerelease" ;; esac
+          prerelease=false
+          create_prerelease=""
+          case "$TAG" in
+            *-*) prerelease=true; create_prerelease="--prerelease" ;;
+          esac
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" \
-              --draft=false $prerelease
+              --draft=false --prerelease="$prerelease"
             echo "Release $TAG already existed, refreshed."
           else
             gh release create "$TAG" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" \
-              $prerelease
+              $create_prerelease
             echo "Release $TAG created."
           fi
 
-          # --clobber so that a re-run replaces what an earlier one attached
-          # rather than refusing; a release for tag X carries what was built
-          # from X and nothing older.
+          # A release for tag X carries exactly this run's assets. In particular,
+          # removing the signing secret must also remove an earlier signature.
+          for asset in $(gh release view "$TAG" --json assets --jq '.assets[].name'); do
+            gh release delete-asset "$TAG" "$asset" --yes
+            echo "  removed earlier attachment $asset"
+          done
+
+          # --clobber also makes this safe if an asset appeared concurrently.
           # shellcheck disable=SC2086
           gh release upload "$TAG" $assets --clobber
 
