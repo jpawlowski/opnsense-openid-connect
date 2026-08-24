@@ -92,7 +92,7 @@ class SsfController extends ApiControllerBase
                 $metadata,
                 $settings->sharedSignalsAudience(),
                 $settings->issuerUrl(),
-                $settings->providerProfile() === 'okta'
+                $settings->providerProfile()
             );
         } catch (SecurityEventException $e) {
             syslog(LOG_NOTICE, sprintf(
