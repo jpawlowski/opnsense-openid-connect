@@ -55,7 +55,7 @@ The assets were retrieved on 24 August 2026 from these sources:
 - IBM Security Verify: [official IBM Design Language app icon][ibm-app-icons].
 - JumpCloud: [official press kit and website symbol](https://jumpcloud.com/press), placed in a
   compact inverse-colour tile for equal button sizing.
-- OneLogin: [press-kit logomark via Wikimedia Commons][onelogin-mark], CC BY-SA 4.0.
+- OneLogin: [official press-kit logomark](https://www.onelogin.com/press-center/press-kit).
 - Ping Identity: [official website mark](https://www.pingidentity.com/).
 - WSO2: [official brand icon](https://wso2.com/about/brand).
 - Auth0, Amazon Cognito and ORCID: [Simple Icons 13.21.0][simple-icons], CC0-1.0 collection.
@@ -73,5 +73,4 @@ endorsement. An installation may still replace a bundled mark through
 [dashboard-icons]: https://github.com/homarr-labs/dashboard-icons
 [ibm-app-icons]: https://www.ibm.com/design/language/iconography/app-icons/library/
 [microsoft-sign-in]: https://learn.microsoft.com/en-us/entra/identity-platform/howto-add-branding-in-apps
-[onelogin-mark]: https://commons.wikimedia.org/wiki/File:Onelogin_Mark_black_RGB.svg
 [simple-icons]: https://github.com/simple-icons/simple-icons/tree/13.21.0
