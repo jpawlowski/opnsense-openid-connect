@@ -73,6 +73,15 @@ final class ProviderProbe
             );
         }
         $checks[] = $this->requestObjectCheck($settings, $metadata);
+        $authorization = (new AuthorizationPreflight($this->http))->check($settings, $metadata, $redirectUri);
+        $checks[] = self::check(
+            gettext('Authorization registration'),
+            $authorization['value'],
+            $authorization['status'],
+            $authorization['note'],
+            ['opnsense', 'idp'],
+            $authorization['verification']
+        );
         $checks[] = $this->parCheck($settings, $metadata, $redirectUri);
         return $checks;
     }
@@ -146,7 +155,7 @@ final class ProviderProbe
             return self::check(
                 gettext('JWT-secured authorization request'),
                 $metadata->requiresSignedRequestObject() ? gettext('Required by provider') : gettext('Disabled'),
-                $metadata->requiresSignedRequestObject() ? 'error' : 'info',
+                $metadata->requiresSignedRequestObject() ? 'error' : 'success',
                 $metadata->requiresSignedRequestObject()
                     ? gettext('Select and register a Request Object signing key before sign-in.')
                     : gettext('Select a registered OPNsense certificate to sign RFC 9101 Request Objects.'),
@@ -251,9 +260,9 @@ final class ProviderProbe
             true
         );
         $dpopAlgorithms = $metadata->dpopSigningAlgorithms();
-        $dpopUsable = $metadata->supportsDpop();
+        $dpopAdvertised = $metadata->supportsDpop();
+        $dpopUsable = $dpopAdvertised && $settings->supportsDpopAccessTokens();
         $userInfo = $metadata->userInfoEndpoint();
-        $parEndpoint = $metadata->pushedAuthorizationRequestEndpoint();
         $profile = $settings->providerProfile();
         $profileLabels = OpenIDConnect::providerProfileOptions();
         $checks = [
@@ -268,7 +277,7 @@ final class ProviderProbe
             self::check(
                 gettext('Provider profile'),
                 $profileLabels[$profile] ?? $profile,
-                'info',
+                'success',
                 gettext('Provider-specific defaults never relax protocol validation.'),
                 ['opnsense'],
                 'configuration'
@@ -276,7 +285,7 @@ final class ProviderProbe
             self::check(
                 gettext('Authorization endpoint'),
                 $metadata->authorizationEndpoint(),
-                'info',
+                'success',
                 gettext('Discovery advertises this browser path; Test sign-in exercises it.'),
                 ['browser', 'idp'],
                 'not-tested'
@@ -284,7 +293,7 @@ final class ProviderProbe
             self::check(
                 gettext('Token endpoint'),
                 $metadata->tokenEndpoint(),
-                'info',
+                'success',
                 gettext('Discovery advertises this mandatory server path; Test sign-in exercises it with a code.'),
                 ['opnsense', 'idp'],
                 'not-tested'
@@ -292,7 +301,7 @@ final class ProviderProbe
             self::check(
                 gettext('UserInfo endpoint'),
                 $userInfo ?? gettext('Not offered'),
-                $userInfo !== null ? 'success' : ($settings->claimsSource() === 'userinfo' ? 'warning' : 'info'),
+                $userInfo !== null || $settings->claimsSource() !== 'userinfo' ? 'success' : 'error',
                 $userInfo !== null
                     ? gettext('UserInfo can supply identity claims when configured or needed.')
                     : ($settings->claimsSource() === 'userinfo'
@@ -304,7 +313,7 @@ final class ProviderProbe
             self::check(
                 gettext('ID Token signatures'),
                 implode(', ', $algorithms) ?: gettext('None supported'),
-                $algorithms === [] ? 'warning' : 'success',
+                $algorithms === [] ? 'error' : 'success',
                 $algorithms === []
                     ? gettext('No supported asymmetric ID Token signature is advertised.')
                     : gettext('At least one supported asymmetric signature is advertised.'),
@@ -314,7 +323,7 @@ final class ProviderProbe
             self::check(
                 gettext('Client authentication'),
                 implode(', ', $authMethods) ?: gettext('None supported'),
-                $authMethods === [] ? 'warning' : 'success',
+                $authMethods === [] ? 'error' : 'success',
                 $authMethods === []
                     ? ($authProblem ?? gettext('No usable token endpoint authentication method is available.'))
                     : gettext('At least one confidential-client authentication method is usable.'),
@@ -335,11 +344,11 @@ final class ProviderProbe
             self::check(
                 gettext('PKCE'),
                 $pkceAdvertised ? 'S256' : gettext('S256 not advertised'),
-                $pkceAdvertised ? 'success' : 'warning',
+                $pkceAdvertised ? 'success' : 'error',
                 $pkceAdvertised
                     ? gettext('The provider explicitly advertises the required S256 method.')
                     : gettext(
-                        'This client still sends PKCE S256; the provider must accept it despite omitting metadata.'
+                        'This client requires the provider to advertise PKCE S256; sign-in is refused without it.'
                     ),
                 ['opnsense'],
                 'metadata'
@@ -347,24 +356,25 @@ final class ProviderProbe
             self::check(
                 gettext('DPoP sender constraint'),
                 $dpopAlgorithms === [] ? gettext('Not advertised') : implode(', ', $dpopAlgorithms),
-                $dpopUsable ? 'success' : 'info',
+                'success',
                 $dpopUsable
                     ? gettext('ES256 is advertised; Test sign-in uses a proof-key-bound token flow.')
-                    : gettext('Bearer access tokens remain in use unless the provider advertises ES256 DPoP.'),
+                    : ($dpopAdvertised
+                        ? gettext(
+                            'This profile documents a different key-bound ID Token extension; its access ' .
+                            'token remains Bearer rather than being treated as RFC 9449 DPoP.'
+                        )
+                        : gettext('Bearer access tokens remain in use unless the provider advertises ES256 DPoP.')),
                 ['opnsense'],
                 'metadata'
             ),
-            self::check(
-                gettext('PAR metadata'),
-                $parEndpoint ?? gettext('Not offered'),
-                'info',
-                $parEndpoint === null
-                    ? gettext('Discovery offers no PAR endpoint.')
-                    : gettext('The separate PAR row below performs an authenticated live request.'),
-                ['opnsense', 'idp'],
-                'metadata'
-            ),
         ];
+        if ($userInfo === null && $settings->claimsSource() !== 'userinfo') {
+            $checks[4]['section'] = 'unsupported';
+        }
+        if ($dpopAlgorithms === []) {
+            $checks[8]['section'] = 'unsupported';
+        }
         $this->appendSelectedMetadataChecks(
             $checks,
             $settings,
@@ -392,7 +402,7 @@ final class ProviderProbe
         $checks[] = self::check(
             gettext('Authorization response mode'),
             $responseMode,
-            $modesAdvertised ? ($modeSupported ? 'success' : 'warning') : ($modeSupported ? 'info' : 'warning'),
+            $modeSupported ? 'success' : 'error',
             !$modesAdvertised
                 ? ($modeSupported
                     ? gettext('The selected mode is covered by the provider metadata omission default.')
@@ -411,7 +421,7 @@ final class ProviderProbe
             $checks[] = self::check(
                 gettext('JARM signatures'),
                 implode(', ', $jarmAlgorithms) ?: gettext('None supported'),
-                $jarmAlgorithms === [] ? 'warning' : 'success',
+                $jarmAlgorithms === [] ? 'error' : 'success',
                 $jarmAlgorithms === []
                     ? gettext('The provider advertises no supported asymmetric JARM signature.')
                     : gettext('The signed authorization response can use a supported asymmetric signature.'),
@@ -425,7 +435,7 @@ final class ProviderProbe
         $checks[] = self::check(
             gettext('Selected authentication method'),
             $selectedAuth,
-            $selectedAuthUsable ? 'success' : 'warning',
+            $selectedAuthUsable ? 'success' : 'error',
             $selectedAuthUsable
                 ? gettext('The configured choice can use the provider metadata.')
                 : ($authProblem ?? gettext('The selected client authentication method is not usable.')),
@@ -433,41 +443,55 @@ final class ProviderProbe
             'metadata'
         );
         $issuerAdvertised = $metadata->authorizationResponseIssuerSupported();
-        $checks[] = self::check(
+        $issuerCheck = self::check(
             gettext('Authorization response issuer'),
             $issuerAdvertised ? gettext('Advertised') : gettext('Not advertised'),
-            $issuerAdvertised ? 'success' : 'info',
+            'success',
             $issuerAdvertised
                 ? gettext('The provider advertises RFC 9207 issuer identification.')
                 : gettext('The distinct callback and frozen metadata still protect this provider from mix-up.'),
             ['idp', 'browser', 'opnsense'],
             'metadata'
         );
-        $checks[] = self::check(
+        if (!$issuerAdvertised) {
+            $issuerCheck['section'] = 'unsupported';
+        }
+        $checks[] = $issuerCheck;
+        $signOutCheck = self::check(
             gettext('Provider sign-out'),
             $metadata->endSessionEndpoint() === null ? gettext('Not offered') : gettext('Offered'),
-            'info',
+            $metadata->endSessionEndpoint() !== null || !$settings->redirectsLogoutMenu() ? 'success' : 'warning',
             $metadata->endSessionEndpoint() === null
-                ? gettext('Provider sign-out is optional; local logout still works.')
+                ? ($settings->redirectsLogoutMenu()
+                    ? gettext('Redirecting the Log Out menu is selected, but Discovery offers no sign-out endpoint.')
+                    : gettext('Provider sign-out is optional; local logout still works.'))
                 : gettext('RP-initiated provider sign-out is available.'),
             ['browser', 'idp'],
             $metadata->endSessionEndpoint() === null ? 'metadata' : 'not-tested'
         );
-        $checks[] = self::check(
+        if ($metadata->endSessionEndpoint() === null && !$settings->redirectsLogoutMenu()) {
+            $signOutCheck['section'] = 'unsupported';
+        }
+        $checks[] = $signOutCheck;
+        $revocationCheck = self::check(
             gettext('Token revocation'),
             $metadata->revocationEndpoint() === null ? gettext('Not offered') : gettext('Offered'),
-            'info',
+            'success',
             $metadata->revocationEndpoint() === null
                 ? gettext('Token revocation is optional and will be skipped.')
                 : gettext('Tokens can be revoked during provider-aware logout.'),
             ['opnsense', 'idp'],
             $metadata->revocationEndpoint() === null ? 'metadata' : 'not-tested'
         );
+        if ($metadata->revocationEndpoint() === null) {
+            $revocationCheck['section'] = 'unsupported';
+        }
+        $checks[] = $revocationCheck;
         if ($settings->providerProfile() === 'entra' && !str_contains($metadata->issuer(), '/v2.0')) {
             $checks[] = self::check(
                 gettext('Microsoft Entra issuer profile'),
                 gettext('Tenant-specific v2.0 issuer expected'),
-                'warning',
+                'error',
                 gettext('Do not use common, organizations, consumers or v1 metadata with this profile.'),
                 ['opnsense'],
                 'configuration'
@@ -485,7 +509,7 @@ final class ProviderProbe
             return self::check(
                 gettext('PAR endpoint'),
                 $required ? gettext('Required by provider') : gettext('Skipped by setting'),
-                $required ? 'error' : 'info',
+                $required ? 'error' : 'success',
                 $required
                     ? gettext('The provider requires PAR, so it cannot be disabled.')
                     : gettext('No PAR request was sent because PAR is disabled.'),
@@ -494,16 +518,20 @@ final class ProviderProbe
             );
         }
         if ($endpoint === null) {
-            return self::check(
+            $check = self::check(
                 gettext('PAR endpoint'),
                 gettext('Not offered'),
-                $mode === 'required' ? 'error' : 'info',
+                $mode === 'required' ? 'error' : 'success',
                 $mode === 'required'
                     ? gettext('PAR is required locally but Discovery offers no endpoint.')
                     : gettext('Automatic mode uses a normal browser authorization request.'),
                 ['opnsense', 'idp'],
                 'metadata'
             );
+            if ($mode !== 'required') {
+                $check['section'] = 'unsupported';
+            }
+            return $check;
         }
         if (!self::clientConfigurationReady($settings)) {
             return self::check(

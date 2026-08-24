@@ -25,8 +25,8 @@ defaults below.
 | Username claim | `preferred_username` | the provider guide specifies `email`, a vendor claim or a custom mapping |
 | Claims source | Automatic | all required claims must come only from the ID Token, or UserInfo is explicitly required |
 | Authorization response mode | Query | Apple with requested user scopes requires Form POST; select signed Query or signed Form POST only for a provider configured to return JARM |
-| Required authentication | Provider policy only; no additional `acr`/`amr` decision | require the verified ID Token to prove MFA or phishing-resistant authentication before local account and session processing |
-| Authentication context request | provider preset; essential `acr` for Generic and `acr_values` for Okta | the provider documents a different request form |
+| Required authentication | Provider policy only; stronger choices are unavailable unless the selected profile has a documented request, enforcement and signed-token evidence path | use documented Auth0 MFA, manual Keycloak setup, Okta, one Entra tenant, or the explicitly assessed Generic profile |
+| Authentication context request | provider preset; essential `acr` for Generic/Keycloak, `acr_values` for Auth0/Okta, and `acrs` for Entra | the provider guide documents a different request form for a Generic installation |
 | Accepted authentication contexts | requirement/provider preset | the provider uses an installation-specific, documented exact `acr` value |
 | Accepted authentication methods | requirement/provider preset | the provider documents different exact `amr` values; any configured value may satisfy the method check |
 | Microsoft authentication context | empty and shown only for Entra | choose the tenant Conditional Access context `c1`-`c25` that enforces this requirement |
@@ -76,10 +76,13 @@ sign-in experience rather than a portable assurance level; Passkeys and FIDO2
 belong under phishing-resistant authentication.
 
 DPoP is negotiated protocol behavior rather than an administrator setting. If
+the selected provider profile documents RFC 9449 access-token support and
 Discovery advertises `ES256` in `dpop_signing_alg_values_supported`, the plugin
 binds the authorization code and access token to its per-provider proof key and
 refuses a Bearer downgrade. Providers that do not advertise DPoP continue to use
-Bearer access tokens.
+Bearer access tokens. authentik's documented `bound_key` profile binds an ID
+Token while retaining a Bearer access token, so it is not negotiated as this
+RFC 9449 access-token profile.
 
 The signed Query and signed Form POST choices request JARM. OPNsense then accepts
 only the `response` JWT, verifies an advertised supported asymmetric signature,
@@ -99,6 +102,14 @@ longest pending-login, access-token, refresh-token and WebGUI-session lifetime
 has elapsed. Replacing certificate material under the same OPNsense reference
 does not bypass this rule because each transaction also freezes its SHA-256
 thumbprint.
+
+Unsupported named profiles do not merely hide the setting. Save validation
+rejects a crafted value, and the login path refuses an older or manually edited
+configuration which still requests an unavailable tier. This prevents a token
+mapper that merely writes plausible `acr` or `amr` strings from being mistaken
+for provider-side enforcement. See the complete capability matrix in
+[provider profiles and defaults](provider-profiles.md).
+
 Shared Signals is independent of offering new logins. It only ends sessions
 previously created by the same saved authentication server and never changes a
 local account, binding, group or privilege. See the [receiver setup](shared-signals.md)
@@ -109,8 +120,8 @@ worker.
 
 | Setting | Safe/default behaviour | Change it when |
 |---|---|---|
-| Create an account on first login | Off; shown only for automatic admission policies | the provider is an approved source of new firewall accounts and default privileges are reviewed |
-| Admission policy | Administrator approval for a named profile; Strict for Generic | use Strict with manual bindings, or use automatic username/e-mail matching only for an assessed, controlled claim source |
+| Create an account on first login | Off; unavailable for Apple, Google, LinkedIn, ORCID, Slack, Yahoo, GitLab.com and broad Microsoft audiences | a bounded provider population such as one Entra tenant, self-managed GitLab or a controlled directory is an approved source of new firewall accounts |
+| Admission policy | Administrator approval for a named profile; Strict for Generic; automatic choices unavailable for Apple, LinkedIn, ORCID, Yahoo, GitLab.com and broad Microsoft audiences | use Strict with manual bindings, Approval for public identities, or automatic matching only for an assessed controlled population |
 | Groups for a new account | Empty | just-in-time creation is intentionally enabled and a bounded initial group set is required |
 | Allow the built-in root account | Off | the recovery superuser should deliberately be controlled by the IdP |
 | Group claim | Empty; memberships remain local | the provider should manage selected OPNsense memberships |
@@ -125,7 +136,7 @@ prevents a typo from delegating every firewall privilege.
 | Setting | Safe/default behaviour | Change it when |
 |---|---|---|
 | Trace the exchange | Off | diagnosing one failed exchange; turn it off afterward |
-| Redirect the Log Out menu entry | Off | Lobby > Log Out should also begin provider logout |
+| Redirect the Log Out menu entry | On for Auth0, authentik, FusionAuth, IBM Security Verify, Keycloak, Microsoft Entra, Okta, OneLogin, Oracle, Ping, Pocket ID, WSO2 and ZITADEL; Off otherwise | Lobby > Log Out should also end the provider SSO session when official documentation describes a compatible RP-initiated logout flow |
 | Return here after logout | Off | the displayed post-logout URI is registered at the provider |
 | Provider logout notifications | Both | accept only Back-Channel, only Front-Channel, or neither; disabling new logins does not disable notifications for existing sessions |
 | Login button style | full-width button | the standard OPNsense link appearance is preferred |
@@ -149,15 +160,24 @@ setup** and **Open setup guide** are actions, not stored settings. None runs
 during Save. Test discovery live-fetches Discovery and JWKS from OPNsense and
 checks the selected Request Object key. It uses the current unsaved client
 values for an authenticated PAR check when applicable and also works without
-client credentials. Connection health becomes
+client credentials. Where PAR does not already cover it, a silent authorization
+request checks whether the provider accepts the public Client ID and exact
+callback without authenticating a user. Connection health becomes
 available when the current form contains Exact issuer URL, Client ID and Client
 Secret and adds form and WebGUI transport checks without requiring a save. Both
-dialogs distinguish live OPNsense requests, metadata/configuration evaluation
-and advertised paths that remain untested. The browser does not need to reach
-Discovery. Test sign-in becomes available after the server has first been saved,
+dialogs keep only the actor path visible. Their info control separates the source
+of the result from what was actually executed: a capability may pass readiness
+because validated live Discovery offers it even though its browser, code, token or
+logout path needs Test sign-in. Optional capabilities absent from Discovery appear
+in a separate **Not offered by the provider** section; a missing capability required
+by the current form remains under **Readiness** as attention or failure. The browser
+does not need to reach Discovery. Test sign-in becomes available after the server has first been saved,
 is complete and has no unsaved changes. It may be used while the provider
 remains disabled and validates a real browser flow without changing the WebGUI
-session or local identity state. The provider may retain its own SSO session.
+session or local identity state. A Client ID or callback rejected during the
+preflight leaves the browser on the form. A client credential rejected only
+during the code exchange produces a dedicated failure result with an exact
+return link. The provider may retain its own SSO session.
 OPNsense's generic **System > Access > Tester** is a username/password tester and
 does not apply to OIDC. The setup
 download and its independently reopenable guide are offered only where an

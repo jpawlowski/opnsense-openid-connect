@@ -13,12 +13,220 @@
     margin-top: 0.25rem;
 }
 
-.oidc-check-actor,
-.oidc-check-verification {
+.oidc-check-actor {
     align-items: center;
     display: inline-flex;
     gap: 0.25rem;
     white-space: nowrap;
+}
+
+.oidc-action-sections {
+    margin: 1.75rem 0 1.25rem;
+}
+
+.oidc-action-section {
+    border-top: 1px solid #ddd;
+    padding: 1rem 0 0.35rem;
+}
+
+.oidc-action-section h4 {
+    margin: 0 0 0.8rem;
+}
+
+.oidc-form-actions {
+    align-items: center;
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    vertical-align: middle;
+}
+
+.oidc-provider-setup {
+    align-items: center;
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+}
+
+.oidc-provider-setup select.form-control {
+    max-width: 34rem;
+    width: auto;
+}
+
+.auth_openidconnect select.form-control,
+.oidc-dialog-large select.form-control {
+    height: auto;
+    line-height: 1.4;
+    min-height: 2.7em;
+    padding-bottom: 0.5em;
+    padding-top: 0.5em;
+}
+
+.oidc-dialog-large .modal-dialog {
+    max-width: 1400px;
+    width: 94%;
+}
+
+.oidc-dialog-resizable .modal-content {
+    max-height: 94vh;
+    max-width: 96vw;
+    min-height: 24rem;
+    min-width: 44rem;
+    overflow: auto;
+    resize: both;
+}
+
+.oidc-probe-summary {
+    align-items: center;
+    border-bottom: 1px solid #ddd;
+    display: flex;
+    gap: 0.8rem;
+    margin-bottom: 0;
+    padding: 0.25rem 0 1.15rem;
+}
+
+.oidc-probe-summary .label,
+.oidc-probe-check-actions .label {
+    align-items: center;
+    display: inline-flex;
+    font-size: 0.85em;
+    gap: 0.35rem;
+    padding: 0.4em 0.65em;
+}
+
+.oidc-probe-section-title {
+    font-size: 1.1em;
+    margin: 1.4rem 0 0.35rem;
+}
+
+.oidc-probe-section-heading {
+    border-top: 1px solid #ccc;
+    margin-top: 1.5rem;
+    padding-top: 0.25rem;
+}
+
+.oidc-probe-section-heading p {
+    margin: 0 0 0.5rem;
+}
+
+.oidc-probe-unsupported .oidc-probe-check {
+    color: #666;
+}
+
+.oidc-probe-check {
+    border-bottom: 1px solid #e5e5e5;
+    padding: 1.15rem 0;
+}
+
+.oidc-probe-check-grid {
+    align-items: center;
+    display: grid;
+    gap: 1.25rem;
+    grid-template-columns: minmax(17rem, 1.4fr) minmax(10rem, 1fr) auto;
+}
+
+.oidc-probe-check h4 {
+    font-size: 1em;
+    margin: 0 0 0.35rem;
+}
+
+.oidc-probe-check-value {
+    line-height: 1.5;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.oidc-probe-check-actions {
+    align-items: center;
+    display: flex;
+    gap: 0.4rem;
+    justify-content: flex-end;
+    white-space: nowrap;
+}
+
+.oidc-probe-info {
+    font-size: 1.2em;
+    line-height: 1;
+    padding: 0.25rem 0.45rem;
+}
+
+.oidc-probe-check-details {
+    background: #f7f7f7;
+    border-left: 3px solid #bbb;
+    margin-top: 1rem;
+    padding: 0.8rem 1rem;
+}
+
+.oidc-probe-check-details p {
+    margin: 0;
+}
+
+.oidc-probe-check-details p + p {
+    margin-top: 0.45rem;
+}
+
+.oidc-probe-facts {
+    border-top: 1px solid #ddd;
+    margin-top: 0.75rem;
+    padding-top: 0.65rem;
+}
+
+.oidc-manager-toolbar {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    justify-content: space-between;
+    margin-bottom: 1.25rem;
+}
+
+.oidc-manager-toolbar h4 {
+    margin: 0;
+}
+
+.oidc-manager-actions {
+    display: flex;
+}
+
+.oidc-binding-actions,
+.oidc-binding-actions .btn-group {
+    white-space: nowrap;
+}
+
+.oidc-binding-editor {
+    margin: 0 auto;
+    max-width: 64rem;
+    padding: 0.25rem 0 1rem;
+}
+
+.oidc-binding-caution {
+    line-height: 1.5;
+    margin-bottom: 1.5rem;
+}
+
+.oidc-binding-editor .form-group {
+    margin-bottom: 1.4rem;
+}
+
+.oidc-binding-editor-actions,
+.oidc-approval-actions {
+    display: inline-flex;
+    gap: 0.65rem;
+}
+
+.oidc-binding-result {
+    margin-bottom: 0.75rem;
+}
+
+.oidc-approval-card .form-inline {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.oidc-approval-card .form-inline select.form-control {
+    flex: 1 1 22rem;
 }
 
 .oidc-check-connector {
@@ -40,28 +248,43 @@
     top: -3px;
 }
 
-.oidc-check-verification {
-    margin-left: 0.35rem;
-    white-space: normal;
-}
-
-.oidc-check-verification::before {
-    content: "\00b7";
-    margin-right: 0.15rem;
-}
-
 @media (max-width: 520px) {
+    .oidc-form-actions {
+        align-items: stretch;
+    }
+
+    .oidc-provider-setup,
+    .oidc-provider-setup select.form-control {
+        width: 100%;
+    }
+
+    .oidc-dialog-large .modal-dialog {
+        margin: 1rem auto;
+        width: 96%;
+    }
+
+    .oidc-dialog-resizable .modal-content {
+        min-height: 0;
+        min-width: 0;
+        resize: none;
+    }
+
+    .oidc-probe-check-grid {
+        gap: 0.7rem;
+        grid-template-columns: 1fr auto;
+    }
+
+    .oidc-probe-check-value {
+        grid-column: 1 / -1;
+        grid-row: 2;
+    }
+
+    .oidc-probe-check-actions {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
     .oidc-check-flow {
         align-items: flex-start;
-    }
-
-    .oidc-check-verification {
-        flex-basis: 100%;
-        margin-left: 0;
-    }
-
-    .oidc-check-verification::before {
-        content: "";
-        margin: 0;
     }
 }

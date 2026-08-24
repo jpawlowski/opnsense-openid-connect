@@ -25,6 +25,25 @@ account on first login** is available only with an automatic admission policy.
 It remains off by default. The built-in root account is never eligible unless
 **Allow the built-in root account** is separately enabled.
 
+The form also enforces a provider-population boundary:
+
+- Apple, LinkedIn, ORCID and Yahoo accept globally available personal
+  identities. They offer only Strict or Administrator approval and never offer
+  automatic local-account creation.
+- GitLab.com and the Microsoft Organizations, Consumers and Common audiences
+  have the same restrictions. A self-managed GitLab issuer and one specific
+  Entra tenant retain the assessed automatic choices.
+- Google and Slack may be restricted to a Workspace organization or installed
+  workspace outside OPNsense. Automatic matching therefore remains available,
+  but automatic local-account creation does not: this form cannot prove that
+  the external restriction is complete.
+
+These are security constraints rather than profile defaults. Server-side
+validation rejects a crafted unsafe form submission, and the login path treats
+an older saved automatic policy as Administrator approval and ignores an older
+account-creation flag when its provider population is not eligible. Generic
+and other directory profiles remain the administrator's explicit assessment.
+
 ## Manage bindings and approve unknown identities
 
 Open a saved OpenID Connect server under **System > Access > Servers** and

@@ -131,10 +131,21 @@ final class DpopProof
             }
             $public[$name] = $jwk[$name];
         }
-        if ($public['kty'] !== 'EC' || $public['crv'] !== 'P-256'
-            || !preg_match('/^[A-Za-z0-9_-]{43}$/D', $public['x'])
-            || !preg_match('/^[A-Za-z0-9_-]{43}$/D', $public['y'])) {
+        if ($public['kty'] !== 'EC' || $public['crv'] !== 'P-256') {
             throw new ProtocolException('The DPoP public key is not an ES256 key');
+        }
+        foreach (['x', 'y'] as $coordinate) {
+            /* OPNsense's bundled phpseclib emits one optional base64url padding
+             * character while newer releases omit it. Proof JWKs and thumbprints
+             * always use the canonical unpadded representation. */
+            if (!preg_match('/^[A-Za-z0-9_-]{43}=?$/D', $public[$coordinate])) {
+                throw new ProtocolException('The DPoP public key is not an ES256 key');
+            }
+            $public[$coordinate] = rtrim($public[$coordinate], '=');
+            $decoded = base64_decode(strtr($public[$coordinate], '-_', '+/') . '=', true);
+            if (!is_string($decoded) || strlen($decoded) !== 32) {
+                throw new ProtocolException('The DPoP public key is not an ES256 key');
+            }
         }
         return $public;
     }

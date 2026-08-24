@@ -20,7 +20,8 @@ operator.
 
 Yahoo accounts are globally available. A successful Yahoo authentication does
 not imply permission to administer the firewall; approve the exact subject or
-pre-link it explicitly.
+pre-link it explicitly. The profile offers only Strict or Administrator
+approval, and **Create an account on first login** is unavailable.
 
 References: [Yahoo OpenID Connect](https://developer.yahoo.com/oauth2/guide/openid_connect/),
 [getting started](https://developer.yahoo.com/oauth2/guide/openid_connect/getting_started.html),

@@ -54,6 +54,11 @@ session, and approval binds Apple's stable `sub`. Later logins therefore remain
 bound even when Apple no longer repeats the address. See the [admission policy
 guide](../setup/admission-policy.md).
 
+Because any Apple account can be presented to this client, the profile offers
+only Strict or Administrator approval. **Create an account on first login** is
+unavailable; approval may still create and bind an account as an explicit
+administrator action.
+
 Because the client-secret JWT expires, an expired secret produces token-endpoint
 failures even though discovery remains healthy. Record its rotation date.
 

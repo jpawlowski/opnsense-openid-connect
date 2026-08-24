@@ -34,6 +34,7 @@ Do not mix endpoints or signing keys between those issuers.
 | Authorization response mode | Query |
 | Scopes | `openid,email,profile` |
 | Authentication method | Follow the provider |
+| Redirect the Log Out menu entry | On |
 | Required authentication | Provider policy only, or the tested MFA/phishing-resistant policy below |
 
 For group authorization, add a filtered groups claim in Okta. Depending on the
@@ -63,7 +64,8 @@ the installed Okta policy.
 
 For the first login, keep **Match by e-mail address** at **Only a verified
 address**, **Maximum authentication age** at **14400 seconds (four hours)**, account creation off, root
-access off, **Group claim** empty, tracing off, and both optional logout switches
+access off, **Group claim** empty, tracing off, **Redirect the Log Out menu
+entry** on, **Return here after logout** off, and provider logout notifications
 off. The table above contains the provider profile values to enter or verify.
 Change another setting only for the documented reason in the [complete settings
 reference](../setup/settings-reference.md).
@@ -71,7 +73,8 @@ reference](../setup/settings-reference.md).
 References: [Okta web application](https://developer.okta.com/docs/guides/sign-into-web-app-redirect/main/),
 [authorization servers](https://developer.okta.com/docs/concepts/auth-servers/),
 [step-up authentication](https://developer.okta.com/docs/guides/step-up-authentication/main/),
-[groups claim](https://developer.okta.com/docs/guides/customize-tokens-groups-claim/main/).
+[groups claim](https://developer.okta.com/docs/guides/customize-tokens-groups-claim/main/),
+and [sign users out](https://developer.okta.com/docs/guides/sign-users-out/main/).
 
 ## Optional Shared Signals
 

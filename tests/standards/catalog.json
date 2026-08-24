@@ -1445,7 +1445,7 @@
       "implementation": "implemented",
       "claim": "unverified",
       "audit_complete": false,
-      "note": "ES256 DPoP is negotiated from Discovery, authorization codes and protected requests are proof-key-bound, server nonces are retained without downgrade, and per-provider keys rotate with bounded retired generations. The complete normative inventory is not yet audited."
+      "note": "ES256 DPoP is negotiated for compatible documented access-token profiles from Discovery, authorization codes and protected requests are proof-key-bound, server nonces are retained without downgrade, and per-provider keys rotate with bounded retired generations. The complete normative inventory is not yet audited."
     },
     {
       "id": "ciba",

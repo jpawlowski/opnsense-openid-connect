@@ -162,7 +162,7 @@ class RelyingParty
         if ($this->clientAuthentication->snapshot()['certificate_bound_access_tokens']) {
             /* One access token has one sender constraint: prefer the explicitly configured certificate binding. */
             $this->dpop = null;
-        } elseif ($metadata->supportsDpop()) {
+        } elseif ($this->negotiatesDpop($metadata)) {
             $this->dpop ??= $this->dpopStore->active();
         } else {
             $this->dpop = null;
@@ -357,17 +357,15 @@ class RelyingParty
         }
         $this->tokenAuthMethod = $frozenAuthMethod;
         $dpopKey = $transaction['dpop_key'] ?? null;
-        if ($this->metadata->supportsDpop()) {
-            $certificateBound = $this->clientAuthentication->snapshot()['certificate_bound_access_tokens'];
-            if ($certificateBound && $dpopKey !== null) {
-                throw new ProtocolException('The login transaction has conflicting sender constraints');
-            }
-            if (!$certificateBound && (!is_string($dpopKey) || !preg_match('/^[A-Za-z0-9_-]{43}$/D', $dpopKey))) {
+        $certificateBound = $this->clientAuthentication->snapshot()['certificate_bound_access_tokens'];
+        $dpopNegotiated = !$certificateBound && $this->negotiatesDpop($this->metadata);
+        if ($dpopNegotiated) {
+            if (!is_string($dpopKey) || !preg_match('/^[A-Za-z0-9_-]{43}$/D', $dpopKey)) {
                 throw new ProtocolException('The login transaction carries no usable DPoP proof key');
             }
-            if (!$certificateBound && $this->dpop === null) {
+            if ($this->dpop === null) {
                 $this->dpop = $this->dpopStore->find($dpopKey);
-            } elseif (!$certificateBound && !hash_equals($this->dpop->keyId(), $dpopKey)) {
+            } elseif (!hash_equals($this->dpop->keyId(), $dpopKey)) {
                 throw new ProtocolException('The login transaction DPoP proof key changed');
             }
         } elseif ($dpopKey !== null) {
@@ -467,14 +465,14 @@ class RelyingParty
             ? $this->http->postForm($endpoint, $fields, self::TOKEN_MAX_BYTES, $headers, $certificate)
             : $this->dpopRequest('POST', $endpoint, $fields, $headers, self::TOKEN_MAX_BYTES, null, false, $certificate);
         if ($response->status !== 200) {
-            throw new ProtocolException($this->tokenEndpointError($response));
+            $this->throwTokenEndpointError($response);
         }
         if ($response->contentType !== 'application/json') {
             throw new ProtocolException('The token endpoint did not return application/json');
         }
         $tokens = $response->jsonObject();
         if (array_key_exists('error', $tokens)) {
-            throw new ProtocolException($this->tokenEndpointError($response));
+            $this->throwTokenEndpointError($response);
         }
         foreach (['id_token', 'access_token', 'refresh_token'] as $tokenName) {
             if (isset($tokens[$tokenName])
@@ -534,6 +532,28 @@ class RelyingParty
             }
         }
         return sprintf('The token endpoint returned HTTP %d', $response->status);
+    }
+
+    private function throwTokenEndpointError(HttpResponse $response): void
+    {
+        if ($this->tokenEndpointErrorCode($response) === 'invalid_client') {
+            throw new ClientAuthenticationException('The token endpoint declined the client credentials');
+        }
+        throw new ProtocolException($this->tokenEndpointError($response));
+    }
+
+    private function tokenEndpointErrorCode(HttpResponse $response): ?string
+    {
+        if ($response->contentType !== 'application/json') {
+            return null;
+        }
+        try {
+            $answer = $response->jsonObject();
+        } catch (ProtocolException $e) {
+            return null;
+        }
+        $error = $answer['error'] ?? null;
+        return is_string($error) && preg_match('/^[A-Za-z0-9_.-]{1,80}$/D', $error) ? $error : null;
     }
 
     /** @param array<string,string> $fields @param string[] $headers */
@@ -978,6 +998,11 @@ class RelyingParty
             'state', 'code', 'iss', 'error', 'error_description', 'error_uri', 'session_state',
             'access_token', 'id_token', 'token_type', 'expires_in',
         ]));
+    }
+
+    private function negotiatesDpop(ProviderMetadata $metadata): bool
+    {
+        return $metadata->supportsDpop() && $this->settings->supportsDpopAccessTokens();
     }
 
     private static function isJarmMode(string $responseMode): bool
