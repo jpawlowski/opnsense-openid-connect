@@ -434,14 +434,26 @@ Checks::that('provider presets keep authentication enforcement opt-in', array_va
     static fn($profile) => $profilePresets[$profile]['values']['openidconnect_required_authentication'] !== ''
 )), []);
 $authenticationCapabilities = OpenIDConnect::authenticationRequirementCapabilities();
+$providerCapabilityCatalog = json_decode(
+    file_get_contents(__DIR__ . '/../providers/capabilities.json'),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+);
+$supportedEvidence = ['live', 'adapter', 'documented', 'conditional'];
+$strengthFeatures = ['mfa' => 'multi-factor', 'phishing_resistant' => 'phishing-resistant'];
+$catalogAuthenticationCapabilities = [];
+foreach ($providerCapabilityCatalog['providers'] as $provider) {
+    foreach ($strengthFeatures as $feature => $requirement) {
+        $status = $provider['capabilities'][$feature]
+            ?? $providerCapabilityCatalog['capability_defaults'][$feature];
+        if (in_array($status, $supportedEvidence, true)) {
+            $catalogAuthenticationCapabilities[$provider['id']][] = $requirement;
+        }
+    }
+}
 Checks::that('only provider profiles with an end-to-end evidence path expose authentication requirements',
-    $authenticationCapabilities, [
-        'general' => ['multi-factor', 'phishing-resistant'],
-        'auth0' => ['multi-factor'],
-        'keycloak' => ['multi-factor', 'phishing-resistant'],
-        'entra' => ['multi-factor', 'phishing-resistant'],
-        'okta' => ['multi-factor', 'phishing-resistant'],
-    ]);
+    $authenticationCapabilities, $catalogAuthenticationCapabilities);
 Checks::that('profiles without a documented strength path classify the requirement as unsupported',
     array_values(array_filter(
         array_keys($profilePresets),
