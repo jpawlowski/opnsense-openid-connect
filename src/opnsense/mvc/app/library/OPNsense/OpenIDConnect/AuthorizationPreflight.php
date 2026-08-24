@@ -44,11 +44,19 @@ final class AuthorizationPreflight
                 'skipped'
             );
         }
-        if ($metadata->requiresSignedRequestObject()) {
+        if ($metadata->requiresSignedRequestObject() || $settings->requestObjectSigningKey() !== '') {
             return $this->result(
                 'info',
                 gettext('Covered by Test sign-in'),
-                gettext('The provider requires a signed Request Object, so a reduced unsigned probe is not sent.'),
+                gettext('A signed Request Object is in use, so a reduced unsigned probe is not sent.'),
+                'skipped'
+            );
+        }
+        if ($settings->responseMode() !== 'query') {
+            return $this->result(
+                'info',
+                gettext('Covered by Test sign-in'),
+                gettext('The selected response mode cannot be verified by a reduced query-response probe.'),
                 'skipped'
             );
         }

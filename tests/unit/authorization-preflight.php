@@ -97,3 +97,37 @@ $parCovered = (new AuthorizationPreflight(new HttpClient(static function () use 
 })))->check($parSettings, $parMetadata, $preflightCallback);
 Checks::that('health lets authenticated PAR cover the same registration', $parCovered['verification'], 'skipped');
 Checks::that('the reduced authorization request is not duplicated beside PAR', $parRequests, 0);
+
+$specializedRequests = 0;
+$specializedTransport = new HttpClient(static function () use (&$specializedRequests): array {
+    $specializedRequests++;
+    return [];
+});
+$signedSettings = connector([
+    'openidconnect_provider_url' => $preflightIssuer,
+    'openidconnect_client_id' => 'current-client',
+    'openidconnect_client_secret' => 'current-secret',
+    'openidconnect_par_mode' => 'disabled',
+    'openidconnect_request_object_key' => 'registered-signing-key',
+]);
+$signedCovered = (new AuthorizationPreflight($specializedTransport))->check(
+    $signedSettings,
+    $preflightMetadata,
+    $preflightCallback
+);
+Checks::that('a selected signed Request Object is never replaced by an unsigned probe',
+    $signedCovered['verification'], 'skipped');
+$formPostSettings = connector([
+    'openidconnect_provider_url' => $preflightIssuer,
+    'openidconnect_client_id' => 'current-client',
+    'openidconnect_client_secret' => 'current-secret',
+    'openidconnect_par_mode' => 'disabled',
+    'openidconnect_response_mode' => 'form_post',
+]);
+$formPostCovered = (new AuthorizationPreflight($specializedTransport))->check(
+    $formPostSettings,
+    ProviderMetadata::fromArray($preflightMetadataValues + ['response_modes_supported' => ['query', 'form_post']]),
+    $preflightCallback
+);
+Checks::that('a Form Post response is left to the real browser test', $formPostCovered['verification'], 'skipped');
+Checks::that('specialized authorization modes receive no misleading reduced request', $specializedRequests, 0);
