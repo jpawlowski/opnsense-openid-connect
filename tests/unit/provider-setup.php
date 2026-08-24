@@ -119,6 +119,8 @@ Checks::that('only authorization code is enabled', [
     $client['standardFlowEnabled'], $client['implicitFlowEnabled'], $client['directAccessGrantsEnabled'],
 ], [true, false, false]);
 Checks::that('Keycloak receives exact web origins', $client['webOrigins'], ['https://firewall.example.net']);
+Checks::that('Keycloak binds access tokens to the proof key required by its advertised DPoP path',
+    $client['attributes']['dpop.bound.access.tokens'], 'true');
 Checks::that('no unused post logout address is registered', isset(
     $client['attributes']['post.logout.redirect.uris']
 ), false);

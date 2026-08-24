@@ -384,7 +384,12 @@ $installationSpecificFields = [
     'openidconnect_debug',
     'openidconnect_ssf_issuer',
     'openidconnect_ssf_audience',
+    'openidconnect_ssf_delivery_method',
+    'openidconnect_ssf_management_authorization',
+    'openidconnect_ssf_poll_endpoint',
+    'openidconnect_ssf_previous_push_secret',
     'openidconnect_ssf_push_secret',
+    'openidconnect_ssf_stream_id',
     'openidconnect_button_style',
     'openidconnect_icon_svg',
 ];

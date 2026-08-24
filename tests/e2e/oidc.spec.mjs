@@ -774,6 +774,7 @@ async function importGeneratedKeycloakClient(setup) {
   expect(client.webOrigins).toEqual(setup.clients[0].webOrigins);
   expect(client.defaultClientScopes).toEqual(setup.clients[0].defaultClientScopes);
   expect([...client.optionalClientScopes].sort()).toEqual([...setup.clients[0].optionalClientScopes].sort());
+  expect(client.attributes['dpop.bound.access.tokens']).toBe('true');
   expect(client.attributes['post.logout.redirect.uris']).toBe(`${origin}/`);
   expect(client.attributes['logout.confirmation.enabled']).toBe('false');
 

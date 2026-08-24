@@ -38,6 +38,9 @@ evidence required by OPNsense maximum-age validation. It links the standard
 requests them. Keycloak's `email` scope maps the user's **Email verified** state
 to `email_verified`; keep that state false until the realm's enrollment or
 directory process has actually verified control of the current address.
+The generated client also enables **DPoP Bound Access Tokens**. Keycloak
+advertises ES256 DPoP realm-wide, so OPNsense uses that path automatically and
+refuses a downgrade to an unbound Bearer token.
 
 When **Return here after logout** is selected before generation, the import
 also disables Keycloak's separate logout confirmation landing page. Otherwise
@@ -87,6 +90,7 @@ In the intended realm, go to **Clients > Create client** and use:
 | Standard flow | On |
 | Direct access grants | Off |
 | Implicit flow | Off |
+| DPoP Bound Access Tokens | On |
 | Valid redirect URIs | `https://firewall.example.com/api/openidconnect/auth/callback/keycloak` |
 | Web origins | `https://firewall.example.com` |
 | Valid post logout redirect URIs | `https://firewall.example.com/` only when OPNsense **Return here after logout** will be enabled |

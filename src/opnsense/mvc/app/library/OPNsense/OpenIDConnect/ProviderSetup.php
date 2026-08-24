@@ -370,6 +370,11 @@ final class ProviderSetup
         }
         $attributes = [
             'pkce.code.challenge.method' => 'S256',
+            // Keycloak advertises ES256 DPoP realm-wide. The RP therefore binds
+            // its authorization code and token request to a proof key and refuses
+            // a Bearer downgrade; the generated client must opt into the matching
+            // token type instead of looking complete and then failing at exchange.
+            'dpop.bound.access.tokens' => 'true',
             'frontchannel.logout' => $logoutChannel === 'frontchannel' ? 'true' : 'false',
             'frontchannel.logout.session.required' => 'true',
             'frontchannel.logout.url' => $origins[0] . '/api/openidconnect/auth/frontchannel/'
