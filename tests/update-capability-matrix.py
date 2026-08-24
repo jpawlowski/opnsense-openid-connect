@@ -5,6 +5,7 @@
 """Validate the evidence gates and render the public capability matrices."""
 
 import argparse
+import datetime
 import json
 import pathlib
 import re
@@ -20,6 +21,9 @@ IMPLEMENTATION = {"implemented", "partial", "candidate", "deferred", "not_planne
 CLAIMS = {"verified", "unverified", "not_claimed", "not_applicable"}
 EVIDENCE = {"live", "adapter", "documented", "conditional", "unavailable", "incompatible", "unknown"}
 REQUIREMENT_STRENGTH = {"must", "must_not", "should", "should_not", "may"}
+GATE_EVIDENCE_TEST = pathlib.PurePosixPath("tests/capability-matrix.py")
+PROVIDER_EVIDENCE_DIRECTORY = pathlib.PurePosixPath("tests/evidence")
+PROVIDER_REVISION = re.compile(r"^(?:version|release|service|commit):[A-Za-z0-9][A-Za-z0-9._+:/@ -]{0,111}$")
 
 STATUS_LABEL = {
     "implemented": "Implemented",
@@ -65,6 +69,62 @@ def unique(items, label):
     return seen
 
 
+def repository_file(value, label, root=ROOT):
+    if not isinstance(value, str) or not value or "\\" in value:
+        raise CatalogError(f"{label}: path must be a repository-relative POSIX path")
+    relative = pathlib.PurePosixPath(value)
+    if relative.is_absolute() or ".." in relative.parts or str(relative) != value:
+        raise CatalogError(f"{label}: path must be a normalized repository-relative POSIX path")
+    return relative, root.joinpath(*relative.parts)
+
+
+def gate_test_names(relative, path):
+    is_unit = relative.parent == pathlib.PurePosixPath("tests/unit") and relative.suffix == ".php"
+    if relative != GATE_EVIDENCE_TEST and not is_unit:
+        raise CatalogError(f"{relative}: normative evidence must name a test suite executed by ./tests/run.sh")
+    if not path.is_file():
+        raise CatalogError(f"{relative}: evidence test suite does not exist")
+    source = path.read_text(encoding="utf-8")
+    if relative.suffix == ".php":
+        pattern = r"Checks::(?:that|throws)\(\s*(['\"])(.*?)\1"
+    else:
+        pattern = r"\bcheck\(\s*(['\"])(.*?)\1"
+    return {match[1] for match in re.findall(pattern, source, re.DOTALL)}
+
+
+def validate_test_evidence(requirement_id, direction, reference):
+    if not isinstance(reference, dict) or set(reference) != {"path", "test"}:
+        raise CatalogError(f"{requirement_id}: evidence must name one gate test path and exact test name")
+    relative, path = repository_file(reference["path"], requirement_id)
+    test = reference["test"]
+    prefix = f"{requirement_id} {direction}: "
+    if not isinstance(test, str) or not test.startswith(prefix):
+        raise CatalogError(f"{requirement_id}: {direction} evidence test must begin with '{prefix}'")
+    if test not in gate_test_names(relative, path):
+        raise CatalogError(f"{requirement_id}: exact {direction} test is not present in {relative}")
+    return relative, test
+
+
+def reviewed_deviation(requirement):
+    deviation = requirement.get("deviation")
+    if deviation is None:
+        return False
+    if requirement["strength"] not in {"should", "should_not"}:
+        raise CatalogError(f"{requirement['id']}: only recommendations may record a deviation")
+    if not isinstance(deviation, dict) or not {"reviewed_on", "rationale"} <= deviation.keys():
+        raise CatalogError(f"{requirement['id']}: deviation needs a review date and rationale")
+    reviewed_on = deviation["reviewed_on"]
+    try:
+        if not isinstance(reviewed_on, str) or datetime.date.fromisoformat(reviewed_on).isoformat() != reviewed_on:
+            raise ValueError
+    except ValueError as error:
+        raise CatalogError(f"{requirement['id']}: deviation review date must use YYYY-MM-DD") from error
+    rationale = deviation["rationale"]
+    if not isinstance(rationale, str) or rationale.strip() != rationale or not 1 <= len(rationale) <= 1000:
+        raise CatalogError(f"{requirement['id']}: deviation needs a non-empty reviewed rationale")
+    return True
+
+
 def validate_requirement(standard, requirement):
     missing = {"id", "section", "strength", "applicable", "evidence"} - requirement.keys()
     if missing:
@@ -72,6 +132,7 @@ def validate_requirement(standard, requirement):
     if requirement["strength"] not in REQUIREMENT_STRENGTH:
         raise CatalogError(f"{requirement['id']}: invalid normative strength")
     evidence = requirement["evidence"]
+    has_reviewed_deviation = reviewed_deviation(requirement)
     if not requirement["applicable"]:
         if not requirement.get("rationale"):
             raise CatalogError(f"{requirement['id']}: non-applicability needs a rationale")
@@ -80,20 +141,24 @@ def validate_requirement(standard, requirement):
         if requirement["strength"] in {"must", "must_not"} and not {"positive", "negative"} <= evidence.keys():
             raise CatalogError(f"{requirement['id']}: mandatory requirement needs positive and negative evidence")
         if requirement["strength"] in {"should", "should_not"} and not (
-            {"positive", "negative"} <= evidence.keys() or requirement.get("deviation")
+            {"positive", "negative"} <= evidence.keys() or has_reviewed_deviation
         ):
             raise CatalogError(f"{requirement['id']}: recommendation needs evidence or an explicit deviation")
-        if requirement["strength"] == "may" and requirement.get("claimed") and not {"positive", "negative"} <= evidence.keys():
+        if (
+            requirement["strength"] == "may"
+            and requirement.get("claimed")
+            and not {"positive", "negative"} <= evidence.keys()
+        ):
             raise CatalogError(f"{requirement['id']}: claimed optional behaviour needs positive and negative evidence")
+    evidence_tests = {}
     for direction, references in evidence.items():
         if direction not in {"positive", "negative"} or not isinstance(references, list) or not references:
             raise CatalogError(f"{requirement['id']}: invalid {direction} evidence")
+        evidence_tests[direction] = set()
         for reference in references:
-            if not isinstance(reference, dict) or not {"path", "contains"} <= reference.keys():
-                raise CatalogError(f"{requirement['id']}: evidence must name a path and exact test marker")
-            path = ROOT / reference["path"]
-            if not path.is_file() or reference["contains"] not in path.read_text(encoding="utf-8"):
-                raise CatalogError(f"{requirement['id']}: evidence marker is not present in {reference['path']}")
+            evidence_tests[direction].add(validate_test_evidence(requirement["id"], direction, reference))
+    if evidence_tests.get("positive", set()) & evidence_tests.get("negative", set()):
+        raise CatalogError(f"{requirement['id']}: positive and negative evidence must name distinct tests")
 
 
 def validate_standards(data):
@@ -122,8 +187,6 @@ def validate_standards(data):
             review = standard.get("source_review", {})
             if not {"specification_revision", "reviewed_on", "profile", "sections"} <= review.keys():
                 raise CatalogError(f"{standard['id']}: verified requires a pinned source and applicability review")
-            if any(requirement["applicable"] and not requirement["evidence"] for requirement in requirements):
-                raise CatalogError(f"{standard['id']}: verified has an applicable requirement without evidence")
         if standard["audit_complete"] and not requirements:
             raise CatalogError(f"{standard['id']}: an empty inventory cannot be complete")
     return ids
@@ -135,6 +198,65 @@ def configured_profiles():
     if not match:
         raise CatalogError("cannot locate PROVIDER_PROFILES in connector")
     return set(re.findall(r"'([^']+)'", match.group(1)))
+
+
+def validate_record_text(record, field, label):
+    value = record.get(field)
+    if not isinstance(value, str) or value.strip() != value or not 1 <= len(value) <= 128:
+        raise CatalogError(f"{label}: {field} must be a non-empty, trimmed value of at most 128 characters")
+    if not all(character.isprintable() for character in value):
+        raise CatalogError(f"{label}: {field} contains non-printable characters")
+    return value
+
+
+def validate_live_evidence_record(provider, feature_id, status, record, root=ROOT):
+    label = f"{provider['id']}/{feature_id}"
+    if not isinstance(record, dict) or not {"feature", "tested_on", "provider_revision", "artifact"} <= record.keys():
+        raise CatalogError(f"{label}: incomplete live evidence record")
+    if record["feature"] != feature_id:
+        raise CatalogError(f"{label}: live evidence record names another feature")
+    tested_on = validate_record_text(record, "tested_on", label)
+    try:
+        if datetime.date.fromisoformat(tested_on).isoformat() != tested_on:
+            raise ValueError
+    except ValueError as error:
+        raise CatalogError(f"{label}: tested_on must use YYYY-MM-DD") from error
+    provider_revision = validate_record_text(record, "provider_revision", label)
+    if not PROVIDER_REVISION.fullmatch(provider_revision):
+        raise CatalogError(
+            f"{label}: provider_revision must start with version:, release:, service: or commit:"
+        )
+    relative, artifact_path = repository_file(record.get("artifact"), label, root)
+    if relative.parent != PROVIDER_EVIDENCE_DIRECTORY or relative.suffix != ".json":
+        raise CatalogError(f"{label}: live evidence artifact must be a JSON file in tests/evidence")
+    try:
+        artifact = read_json(artifact_path)
+    except (FileNotFoundError, json.JSONDecodeError, OSError) as error:
+        raise CatalogError(f"{label}: live evidence artifact is missing or invalid JSON") from error
+    expected = {
+        "schema_version": 1,
+        "evidence_type": "provider_interoperability",
+        "provider": provider["id"],
+        "provider_revision": provider_revision,
+        "tested_on": tested_on,
+    }
+    if not isinstance(artifact, dict) or any(artifact.get(key) != value for key, value in expected.items()):
+        raise CatalogError(f"{label}: artifact is not bound to the provider, revision and test date")
+    configuration = artifact.get("configuration")
+    if not isinstance(configuration, dict) or not configuration:
+        raise CatalogError(f"{label}: artifact must retain a sanitized non-empty provider configuration")
+    results = artifact.get("results")
+    if not isinstance(results, list):
+        raise CatalogError(f"{label}: artifact must contain provider capability results")
+    matches = [result for result in results if isinstance(result, dict) and result.get("feature") == feature_id]
+    if len(matches) != 1 or matches[0].get("status") != status:
+        raise CatalogError(f"{label}: artifact does not prove this capability status")
+    if status == "adapter":
+        adaptation = provider.get("adaptations", {}).get(feature_id)
+        if not isinstance(adaptation, str) or not adaptation.strip():
+            raise CatalogError(f"{label}: adapter status must name the deviation")
+        if matches[0].get("adaptation") != adaptation:
+            raise CatalogError(f"{label}: artifact is not bound to the named provider adaptation")
 
 
 def validate_providers(data, standard_ids):
@@ -162,18 +284,21 @@ def validate_providers(data, standard_ids):
             if status not in EVIDENCE:
                 raise CatalogError(f"{provider['id']}/{feature_id}: invalid evidence status {status}")
             if status in {"documented", "conditional"} and "http" not in guide_path.read_text(encoding="utf-8"):
-                raise CatalogError(f"{provider['id']}/{feature_id}: documented status needs an external source in its guide")
+                raise CatalogError(
+                    f"{provider['id']}/{feature_id}: documented status needs an external source in its guide"
+                )
             if status in {"live", "adapter"}:
-                records = [record for record in provider.get("live_evidence", []) if record["feature"] == feature_id]
+                all_records = provider.get("live_evidence", [])
+                if not isinstance(all_records, list):
+                    raise CatalogError(f"{provider['id']}: live_evidence must be a list")
+                records = [
+                    record for record in all_records
+                    if isinstance(record, dict) and record.get("feature") == feature_id
+                ]
                 if not records:
                     raise CatalogError(f"{provider['id']}/{feature_id}: live status needs a retained evidence record")
                 for record in records:
-                    if not {"tested_on", "provider_revision", "artifact"} <= record.keys():
-                        raise CatalogError(f"{provider['id']}/{feature_id}: incomplete live evidence record")
-                    if not (ROOT / record["artifact"]).is_file():
-                        raise CatalogError(f"{provider['id']}/{feature_id}: evidence artifact does not exist")
-                if status == "adapter" and not provider.get("adaptations", {}).get(feature_id):
-                    raise CatalogError(f"{provider['id']}/{feature_id}: adapter status must name the deviation")
+                    validate_live_evidence_record(provider, feature_id, status, record)
 
 
 def cell(defaults, provider, feature_id):

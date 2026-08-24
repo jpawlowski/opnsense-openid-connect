@@ -6,8 +6,10 @@
 
 import copy
 import importlib.util
+import json
 import pathlib
 import sys
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tests"))
@@ -34,6 +36,13 @@ def refused(call):
         return True
 
 
+def retained_artifact(root, artifact):
+    path = root / "tests" / "evidence" / "provider-result.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(artifact), encoding="utf-8")
+    return "tests/evidence/provider-result.json"
+
+
 def main():
     standards = matrix.read_json(matrix.STANDARDS)
     providers = matrix.read_json(matrix.PROVIDERS)
@@ -48,26 +57,59 @@ def main():
     empty["standards"][0]["audit_complete"] = True
     check("an empty normative inventory cannot be green", refused(lambda: matrix.validate_standards(empty)), True)
 
+    check(
+        "OIDC-CORE-CODE-MUST-VERIFIED positive: a named acceptance fixture executes",
+        True,
+        True,
+    )
+    check(
+        "OIDC-CORE-CODE-MUST-VERIFIED negative: a named refusal fixture executes",
+        refused(lambda: matrix.validate_test_evidence(
+            "OIDC-CORE-CODE-MUST-VERIFIED",
+            "negative",
+            {"path": "README.md", "test": "not a gate test"},
+        )),
+        True,
+    )
+
     one_sided = copy.deepcopy(standards)
     one_sided["standards"][0]["requirements"] = [{
         "id": "OIDC-CORE-CODE-MUST-001",
         "section": "3.1.2.1",
         "strength": "must",
         "applicable": True,
-        "evidence": {"positive": [{"path": "tests/capability-matrix.py", "contains": "OIDC-CORE-CODE-MUST-001"}]},
+        "evidence": {
+            "positive": [{
+                "path": "tests/capability-matrix.py",
+                "test": "OIDC-CORE-CODE-MUST-001 positive: incomplete fixture",
+            }],
+        },
     }]
     check("a MUST without refusal evidence is rejected", refused(lambda: matrix.validate_standards(one_sided)), True)
 
     reviewed = copy.deepcopy(standards)
+    reviewed["standards"][0]["claim"] = "verified"
+    reviewed["standards"][0]["audit_complete"] = True
+    reviewed["standards"][0]["source_review"] = {
+        "specification_revision": "test fixture",
+        "reviewed_on": "2026-08-24",
+        "profile": "test-only RP profile",
+        "sections": ["test fixture"],
+    }
     reviewed["standards"][0]["requirements"] = [{
         "id": "OIDC-CORE-CODE-SHOULD-001",
         "section": "3.1.2.1",
         "strength": "should",
         "applicable": True,
         "evidence": {},
-        "deviation": "Reviewed profile decision with no conformance claim.",
+        "deviation": {
+            "reviewed_on": "2026-08-24",
+            "rationale": "Reviewed profile decision for the synthetic recommendation.",
+        },
     }]
-    check("an explicit SHOULD deviation remains auditable", refused(lambda: matrix.validate_standards(reviewed)), False)
+    check("a verified SHOULD may use an explicit reviewed deviation", refused(
+        lambda: matrix.validate_standards(reviewed)
+    ), False)
 
     complete = copy.deepcopy(standards)
     complete["standards"][0]["claim"] = "verified"
@@ -78,17 +120,39 @@ def main():
         "profile": "test-only RP profile",
         "sections": ["test fixture"],
     }
-    marker = {"path": "tests/capability-matrix.py", "contains": "OIDC-CORE-CODE-MUST-VERIFIED"}
+    positive = {
+        "path": "tests/capability-matrix.py",
+        "test": "OIDC-CORE-CODE-MUST-VERIFIED positive: a named acceptance fixture executes",
+    }
+    negative = {
+        "path": "tests/capability-matrix.py",
+        "test": "OIDC-CORE-CODE-MUST-VERIFIED negative: a named refusal fixture executes",
+    }
     complete["standards"][0]["requirements"] = [{
         "id": "OIDC-CORE-CODE-MUST-VERIFIED",
         "section": "test fixture",
         "strength": "must",
         "applicable": True,
-        "evidence": {"positive": [marker], "negative": [marker]},
+        "evidence": {"positive": [positive], "negative": [negative]},
     }]
     check("a pinned complete inventory with two-sided evidence may become green", refused(
         lambda: matrix.validate_standards(complete)
     ), False)
+
+    arbitrary = copy.deepcopy(complete)
+    arbitrary["standards"][0]["requirements"][0]["evidence"]["positive"] = [{
+        "path": "README.md",
+        "test": "OIDC-CORE-CODE-MUST-VERIFIED positive: README substring",
+    }]
+    check("an arbitrary repository substring cannot become normative evidence", refused(
+        lambda: matrix.validate_standards(arbitrary)
+    ), True)
+
+    reused = copy.deepcopy(complete)
+    reused["standards"][0]["requirements"][0]["evidence"]["negative"] = [positive]
+    check("one executed test cannot satisfy both evidence directions", refused(
+        lambda: matrix.validate_standards(reused)
+    ), True)
 
     group("A provider claim cannot outrun retained interoperability evidence")
     incomplete = copy.deepcopy(providers)
@@ -110,11 +174,76 @@ def main():
 
     adapted = copy.deepcopy(providers)
     adapted["providers"][0]["capabilities"]["login"] = "adapter"
-    check(
-        "an adapter cell cannot hide an unnamed provider deviation",
-        refused(lambda: matrix.validate_providers(adapted, standard_ids)),
-        True,
-    )
+    check("an adapter cell also needs retained live evidence", refused(
+        lambda: matrix.validate_providers(adapted, standard_ids)
+    ), True)
+
+    provider = {"id": "general"}
+    dated_record = {
+        "feature": "login",
+        "tested_on": "2026-08-24",
+        "provider_revision": "version:fixture-1",
+        "artifact": "tests/evidence/provider-result.json",
+    }
+    blank = copy.deepcopy(dated_record)
+    blank["tested_on"] = ""
+    check("a live record rejects an empty test date", refused(
+        lambda: matrix.validate_live_evidence_record(provider, "login", "live", blank)
+    ), True)
+
+    blank_revision = copy.deepcopy(dated_record)
+    blank_revision["provider_revision"] = ""
+    check("a live record rejects an empty provider revision", refused(
+        lambda: matrix.validate_live_evidence_record(provider, "login", "live", blank_revision)
+    ), True)
+
+    malformed_revision = copy.deepcopy(dated_record)
+    malformed_revision["provider_revision"] = "fixture-1"
+    check("a live record rejects an untyped provider revision", refused(
+        lambda: matrix.validate_live_evidence_record(provider, "login", "live", malformed_revision)
+    ), True)
+
+    arbitrary_artifact = copy.deepcopy(dated_record)
+    arbitrary_artifact["artifact"] = "LICENSE"
+    check("an arbitrary existing file cannot prove live interoperability", refused(
+        lambda: matrix.validate_live_evidence_record(provider, "login", "live", arbitrary_artifact)
+    ), True)
+
+    with tempfile.TemporaryDirectory() as temporary:
+        evidence_root = pathlib.Path(temporary)
+        artifact = {
+            "schema_version": 1,
+            "evidence_type": "provider_interoperability",
+            "provider": "another-provider",
+            "provider_revision": "version:fixture-1",
+            "tested_on": "2026-08-24",
+            "configuration": {"profile": "synthetic test fixture"},
+            "results": [{"feature": "login", "status": "live"}],
+        }
+        retained_artifact(evidence_root, artifact)
+        check("an artifact for another provider cannot make a cell green", refused(
+            lambda: matrix.validate_live_evidence_record(
+                provider, "login", "live", dated_record, evidence_root
+            )
+        ), True)
+        artifact["provider"] = "general"
+        retained_artifact(evidence_root, artifact)
+        check("a schema-bound provider result may become retained live evidence", refused(
+            lambda: matrix.validate_live_evidence_record(
+                provider, "login", "live", dated_record, evidence_root
+            )
+        ), False)
+        artifact["results"] = [{
+            "feature": "login",
+            "status": "adapter",
+            "adaptation": "synthetic provider deviation",
+        }]
+        retained_artifact(evidence_root, artifact)
+        check("an adapter artifact cannot hide an unnamed provider deviation", refused(
+            lambda: matrix.validate_live_evidence_record(
+                provider, "login", "adapter", dated_record, evidence_root
+            )
+        ), True)
 
     group("Security comparison preserves trade-offs")
     ranked_standards = copy.deepcopy(standards)

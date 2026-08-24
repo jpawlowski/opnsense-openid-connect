@@ -23,9 +23,11 @@ Its source catalogs are `tests/standards/catalog.json` and
 `tests/providers/capabilities.json`. A standard can be marked verified only
 after the exact RP profile and specification revision are pinned, every
 applicable normative requirement has a stable ID, and each mandatory or claimed
-behaviour points to both an accepting and refusing test marker. Recommendations
-need the same evidence or an explicit reviewed deviation. The validator also
-requires every provider profile and matrix dimension to be represented.
+behaviour points to distinct accepting and refusing checks in a test suite run by
+the host-independent gate. Each exact check name starts with the requirement ID
+and evidence direction. Recommendations need the same evidence or a dated,
+reviewed rationale for deviating. The validator also requires every provider
+profile and matrix dimension to be represented.
 
 Installed and browser evidence is optional but required for statements that
 cannot be proven on the host alone. Keep a sanitized result under
