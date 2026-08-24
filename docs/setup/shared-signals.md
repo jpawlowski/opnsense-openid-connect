@@ -37,7 +37,10 @@ shape; replace both values with those shown by the firewall:
 Request only these event type URIs:
 
 - `https://schemas.openid.net/secevent/caep/event-type/session-revoked`
+- `https://schemas.openid.net/secevent/caep/event-type/token-claims-change`
 - `https://schemas.openid.net/secevent/caep/event-type/credential-change`
+- `https://schemas.openid.net/secevent/caep/event-type/assurance-level-change`
+- `https://schemas.openid.net/secevent/caep/event-type/risk-level-change`
 - `https://schemas.openid.net/secevent/risc/event-type/account-credential-change-required`
 - `https://schemas.openid.net/secevent/risc/event-type/account-purged`
 - `https://schemas.openid.net/secevent/risc/event-type/account-disabled`
@@ -54,13 +57,34 @@ Polling and automatic stream-management credentials are deliberately not
 implemented. Rotating the delivery secret requires updating the transmitter
 before it can deliver another event.
 
-## Subject and session behavior
+## Event and subject behavior
 
-The receiver acts only on an `iss_sub` primary subject, directly or as the
-`user` member of a complex subject. Its issuer must be the exact OpenID Connect
-issuer configured for this server and also match the indexed session; other
-issuers and identifier formats are safely acknowledged without action. An
-unsupported critical complex-subject member rejects the event.
+The receiver can match an `iss_sub` user to the exact configured OpenID Connect
+issuer and indexed subject. For session events it can also match an `opaque`
+identifier to the provider `sid` stored with the local session. A complex CAEP
+subject is actionable only when every member is locally indexable: `user`,
+`session`, or both. Another non-critical member is acknowledged without a
+broader CAEP action; an unsupported critical member rejects the event. RISC
+actions remain user-wide and consume only an exact `user` member, so another
+non-critical member neither widens nor narrows their consequence.
+
+| CAEP event | Actionable subject and local consequence |
+|---|---|
+| `session-revoked` | Exact user, provider session, or both: end the matching pre-event sessions. |
+| `token-claims-change` | Exact user, optionally constrained by provider session: end the matching pre-event sessions so new claims are required. |
+| `credential-change` | Exact user: end matching pre-event sessions. |
+| `assurance-level-change` | Exact user, optionally constrained by provider session: end matching pre-event sessions so authentication evidence is renewed. |
+| `device-compliance-change` | No device index exists, so the event is acknowledged without broadening it to every user session. |
+| `session-established`, `session-presented` | Observational events are acknowledged without creating or changing local state. |
+| `risk-level-change` | `MEDIUM` or `HIGH` risk for an exact `USER` or `SESSION` ends matching pre-event sessions; `LOW` and other principals are informational. |
+
+| RISC event | Actionable subject and local consequence |
+|---|---|
+| `account-credential-change-required`, `account-purged`, `account-disabled`, `credential-compromise` | Exact user: end matching pre-event sessions. |
+| `recovery-activated`, `recovery-information-changed` | Exact user: end matching pre-event sessions. |
+| `sessions-revoked` | Exact user: end matching pre-event sessions; this event type is deprecated in favor of CAEP. |
+| `account-enabled`, `opt-in`, `opt-out-initiated`, `opt-out-cancelled`, `opt-out-effective` | No safe attenuating local action; acknowledge only. |
+| `identifier-changed`, `identifier-recycled` | E-mail and phone identifiers do not replace the stable issuer/subject binding; acknowledge only. |
 
 The complete RISC event audit is:
 
@@ -79,10 +103,14 @@ the primary subject. These checks prevent a syntactically valid SET from
 turning a malformed or mismatched event into a session action.
 
 A valid supported event ends every matching session that existed when its
-`event_timestamp`, or otherwise its SET `iat`, occurred. A delayed event cannot
-end a later sign-in. Duplicate `jti` values are idempotent. Valid unsupported
-events receive `202 Accepted` without changing anything so transmitters do not
-retry them indefinitely.
+`event_timestamp`, otherwise its SET `iat`, occurred. A delayed event cannot end a later sign-in. Duplicate
+`jti` values are idempotent. Distinct event types combined in one SET are
+refused as ambiguous; unknown single events receive `202 Accepted` without
+changing anything so transmitters do not retry them indefinitely.
+
+Known event-specific claims are type-checked before the replay marker or local
+session index changes. The receiver never uses event content to create, enable,
+disable, delete or rebind a local account, or to change groups or privileges.
 
 The Okta provider profile also accepts Okta's documented legacy event-level
 `subject` and millisecond timestamp shape. The Google provider profile accepts

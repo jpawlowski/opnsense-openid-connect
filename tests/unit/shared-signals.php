@@ -148,6 +148,27 @@ $fakeJwt = new class(new HttpClient()) extends JwtVerifier {
 };
 $fakeJwt->claims = $eventClaims;
 $events = new SecurityEventVerifier($fakeJwt);
+$verifyEvent = static function (
+    string $type,
+    array $event,
+    ?array $subject = null,
+    array $overrides = []
+) use ($eventClaims, $fakeJwt, $events, $ssfMetadata, $now): array {
+    $fakeJwt->header = ['typ' => 'secevent+jwt', 'alg' => 'RS256'];
+    $fakeJwt->claims = array_replace($eventClaims, $overrides);
+    $fakeJwt->claims['events'] = [$type => $event];
+    if ($subject !== null) {
+        $fakeJwt->claims['sub_id'] = $subject;
+    }
+    return $events->verify(
+        'signed',
+        $ssfMetadata,
+        'firewall-receiver',
+        'https://id.example.net',
+        'general',
+        $now
+    );
+};
 $accepted = $events->verify(
     'signed',
     $ssfMetadata,
@@ -159,6 +180,30 @@ $accepted = $events->verify(
 Checks::that('a supported event is actionable', $accepted['actionable'], true);
 Checks::that('the subject remains opaque to local account policy', $accepted['subject'], 'subject-1');
 Checks::that('the event time limits affected sessions', $accepted['cutoff'], $now - 5);
+
+$knownCaepEvents = [
+    SecurityEventVerifier::CAEP_SESSION_REVOKED,
+    SecurityEventVerifier::CAEP_TOKEN_CLAIMS_CHANGE,
+    SecurityEventVerifier::CAEP_CREDENTIAL_CHANGE,
+    SecurityEventVerifier::CAEP_ASSURANCE_LEVEL_CHANGE,
+    SecurityEventVerifier::CAEP_DEVICE_COMPLIANCE_CHANGE,
+    SecurityEventVerifier::CAEP_SESSION_ESTABLISHED,
+    SecurityEventVerifier::CAEP_SESSION_PRESENTED,
+    SecurityEventVerifier::CAEP_RISK_LEVEL_CHANGE,
+];
+Checks::that('the complete CAEP event profile is inventoried', SecurityEventVerifier::CAEP_EVENTS, $knownCaepEvents);
+$actionableCaepEvents = [
+    SecurityEventVerifier::CAEP_SESSION_REVOKED,
+    SecurityEventVerifier::CAEP_TOKEN_CLAIMS_CHANGE,
+    SecurityEventVerifier::CAEP_CREDENTIAL_CHANGE,
+    SecurityEventVerifier::CAEP_ASSURANCE_LEVEL_CHANGE,
+    SecurityEventVerifier::CAEP_RISK_LEVEL_CHANGE,
+];
+Checks::that(
+    'every CAEP event with a safe session consequence is selected',
+    SecurityEventVerifier::ACTIONABLE_CAEP_EVENTS,
+    $actionableCaepEvents
+);
 
 $knownRiscEvents = [
     SecurityEventVerifier::RISC_CREDENTIAL_REQUIRED,
@@ -262,32 +307,66 @@ $fakeJwt->claims = array_replace($eventClaims, [
 ]);
 Checks::that(
     'an unknown valid event is acknowledged without action',
-    $events->verify(
-        'signed',
-        $ssfMetadata,
-        'firewall-receiver',
-        'https://id.example.net',
-        'general',
-        $now
-    )['actionable'],
+    $verifyEvent('https://schemas.example.net/informational', [])['actionable'],
     false
 );
+Checks::that(
+    'an unknown event may define another subject field without changing the primary binding',
+    $verifyEvent('https://schemas.example.net/informational', [
+        'subject' => ['format' => 'opaque', 'id' => 'another-principal'],
+    ])['actionable'],
+    false
+);
+$opaqueSession = $verifyEvent(
+    SecurityEventVerifier::CAEP_SESSION_REVOKED,
+    [],
+    ['format' => 'opaque', 'id' => 'provider-session']
+);
+Checks::that('an exact opaque session subject is actionable', [
+    $opaqueSession['subject'],
+    $opaqueSession['session_id'],
+], [null, 'provider-session']);
+$complexTarget = $verifyEvent(
+    SecurityEventVerifier::CAEP_SESSION_REVOKED,
+    [],
+    [
+        'format' => 'complex',
+        'user' => ['format' => 'iss_sub', 'iss' => 'https://id.example.net', 'sub' => 'subject-1'],
+        'session' => ['format' => 'opaque', 'id' => 'provider-session'],
+    ]
+);
+Checks::that('a complete user and session subject retains both selectors', [
+    $complexTarget['subject'],
+    $complexTarget['session_id'],
+], ['subject-1', 'provider-session']);
+Checks::that(
+    'an unindexed complex subject member prevents a broader session action',
+    $verifyEvent(SecurityEventVerifier::CAEP_SESSION_REVOKED, [], [
+        'format' => 'complex',
+        'user' => ['format' => 'iss_sub', 'iss' => 'https://id.example.net', 'sub' => 'subject-1'],
+        'device' => ['format' => 'opaque', 'id' => 'device'],
+    ])['actionable'],
+    false
+);
+
 $fakeJwt->claims = array_replace($eventClaims, [
     'events' => [
         'https://schemas.example.net/alternate' => [],
         SecurityEventVerifier::RISC_ACCOUNT_DISABLED => ['event_timestamp' => $now - 9],
     ],
 ]);
-$multiple = $events->verify(
-    'signed',
-    $ssfMetadata,
-    'firewall-receiver',
-    'https://id.example.net',
-    'general',
-    $now
+Checks::throws(
+    'distinct event URIs are refused as ambiguous',
+    fn() => $events->verify(
+        'signed',
+        $ssfMetadata,
+        'firewall-receiver',
+        'https://id.example.net',
+        'general',
+        $now
+    ),
+    'ambiguous'
 );
-Checks::that('multiple event URIs retain a supported session action', $multiple['actionable'], true);
-Checks::that('multiple event URIs retain the earliest supported event time', $multiple['cutoff'], $now - 9);
 $fakeJwt->claims = array_replace($eventClaims, [
     'sub_id' => ['format' => 'iss_sub', 'iss' => 'https://another.example.net', 'sub' => 'subject-1'],
 ]);
@@ -376,11 +455,169 @@ Checks::throws(
     ),
     'receiver'
 );
+$fakeJwt->claims = array_replace($eventClaims, ['iss' => 'https://other-signals.example.net']);
+Checks::throws(
+    'a SET issuer must exactly match transmitter discovery',
+    fn() => $events->verify(
+        'signed',
+        $ssfMetadata,
+        'firewall-receiver',
+        'https://id.example.net',
+        'general',
+        $now
+    ),
+    'issuer'
+);
+$fakeJwt->claims = array_replace($eventClaims, ['iat' => (string)$now]);
+Checks::throws(
+    'a SET issue time is not coerced from a string',
+    fn() => $events->verify(
+        'signed',
+        $ssfMetadata,
+        'firewall-receiver',
+        'https://id.example.net',
+        'general',
+        $now
+    ),
+    'issue time'
+);
+$fakeJwt->claims = $eventClaims;
+$fakeJwt->header['typ'] = 'JWT';
+Checks::throws(
+    'a generic JWT type is refused before event processing',
+    fn() => $events->verify(
+        'signed',
+        $ssfMetadata,
+        'firewall-receiver',
+        'https://id.example.net',
+        'general',
+        $now
+    ),
+    'explicit'
+);
+Checks::throws(
+    'a future event time is refused',
+    fn() => $verifyEvent(
+        SecurityEventVerifier::CAEP_SESSION_REVOKED,
+        ['event_timestamp' => $now + JwtVerifier::CLOCK_TOLERANCE + 1]
+    ),
+    'event time'
+);
+Checks::throws(
+    'an event time is not coerced from a string',
+    fn() => $verifyEvent(
+        SecurityEventVerifier::CAEP_SESSION_REVOKED,
+        ['event_timestamp' => (string)($now - 1)]
+    ),
+    'event time'
+);
+
+$actionableProfiles = [
+    SecurityEventVerifier::CAEP_TOKEN_CLAIMS_CHANGE => ['claims' => ['groups' => ['operators']]],
+    SecurityEventVerifier::CAEP_CREDENTIAL_CHANGE => [
+        'credential_type' => 'password',
+        'change_type' => 'update',
+    ],
+    SecurityEventVerifier::CAEP_ASSURANCE_LEVEL_CHANGE => [
+        'namespace' => 'NIST-AAL',
+        'current_level' => 'nist-aal1',
+        'previous_level' => 'nist-aal2',
+        'change_direction' => 'decrease',
+    ],
+    SecurityEventVerifier::CAEP_RISK_LEVEL_CHANGE => [
+        'principal' => 'USER',
+        'current_level' => 'HIGH',
+        'previous_level' => 'LOW',
+    ],
+];
+foreach ($actionableProfiles as $type => $profile) {
+    Checks::that(
+        'the session-action inventory includes ' . basename($type),
+        $verifyEvent($type, $profile)['actionable'],
+        true
+    );
+}
+$informationalProfiles = [
+    SecurityEventVerifier::CAEP_DEVICE_COMPLIANCE_CHANGE => [
+        'previous_status' => 'compliant',
+        'current_status' => 'not-compliant',
+    ],
+    SecurityEventVerifier::CAEP_SESSION_ESTABLISHED => ['amr' => ['pwd']],
+    SecurityEventVerifier::CAEP_SESSION_PRESENTED => ['ext_id' => 'external-session'],
+];
+foreach ($informationalProfiles as $type => $profile) {
+    Checks::that(
+        'the inventory keeps ' . basename($type) . ' non-actionable',
+        $verifyEvent($type, $profile)['actionable'],
+        false
+    );
+}
+Checks::that(
+    'a low user risk does not end an established session',
+    $verifyEvent(SecurityEventVerifier::CAEP_RISK_LEVEL_CHANGE, [
+        'principal' => 'USER',
+        'current_level' => 'LOW',
+        'previous_level' => 'HIGH',
+    ])['actionable'],
+    false
+);
+Checks::that(
+    'a high device risk cannot be broadened to every session of a user',
+    $verifyEvent(SecurityEventVerifier::CAEP_RISK_LEVEL_CHANGE, [
+        'principal' => 'DEVICE',
+        'current_level' => 'HIGH',
+    ])['actionable'],
+    false
+);
+$sessionRisk = $verifyEvent(
+    SecurityEventVerifier::CAEP_RISK_LEVEL_CHANGE,
+    ['principal' => 'SESSION', 'current_level' => 'MEDIUM'],
+    ['format' => 'opaque', 'id' => 'provider-session']
+);
+Checks::that('a medium or high exact session risk is actionable', $sessionRisk['session_id'], 'provider-session');
+Checks::that(
+    'an opaque assurance subject is not assumed to be an OIDC provider session',
+    $verifyEvent(
+        SecurityEventVerifier::CAEP_ASSURANCE_LEVEL_CHANGE,
+        ['namespace' => 'NIST-AAL', 'current_level' => 'nist-aal1'],
+        ['format' => 'opaque', 'id' => 'ambiguous-principal']
+    )['actionable'],
+    false
+);
+
+foreach ([
+    [SecurityEventVerifier::CAEP_TOKEN_CLAIMS_CHANGE, [], 'claims claim'],
+    [
+        SecurityEventVerifier::CAEP_CREDENTIAL_CHANGE,
+        ['credential_type' => 'password', 'change_type' => 'rotate'],
+        'change_type claim',
+    ],
+    [
+        SecurityEventVerifier::CAEP_DEVICE_COMPLIANCE_CHANGE,
+        ['previous_status' => 'compliant', 'current_status' => true],
+        'current_status claim',
+    ],
+    [SecurityEventVerifier::CAEP_SESSION_ESTABLISHED, ['amr' => 'pwd'], 'amr claim'],
+    [
+        SecurityEventVerifier::CAEP_RISK_LEVEL_CHANGE,
+        ['principal' => 'USER', 'current_level' => 'CRITICAL'],
+        'current_level claim',
+    ],
+] as [$type, $profile, $message]) {
+    Checks::throws(
+        basename($type) . ' enforces its event-specific claim types',
+        fn() => $verifyEvent($type, $profile),
+        $message
+    );
+}
+
 $fakeJwt->claims = $eventClaims;
 unset($fakeJwt->claims['sub_id']);
 $fakeJwt->claims['events'] = [SecurityEventVerifier::CAEP_CREDENTIAL_CHANGE => [
     'subject' => ['format' => 'iss_sub', 'iss' => 'https://id.example.net', 'sub' => 'okta-subject'],
     'event_timestamp' => ($now - 2) * 1000,
+    'credential_type' => 'password',
+    'change_type' => 'update',
 ]];
 $okta = $events->verify('signed', $ssfMetadata, 'firewall-receiver', 'https://id.example.net', 'okta', $now);
 Checks::that('Okta legacy event subjects are narrowly accepted', $okta['subject'], 'okta-subject');
@@ -429,18 +666,18 @@ $fakeJwt->claims['sub_id'] = [
     'user' => ['format' => 'iss_sub', 'iss' => 'https://id.example.net', 'sub' => 'subject-1'],
     'device' => ['format' => 'opaque', 'id' => 'device'],
 ];
-Checks::that(
-    'a complex subject can identify the same user session without consuming its device member',
-    $events->verify(
-        'signed',
-        $ssfMetadata,
-        'firewall-receiver',
-        'https://id.example.net',
-        'general',
-        $now
-    )['actionable'],
-    true
+$riscComplex = $events->verify(
+    'signed',
+    $ssfMetadata,
+    'firewall-receiver',
+    'https://id.example.net',
+    'general',
+    $now
 );
+Checks::that('a RISC complex subject consumes only its exact user member', [
+    $riscComplex['actionable'],
+    $riscComplex['session_id'],
+], [true, null]);
 $criticalMetadata = SharedSignalsMetadata::fromArray('https://signals.example.net', [
     'issuer' => 'https://signals.example.net',
     'jwks_uri' => 'https://signals.example.net/keys',
@@ -457,6 +694,27 @@ Checks::throws(
         $now
     ),
     'critical subject'
+);
+$fakeJwt->claims = array_replace($eventClaims, [
+    'events' => [SecurityEventVerifier::CAEP_SESSION_REVOKED => [
+        'subject' => [
+            'format' => 'iss_sub',
+            'iss' => 'https://id.example.net',
+            'sub' => 1,
+        ],
+    ]],
+]);
+Checks::throws(
+    'an event-level subject cannot change the primary subject type',
+    fn() => $events->verify(
+        'signed',
+        $ssfMetadata,
+        'firewall-receiver',
+        'https://id.example.net',
+        'general',
+        $now
+    ),
+    'differs'
 );
 
 Checks::group('Shared Signals replay and session cutoff');
@@ -487,6 +745,42 @@ Checks::that('the newer session remains', file_exists(
 ), true);
 Checks::that('the same subject from another issuer remains', file_exists(
     constant('OPENIDCONNECT_TEST_SESSION_DIRECTORY') . '/sess_' . $otherIssuerId
+), true);
+$matchingSidId = 'matchingsid123456789';
+$differentSidId = 'differentsid1234567';
+file_put_contents(constant('OPENIDCONNECT_TEST_SESSION_DIRECTORY') . '/sess_' . $matchingSidId, 'matching');
+file_put_contents(constant('OPENIDCONNECT_TEST_SESSION_DIRECTORY') . '/sess_' . $differentSidId, 'different');
+SessionRegistry::record(
+    $matchingSidId,
+    'SSO',
+    'https://id.example.net',
+    'subject-1',
+    'provider-session',
+    $now + 600,
+    $now - 60
+);
+SessionRegistry::record(
+    $differentSidId,
+    'SSO',
+    'https://id.example.net',
+    'subject-1',
+    'another-session',
+    $now + 600,
+    $now - 60
+);
+Checks::that(
+    'a security event can terminate one exact indexed provider session',
+    SessionRegistry::terminateForSecurityEvent(
+        'SSO',
+        'https://id.example.net',
+        'subject-1',
+        $now,
+        'provider-session'
+    ),
+    1
+);
+Checks::that('another provider session for the same user remains', file_exists(
+    constant('OPENIDCONNECT_TEST_SESSION_DIRECTORY') . '/sess_' . $differentSidId
 ), true);
 Checks::that(
     'a security event replay is accepted once',

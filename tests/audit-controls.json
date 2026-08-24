@@ -432,7 +432,7 @@
         },
         {
           "slug": "shared-signals-policy",
-          "claim": "Shared Signals deliveries require pre-crypto bearer authentication, exact transmitter metadata, an asymmetrically signed SSF SET for the configured audience, an audited CAEP/RISC action allow-list, provider-and-issuer-scoped iss_sub matching, replay protection and a session creation time no later than the event.",
+          "claim": "Shared Signals deliveries require pre-crypto bearer authentication, exact transmitter metadata, an asymmetrically signed and unambiguous SSF SET for the configured audience, an audited CAEP/RISC action allow-list, strict known-event claim types, provider-and-issuer-scoped user or session matching, replay protection and a session creation time no later than the event.",
           "implementation": [
             "src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/SsfController.php",
             "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SecurityEventVerifier.php",
