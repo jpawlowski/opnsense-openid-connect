@@ -530,6 +530,11 @@ def main():
           guard_module.requires_uncached_remote({
               "tool_name": "Bash", "tool_input": {"command": "timeout 10 git push origin codex/topic"},
           }), True)
+    check("an unlisted outer program cannot hide a visible nested Git executable",
+          guard_module.requires_uncached_remote({
+              "tool_name": "Bash",
+              "tool_input": {"command": "launcher --quiet git push origin codex/topic"},
+          }), True)
     check("a leading environment assignment cannot hide a push boundary",
           guard_module.requires_uncached_remote({
               "tool_name": "Bash", "tool_input": {"command": "FOO=bar git push origin codex/topic"},

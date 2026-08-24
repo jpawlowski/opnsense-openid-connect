@@ -597,6 +597,7 @@ def requires_uncached_remote(event):
     return bool(
         (program == "git" and git_command in ("push", "send-pack"))
         or (program == "gh" and not _read_only_gh(arguments))
+        or (program not in ("git", "gh") and any(Path(value).name in ("git", "gh") for value in arguments))
     )
 
 
