@@ -15,6 +15,9 @@ Discovery document and a redacted log reference.
 The central [profile-default matrix](../setup/provider-profiles.md) shows what the
 selection fills, what remains editable and what the provider fixes. Individual
 guides concentrate on values that still have to come from the provider console.
+The generated [provider capability matrix](../reference/provider-capabilities.md)
+keeps documentation, retained live interoperability evidence and verified
+standards conformance as three deliberately separate claims.
 
 The first entry is named **Generic OpenID Connect**: “Generic” is the usual
 technical term for a standards-only provider profile, whereas “General” would

@@ -20,6 +20,7 @@ find .agents .codex packaging tests -name '*.py' -print0 | xargs -0 -n1 python3 
 python3 -m json.tool .codex/hooks.json >/dev/null
 for f in packaging/watch/openid-connect-watch packaging/hooks/* tests/run.sh tests/e2e/*.sh; do sh -n "$f"; done
 python3 tests/e2e/check.py
+python3 tests/update-capability-matrix.py --check
 echo 'all files parse'
 
 echo
