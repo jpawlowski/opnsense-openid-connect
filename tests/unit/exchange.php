@@ -1304,7 +1304,11 @@ $jarmHttp = new HttpClient(function (string $method, string $url, ?string $body)
     if ($method === 'POST') {
         parse_str((string)$body, $fields);
         $exchangedCode = (string)($fields['code'] ?? '');
-        return jsonAnswer(['id_token' => $issuedIdToken]);
+        return jsonAnswer([
+            'access_token' => 'jarm-access-token',
+            'token_type' => 'Bearer',
+            'id_token' => $issuedIdToken,
+        ]);
     }
     return jsonAnswer(metadata([
         'response_modes_supported' => ['query.jwt'],
