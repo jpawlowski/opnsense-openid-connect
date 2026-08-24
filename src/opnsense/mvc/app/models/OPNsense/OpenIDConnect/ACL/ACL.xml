@@ -7,9 +7,9 @@
     privilege. Core's default pluggable ACL merge replaces duplicate identifiers, so
     ACL.php deliberately appends this API pattern instead.
 
-    Discovery reads a provider document so an exact issuer can be checked while it is
-    being typed. It makes this firewall fetch an address somebody chose, which is why it
-    is a privilege of its own. Provider setup is separate too: it performs no network
+    Discovery and the live health probe read a provider chosen in the unfinished form.
+    They make this firewall fetch an address somebody chose, which is why they share a
+    privilege of their own. Provider setup is separate too: it performs no network
     request, but only a delegated server administrator should generate security
     configuration intended for another system. The read-only health endpoint
     extends the existing authentication-server privilege and reveals only cache
@@ -30,6 +30,7 @@
         <name>System: Access: Servers: OpenID Connect discovery</name>
         <patterns>
             <pattern>api/openidconnect/discovery/*</pattern>
+            <pattern>api/openidconnect/health/probe</pattern>
         </patterns>
     </page-system-openidconnect-discovery>
     <page-system-openidconnect-setup>
@@ -48,7 +49,7 @@
         <name>System: Authentication Servers</name>
         <patterns>
             <pattern>api/openidconnect/approval/*</pattern>
-            <pattern>api/openidconnect/health/*</pattern>
+            <pattern>api/openidconnect/health/status</pattern>
         </patterns>
     </page-system-authservers>
 </acl>

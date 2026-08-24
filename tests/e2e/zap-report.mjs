@@ -20,6 +20,7 @@ const pluginRoot = '/api/openidconnect/';
 const apiOnlyRoots = [
   `${pluginRoot}approval/`,
   `${pluginRoot}discovery/`,
+  `${pluginRoot}health/`,
   `${pluginRoot}setup/`,
   `${pluginRoot}test/`,
 ];
@@ -175,6 +176,7 @@ const requiredClasses = [
   ['icon refusal', path => path === `${pluginRoot}auth/builtinicon/unknown`
     || path === `${pluginRoot}auth/icon`],
   ['Discovery API', path => path === `${pluginRoot}discovery/probe`],
+  ['connection-health API', path => path === `${pluginRoot}health/probe`],
   ['sign-in-test API', path => path === `${pluginRoot}test/start`],
   ['provider-setup API', path => path === `${pluginRoot}setup/generate`],
   ['identity-approval API', path => path.startsWith(`${pluginRoot}approval/`)],
