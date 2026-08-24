@@ -569,7 +569,7 @@ def _effective_invocation(command):
         name = Path(program).name
         option = interpreter_options.get(name)
         if (program in (
-                ".", "chrt", "coproc", "daemon", "doas", "eval", "ionice", "nice", "nohup", "parallel",
+                ".", "chrt", "coproc", "daemon", "doas", "eval", "flock", "ionice", "nice", "nohup", "parallel",
                 "script", "setsid", "source", "stdbuf", "sudo", "time", "timeout", "unbuffer", "watch", "xargs",
         )
                 or (option and any(value.startswith("-") and option in value[1:] for value in arguments))):

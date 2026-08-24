@@ -530,6 +530,11 @@ def main():
           guard_module.requires_uncached_remote({
               "tool_name": "Bash", "tool_input": {"command": "timeout 10 git push origin codex/topic"},
           }), True)
+    check("an opaque flock command string cannot hide a push boundary",
+          guard_module.requires_uncached_remote({
+              "tool_name": "Bash",
+              "tool_input": {"command": "flock /tmp/lock -c 'git push origin codex/topic'"},
+          }), True)
     check("an unlisted outer program cannot hide a visible nested Git executable",
           guard_module.requires_uncached_remote({
               "tool_name": "Bash",
@@ -562,10 +567,14 @@ def main():
           guard_module.requires_topic_branch({
               "tool_name": "Bash", "tool_input": {"command": "flock /tmp/lock git commit -m test"},
           }), True)
-    check("a nested read-only Git command does not require a topic branch",
+    check("an opaque flock command string cannot hide a detached-worktree commit",
+          guard_module.requires_topic_branch({
+              "tool_name": "Bash", "tool_input": {"command": "flock /tmp/lock -c 'git commit -m test'"},
+          }), True)
+    check("an opaque execution wrapper fails closed even around nested read-only Git",
           guard_module.requires_topic_branch({
               "tool_name": "Bash", "tool_input": {"command": "flock /tmp/lock git status --short"},
-          }), False)
+          }), True)
     check("a shell interpreter cannot hide a push boundary", guard_module.requires_uncached_remote({
         "tool_name": "Bash", "tool_input": {"command": "bash -c 'git push origin codex/topic'"},
     }), True)
