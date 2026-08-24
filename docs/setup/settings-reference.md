@@ -111,7 +111,7 @@ prevents a typo from delegating every firewall privilege.
 | Setting | Safe/default behaviour | Change it when |
 |---|---|---|
 | Trace the exchange | Off | diagnosing one failed exchange; turn it off afterward |
-| Redirect the Log Out menu entry | Off | Lobby > Log Out should also begin provider logout |
+| Redirect the Log Out menu entry | On for Auth0, authentik, FusionAuth, IBM Security Verify, Keycloak, Microsoft Entra, Okta, OneLogin, Oracle, Ping, Pocket ID, WSO2 and ZITADEL; Off otherwise | Lobby > Log Out should also end the provider SSO session when official documentation describes a compatible RP-initiated logout flow |
 | Return here after logout | Off | the displayed post-logout URI is registered at the provider |
 | Provider logout notifications | Both | accept only Back-Channel, only Front-Channel, or neither; disabling new logins does not disable notifications for existing sessions |
 | Login button style | full-width button | the standard OPNsense link appearance is preferred |

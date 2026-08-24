@@ -409,6 +409,33 @@ Checks::that('only reviewed provider profiles recommend a logout notification ch
     static fn($preset) => $preset['values']['openidconnect_logout_notifications'],
     $profilePresets
 ), $expectedLogoutNotifications);
+$expectedLogoutMenu = array_fill_keys(array_keys($profilePresets), '0');
+foreach ([
+    'auth0',
+    'authentik',
+    'fusionauth',
+    'ibm_verify',
+    'keycloak',
+    'entra',
+    'okta',
+    'onelogin',
+    'oracle_idcs',
+    'ping',
+    'pocketid',
+    'wso2',
+    'zitadel',
+] as $profile) {
+    $expectedLogoutMenu[$profile] = '1';
+}
+Checks::that('documented compatible RP-initiated logout redirects the menu', array_map(
+    static fn($preset) => $preset['values']['openidconnect_logout_menu'],
+    $profilePresets
+), $expectedLogoutMenu);
+Checks::that('documented provider logout recommendations remain editable', array_values(array_filter(
+    array_keys(array_filter($expectedLogoutMenu, static fn($value) => $value === '1')),
+    static fn($profile) => $profilePresets[$profile]['classifications']['openidconnect_logout_menu']
+        !== 'recommended'
+)), []);
 Checks::that('only Entra exposes its tenant audience and authentication context controls', array_values(array_filter(
     array_keys($profilePresets),
     static fn($profile) => $profile === 'entra'

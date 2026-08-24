@@ -52,7 +52,8 @@ Unless the table below says otherwise, every named profile starts with:
 | Scopes | `openid,email,profile` |
 | Required authentication | Provider policy only; no additional ID Token strength requirement |
 | Always show account selection | Off |
-| Redirect the Log Out menu entry / Return here after logout | Off |
+| Redirect the Log Out menu entry | On when current official provider documentation describes a compatible RP-initiated logout flow; Off otherwise |
+| Return here after logout | Off; its exact redirect must first be registered at the provider |
 | Provider logout notifications | Off unless a retained provider guide reviews a channel |
 | Receive Shared Signals | Off; transmitter details are always installation-specific |
 | Admission policy | Administrator approval |
@@ -74,31 +75,31 @@ the whole visible string and is intentionally literal rather than translated.
 
 | Profile | Issuer behaviour | Other preset differences |
 |---|---|---|
-| Auth0 | enter tenant or custom-domain issuer, including its published trailing slash | shared defaults |
+| Auth0 | enter tenant or custom-domain issuer, including its published trailing slash | redirect the Log Out menu through documented provider logout; older tenants may need RP-initiated logout discovery enabled |
 | Authelia | enter configured public issuer | shared defaults |
-| authentik | enter application issuer ending `/application/o/<slug>/` | prefer Back-channel logout notifications; its guide documents the Front-channel alternative |
+| authentik | enter application issuer ending `/application/o/<slug>/` | redirect the Log Out menu through provider logout; prefer Back-channel logout notifications; its guide documents the Front-channel alternative |
 | AWS Cognito | enter region and user-pool issuer | username claim `cognito:username` |
 | Cisco Duo Single Sign-On | enter the per-application issuer | username `email`; require UserInfo |
 | Dex | enter configured issuer | shared defaults; add `groups` only when group mapping is intended |
-| FusionAuth | enter tenant issuer | shared defaults |
+| FusionAuth | enter tenant issuer | redirect the Log Out menu through documented provider logout |
 | GitLab | `https://gitlab.com` is filled but editable for self-managed GitLab | shared defaults |
 | Google / Google Workspace | fixed `https://accounts.google.com` | username `email`; ID Token only |
-| IBM Security Verify | enter tenant issuer | shared defaults; adjust the claim only when explicitly mapped differently |
+| IBM Security Verify | enter tenant issuer | redirect the Log Out menu through documented provider logout; adjust the claim only when explicitly mapped differently |
 | JumpCloud | enter the exact regional issuer | shared defaults |
-| Keycloak | enter realm issuer | prefer Back-channel logout notifications; its guide documents the Front-channel alternative |
+| Keycloak | enter realm issuer | redirect the Log Out menu through provider logout; prefer Back-channel logout notifications; its guide documents the Front-channel alternative |
 | LinkedIn | fixed `https://www.linkedin.com/oauth` | username `email`; ID Token only; fixed `client_secret_post` |
-| Microsoft Entra ID / Microsoft account | enter one tenant's v2 issuer; broader audience modes manage their authority automatically | ID Token only; tenant audience recommended; a required authentication policy additionally needs its configured `c1`-`c25` Conditional Access context |
-| Okta | enter organization or custom authorization-server issuer | MFA uses `urn:okta:loa:2fa:any`; phishing-resistant authentication uses `phr`/`phrh` when deliberately enabled; optional Shared Signals stays off until its separate stream is configured |
-| OneLogin | enter exact v2 issuer | shared defaults |
+| Microsoft Entra ID / Microsoft account | enter one tenant's v2 issuer; broader audience modes manage their authority automatically | redirect the Log Out menu through documented provider logout; ID Token only; tenant audience recommended; a required authentication policy additionally needs its configured `c1`-`c25` Conditional Access context |
+| Okta | enter organization or custom authorization-server issuer | redirect the Log Out menu through documented provider logout; MFA uses `urn:okta:loa:2fa:any`; phishing-resistant authentication uses `phr`/`phrh` when deliberately enabled; optional Shared Signals stays off until its separate stream is configured |
+| OneLogin | enter exact v2 issuer | redirect the Log Out menu through documented provider logout |
 | ORCID | fixed `https://orcid.org` | username `sub`; ID Token only; fixed `client_secret_post`; fixed sole scope `openid` |
-| Oracle Identity Cloud / OCI IAM | enter identity-domain issuer | shared defaults; adjust the claim only when explicitly mapped differently |
-| Ping Identity | enter environment issuer | shared defaults; insist on Basic only when the application was configured that way |
-| Pocket ID | enter the instance `APP_URL` issuer | shared defaults; add `groups` only when group mapping is intended |
+| Oracle Identity Cloud / OCI IAM | enter identity-domain issuer | redirect the Log Out menu through documented provider logout; adjust the claim only when explicitly mapped differently |
+| Ping Identity | enter environment issuer | redirect the Log Out menu through documented provider logout; insist on Basic only when the application was configured that way |
+| Pocket ID | enter the instance `APP_URL` issuer | redirect the Log Out menu through documented provider logout; add `groups` only when group mapping is intended |
 | Apple | fixed `https://appleid.apple.com` | username `email`; fixed ID Token only, Form POST and `client_secret_post`; scopes `openid,email,name` |
 | Slack | fixed `https://slack.com` | username `email`; ID Token only |
-| WSO2 Identity Server | enter exact published issuer | shared defaults |
+| WSO2 Identity Server | enter exact published issuer | redirect the Log Out menu through documented provider logout |
 | Yahoo | fixed `https://api.login.yahoo.com` | username `email`; require UserInfo |
-| ZITADEL | enter instance or custom-domain issuer | shared defaults |
+| ZITADEL | enter instance or custom-domain issuer | redirect the Log Out menu through documented provider logout |
 
 The Apple username and scopes remain editable even though the transport rules are
 fixed. Using `sub` avoids depending on an e-mail address; removing `name` or `email`

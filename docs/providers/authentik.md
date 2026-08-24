@@ -205,11 +205,12 @@ login:
 | Allow the built-in root account | Off | preserves a local recovery account outside the IdP |
 | Group claim | Empty | keeps OPNsense privilege membership local for the first test |
 | Trace the exchange | Off | enable only briefly while diagnosing |
+| Redirect the Log Out menu entry | On | ends the local session first and then initiates authentik logout |
 
-**Redirect the Log Out menu entry** and **Return here after logout** are also off
-by default. Enable the first when the OPNsense logout menu should initiate
-provider logout. Enable the second only after the Post Logout entry described
-above exists in authentik.
+**Return here after logout** remains off by default. Enable it only after the
+Post Logout entry described above exists in authentik. The logout-menu
+recommendation remains editable when ending the wider authentik SSO session is
+not wanted for this firewall.
 
 ## Groups and advanced notes
 

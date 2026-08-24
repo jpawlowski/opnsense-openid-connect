@@ -1089,6 +1089,8 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'placeholders' => ['openidconnect_provider_url' => $issuerPlaceholder],
             ];
         };
+        $rpLogout = ['openidconnect_logout_menu' => '1'];
+        $rpLogoutClassification = ['openidconnect_logout_menu' => 'recommended'];
 
         $profiles = [
             'general' => [
@@ -1097,13 +1099,22 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'classifications' => $genericClassifications,
                 'placeholders' => ['openidconnect_provider_url' => 'https://id.example.com'],
             ],
-            'auth0' => $make([], [], 'https://{tenant}.{region}.auth0.com/'),
+            'auth0' => $make(
+                $rpLogout,
+                [],
+                'https://{tenant}.{region}.auth0.com/',
+                $rpLogoutClassification
+            ),
             'authelia' => $make([], [], 'https://auth.example.com'),
             'authentik' => $make(
-                ['openidconnect_logout_notifications' => 'backchannel'],
+                array_replace($rpLogout, [
+                    'openidconnect_logout_notifications' => 'backchannel',
+                ]),
                 [],
                 'https://auth.example.com/application/o/opnsense/',
-                ['openidconnect_logout_notifications' => 'recommended']
+                array_replace($rpLogoutClassification, [
+                    'openidconnect_logout_notifications' => 'recommended',
+                ])
             ),
             'cognito' => $make(
                 ['openidconnect_username_claim' => 'cognito:username'],
@@ -1116,7 +1127,7 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'https://{host}.duosecurity.com/oidc/{integration-id}'
             ),
             'dex' => $make([], [], 'https://dex.example.com'),
-            'fusionauth' => $make([], [], 'https://auth.example.com'),
+            'fusionauth' => $make($rpLogout, [], 'https://auth.example.com', $rpLogoutClassification),
             'gitlab' => $make(
                 ['openidconnect_provider_url' => 'https://gitlab.com'],
                 [],
@@ -1130,16 +1141,25 @@ class OpenIDConnect extends Base implements IAuthConnector
                 ],
                 ['openidconnect_provider_url']
             ),
-            'ibm_verify' => $make([], [], 'https://{tenant}.verify.ibm.com/oidc/endpoint/default'),
+            'ibm_verify' => $make(
+                $rpLogout,
+                [],
+                'https://{tenant}.verify.ibm.com/oidc/endpoint/default',
+                $rpLogoutClassification
+            ),
             'jumpcloud' => $make([], [], 'https://oauth.id.{region}jumpcloud.com/'),
             'keycloak' => $make(
-                ['openidconnect_logout_notifications' => 'backchannel'],
+                array_replace($rpLogout, [
+                    'openidconnect_logout_notifications' => 'backchannel',
+                ]),
                 [],
                 'https://id.example.com/realms/opnsense',
-                ['openidconnect_logout_notifications' => 'recommended']
+                array_replace($rpLogoutClassification, [
+                    'openidconnect_logout_notifications' => 'recommended',
+                ])
             ),
             'entra' => $make(
-                ['openidconnect_claims_source' => 'id_token'],
+                array_replace($rpLogout, ['openidconnect_claims_source' => 'id_token']),
                 [],
                 'https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000/v2.0',
                 [
@@ -1147,13 +1167,24 @@ class OpenIDConnect extends Base implements IAuthConnector
                     'openidconnect_acr_values' => 'hidden',
                     'openidconnect_entra_auth_context' => 'editable',
                     'openidconnect_microsoft_audience' => 'recommended',
+                    'openidconnect_logout_menu' => 'recommended',
                 ]
             ),
-            'okta' => $make([], [], 'https://{yourOktaDomain}/oauth2/default'),
-            'onelogin' => $make([], [], 'https://{subdomain}.onelogin.com/oidc/2'),
-            'oracle_idcs' => $make([], [], 'https://{identity-domain}.identity.oraclecloud.com'),
-            'ping' => $make([], [], 'https://auth.example.com/as'),
-            'pocketid' => $make([], [], 'https://id.example.com'),
+            'okta' => $make($rpLogout, [], 'https://{yourOktaDomain}/oauth2/default', $rpLogoutClassification),
+            'onelogin' => $make(
+                $rpLogout,
+                [],
+                'https://{subdomain}.onelogin.com/oidc/2',
+                $rpLogoutClassification
+            ),
+            'oracle_idcs' => $make(
+                $rpLogout,
+                [],
+                'https://{identity-domain}.identity.oraclecloud.com',
+                $rpLogoutClassification
+            ),
+            'ping' => $make($rpLogout, [], 'https://auth.example.com/as', $rpLogoutClassification),
+            'pocketid' => $make($rpLogout, [], 'https://id.example.com', $rpLogoutClassification),
             'apple' => $make(
                 [
                     'openidconnect_provider_url' => 'https://appleid.apple.com',
@@ -1170,8 +1201,8 @@ class OpenIDConnect extends Base implements IAuthConnector
                     'openidconnect_response_mode',
                 ]
             ),
-            'wso2' => $make([], [], 'https://id.example.com/oauth2/token'),
-            'zitadel' => $make([], [], 'https://id.example.com'),
+            'wso2' => $make($rpLogout, [], 'https://id.example.com/oauth2/token', $rpLogoutClassification),
+            'zitadel' => $make($rpLogout, [], 'https://id.example.com', $rpLogoutClassification),
             'linkedin' => $make(
                 [
                     'openidconnect_provider_url' => 'https://www.linkedin.com/oauth',

@@ -190,11 +190,12 @@ login:
 | Allow the built-in root account | Off | preserves a provider-independent recovery account |
 | Group claim | Empty | keeps WebGUI authorization local for the first test |
 | Trace the exchange | Off | enable only briefly while diagnosing; logs remain redacted |
+| Redirect the Log Out menu entry | On | ends the local session first and then initiates Keycloak logout |
 
-**Redirect the Log Out menu entry** and **Return here after logout** are off by
-default. Enable the first when the OPNsense Log Out entry should end the
-Keycloak SSO session. Enable the second only after the exact **Valid post logout
-redirect URI** above has been registered.
+**Return here after logout** remains off by default. Enable it only after the
+exact **Valid post logout redirect URI** above has been registered. The
+logout-menu recommendation remains editable when ending the wider Keycloak SSO
+session is not wanted for this firewall.
 
 Keycloak's [response-mode API](https://www.keycloak.org/docs-api/latest/javadocs/org/keycloak/protocol/oidc/utils/OIDCResponseMode.html)
 documents `QUERY_JWT` and `FORM_POST_JWT`. Use either only when signed JARM

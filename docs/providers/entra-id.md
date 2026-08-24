@@ -73,6 +73,7 @@ Microsoft currently documents it as an Entra ID P1 capability.
 | Authorization response mode | Query |
 | Scopes | `openid,email,profile` |
 | Authentication method | Follow the provider |
+| Redirect the Log Out menu entry | On |
 | Required authentication | Provider policy only, unless the tenant context above is configured |
 | Admission policy | Strict/controlled username matching for one tenant; Administrator approval for broad or personal audiences |
 
@@ -116,6 +117,7 @@ metadata. Register only the endpoint type the portal supports; logout endpoints
 are never additional authorization redirect URIs.
 
 References: [Microsoft OIDC account authorities](https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols-oidc),
+[Microsoft sign-out](https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols-oidc#send-a-sign-out-request),
 [Microsoft Entra Free](https://learn.microsoft.com/en-us/azure/cost-management-billing/manage/microsoft-entra-id-free),
 [supported account types](https://learn.microsoft.com/en-us/entra/identity-platform/v2-supported-account-types),
 [multitenant issuer validation](https://learn.microsoft.com/en-us/entra/identity-platform/access-tokens),
