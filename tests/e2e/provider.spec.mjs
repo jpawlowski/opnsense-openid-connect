@@ -75,6 +75,7 @@ async function provisionAuthentik(blueprintPath) {
       attributes: { email_verified: true }, is_active: true, type: 'internal', path: 'users',
     },
   }), 'authentik user creation');
+  state.user_pk = user.pk;
   await checked(await api.post(`${providerApiOrigin}/api/v3/core/users/${user.pk}/set_password/`, {
     data: { password: state.password },
   }), 'authentik password creation');
@@ -216,13 +217,32 @@ async function passwordLogin(page) {
   await action.click();
 }
 
-async function testAuthentikVerifiedEmail(page) {
+async function setAuthentikEmailVerification(mode) {
+  const api = await apiContext({ Authorization: `Bearer ${state.admin_token}` });
+  const attributes = mode === 'missing' ? {} : { email_verified: mode === 'true' };
+  await checked(await api.patch(`${providerApiOrigin}/api/v3/core/users/${state.user_pk}/`, {
+    data: { attributes },
+  }), `authentik e-mail verification update (${mode})`);
+  await api.dispose();
+}
+
+async function testAuthentikEmailVerification(page, expected) {
+  await page.goto(`${origin}/system_authservers.php`);
   await page.getByRole('row', { name: new RegExp(state.server_name) })
     .getByRole('link', { name: 'Edit' }).click();
   await page.getByRole('button', { name: 'Test sign-in' }).click();
-  await passwordLogin(page);
+  let arrival = 'waiting';
+  await expect.poll(async () => {
+    if (await page.getByRole('heading', { name: 'Sign-in test succeeded' }).count()) {
+      arrival = 'result';
+    } else if (new URL(page.url()).origin === providerOrigin) {
+      arrival = 'provider';
+    }
+    return arrival;
+  }).not.toBe('waiting');
+  if (arrival === 'provider') await passwordLogin(page);
   await expect(page.getByRole('heading', { name: 'Sign-in test succeeded' })).toBeVisible();
-  await expect(page.getByRole('row', { name: /E-mail verification claim/ })).toContainText('true');
+  await expect(page.getByRole('row', { name: /E-mail verification claim/ })).toContainText(expected);
   await page.getByRole('link', { name: 'Return to authentication servers' }).click();
   await expect(page.locator('input[name="name"]')).toHaveValue(state.server_name);
 }
@@ -262,7 +282,14 @@ test(`real OPNsense login through ${state.provider}`, async ({ browser }) => {
   const adminPage = await admin.newPage();
   await localLogin(adminPage);
   await configureServer(adminPage);
-  if (state.provider === 'authentik') await testAuthentikVerifiedEmail(adminPage);
+  if (state.provider === 'authentik') {
+    await testAuthentikEmailVerification(adminPage, 'true');
+    await setAuthentikEmailVerification('false');
+    await testAuthentikEmailVerification(adminPage, 'false');
+    await setAuthentikEmailVerification('missing');
+    await testAuthentikEmailVerification(adminPage, 'false');
+    await setAuthentikEmailVerification('true');
+  }
 
   const localFallback = await browser.newContext({ ignoreHTTPSErrors: true });
   await localLogin(await localFallback.newPage());

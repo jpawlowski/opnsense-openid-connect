@@ -12,7 +12,7 @@ const required = [
   'E2E_OPNSENSE_URL', 'E2E_OPNSENSE_USERNAME', 'E2E_OPNSENSE_PASSWORD',
   'E2E_KEYCLOAK_URL', 'E2E_KEYCLOAK_REALM', 'E2E_KEYCLOAK_ADMIN_USERNAME',
   'E2E_KEYCLOAK_ADMIN_PASSWORD', 'E2E_KEYCLOAK_CLIENT_ID',
-  'E2E_KEYCLOAK_CLIENT_SECRET', 'E2E_TEST_USERNAME', 'E2E_TEST_PASSWORD',
+  'E2E_TEST_USERNAME', 'E2E_TEST_PASSWORD',
   'E2E_SERVER_NAME', 'E2E_APPLICATION_CODE', 'E2E_BACKCHANNEL_URL', 'E2E_ZAP_PROXY',
 ];
 for (const name of required) {
@@ -30,6 +30,7 @@ const origin = opnsense.origin;
 const issuer = `${keycloak.origin}/realms/${process.env.E2E_KEYCLOAK_REALM}`;
 const callbackPath = `/api/openidconnect/auth/callback/${process.env.E2E_APPLICATION_CODE}`;
 const runCommand = promisify(execFile);
+let keycloakClientSecret = '';
 
 function opnsenseRequestContextOptions() {
   return {
@@ -105,6 +106,7 @@ async function configureServer(page) {
   await selectNative(page.locator('select[name="type"]'), 'openidconnect');
   await expect(page.locator('input[name="openidconnect_provider_url"]')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Connection health' })).toBeDisabled();
+  await expect(page.locator('.oidc-endpoints')).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('input[name="openidconnect_tls_offloading"]')
     .locator('xpath=ancestor::tr')).toBeHidden();
   await expect(page.locator('input[name="openidconnect_max_age"]')).toHaveValue('14400');
@@ -238,6 +240,10 @@ async function configureServer(page) {
   await setGroupList(page, 'openidconnect_default_groups', ['admins']);
   await page.locator('input[name="openidconnect_logout_menu"]').check();
   await page.locator('input[name="openidconnect_logout_redirect"]').check();
+  // The Keycloak preset deliberately recommends back-channel only. This broad
+  // interoperability test opts into both so it can exercise the alternative
+  // front-channel notification later without weakening the preset itself.
+  await selectNative(page.locator('select[name="openidconnect_logout_notifications"]'), 'both');
   await page.locator('input[name="openidconnect_debug"]').check();
 
   // The current unsaved form is sufficient to produce a no-secret provider import.
@@ -258,6 +264,7 @@ async function configureServer(page) {
   expect(generatedClient.webOrigins[0]).toBe(origin);
   expect(generatedClient.webOrigins).toContain(origin);
   expect(generatedClient.redirectUris.every(uri => uri.endsWith(callbackPath))).toBeTruthy();
+  await importGeneratedKeycloakClient(setup);
   const keycloakSetupDialog = page.getByRole('dialog');
   const keycloakSetupResult = keycloakSetupDialog.locator(
     '.oidc-setup-result[data-provider="keycloak"]'
@@ -368,6 +375,10 @@ async function configureServer(page) {
   // Selecting a named profile deliberately restores its complete safe starting point.
   // Apply this test's less restrictive JIT policy only after the final profile choice.
   await selectNative(page.locator('select[name="openidconnect_bootstrap_mode"]'), 'username');
+  await page.locator('input[name="openidconnect_create_users"]').check();
+  await page.locator('input[name="openidconnect_logout_menu"]').check();
+  await page.locator('input[name="openidconnect_logout_redirect"]').check();
+  await selectNative(page.locator('select[name="openidconnect_logout_notifications"]'), 'both');
 
   // Saving a disabled draft needs no provider-side values and never contacts Discovery.
   await page.getByRole('button', { name: 'Save' }).click();
@@ -432,7 +443,8 @@ async function configureServer(page) {
 
   await page.locator('input[name="openidconnect_client_id"]').fill(process.env.E2E_KEYCLOAK_CLIENT_ID);
   await expect(signInTestButton).toBeDisabled();
-  await page.locator('input[name="openidconnect_client_secret"]').fill(process.env.E2E_KEYCLOAK_CLIENT_SECRET);
+  expect(keycloakClientSecret).not.toBe('');
+  await page.locator('input[name="openidconnect_client_secret"]').fill(keycloakClientSecret);
   // All three current fields are populated, but the sign-in test uses saved values only.
   await expect(signInTestButton).toBeDisabled();
 
@@ -533,6 +545,11 @@ async function configureServer(page) {
   await page.getByRole('row', { name: new RegExp(process.env.E2E_SERVER_NAME) })
     .getByRole('link', { name: 'Edit' }).click();
   await expect(page.locator('input[name="openidconnect_provider_url"]')).toHaveValue(issuer);
+  await expect(page.locator('select[name="openidconnect_bootstrap_mode"]')).toHaveValue('username');
+  await expect(page.locator('input[name="openidconnect_create_users"]')).toBeChecked();
+  await expect(page.locator('input[name="openidconnect_logout_menu"]')).toBeChecked();
+  await expect(page.locator('input[name="openidconnect_logout_redirect"]')).toBeChecked();
+  await expect(page.locator('select[name="openidconnect_logout_notifications"]')).toHaveValue('both');
   const savedSignInTest = page.getByRole('button', { name: 'Test sign-in' });
   await expect(savedSignInTest).toBeEnabled();
 
@@ -581,7 +598,10 @@ async function editServer(page, change) {
   await expect(page).toHaveURL(/\/system_authservers\.php$/);
 }
 
-async function testSignIn(page, { expectNoLocalAccount = false } = {}) {
+async function testSignIn(page, {
+  expectNoLocalAccount = false,
+  expectedEmailVerification = 'true',
+} = {}) {
   await page.goto(`${origin}/system_authservers.php`);
   await page.getByRole('row', { name: new RegExp(process.env.E2E_SERVER_NAME) })
     .getByRole('link', { name: 'Edit' }).click();
@@ -617,7 +637,8 @@ async function testSignIn(page, { expectNoLocalAccount = false } = {}) {
   await expect(page.locator('.oidc-signin-result .hero-icon')).toHaveText('✓');
   await expect(page.locator('.oidc-signin-result .card')).toHaveCount(3);
   await expect(page.locator('.oidc-signin-results tr')).toHaveCount(7);
-  await expect(page.getByRole('row', { name: /E-mail verification claim/ })).toContainText('true');
+  await expect(page.getByRole('row', { name: /E-mail verification claim/ }))
+    .toContainText(expectedEmailVerification);
   await expect(page.locator('body')).toContainText('PKCE binding');
   await expect(page.locator('body')).toContainText(process.env.E2E_TEST_USERNAME);
   await expect(page.locator('body')).toContainText(
@@ -731,6 +752,69 @@ async function keycloakAdmin() {
   return { api, headers };
 }
 
+async function importGeneratedKeycloakClient(setup) {
+  const { api, headers } = await keycloakAdmin();
+  const realmApi = `${keycloakApiOrigin}/admin/realms/${process.env.E2E_KEYCLOAK_REALM}`;
+  const imported = await api.post(`${realmApi}/partialImport`, { headers, data: setup });
+  expect(imported.ok()).toBeTruthy();
+  expect((await imported.json()).added).toBeGreaterThanOrEqual(1);
+
+  const list = await api.get(`${realmApi}/clients`, {
+    headers,
+    params: { clientId: process.env.E2E_KEYCLOAK_CLIENT_ID },
+  });
+  expect(list.ok()).toBeTruthy();
+  const clients = await list.json();
+  expect(clients).toHaveLength(1);
+  const clientId = clients[0].id;
+  const representation = await api.get(`${realmApi}/clients/${clientId}`, { headers });
+  expect(representation.ok()).toBeTruthy();
+  const client = await representation.json();
+  expect(client.redirectUris).toEqual(setup.clients[0].redirectUris);
+  expect(client.webOrigins).toEqual(setup.clients[0].webOrigins);
+  expect(client.defaultClientScopes).toEqual(setup.clients[0].defaultClientScopes);
+  expect([...client.optionalClientScopes].sort()).toEqual([...setup.clients[0].optionalClientScopes].sort());
+  expect(client.attributes['post.logout.redirect.uris']).toBe(`${origin}/`);
+  expect(client.attributes['logout.confirmation.enabled']).toBe('false');
+
+  // The generated public URL is correct for a real deployment. The disposable
+  // lab routes provider-initiated HTTPS through its short-lived trusted proxy.
+  client.attributes['backchannel.logout.url'] = `${process.env.E2E_BACKCHANNEL_URL}`
+    + `/api/openidconnect/auth/backchannel/${process.env.E2E_APPLICATION_CODE}`;
+  const update = await api.put(`${realmApi}/clients/${clientId}`, { headers, data: client });
+  expect(update.ok()).toBeTruthy();
+
+  const secret = await api.get(`${realmApi}/clients/${clientId}/client-secret`, { headers });
+  expect(secret.ok()).toBeTruthy();
+  keycloakClientSecret = (await secret.json()).value;
+  expect(keycloakClientSecret).toBeTruthy();
+  await api.dispose();
+}
+
+async function setKeycloakEmailVerification(mode) {
+  const { api, headers } = await keycloakAdmin();
+  const realmApi = `${keycloakApiOrigin}/admin/realms/${process.env.E2E_KEYCLOAK_REALM}`;
+  const list = await api.get(`${realmApi}/users`, {
+    headers,
+    params: { username: process.env.E2E_TEST_USERNAME, exact: 'true' },
+  });
+  expect(list.ok()).toBeTruthy();
+  const userId = (await list.json())[0].id;
+  const response = await api.get(`${realmApi}/users/${userId}`, { headers });
+  expect(response.ok()).toBeTruthy();
+  const user = await response.json();
+  if (mode === 'missing') {
+    user.email = null;
+    user.emailVerified = false;
+  } else {
+    user.email = `${process.env.E2E_TEST_USERNAME}@example.com`;
+    user.emailVerified = mode === 'true';
+  }
+  const update = await api.put(`${realmApi}/users/${userId}`, { headers, data: user });
+  expect(update.ok()).toBeTruthy();
+  await api.dispose();
+}
+
 async function setFrontChannel(enabled) {
   const { api, headers } = await keycloakAdmin();
   const list = await api.get(`${keycloakApiOrigin}/admin/realms/${process.env.E2E_KEYCLOAK_REALM}/clients`, {
@@ -782,6 +866,15 @@ async function removeLocalPrivileges() {
 
 test('real OPNsense login, session binding and logout interoperability', async ({ browser }) => {
   const unauthenticated = await playwrightRequest.newContext(opnsenseRequestContextOptions());
+  const formScript = await unauthenticated.get(
+    `${origin}/api/openidconnect/auth/formscript`,
+    { maxRedirects: 0 }
+  );
+  expect(formScript.status()).toBe(200);
+  expect(formScript.headers()['content-type']).toContain('javascript');
+  expect(formScript.headers()['cache-control']).toContain('public');
+  expect(formScript.headers()['x-content-type-options']).toBe('nosniff');
+  expect(await formScript.text()).toContain('window.__oidcForm');
   const builtInIcon = await unauthenticated.get(
     `${origin}/api/openidconnect/auth/builtinicon/keycloak`,
     { maxRedirects: 0 }
@@ -837,6 +930,17 @@ test('real OPNsense login, session binding and logout interoperability', async (
   expect(invalidBackchannel.headers()['content-security-policy']).toContain("frame-ancestors 'none'");
   await unauthenticated.dispose();
   await testSignIn(adminPage, { expectNoLocalAccount: true });
+  await setKeycloakEmailVerification('false');
+  await testSignIn(adminPage, {
+    expectNoLocalAccount: true,
+    expectedEmailVerification: 'false',
+  });
+  await setKeycloakEmailVerification('missing');
+  await testSignIn(adminPage, {
+    expectNoLocalAccount: true,
+    expectedEmailVerification: 'false',
+  });
+  await setKeycloakEmailVerification('true');
   await editServer(adminPage, async page => {
     await page.locator('input[name="openidconnect_enabled"]').check();
   });
