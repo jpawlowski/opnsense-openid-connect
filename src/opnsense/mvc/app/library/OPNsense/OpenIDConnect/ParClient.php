@@ -13,16 +13,28 @@ use OPNsense\Auth\OpenIDConnect;
 final class ParClient
 {
     public const MAX_BYTES = 262144;
+    private ClientAuthenticator $clientAuthenticator;
 
-    public function __construct(private readonly OpenIDConnect $settings, private readonly HttpClient $http)
-    {
+    public function __construct(
+        private readonly OpenIDConnect $settings,
+        private readonly HttpClient $http,
+        ?ClientAuthenticator $clientAuthenticator = null
+    ) {
+        $this->clientAuthenticator = $clientAuthenticator ?? new ClientAuthenticator($settings);
     }
 
     /** @param array<string,string> $parameters */
     public function push(ProviderMetadata $metadata, string $endpoint, array $parameters): string
     {
         $headers = ['Accept: application/json'];
-        $this->authenticate($metadata, $parameters, $headers);
+        $this->clientAuthenticator->authenticate(
+            $metadata,
+            $endpoint,
+            ClientAuthenticator::TOKEN,
+            $parameters,
+            $headers,
+            $metadata->issuer()
+        );
         $response = $this->http->postForm($endpoint, $parameters, self::MAX_BYTES, $headers);
         if ($response->status === 429 || $response->status >= 500) {
             throw new ProviderUnavailableException(
@@ -91,19 +103,4 @@ final class ParClient
         $this->push($metadata, $endpoint, $parameters);
     }
 
-    /** @param array<string,string> $fields @param string[] $headers */
-    private function authenticate(ProviderMetadata $metadata, array &$fields, array &$headers): void
-    {
-        $method = $metadata->tokenEndpointAuthMethod($this->settings->tokenAuthMethod());
-        if ($method === 'client_secret_basic') {
-            $credentials = urlencode($this->settings->clientId()) . ':' . urlencode($this->settings->clientSecret());
-            $headers[] = 'Authorization: Basic ' . base64_encode($credentials);
-            return;
-        }
-        if ($method === 'client_secret_post') {
-            $fields['client_secret'] = $this->settings->clientSecret();
-            return;
-        }
-        throw new ProtocolException('No supported token endpoint authentication method is available');
-    }
 }

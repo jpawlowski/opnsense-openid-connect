@@ -144,7 +144,7 @@ namespace OPNsense\Core {
 
         private function __construct()
         {
-            $this->root = (object)['system' => (object)[
+            $this->root = (object)['cert' => [], 'system' => (object)[
                 'user' => [],
                 'authserver' => [],
             ]];
@@ -171,6 +171,15 @@ namespace OPNsense\Core {
             $server = (object)($settings + ['type' => 'openidconnect', 'openidconnect_app_code' => 'main']);
             $this->root->system->authserver[] = $server;
             return $server;
+        }
+
+        public function addCertificate(array $certificate): object
+        {
+            $certificate = (object)($certificate + [
+                'refid' => uniqid(), 'descr' => 'Test certificate', 'crt' => '', 'prv' => '',
+            ]);
+            $this->root->cert[] = $certificate;
+            return $certificate;
         }
 
         public function lock(): void
@@ -205,6 +214,25 @@ namespace OPNsense\Core {
             \OPNsense\Auth\Directory::add(['name' => (string)($params[0] ?? '')]);
 
             return \OPNsense\Auth\Directory::$creationOutput ?? json_encode(['status' => 'ok']);
+        }
+    }
+}
+
+namespace OPNsense\Trust {
+    class Store
+    {
+        public static function getCertificate($reference)
+        {
+            foreach (\OPNsense\Core\Config::getInstance()->object()->cert ?? [] as $certificate) {
+                if ((string)($certificate->refid ?? '') !== (string)$reference) {
+                    continue;
+                }
+                return [
+                    'crt' => base64_decode((string)($certificate->crt ?? ''), true) ?: '',
+                    'prv' => base64_decode((string)($certificate->prv ?? ''), true) ?: '',
+                ];
+            }
+            return false;
         }
     }
 }

@@ -162,6 +162,8 @@ flowchart TD
 |---|---|---|
 | `AuthController` | public protocol endpoints including the exact-origin pairwise-sector document, package-owned and safely proxied login icons, generic browser errors, audit records, session elevation/logout | decide JWT validity or account policy |
 | `RelyingParty` | authorization transaction, optional PAR, code exchange, claim-source composition, logout/revocation requests | perform cryptography or grant privileges |
+| `ClientAuthenticator` | negotiate endpoint-specific Basic, POST or `private_key_jwt` authentication for direct provider requests | invent a provider algorithm or send more than one client credential |
+| `ClientAssertion` | load the selected OPNsense certificate and sign one short-lived, single-use assertion | retain private keys, reuse assertions or implement cryptographic primitives |
 | `ProviderMetadata` | exact Discovery validation and immutable per-login metadata snapshot | guess provider endpoints |
 | `TestController` | authenticated and CSRF-protected initiation of a saved provider's non-mutating browser test | accept an unsaved secret, grant a session or change local identity state |
 | `ApprovalController` | authenticated CRUD for durable bindings, explicit local-account creation and approval/denial of identities queued for one saved server; rechecks the core authentication-server, user-manager and read-only privileges | authenticate the identity, create a session, trust button visibility as authorization or choose a local account automatically |

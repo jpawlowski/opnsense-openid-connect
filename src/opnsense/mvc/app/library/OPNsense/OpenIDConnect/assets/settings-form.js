@@ -292,7 +292,8 @@
                 [
                     'openidconnect_app_code', 'openidconnect_provider_profile',
                     'openidconnect_microsoft_audience', 'openidconnect_client_id',
-                    'openidconnect_client_secret', 'openidconnect_token_auth',
+                    'openidconnect_client_secret', 'openidconnect_signing_certificate',
+                    'openidconnect_token_auth',
                     'openidconnect_par_mode', 'openidconnect_scopes', 'openidconnect_response_mode',
                     'openidconnect_max_age', 'openidconnect_select_account',
                     'openidconnect_required_authentication', 'openidconnect_acr_request',
@@ -391,14 +392,21 @@
         var savedName = nameInput ? nameInput.value.trim() : '';
         var saved = address.searchParams.get('act') === 'edit'
             && /^\d+$/.test(address.searchParams.get('id') || '') && savedName !== '';
-        var requiredFields = [
-            'openidconnect_provider_url', 'openidconnect_client_id', 'openidconnect_client_secret'
-        ];
+        var requiredFields = ['openidconnect_provider_url', 'openidconnect_client_id'];
+        function credentialComplete() {
+            var method = field('openidconnect_token_auth').value || '';
+            var secret = field('openidconnect_client_secret').value.trim() !== '';
+            var certificate = field('openidconnect_signing_certificate').value.trim() !== '';
+            if (method === 'private_key_jwt') {
+                return certificate;
+            }
+            if (method === 'client_secret_basic' || method === 'client_secret_post') {
+                return secret;
+            }
+            return secret || certificate;
+        }
         var savedReady = saved && options.webGuiTransportReady !== false
-            && requiredFields.every(function (name) {
-            var input = field(name);
-            return input && input.value.trim() !== '';
-        });
+            && options.signInTestReady !== false;
         var running = false;
         var button = $('<button>')
             .attr({
@@ -454,7 +462,7 @@
             return requiredFields.every(function (name) {
                 var input = field(name);
                 return input && input.value.trim() !== '';
-            });
+            }) && credentialComplete();
         }
 
         function updateAvailability() {
@@ -485,6 +493,8 @@
         requiredFields.forEach(function (name) {
             $(field(name)).on('input change', updateAvailability);
         });
+        ['openidconnect_client_secret', 'openidconnect_signing_certificate', 'openidconnect_token_auth']
+            .forEach(function (name) { $(field(name)).on('input change', updateAvailability); });
         ['openidconnect_tls_offloading', 'openidconnect_origin_policy', 'openidconnect_redirect_urls']
             .forEach(function (name) { $(field(name)).on('input change', updateAvailability); });
         var anchor = $('.oidc-discovery-help');

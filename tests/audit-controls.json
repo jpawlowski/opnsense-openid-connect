@@ -10,6 +10,7 @@
         "mix-up-replay-protection",
         "jwt-claim-policy",
         "provider-http-policy",
+        "private-key-jwt-client-auth",
         "userinfo-subject-binding",
         "issuer-bound-logout-grants",
         "stable-subject-binding",
@@ -161,6 +162,33 @@
                 "tier": "host-independent",
                 "capabilities": ["jwt-claim-policy"],
                 "validation": ["tests/unit/exchange.php"]
+              },
+              {
+                "tier": "installed-integration",
+                "capabilities": ["runtime-jws-crypto"],
+                "validation": ["tests/integration/opnsense.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "private-key-jwt-client-auth",
+          "claim": "Private-key JWT client authentication uses a selected OPNsense certificate, endpoint-specific metadata negotiation, short-lived single-use assertions and exact endpoint or PAR issuer audiences without sending a client secret.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientAssertion.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientAuthenticator.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderMetadata.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["private-key-jwt-client-auth"],
+                "validation": [
+                  "tests/unit/client-authentication.php",
+                  "tests/unit/exchange.php",
+                  "tests/unit/settings.php"
+                ]
               },
               {
                 "tier": "installed-integration",

@@ -57,6 +57,10 @@ HOST_CAPABILITIES = {
         "Whom a token was issued for",
     ),
     "provider-http-policy": ("Bounded HTTPS transport",),
+    "private-key-jwt-client-auth": (
+        "Private-key JWT client assertions",
+        "Endpoint client authentication",
+    ),
     "userinfo-subject-binding": (
         "Separating identity claims from protocol claims",
         "Strict endpoint responses and logout binding",

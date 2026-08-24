@@ -84,7 +84,7 @@ Checks::throws(
 Checks::throws(
     'unsupported token authentication capabilities fail before an exchange',
     fn() => ProviderMetadata::fromArray(metadata([
-        'token_endpoint_auth_methods_supported' => ['private_key_jwt'],
+        'token_endpoint_auth_methods_supported' => ['client_secret_jwt'],
     ]))->tokenEndpointAuthMethod(),
     'no supported client authentication method'
 );
@@ -283,6 +283,37 @@ Checks::throws(
         ])))
     ),
     'HTTPS'
+);
+Checks::throws(
+    'an insecure introspection endpoint is refused before any credential can reach it',
+    fn() => ProviderMetadata::discover(
+        'https://id.example.net',
+        new HttpClient(fn() => jsonAnswer(metadata([
+            'introspection_endpoint' => 'http://id.example.net/introspect',
+        ])))
+    ),
+    'HTTPS'
+);
+Checks::that(
+    'a missing client-assertion algorithm list does not break other advertised credentials',
+    ProviderMetadata::discover(
+        'https://id.example.net',
+        new HttpClient(fn() => jsonAnswer(metadata([
+            'token_endpoint_auth_methods_supported' => ['private_key_jwt', 'client_secret_basic'],
+        ])))
+    )->get('token_endpoint_auth_signing_alg_values_supported', []),
+    []
+);
+Checks::throws(
+    'client assertion metadata can never select the unsecured none algorithm',
+    fn() => ProviderMetadata::discover(
+        'https://id.example.net',
+        new HttpClient(fn() => jsonAnswer(metadata([
+            'token_endpoint_auth_methods_supported' => ['private_key_jwt'],
+            'token_endpoint_auth_signing_alg_values_supported' => ['none'],
+        ])))
+    ),
+    'permits none'
 );
 Checks::throws(
     'a provider cannot require PAR without publishing its endpoint',

@@ -8,6 +8,7 @@
 namespace OPNsense\OpenIDConnect\Api;
 
 use OPNsense\Auth\OpenIDConnect;
+use OPNsense\OpenIDConnect\ClientAssertion;
 use OPNsense\OpenIDConnect\HttpClient;
 use OPNsense\OpenIDConnect\JwtVerifier;
 use OPNsense\OpenIDConnect\ParClient;
@@ -45,8 +46,10 @@ class DiscoveryController extends PrivateApiControllerBase
                 ? $tokenAuth : '';
             $claimsSource = in_array($claimsSource, OpenIDConnect::CLAIMS_SOURCES, true)
                 ? $claimsSource : 'auto';
+            $settings = $this->currentSettings($given);
             $checks = $this->checks(
                 $metadata,
+                $settings,
                 $profile,
                 $responseMode,
                 $tokenAuth,
@@ -69,7 +72,6 @@ class DiscoveryController extends PrivateApiControllerBase
                 );
             }
 
-            $settings = $this->currentSettings($given);
             $checks[] = $this->parCheck($settings, $metadata, $http);
             $warnings = count(array_filter(
                 $checks,
@@ -103,6 +105,7 @@ class DiscoveryController extends PrivateApiControllerBase
     /** @return array<int,array{label:string,value:string,status:string,note:string}> */
     private function checks(
         ProviderMetadata $metadata,
+        OpenIDConnect $settings,
         string $profile,
         string $responseMode,
         string $tokenAuth,
@@ -118,7 +121,14 @@ class DiscoveryController extends PrivateApiControllerBase
         ));
         $authMethods = array_values(array_intersect(
             $list($metadata->get('token_endpoint_auth_methods_supported', ['client_secret_basic'])),
-            ['client_secret_basic', 'client_secret_post']
+            OpenIDConnect::TOKEN_AUTH_METHODS
+        ));
+        $assertionAlgorithms = array_values(array_intersect(
+            $settings->clientAssertionAlgorithms(
+                'token_endpoint_auth_signing_alg_values_supported',
+                $list($metadata->get('token_endpoint_auth_signing_alg_values_supported', []))
+            ),
+            ClientAssertion::ALGORITHMS
         ));
         $responseModes = $list($metadata->get('response_modes_supported', []));
         $advertisedAuth = $list($metadata->get(
@@ -186,6 +196,17 @@ class DiscoveryController extends PrivateApiControllerBase
                     : gettext('At least one confidential-client authentication method is usable.')
             ),
             $this->check(
+                gettext('Client assertion signatures'),
+                implode(', ', $assertionAlgorithms) ?: gettext('Not offered'),
+                in_array('private_key_jwt', $authMethods, true)
+                    ? ($assertionAlgorithms === [] ? 'warning' : 'success') : 'info',
+                in_array('private_key_jwt', $authMethods, true)
+                    ? ($assertionAlgorithms === []
+                        ? gettext('No supported private-key JWT signing algorithm is advertised.')
+                        : gettext('Private-key JWT can negotiate one of these asymmetric signatures.'))
+                    : gettext('Private-key JWT client authentication is not advertised.')
+            ),
+            $this->check(
                 gettext('PKCE'),
                 $pkceAdvertised ? 'S256' : gettext('S256 not advertised'),
                 $pkceAdvertised ? 'success' : 'warning',
@@ -225,7 +246,14 @@ class DiscoveryController extends PrivateApiControllerBase
         }
 
         $selectedAuth = $tokenAuth === '' ? gettext('Follow the provider') : $tokenAuth;
-        $selectedAuthUsable = $tokenAuth === '' ? $authMethods !== [] : in_array($tokenAuth, $advertisedAuth, true);
+        $privateKeyUsable = $settings->signingCertificate() !== ''
+            && in_array('private_key_jwt', $advertisedAuth, true) && $assertionAlgorithms !== [];
+        $secretUsable = $settings->clientSecret() !== ''
+            && array_intersect($advertisedAuth, ['client_secret_basic', 'client_secret_post']) !== [];
+        $selectedAuthUsable = $tokenAuth === ''
+            ? $privateKeyUsable || $secretUsable
+            : (in_array($tokenAuth, $advertisedAuth, true)
+                && ($tokenAuth === 'private_key_jwt' ? $privateKeyUsable : $settings->clientSecret() !== ''));
         $checks[] = $this->check(
             gettext('Selected authentication method'),
             $selectedAuth,
@@ -277,7 +305,8 @@ class DiscoveryController extends PrivateApiControllerBase
     {
         $fields = [
             'openidconnect_app_code', 'openidconnect_provider_profile', 'openidconnect_microsoft_audience',
-            'openidconnect_client_id', 'openidconnect_client_secret', 'openidconnect_token_auth',
+            'openidconnect_client_id', 'openidconnect_client_secret', 'openidconnect_signing_certificate',
+            'openidconnect_token_auth',
             'openidconnect_par_mode', 'openidconnect_scopes', 'openidconnect_response_mode',
             'openidconnect_max_age', 'openidconnect_select_account', 'openidconnect_required_authentication',
             'openidconnect_acr_request', 'openidconnect_acr_values', 'openidconnect_amr_values',
@@ -319,12 +348,12 @@ class DiscoveryController extends PrivateApiControllerBase
                     : gettext('Automatic mode uses a normal browser authorization request.')
             );
         }
-        if ($settings->clientId() === '' || $settings->clientSecret() === '') {
+        if ($settings->clientId() === '' || !$settings->hasClientAuthenticationCredential()) {
             return $this->check(
                 gettext('PAR endpoint (OPNsense → IdP)'),
                 gettext('Not tested'),
                 'warning',
-                gettext('Enter Client ID and Client Secret to run the authenticated live PAR check.')
+                gettext('Enter Client ID and a usable client secret or signing certificate for the live PAR check.')
             );
         }
         $redirectUri = RelyingParty::acceptedRedirectUri($settings, $this->request);

@@ -15,8 +15,9 @@ defaults below.
 | Provider profile | Generic OpenID Connect | a named provider is available; its preset and diagnostics then apply |
 | Microsoft account audience | One specific Entra tenant; shown only for the Microsoft profile | one button should accept any Entra organization, personal Microsoft accounts, or both |
 | Exact issuer URL | may be empty only while disabled | copy the provider's exact `issuer`, including path and trailing slash, before enabling; a pasted URL ending in `/.well-known/openid-configuration` is accepted and stored without that suffix, while named profiles retain a documented significant trailing slash |
-| Client ID / Client Secret | may be empty only while disabled | enter the confidential web application's credentials before enabling |
-| Authentication method | profile preset, normally Follow the provider | the application was explicitly configured for Basic or POST and the profile does not already enforce a documented requirement |
+| Client ID / Client Secret | may be empty only while disabled; a secret is optional with a selected client signing certificate | enter the confidential web application's identifier and its Basic/POST secret before enabling |
+| Client signing certificate | None | the provider application has the public half of an OPNsense certificate registered for `private_key_jwt` |
+| Authentication method | profile preset, normally Follow the provider | the application was explicitly configured for Basic, POST or `private_key_jwt` and the profile does not already enforce a documented requirement |
 | Pushed authorization requests | Automatic with availability fallback | use Required when authorization parameters must never pass through the browser, or Disabled for a provider whose optional PAR path is intentionally unreachable; a provider requirement always wins |
 | Username claim | `preferred_username` | the provider guide specifies `email`, a vendor claim or a custom mapping |
 | Claims source | Automatic | all required claims must come only from the ID Token, or UserInfo is explicitly required |
@@ -65,6 +66,20 @@ method. Microsoft explicitly states that `x509` alone is insufficient.
 Passwordless is deliberately not a separate policy because it describes the
 sign-in experience rather than a portable assurance level; Passkeys and FIDO2
 belong under phishing-resistant authentication.
+
+For `private_key_jwt`, OPNsense creates a new 60-second assertion for every
+Token, PAR or Revocation request. Its issuer and subject are the Client ID, its
+audience is the exact endpoint (the exact provider issuer for PAR), and its
+random JWT ID prevents deliberate reuse. Discovery chooses a compatible RSA or
+EC signature; `none` and unsupported key/algorithm combinations fail closed.
+The JWT carries the certificate's SHA-256 thumbprint, not its private key.
+
+Rotate without an authentication gap: create or import the replacement under
+**System > Trust > Certificates**, register that public certificate alongside
+the old one at the provider, select the replacement here, run both tests, and
+only then remove the old provider credential and certificate. OPNsense reads the
+selected certificate on every request, so the saved reference is the rotation
+boundary and no private key is copied into the authentication server.
 
 Shared Signals is independent of offering new logins. It only ends sessions
 previously created by the same saved authentication server and never changes a

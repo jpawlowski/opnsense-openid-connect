@@ -38,6 +38,7 @@ class RelyingParty
     private $response;
     private HttpClient $http;
     private JwtVerifier $verifier;
+    private ClientAuthenticator $clientAuthenticator;
     private string $redirectUri;
     private ?ProviderMetadata $metadata = null;
     private ?string $tokenAuthMethod = null;
@@ -46,7 +47,12 @@ class RelyingParty
     /** @var array<string,mixed> */
     private array $idTokenClaims = [];
 
-    public function __construct(OpenIDConnect $settings, Controller $controller, ?HttpClient $http = null)
+    public function __construct(
+        OpenIDConnect $settings,
+        Controller $controller,
+        ?HttpClient $http = null,
+        ?ClientAuthenticator $clientAuthenticator = null
+    )
     {
         $this->settings = $settings;
         $this->session = $controller->session;
@@ -54,6 +60,7 @@ class RelyingParty
         $this->response = $controller->response;
         $this->http = $http ?? new HttpClient();
         $this->verifier = new JwtVerifier($this->http);
+        $this->clientAuthenticator = $clientAuthenticator ?? new ClientAuthenticator($settings);
 
         $redirect = static::acceptedRedirectUri($settings, $controller->request);
         if ($redirect === null) {
@@ -122,7 +129,7 @@ class RelyingParty
         $this->metadata = $metadata;
         $responseMode = $this->settings->responseMode();
         $metadata->assertAuthorizationCapabilities($responseMode);
-        $this->tokenAuthMethod = $metadata->tokenEndpointAuthMethod($this->settings->tokenAuthMethod());
+        $this->tokenAuthMethod = $this->clientAuthenticator->selectMethod($metadata, ClientAuthenticator::TOKEN);
         $formPost = $responseMode === 'form_post';
         $state = ($formPost ? 'p.' : '') . self::randomValue(32);
         $nonce = self::randomValue(32);
@@ -224,7 +231,7 @@ class RelyingParty
         string $endpoint,
         array $parameters
     ): string {
-        $requestUri = (new ParClient($this->settings, $this->http))->push(
+        $requestUri = (new ParClient($this->settings, $this->http, $this->clientAuthenticator))->push(
             $metadata,
             $endpoint,
             $parameters
@@ -282,7 +289,11 @@ class RelyingParty
         if (!is_string($frozenAuthMethod)) {
             throw new ProtocolException('The login transaction carries no client authentication method');
         }
-        $this->tokenAuthMethod = $this->metadata->tokenEndpointAuthMethod($frozenAuthMethod);
+        $this->tokenAuthMethod = $this->clientAuthenticator->selectMethod(
+            $this->metadata,
+            ClientAuthenticator::TOKEN,
+            $frozenAuthMethod
+        );
         $frozenRequirement = null;
         if (array_key_exists('authentication_requirement', $transaction)) {
             if (!is_array($transaction['authentication_requirement'])) {
@@ -369,7 +380,15 @@ class RelyingParty
             'code_verifier' => $verifier,
         ];
         $headers = ['Accept: application/json'];
-        $this->authenticateClient($fields, $headers);
+        $this->clientAuthenticator->authenticate(
+            $this->metadata,
+            $this->metadata->tokenEndpoint(),
+            ClientAuthenticator::TOKEN,
+            $fields,
+            $headers,
+            null,
+            $this->tokenAuthMethod
+        );
 
         $response = $this->http->postForm($this->metadata->tokenEndpoint(), $fields, self::TOKEN_MAX_BYTES, $headers);
         if ($response->status !== 200) {
@@ -399,23 +418,6 @@ class RelyingParty
         }
 
         return $tokens;
-    }
-
-    /** @param array<string,string> $fields @param string[] $headers */
-    private function authenticateClient(array &$fields, array &$headers, ?string $method = null): void
-    {
-        $method ??= $this->tokenAuthMethod
-            ?? $this->metadata?->tokenEndpointAuthMethod($this->settings->tokenAuthMethod());
-        if ($method === 'client_secret_basic') {
-            $credentials = urlencode($this->settings->clientId()) . ':' . urlencode($this->settings->clientSecret());
-            $headers[] = 'Authorization: Basic ' . base64_encode($credentials);
-            return;
-        }
-        if ($method === 'client_secret_post') {
-            $fields['client_secret'] = $this->settings->clientSecret();
-            return;
-        }
-        throw new ProtocolException('No supported token endpoint authentication method is available');
     }
 
     private function claimsForAccount(?string $accessToken): object
@@ -520,7 +522,13 @@ class RelyingParty
             $fields['token_type_hint'] = $hint;
         }
         $headers = [];
-        $this->authenticateClient($fields, $headers, $this->metadata->revocationEndpointAuthMethod());
+        $this->clientAuthenticator->authenticate(
+            $this->metadata,
+            $endpoint,
+            ClientAuthenticator::REVOCATION,
+            $fields,
+            $headers
+        );
         $response = $this->http->postForm($endpoint, $fields, 262144, $headers);
         if (!in_array($response->status, [200, 204], true)) {
             throw new ProtocolException(sprintf('Token revocation returned HTTP %d', $response->status));

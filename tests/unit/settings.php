@@ -170,6 +170,17 @@ Checks::that(
     connector(['openidconnect_token_auth' => 'client_secret_post'])->tokenAuthMethod(),
     'client_secret_post'
 );
+Checks::that(
+    'private-key JWT client authentication can be selected',
+    connector(['openidconnect_token_auth' => 'private_key_jwt'])->tokenAuthMethod(),
+    'private_key_jwt'
+);
+Checks::that('the client signing certificate is empty by default', connector([])->signingCertificate(), '');
+Checks::that('Generic invents no assertion algorithm when Discovery omits it',
+    connector([])->clientAssertionAlgorithms('token_endpoint_auth_signing_alg_values_supported', []), []);
+Checks::that('Entra applies its documented PS256 certificate-credential profile', connector([
+    'openidconnect_provider_profile' => 'entra',
+])->clientAssertionAlgorithms('token_endpoint_auth_signing_alg_values_supported', []), ['PS256']);
 Checks::that('token auth, nonsense value', connector(['openidconnect_token_auth' => 'wobble'])->tokenAuthMethod(), null);
 Checks::that('PAR uses availability-aware automatic mode by default', connector([])->parMode(), 'auto');
 Checks::that('PAR can be required', connector(['openidconnect_par_mode' => 'required'])->parMode(), 'required');
@@ -540,6 +551,17 @@ Checks::that('a discovery URL carrying a query is still refused', count($issuer(
 
 $_POST['type'] = 'openidconnect';
 $_POST['openidconnect_enabled'] = 'yes';
+\OPNsense\Core\Config::getInstance()->addCertificate([
+    'refid' => '0123456789abc',
+    'descr' => 'OIDC signing key',
+    'crt' => base64_encode('certificate'),
+    'prv' => base64_encode('private-key'),
+]);
+\OPNsense\Core\Config::getInstance()->addCertificate([
+    'refid' => 'abcdef0123456',
+    'descr' => 'Public certificate only',
+    'crt' => base64_encode('certificate'),
+]);
 $enabledOptions = (new OpenIDConnect())->getConfigurationOptions();
 Checks::that('an enabled server requires an issuer', count(
     $enabledOptions['openidconnect_provider_url']['validate']('')
@@ -550,6 +572,22 @@ Checks::that('an enabled server requires a client ID', count(
 Checks::that('an enabled server requires a client secret', count(
     $enabledOptions['openidconnect_client_secret']['validate']('')
 ), 1);
+Checks::that('only certificates with a private key are offered for client assertions',
+    array_keys($enabledOptions['openidconnect_signing_certificate']['options']), ['', '0123456789abc']);
+$_POST['openidconnect_token_auth'] = 'private_key_jwt';
+$_POST['openidconnect_signing_certificate'] = '0123456789abc';
+Checks::that('private-key JWT does not also require a client secret',
+    $enabledOptions['openidconnect_client_secret']['validate'](''), []);
+Checks::that('an available signing certificate is accepted',
+    $enabledOptions['openidconnect_signing_certificate']['validate']('0123456789abc'), []);
+Checks::that('a certificate without its private key is refused', count(
+    $enabledOptions['openidconnect_signing_certificate']['validate']('abcdef0123456')
+), 1);
+$_POST['openidconnect_signing_certificate'] = '';
+Checks::that('an enabled private-key JWT client requires a signing certificate', count(
+    $enabledOptions['openidconnect_signing_certificate']['validate']('')
+), 1);
+unset($_POST['openidconnect_token_auth'], $_POST['openidconnect_signing_certificate']);
 Checks::that('an enabled server following OPNsense needs no duplicate address',
     $enabledOptions['openidconnect_redirect_urls']['validate'](''), []);
 $_POST['openidconnect_origin_policy'] = 'custom';
@@ -600,6 +638,13 @@ Checks::that('a complete confidential client can start a sign-in test', connecto
     'openidconnect_provider_url' => 'https://id.example.net',
     'openidconnect_client_id' => 'client-id',
     'openidconnect_client_secret' => 'secret',
+])->isSignInTestReady(), true);
+Checks::that('a private-key JWT client can start a sign-in test without a static secret', connector([
+    'openidconnect_provider_url' => 'https://id.example.net',
+    'openidconnect_client_id' => 'client-id',
+    'openidconnect_client_secret' => '',
+    'openidconnect_signing_certificate' => '0123456789abc',
+    'openidconnect_token_auth' => 'private_key_jwt',
 ])->isSignInTestReady(), true);
 Checks::that('a new server follows OPNsense WebGUI names',
     $draftOptions['openidconnect_origin_policy']['default'], 'opnsense');
