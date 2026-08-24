@@ -225,7 +225,8 @@
     }
 
     function discoveryResult(answer) {
-        var overall = answer.overall === 'warning' ? 'warning' : 'success';
+        var overall = ['success', 'warning', 'error'].indexOf(answer.overall) !== -1
+            ? answer.overall : 'success';
         var meta = resultStatus(overall);
         var panel = $('<div class="oidc-discovery-result">');
         var headline = $('<div>').addClass('alert alert-' + meta.style)
@@ -288,6 +289,22 @@
                     token_auth: $(field('openidconnect_token_auth')).val(),
                     claims_source: $(field('openidconnect_claims_source')).val()
                 };
+                [
+                    'openidconnect_app_code', 'openidconnect_provider_profile',
+                    'openidconnect_microsoft_audience', 'openidconnect_client_id',
+                    'openidconnect_client_secret', 'openidconnect_token_auth',
+                    'openidconnect_par_mode', 'openidconnect_scopes', 'openidconnect_response_mode',
+                    'openidconnect_max_age', 'openidconnect_select_account',
+                    'openidconnect_required_authentication', 'openidconnect_acr_request',
+                    'openidconnect_acr_values', 'openidconnect_amr_values',
+                    'openidconnect_entra_auth_context', 'openidconnect_origin_policy',
+                    'openidconnect_redirect_urls', 'openidconnect_tls_offloading'
+                ].forEach(function (name) {
+                    var input = field(name);
+                    if (input) {
+                        data[name] = input.type === 'checkbox' ? ($(input).is(':checked') ? '1' : '0') : $(input).val();
+                    }
+                });
                 testButton.prop('disabled', true).empty()
                     .append($('<i class="fa fa-spinner fa-spin" aria-hidden="true">'), ' ')
                     .append(document.createTextNode(options.testingLabel || 'Testing...'));
@@ -297,8 +314,10 @@
                             BootstrapDialog.show({
                                 title: options.testLabel,
                                 message: discoveryResult(answer),
-                                type: answer.overall === 'warning'
-                                    ? BootstrapDialog.TYPE_WARNING : BootstrapDialog.TYPE_SUCCESS,
+                                type: answer.overall === 'error'
+                                    ? BootstrapDialog.TYPE_DANGER
+                                    : (answer.overall === 'warning'
+                                        ? BootstrapDialog.TYPE_WARNING : BootstrapDialog.TYPE_SUCCESS),
                                 size: BootstrapDialog.SIZE_WIDE
                             });
                         } else {
@@ -324,6 +343,42 @@
         $('<span class="help-block auth_options auth_openidconnect oidc-discovery-help">')
             .text(options.testHelp || 'This optional test is independent of saving.')
             .insertAfter(testButton);
+    }
+
+    function withHealthStatus() {
+        var address = new URL(window.location.href);
+        var name = field('name');
+        var saved = address.searchParams.get('act') === 'edit'
+            && /^\d+$/.test(address.searchParams.get('id') || '') && name && name.value.trim() !== '';
+        if (!saved) {
+            return;
+        }
+        var panel = $('<div class="auth_options auth_openidconnect oidc-health-status help-block">')
+            .append($('<i class="fa fa-spinner fa-spin" aria-hidden="true">'), ' ')
+            .append(document.createTextNode(options.healthLoading || 'Loading connection health...'));
+        $('.oidc-discovery-help').last().after(panel);
+        $.get('/api/openidconnect/health/status', { provider: name.value.trim() })
+            .done(function (answer) {
+                panel.empty();
+                if (!answer || answer.status !== 'ok' || !Array.isArray(answer.items)) {
+                    panel.text((answer && answer.message) || options.healthUnavailable || 'Connection health unavailable.');
+                    return;
+                }
+                panel.append($('<strong>').text(options.healthLabel || 'Connection health'), ': ');
+                answer.items.forEach(function (item, index) {
+                    var state = resultStatus(item.status === 'fresh' ? 'success'
+                        : (item.status === 'bypassed' || item.status === 'stale' ? 'warning'
+                            : (item.status === 'error' ? 'error' : 'info')));
+                    if (index > 0) {
+                        panel.append(' · ');
+                    }
+                    panel.append($('<span>').addClass('label label-' + state.style)
+                        .attr('title', (item.direction || '') + (item.stored
+                            ? ' · ' + new Date(item.stored * 1000).toLocaleString() : ''))
+                        .text((item.label || '') + ': ' + (item.status || 'missing')));
+                });
+            })
+            .fail(function () { panel.text(options.healthUnavailable || 'Connection health unavailable.'); });
     }
 
     function withSignInTest() {
@@ -1616,6 +1671,7 @@
         }
         sectorOriginOptions();
         withDiscoveryTest();
+        withHealthStatus();
         withSignInTest();
         withApprovalManager();
         withProviderSetup();

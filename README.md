@@ -13,8 +13,10 @@ cryptographic primitives.
 
 - Authorization Code flow only, always with transaction-specific `state`,
   `nonce`, and PKCE `S256`.
-- Pushed Authorization Requests (PAR) are used automatically when Discovery
-  publishes an endpoint; a failed push never falls back to browser parameters.
+- Pushed Authorization Requests (PAR) support Automatic, Required and Disabled
+  modes. Automatic bypasses only a temporarily unavailable optional PAR endpoint
+  and restores it through an authenticated background probe; TLS, client and
+  protocol errors remain hard failures.
 - Exact issuer validation from OIDC Discovery; endpoints and the metadata
   snapshot are bound to the pending browser transaction.
 - A distinct callback per provider plus RFC 9207 `iss` validation when offered,
@@ -29,6 +31,9 @@ cryptographic primitives.
 - HTTPS with normal certificate validation for discovery and every provider
   endpoint. Responses, redirects, sizes and timeouts are bounded. Credentials
   are never followed through redirects.
+- Validated Discovery and signing keys follow the provider's HTTP cache policy
+  and have bounded stale-if-unavailable windows. Unknown signing keys always
+  require one throttled live refresh and never match stale material by guesswork.
 - The PHP session identifier is replaced after login. Login transactions are
   one-time, expire after ten minutes, and coexist safely across browser tabs.
   `form_post` uses a bounded server-side transaction index so OPNsense's
@@ -155,6 +160,7 @@ Start with these fields:
 | Application code | a unique URL-safe identifier such as `authentik-main` |
 | Exact issuer URL | the exact issuer, including any trailing slash |
 | Client ID / Client Secret | credentials of a confidential web client |
+| Pushed authorization requests | Automatic normally; require or disable PAR only for an intentional provider/network policy |
 | WebGUI address policy | follows OPNsense names, actual local addresses, virtual IPs and WebGUI port by default; optional additions or an exact provider-specific replacement remain available |
 | WebGUI transport | native HTTPS required by default; an HTTP backend needs an explicit trusted-proxy exception with exact custom public HTTPS origins |
 | Username claim | keep the profile default unless the provider guide differs |
@@ -163,6 +169,7 @@ Start with these fields:
 | Admission policy | Administrator approval for named profiles; Strict for Generic |
 | Identity manager | after saving, map exact issuer/`sub` identities to existing local accounts and review pending approvals |
 | Shared Signals | optional push receiver; enter the transmitter issuer and assigned audience, then generate a delivery secret |
+| Provider logout notifications | Both by default; restrict accepted Back-Channel or Front-Channel notifications only when needed |
 | Login button wording | localized OPNsense sentence, provider label only or an exact custom text; fixed global services use their familiar short name |
 | Icon URL | named profiles use their real package-owned brand SVG; Generic uses the official OpenID mark; replace it only for installation-specific branding |
 | Icon rendering | every bundled icon follows the button text colour by default; original brand colours remain selectable |

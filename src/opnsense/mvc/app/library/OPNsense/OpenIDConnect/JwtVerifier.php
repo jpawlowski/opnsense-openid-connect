@@ -24,7 +24,10 @@ class JwtVerifier
 
     private static bool $autoloaderReady = false;
 
-    public function __construct(private readonly HttpClient $http)
+    public function __construct(
+        private readonly HttpClient $http,
+        private readonly string $cacheNamespace = 'oidc-jwks'
+    )
     {
         self::prepareAutoloader();
     }
@@ -51,21 +54,14 @@ class JwtVerifier
             throw new ProtocolException('The ID token algorithm was not advertised by the provider');
         }
 
-        $jwks = $this->http->get($metadata->jwksUri(), self::MAX_JWKS_BYTES);
-        if ($jwks->status !== 200) {
-            throw new ProtocolException(sprintf('The provider key set returned HTTP %d', $jwks->status));
-        }
-        if (!in_array($jwks->contentType, ['application/json', 'application/jwk-set+json'], true)) {
-            throw new ProtocolException('The provider key set did not return JSON');
-        }
-        $keys = $jwks->jsonObject()['keys'] ?? null;
-        if (!is_array($keys)) {
-            throw new ProtocolException('The provider key set contains no keys');
-        }
-        $key = self::selectKey($keys, $header, $algorithm);
-        if (!$this->verifySignature($algorithm, $key, $signingInput, $signature)) {
-            throw new ProtocolException('The ID token signature is invalid');
-        }
+        $key = $this->matchingKey(
+            $metadata->jwksUri(),
+            $header,
+            $algorithm,
+            $signingInput,
+            $signature,
+            'The ID token signature is invalid'
+        );
 
         if ($issuerValidator !== null) {
             $issuerValidator($claims, $key);
@@ -138,7 +134,64 @@ class JwtVerifier
         if ($advertisedAlgorithms !== [] && !in_array($algorithm, $advertisedAlgorithms, true)) {
             throw new ProtocolException('The JWT algorithm was not advertised by the issuer');
         }
-        $jwks = $this->http->get($jwksUri, self::MAX_JWKS_BYTES);
+        $key = $this->matchingKey(
+            $jwksUri,
+            $header,
+            $algorithm,
+            $signingInput,
+            $signature,
+            'The JWT signature is invalid'
+        );
+        return ['header' => $header, 'claims' => $claims, 'key' => $key];
+    }
+
+    /** @param array<string,mixed> $header @return array<string,mixed> */
+    private function matchingKey(
+        string $jwksUri,
+        array $header,
+        string $algorithm,
+        string $signingInput,
+        string $signature,
+        string $signatureFailure
+    ): array {
+        $firstFailure = null;
+        try {
+            $key = self::selectKey($this->keys($jwksUri), $header, $algorithm);
+            if ($this->verifySignature($algorithm, $key, $signingInput, $signature)) {
+                return $key;
+            }
+            $firstFailure = new ProtocolException($signatureFailure);
+        } catch (ProtocolException $e) {
+            $firstFailure = $e;
+        }
+        if (!$this->http->claimCacheRefresh($this->cacheNamespace, $jwksUri)) {
+            throw $firstFailure;
+        }
+        $key = self::selectKey($this->keys($jwksUri, true), $header, $algorithm);
+        if (!$this->verifySignature($algorithm, $key, $signingInput, $signature)) {
+            throw new ProtocolException($signatureFailure);
+        }
+        return $key;
+    }
+
+    /** @return array<int,mixed> */
+    private function keys(string $jwksUri, bool $force = false): array
+    {
+        $jwks = $this->http->getCached(
+            $jwksUri,
+            self::MAX_JWKS_BYTES,
+            $this->cacheNamespace,
+            3600,
+            $force,
+            !$force,
+            fn(HttpResponse $candidate): array => $this->keysFromResponse($candidate)
+        );
+        return $this->keysFromResponse($jwks);
+    }
+
+    /** @return array<int,mixed> */
+    private function keysFromResponse(HttpResponse $jwks): array
+    {
         if ($jwks->status !== 200) {
             throw new ProtocolException(sprintf('The provider key set returned HTTP %d', $jwks->status));
         }
@@ -149,11 +202,32 @@ class JwtVerifier
         if (!is_array($keys)) {
             throw new ProtocolException('The provider key set contains no keys');
         }
-        $key = self::selectKey($keys, $header, $algorithm);
-        if (!$this->verifySignature($algorithm, $key, $signingInput, $signature)) {
-            throw new ProtocolException('The JWT signature is invalid');
+        if ($keys === [] || count($keys) > 128 || array_filter($keys, 'is_array') !== $keys) {
+            throw new ProtocolException('The provider key set contains an invalid key list');
         }
-        return ['header' => $header, 'claims' => $claims, 'key' => $key];
+        return $keys;
+    }
+
+    /** Force a live key-set fetch for the authenticated setup test, without needing a token. */
+    public function probeKeySet(string $jwksUri): int
+    {
+        $keys = $this->keys($jwksUri, true);
+        if ($keys === [] || count($keys) > 128) {
+            throw new ProtocolException('The provider key set contains no usable bounded key list');
+        }
+        $usable = array_filter($keys, static function ($key): bool {
+            if (!is_array($key) || !in_array($key['kty'] ?? null, ['RSA', 'EC'], true)) {
+                return false;
+            }
+            if (isset($key['use']) && $key['use'] !== 'sig') {
+                return false;
+            }
+            return !isset($key['alg']) || in_array($key['alg'], self::ALGORITHMS, true);
+        });
+        if ($usable === []) {
+            throw new ProtocolException('The provider key set contains no supported signing key');
+        }
+        return count($usable);
     }
 
     /** @return array<string,mixed> verified OpenID Connect Back-Channel Logout claims */

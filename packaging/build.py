@@ -58,6 +58,7 @@ SOURCE_URL = "https://github.com/jpawlowski/opnsense-openid-connect"
 # Outside the source tree: the watchdog and the nightly run that starts it.
 EXTRA = [
     ("watch/openid-connect-watch", "usr/local/sbin/openid-connect-watch", 0o755),
+    ("watch/openid-connect-refresh", "usr/local/sbin/openid-connect-refresh", 0o755),
     ("watch/openid-connect.cron", "usr/local/etc/cron.d/openid-connect.cron", 0o644),
 ]
 
@@ -77,6 +78,7 @@ POST_DEINSTALL = """\
 rm -f /var/lib/php/tmp/opnsense_acl_cache.json /tmp/opnsense_acl_cache.json
 [ "${PKG_UPGRADE:-false}" = "true" ] && exit 0
 rm -f /var/db/openid-connect/core.digest /var/db/openid-connect/core.version
+rm -rf /var/db/openid-connect/cache /var/db/openid-connect/runtime
 rm -f /var/lib/php/sessions/.openidconnect-sessions
 rm -f /var/lib/php/sessions/.openidconnect-logout-tokens
 rm -f /var/lib/php/sessions/.openidconnect-security-events

@@ -17,10 +17,29 @@ final class ProviderMetadata
     {
     }
 
-    public static function discover(string $configured, HttpClient $http, ?string $issuerTemplate = null): self
+    public static function discover(
+        string $configured,
+        HttpClient $http,
+        ?string $issuerTemplate = null,
+        bool $force = false,
+        bool $allowStaleOnFailure = true
+    ): self
     {
         [$issuer, $url] = self::locations($configured);
-        $response = $http->get($url, self::MAX_BYTES);
+        $response = $http->getCached(
+            $url,
+            self::MAX_BYTES,
+            'oidc-discovery',
+            86400,
+            $force,
+            $allowStaleOnFailure,
+            static function (HttpResponse $candidate) use ($issuer, $issuerTemplate): void {
+                if ($candidate->contentType !== 'application/json') {
+                    throw new ProtocolException('Discovery did not return application/json');
+                }
+                self::validated($issuer, $candidate->jsonObject(), $issuerTemplate);
+            }
+        );
         if ($response->status !== 200) {
             throw new ProtocolException(sprintf('Discovery returned HTTP %d', $response->status));
         }
@@ -181,6 +200,11 @@ final class ProviderMetadata
     {
         return isset($this->values['pushed_authorization_request_endpoint'])
             ? (string)$this->values['pushed_authorization_request_endpoint'] : null;
+    }
+
+    public function requiresPushedAuthorizationRequests(): bool
+    {
+        return ($this->values['require_pushed_authorization_requests'] ?? false) === true;
     }
 
     public function authorizationResponseIssuerSupported(): bool

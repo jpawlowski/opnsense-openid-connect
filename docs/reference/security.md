@@ -9,8 +9,8 @@ The implementation targets these normative parts:
 - OpenID Connect Discovery 1.0 with exact issuer matching
 - OAuth 2.0 Authorization Server Issuer Identification (RFC 9207)
 - PKCE (RFC 7636), always `S256`, following OAuth 2.0 Security BCP (RFC 9700)
-- OAuth 2.0 Pushed Authorization Requests (RFC 9126), automatically when the
-  validated Discovery document advertises its HTTPS endpoint
+- OAuth 2.0 Pushed Authorization Requests (RFC 9126), with explicit Automatic,
+  Required and Disabled policy and provider-required PAR always enforced
 - OAuth 2.0 Token Revocation (RFC 7009), when advertised
 - REFEDS Multi-Factor Authentication Profile for its exact MFA context
 - OpenID Connect Extended Authentication Profile `phr` and `phrh` contexts

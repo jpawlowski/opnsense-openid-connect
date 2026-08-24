@@ -54,9 +54,10 @@ require_once('/usr/local/etc/inc/legacy_bindings.inc');
 
 $library = '/usr/local/opnsense/mvc/app/library/OPNsense/OpenIDConnect/';
 foreach ([
-    'ProtocolException', 'SecurityEventException', 'HttpResponse', 'HttpClient', 'ProviderMetadata',
+    'ProtocolException', 'ProviderUnavailableException', 'SecurityEventException', 'HttpResponse', 'HttpClient',
+    'ProviderCache', 'ProviderMetadata', 'ProviderRuntimeState',
     'SharedSignalsMetadata', 'JwtVerifier', 'SecurityEventVerifier', 'PendingIdentityRegistry',
-    'SessionRegistry', 'TransactionRegistry', 'WebGuiAccess',
+    'SessionRegistry', 'TransactionRegistry', 'WebGuiAccess', 'ParClient',
 ] as $class) {
     require_once $library . $class . '.php';
 }
@@ -202,7 +203,8 @@ $verifier = new class(new HttpClient()) extends JwtVerifier {
 
 $payload = 'OPNsense OpenID Connect runtime cryptography';
 $rsa = RSA::createKey(2048);
-$rsaJwk = json_decode($rsa->getPublicKey()->toString('JWK'), true, 16, JSON_THROW_ON_ERROR);
+$rsaJwkExport = json_decode($rsa->getPublicKey()->toString('JWK'), true, 16, JSON_THROW_ON_ERROR);
+$rsaJwk = is_array($rsaJwkExport['keys'][0] ?? null) ? $rsaJwkExport['keys'][0] : $rsaJwkExport;
 $rsaSignature = $rsa->withHash('sha256')->withPadding(RSA::SIGNATURE_PKCS1)->sign($payload);
 $check($verifier->signature('RS256', $rsaJwk, $payload, $rsaSignature), 'RS256 through OPNsense phpseclib');
 
@@ -211,7 +213,8 @@ $pssSignature = $rsa->withHash('sha256')->withMGFHash('sha256')->withSaltLength(
 $check($verifier->signature('PS256', $rsaJwk, $payload, $pssSignature), 'PS256 with exact salt policy');
 
 $ec = EC::createKey('secp256r1');
-$ecJwk = json_decode($ec->getPublicKey()->toString('JWK'), true, 16, JSON_THROW_ON_ERROR);
+$ecJwkExport = json_decode($ec->getPublicKey()->toString('JWK'), true, 16, JSON_THROW_ON_ERROR);
+$ecJwk = is_array($ecJwkExport['keys'][0] ?? null) ? $ecJwkExport['keys'][0] : $ecJwkExport;
 $ecSignature = $ec->withHash('sha256')->withSignatureFormat('IEEE')->sign($payload);
 $check($verifier->signature('ES256', $ecJwk, $payload, $ecSignature), 'ES256 IEEE signature through OPNsense phpseclib');
 $validated('runtime-jws-crypto');
@@ -260,12 +263,13 @@ $check(
     SessionRegistry::acceptLogoutToken('https://runtime.example.com/', $jti, time() + 60),
     'a failed logout can release its replay marker for a provider retry'
 );
+$runtimeReplay = JwtVerifier::base64UrlEncode(random_bytes(24));
 $check(
-    SessionRegistry::acceptSecurityEvent('runtime', $ssfIssuer, $ssfAudience, 'runtime-replay'),
+    SessionRegistry::acceptSecurityEvent('runtime', $ssfIssuer, $ssfAudience, $runtimeReplay),
     'first Shared Signals event is accepted'
 );
 $check(
-    !SessionRegistry::acceptSecurityEvent('runtime', $ssfIssuer, $ssfAudience, 'runtime-replay'),
+    !SessionRegistry::acceptSecurityEvent('runtime', $ssfIssuer, $ssfAudience, $runtimeReplay),
     'replayed Shared Signals event is refused'
 );
 
@@ -329,6 +333,8 @@ $check($delegatedAcl->isPageAccessible($aclProbeName, '/system_authservers.php')
     'authentication-server privilege retains the core server page');
 $check($delegatedAcl->isPageAccessible($aclProbeName, '/api/openidconnect/approval/list'),
     'authentication-server privilege includes the OIDC identity manager API');
+$check($delegatedAcl->isPageAccessible($aclProbeName, '/api/openidconnect/health/status'),
+    'authentication-server privilege includes the read-only OIDC health API');
 $check(!$delegatedAcl->isPageAccessible($aclProbeName, '/api/openidconnect/test/start'),
     'identity management does not grant the separate OIDC sign-in-test privilege');
 $check($delegatedAcl->hasPrivilege($aclProbeName, 'user-config-readonly'),
@@ -386,7 +392,7 @@ $check(
     $genericIcon->iconUrl() === '/api/openidconnect/auth/builtinicon/general'
         && is_string($genericIconPath)
         && is_readable($genericIconPath)
-        && str_contains((string)file_get_contents($genericIconPath), '>OIDC</text>'),
+        && str_contains((string)file_get_contents($genericIconPath), '<title>OpenID Connect</title>'),
     'Generic OpenID Connect receives the installed neutral OIDC icon'
 );
 $fixedButton = new OpenIDConnect();
