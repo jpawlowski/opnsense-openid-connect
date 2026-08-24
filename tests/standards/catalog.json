@@ -132,10 +132,353 @@
       "title": "Best Current Practice for OAuth 2.0 Security (RFC 9700)",
       "reference": "https://www.rfc-editor.org/rfc/rfc9700.html",
       "scope": "Confidential browser-based RP",
-      "implementation": "partial",
-      "claim": "unverified",
-      "audit_complete": false,
-      "note": "Multiple recommendations are implemented, but a complete applicable-requirement audit is pending."
+      "implementation": "implemented",
+      "claim": "verified",
+      "audit_complete": true,
+      "source_review": {
+        "specification_revision": "RFC 9700 (BCP 240), January 2025",
+        "reviewed_on": "2026-08-24",
+        "profile": "OAuth client behavior of a confidential server-side OpenID Connect RP using only the Authorization Code flow; authorization-server, resource-server, public/native client, browser JavaScript client, in-browser messaging and unused refresh-token roles are outside this profile.",
+        "sections": [
+          "Sections 1 through 2.6",
+          "Section 3",
+          "Sections 4.1 through 4.17",
+          "Section 5"
+        ]
+      },
+      "requirements": [
+        {
+          "id": "RFC9700-2.1-NO-OPEN-REDIRECT",
+          "section": "Sections 2.1, 4.1.3 and 4.11.1",
+          "strength": "must_not",
+          "applicable": true,
+          "evidence": {
+            "positive": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.1-NO-OPEN-REDIRECT positive: a local post-login target remains usable"
+              }
+            ],
+            "negative": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.1-NO-OPEN-REDIRECT negative: an external post-login target is replaced locally"
+              }
+            ]
+          }
+        },
+        {
+          "id": "RFC9700-2.1-CSRF",
+          "section": "Sections 2.1 and 4.7.1",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.1-CSRF positive: issued state selects its server-side browser transaction"
+              }
+            ],
+            "negative": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.1-CSRF negative: unissued state cannot reach an authorization transaction"
+              }
+            ]
+          }
+        },
+        {
+          "id": "RFC9700-2.1-MIX-UP",
+          "section": "Sections 2.1 and 4.4.2",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.1-MIX-UP positive: the exact response issuer releases the authorization code"
+              }
+            ],
+            "negative": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.1-MIX-UP negative: a response issuer from another provider is refused"
+              }
+            ]
+          }
+        },
+        {
+          "id": "RFC9700-2.1.1-CODE-INJECTION",
+          "section": "Sections 2.1.1 and 4.5",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.1.1-CODE-INJECTION positive: the browser challenge commits to its server-side verifier"
+              },
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.1.1-CODE-INJECTION positive: the token exchange proves the exact browser verifier"
+              }
+            ],
+            "negative": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.1.1-CODE-INJECTION negative: state from another browser session cannot inject a code"
+              }
+            ]
+          }
+        },
+        {
+          "id": "RFC9700-2.1.1-PKCE",
+          "section": "Section 2.1.1",
+          "strength": "should",
+          "applicable": true,
+          "evidence": {
+            "positive": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.1.1-PKCE positive: the confidential client uses the non-disclosing S256 method"
+              }
+            ],
+            "negative": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.1.1-PKCE negative: explicit absence of provider S256 support fails before redirect"
+              }
+            ]
+          }
+        },
+        {
+          "id": "RFC9700-2.1.1-TRANSACTION-BINDING",
+          "section": "Section 2.1.1",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.1.1-TRANSACTION-BINDING positive: each login receives distinct state nonce and PKCE values"
+              }
+            ],
+            "negative": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.1.1-TRANSACTION-BINDING negative: another provider callback cannot consume the transaction"
+              }
+            ]
+          }
+        },
+        {
+          "id": "RFC9700-2.1.2-NO-IMPLICIT",
+          "section": "Section 2.1.2",
+          "strength": "should_not",
+          "applicable": true,
+          "evidence": {
+            "positive": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.1.2-NO-IMPLICIT positive: the browser requests no token-bearing response type"
+              }
+            ],
+            "negative": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.1.2-NO-IMPLICIT negative: a front-channel access token invalidates the response"
+              },
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.1.2-NO-IMPLICIT negative: the callback preserves a token field for fail-closed validation"
+              }
+            ]
+          }
+        },
+        {
+          "id": "RFC9700-2.1.2-CODE-FLOW",
+          "section": "Sections 2.1.2 and 4.1.3",
+          "strength": "should",
+          "applicable": true,
+          "evidence": {
+            "positive": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.1.2-CODE-FLOW positive: the token endpoint receives an authorization code grant"
+              }
+            ],
+            "negative": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.1.2-CODE-FLOW negative: Discovery without code-flow support is incompatible"
+              }
+            ]
+          }
+        },
+        {
+          "id": "RFC9700-2.3-LEAST-PRIVILEGE",
+          "section": "Section 2.3",
+          "strength": "should",
+          "applicable": true,
+          "evidence": {},
+          "deviation": {
+            "reviewed_on": "2026-08-24",
+            "rationale": "The RP sends an access token only to the issuer's discovered UserInfo endpoint and defaults to identity scopes. Provider-specific claim scopes remain administrator-configurable because the RP cannot safely infer their least-privilege vocabulary or access-token audience."
+          }
+        },
+        {
+          "id": "RFC9700-2.4-NO-ROPC",
+          "section": "Section 2.4",
+          "strength": "must_not",
+          "applicable": true,
+          "evidence": {
+            "positive": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.4-NO-ROPC positive: token exchange identifies only the authorization code grant"
+              }
+            ],
+            "negative": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.4-NO-ROPC negative: no provider password credential enters the token request"
+              }
+            ]
+          }
+        },
+        {
+          "id": "RFC9700-2.5-ASYMMETRIC-CLIENT-AUTH",
+          "section": "Section 2.5",
+          "strength": "should",
+          "applicable": true,
+          "evidence": {},
+          "deviation": {
+            "reviewed_on": "2026-08-24",
+            "rationale": "The current profile authenticates its confidential client with a bounded static secret. Asymmetric client authentication remains deferred until OPNsense can provide reviewed per-provider private-key or certificate custody, rotation and deletion without weakening the local recovery path."
+          }
+        },
+        {
+          "id": "RFC9700-2.6-METADATA",
+          "section": "Section 2.6",
+          "strength": "should",
+          "applicable": true,
+          "evidence": {
+            "positive": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.6-METADATA positive: exact Discovery configures the provider endpoints"
+              }
+            ],
+            "negative": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.6-METADATA negative: metadata for another issuer is rejected"
+              }
+            ]
+          }
+        },
+        {
+          "id": "RFC9700-2.6-END-TO-END-TLS",
+          "section": "Section 2.6",
+          "strength": "should",
+          "applicable": true,
+          "evidence": {
+            "positive": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.6-END-TO-END-TLS positive: provider traffic can use its exact HTTPS endpoint"
+              }
+            ],
+            "negative": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.6-END-TO-END-TLS negative: provider traffic cannot use a plaintext endpoint"
+              }
+            ]
+          }
+        },
+        {
+          "id": "RFC9700-2.6-HTTPS-RESPONSE",
+          "section": "Section 2.6",
+          "strength": "must_not",
+          "applicable": true,
+          "evidence": {
+            "positive": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.6-HTTPS-RESPONSE positive: an accepted HTTPS origin yields the exact callback"
+              }
+            ],
+            "negative": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-2.6-HTTPS-RESPONSE negative: a plaintext authorization response origin is refused"
+              }
+            ]
+          }
+        },
+        {
+          "id": "RFC9700-4.2.4-NO-THIRD-PARTY",
+          "section": "Section 4.2.4",
+          "strength": "should_not",
+          "applicable": true,
+          "evidence": {
+            "positive": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-4.2.4-NO-THIRD-PARTY positive: callback documents deny every default content source"
+              }
+            ],
+            "negative": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-4.2.4-NO-THIRD-PARTY negative: callback policy grants no external network source"
+              }
+            ]
+          }
+        },
+        {
+          "id": "RFC9700-4.2.4-STATE-ONCE",
+          "section": "Section 4.2.4",
+          "strength": "should",
+          "applicable": true,
+          "evidence": {
+            "positive": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-4.2.4-STATE-ONCE positive: first use consumes the matching state"
+              }
+            ],
+            "negative": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-4.2.4-STATE-ONCE negative: replay of consumed state is refused"
+              }
+            ]
+          }
+        },
+        {
+          "id": "RFC9700-4.3.2-NO-QUERY-TOKEN",
+          "section": "Section 4.3.2",
+          "strength": "must_not",
+          "applicable": true,
+          "evidence": {
+            "positive": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-4.3.2-NO-QUERY-TOKEN positive: UserInfo receives its bearer token in the header"
+              }
+            ],
+            "negative": [
+              {
+                "path": "tests/unit/oauth-security-bcp.php",
+                "test": "RFC9700-4.3.2-NO-QUERY-TOKEN negative: the bearer token never enters the request URI"
+              }
+            ]
+          }
+        }
+      ],
+      "note": "The applicable confidential web RP requirements are inventoried and backed by current positive and refusal evidence; reviewed deviations are explicit."
     },
     {
       "id": "oidc-rp-logout",
@@ -686,6 +1029,69 @@
       "implementation": "partial",
       "claim": "not_claimed",
       "audit_complete": false,
+      "draft_tracking": {
+        "specification_revision": "draft-ietf-oauth-v2-1-15",
+        "reviewed_on": "2026-08-24",
+        "status": "informative",
+        "deltas": [
+          {
+            "id": "oauth21-pkce",
+            "section": "Section 10",
+            "summary": "Authorization Code flow incorporates mandatory PKCE parameters",
+            "disposition": "aligned",
+            "note": "Every login sends a transaction-specific S256 challenge and proves the exact verifier at the token endpoint."
+          },
+          {
+            "id": "oauth21-exact-redirect",
+            "section": "Section 10",
+            "summary": "Registered redirect URIs use exact string matching",
+            "disposition": "aligned",
+            "note": "The RP emits only exact configured HTTPS callbacks and refuses a callback under another origin or application code."
+          },
+          {
+            "id": "oauth21-no-implicit",
+            "section": "Sections 10 and 10.1",
+            "summary": "The Implicit grant is omitted",
+            "disposition": "aligned",
+            "note": "The RP requests only code and now rejects any front-channel access or ID token even when a code is also present."
+          },
+          {
+            "id": "oauth21-no-ropc",
+            "section": "Section 10",
+            "summary": "The Resource Owner Password Credentials grant is omitted",
+            "disposition": "aligned",
+            "note": "The firewall never accepts or sends identity-provider usernames or passwords; only an authorization code is exchanged."
+          },
+          {
+            "id": "oauth21-no-query-bearer",
+            "section": "Section 10",
+            "summary": "Bearer token use in URI query strings is omitted",
+            "disposition": "aligned",
+            "note": "UserInfo receives its access token only in the Authorization header and revocation receives the token in a POST body."
+          },
+          {
+            "id": "oauth21-public-refresh",
+            "section": "Section 10",
+            "summary": "Public-client refresh tokens require sender constraint or rotation",
+            "disposition": "not_applicable",
+            "note": "This RP is a confidential server-side client and never refreshes an access token during the WebGUI session."
+          },
+          {
+            "id": "oauth21-token-redirect-uri",
+            "section": "Sections 10 and 10.2",
+            "summary": "The authorization-code token request omits redirect_uri",
+            "disposition": "differs",
+            "note": "The current published OIDC and OAuth 2.0 profile sends the exact frozen redirect_uri for provider interoperability; reconsider only after OAuth 2.1 is stable and the OIDC relationship is resolved."
+          },
+          {
+            "id": "oauth21-body-client-credentials",
+            "section": "Section 10",
+            "summary": "Authorization servers support client credentials in the request body",
+            "disposition": "not_applicable",
+            "note": "This requirement is assigned to the provider. The RP supports client_secret_post when advertised or configured but makes no server-conformance claim."
+          }
+        ]
+      },
       "note": "The design already follows many consolidated security requirements, but the document remains an active draft and is not an RFC conformance target.",
       "reconsider_when": "The specification is published or a provider requires a pinned draft profile."
     }

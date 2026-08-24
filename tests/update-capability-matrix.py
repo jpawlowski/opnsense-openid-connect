@@ -23,6 +23,7 @@ EVIDENCE = {"live", "adapter", "documented", "conditional", "unavailable", "inco
 SOURCE_EVIDENCE = {"documented", "conditional", "unavailable", "incompatible"}
 ARTIFACT_EVIDENCE = {"live", "adapter", "unavailable", "incompatible"}
 REQUIREMENT_STRENGTH = {"must", "must_not", "should", "should_not", "may"}
+DRAFT_DELTA_DISPOSITIONS = {"aligned", "differs", "not_applicable"}
 GATE_EVIDENCE_TEST = pathlib.PurePosixPath("tests/capability-matrix.py")
 PROVIDER_EVIDENCE_DIRECTORY = pathlib.PurePosixPath("tests/evidence/providers")
 PROVIDER_REVISION = re.compile(
@@ -46,6 +47,11 @@ CLAIM_LABEL = {
     "verified": "✅ verified",
     "unverified": "🟡 unverified",
     "not_claimed": "— not claimed",
+    "not_applicable": "N/A",
+}
+DRAFT_DISPOSITION_LABEL = {
+    "aligned": "Aligned",
+    "differs": "Differs",
     "not_applicable": "N/A",
 }
 EVIDENCE_SYMBOL = {
@@ -195,6 +201,38 @@ def validate_source_review(standard, review):
         raise CatalogError(f"{label}: source review needs distinct, non-empty specification sections")
 
 
+def validate_draft_tracking(standard, tracking):
+    label = standard["id"]
+    fields = {"specification_revision", "reviewed_on", "status", "deltas"}
+    if not isinstance(tracking, dict) or set(tracking) != fields:
+        raise CatalogError(f"{label}: draft tracking must use the informative tracking schema")
+    if standard["claim"] != "not_claimed" or standard["audit_complete"]:
+        raise CatalogError(f"{label}: an active draft may be tracked only without a conformance claim")
+    revision = tracking["specification_revision"]
+    if not isinstance(revision, str) or not re.fullmatch(r"draft-[a-z0-9-]+-\d{2}", revision):
+        raise CatalogError(f"{label}: draft tracking must pin an exact numbered revision")
+    historical_date(tracking["reviewed_on"], f"{label}: draft tracking review date")
+    if tracking["status"] != "informative":
+        raise CatalogError(f"{label}: draft tracking cannot become a conformance status")
+    deltas = tracking["deltas"]
+    if not isinstance(deltas, list) or not deltas:
+        raise CatalogError(f"{label}: draft tracking needs a non-empty delta inventory")
+    unique(deltas, f"draft delta in {label}")
+    delta_fields = {"id", "section", "summary", "disposition", "note"}
+    for delta in deltas:
+        if set(delta) != delta_fields or delta["disposition"] not in DRAFT_DELTA_DISPOSITIONS:
+            raise CatalogError(f"{label}: draft delta has an invalid shape or disposition")
+        for field in ("section", "summary", "note"):
+            value = delta[field]
+            if (
+                not isinstance(value, str)
+                or value.strip() != value
+                or not 1 <= len(value) <= 1000
+                or not all(character.isprintable() for character in value)
+            ):
+                raise CatalogError(f"{label}: draft delta {field} must be non-empty reviewable text")
+
+
 def validate_requirement(standard, requirement):
     if not isinstance(requirement, dict) or not set(requirement) <= REQUIREMENT_FIELDS:
         raise CatalogError(f"{standard['id']}: requirement contains fields outside the publishable schema")
@@ -284,6 +322,8 @@ def validate_standards(data):
             validate_source_review(standard, standard.get("source_review"))
         if standard["audit_complete"] and not requirements:
             raise CatalogError(f"{standard['id']}: an empty inventory cannot be complete")
+        if "draft_tracking" in standard:
+            validate_draft_tracking(standard, standard["draft_tracking"])
     return ids
 
 
@@ -529,6 +569,26 @@ def render(standards, providers):
             f"| [{standard['title']}]({standard['reference']}) | {standard['scope']} | "
             f"{STATUS_LABEL[standard['implementation']]} | {CLAIM_LABEL[standard['claim']]} | {reason} |"
         )
+
+    for standard in standards["standards"]:
+        tracking = standard.get("draft_tracking")
+        if tracking is None:
+            continue
+        lines += [
+            "",
+            f"### {standard['title']} tracking",
+            "",
+            f"Informative only: `{tracking['specification_revision']}` was reviewed "
+            f"{tracking['reviewed_on']}; no draft conformance is claimed.",
+            "",
+            "| Draft difference | RP status | Current disposition |",
+            "|---|---:|---|",
+        ]
+        for delta in tracking["deltas"]:
+            lines.append(
+                f"| {delta['summary']} ({delta['section']}) | "
+                f"{DRAFT_DISPOSITION_LABEL[delta['disposition']]} | {delta['note']} |"
+            )
 
     features = providers["features"]
     lines += [

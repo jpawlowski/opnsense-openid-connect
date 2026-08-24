@@ -23,6 +23,7 @@ class RelyingParty
     private const TRANSACTIONS = 'openidconnect_transactions_v2';
     private const TOKEN_MAX_BYTES = 1048576;
     private const USERINFO_MAX_BYTES = 1048576;
+    private const FRONT_CHANNEL_TOKEN_FIELDS = ['access_token', 'id_token', 'token_type', 'expires_in'];
     private const PROTOCOL_CLAIMS = [
         'iss', 'aud', 'exp', 'iat', 'nbf', 'jti', 'nonce', 'at_hash', 'c_hash',
         'azp', 'sid', 'typ', 'auth_time', 'acr', 'acrs', 'amr',
@@ -295,23 +296,7 @@ class RelyingParty
             throw new ProtocolException('The authentication requirement changed while the login was pending');
         }
 
-        $responseIssuer = $parameters['iss'] ?? null;
-        if ($responseIssuer !== null
-            && (!is_string($responseIssuer) || !$this->responseIssuerMatches($responseIssuer))) {
-            throw new ProtocolException('The authorization response came from a different issuer');
-        }
-        if ($this->metadata->authorizationResponseIssuerSupported() && $responseIssuer === null) {
-            throw new ProtocolException('The authorization response omitted its advertised issuer');
-        }
-        if (isset($parameters['error'])) {
-            $error = is_string($parameters['error']) && preg_match('/^[A-Za-z0-9_.-]{1,80}$/D', $parameters['error'])
-                ? $parameters['error'] : 'provider_error';
-            throw new ProtocolException('The identity provider declined the request (' . $error . ')');
-        }
-        $code = $parameters['code'] ?? null;
-        if (!is_string($code) || $code === '' || strlen($code) > 16384 || preg_match('/[\x00-\x1f\x7f]/', $code)) {
-            throw new ProtocolException('The authorization response carries no usable code');
-        }
+        $code = $this->authorizationCode($parameters);
 
         $this->tokens = $this->exchangeCode($code, (string)$transaction['code_verifier']);
         $idToken = $this->tokens['id_token'] ?? null;
@@ -339,6 +324,38 @@ class RelyingParty
         }
 
         return $this->claimsForAccount($accessToken);
+    }
+
+    /** @param array<string,mixed> $parameters */
+    private function authorizationCode(array $parameters): string
+    {
+        /* A token returned through the browser is already exposed even when ignored. Refuse
+         * the whole response so an implicit or hybrid provider setup cannot look successful. */
+        foreach (self::FRONT_CHANNEL_TOKEN_FIELDS as $name) {
+            if (array_key_exists($name, $parameters)) {
+                throw new ProtocolException('The authorization response carries a front-channel token');
+            }
+        }
+
+        $responseIssuer = $parameters['iss'] ?? null;
+        if ($responseIssuer !== null
+            && (!is_string($responseIssuer) || !$this->responseIssuerMatches($responseIssuer))) {
+            throw new ProtocolException('The authorization response came from a different issuer');
+        }
+        if ($this->metadata->authorizationResponseIssuerSupported() && $responseIssuer === null) {
+            throw new ProtocolException('The authorization response omitted its advertised issuer');
+        }
+        if (isset($parameters['error'])) {
+            $error = is_string($parameters['error']) && preg_match('/^[A-Za-z0-9_.-]{1,80}$/D', $parameters['error'])
+                ? $parameters['error'] : 'provider_error';
+            throw new ProtocolException('The identity provider declined the request (' . $error . ')');
+        }
+        $code = $parameters['code'] ?? null;
+        if (!is_string($code) || $code === '' || strlen($code) > 16384 || preg_match('/[\x00-\x1f\x7f]/', $code)) {
+            throw new ProtocolException('The authorization response carries no usable code');
+        }
+
+        return $code;
     }
 
     /** @return array<string,mixed> */
