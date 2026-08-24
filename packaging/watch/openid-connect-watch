@@ -62,6 +62,7 @@ ANCHOR_VERSION="$STATE/core.version"
 # verification behavior.
 TOUCHPOINTS="
 /usr/local/www/authgui.inc
+/usr/local/www/system_authservers.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Auth/AuthenticationFactory.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Auth/Base.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Auth/IAuthConnector.php

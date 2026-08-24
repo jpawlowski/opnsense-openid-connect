@@ -1,0 +1,67 @@
+/*
+ * Copyright (C) 2026 Julian Pawlowski
+ * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
+ */
+
+.oidc-check-flow {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    font-weight: normal;
+    gap: 0.25rem;
+    line-height: 1.4;
+    margin-top: 0.25rem;
+}
+
+.oidc-check-actor,
+.oidc-check-verification {
+    align-items: center;
+    display: inline-flex;
+    gap: 0.25rem;
+    white-space: nowrap;
+}
+
+.oidc-check-connector {
+    border-top: 1px solid currentColor;
+    display: inline-block;
+    height: 0;
+    margin: 0 0.15rem;
+    position: relative;
+    width: 1.2rem;
+}
+
+.oidc-check-connector::after {
+    border-bottom: 3px solid transparent;
+    border-left: 5px solid currentColor;
+    border-top: 3px solid transparent;
+    content: "";
+    position: absolute;
+    right: -1px;
+    top: -3px;
+}
+
+.oidc-check-verification {
+    margin-left: 0.35rem;
+    white-space: normal;
+}
+
+.oidc-check-verification::before {
+    content: "\00b7";
+    margin-right: 0.15rem;
+}
+
+@media (max-width: 520px) {
+    .oidc-check-flow {
+        align-items: flex-start;
+    }
+
+    .oidc-check-verification {
+        flex-basis: 100%;
+        margin-left: 0;
+    }
+
+    .oidc-check-verification::before {
+        content: "";
+        margin: 0;
+    }
+}
