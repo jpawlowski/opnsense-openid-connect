@@ -91,6 +91,8 @@ final class ProviderMetadata
         foreach ([
             'id_token_signing_alg_values_supported', 'userinfo_signing_alg_values_supported',
             'request_object_signing_alg_values_supported',
+            'authorization_signing_alg_values_supported',
+            'authorization_encryption_alg_values_supported', 'authorization_encryption_enc_values_supported',
             'token_endpoint_auth_methods_supported', 'response_modes_supported',
             'code_challenge_methods_supported', 'grant_types_supported', 'scopes_supported',
             'revocation_endpoint_auth_methods_supported',
@@ -118,7 +120,7 @@ final class ProviderMetadata
             && !is_bool($values['require_pushed_authorization_requests'])) {
             throw new ProtocolException('Discovery carries an invalid pushed authorization request requirement');
         }
-        if (isset($values['require_signed_request_object'])
+        if (array_key_exists('require_signed_request_object', $values)
             && !is_bool($values['require_signed_request_object'])) {
             throw new ProtocolException('Discovery carries an invalid signed Request Object requirement');
         }
@@ -282,6 +284,13 @@ final class ProviderMetadata
             'The provider offers no supported client authentication method for the %s endpoint',
             $endpoint
         ));
+    }
+
+    /** @return string[] advertised JARM algorithms, or the specification's RS256 default */
+    public function authorizationResponseSigningAlgorithms(): array
+    {
+        return array_key_exists('authorization_signing_alg_values_supported', $this->values)
+            ? $this->values['authorization_signing_alg_values_supported'] : ['RS256'];
     }
 
     public function toArray(): array

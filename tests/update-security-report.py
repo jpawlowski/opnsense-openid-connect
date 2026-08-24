@@ -53,6 +53,7 @@ HOST_CAPABILITIES = {
     "mix-up-replay-protection": (
         "Login transactions, PKCE and mix-up protection",
     ),
+    "jarm-response-policy": ("JWT-secured authorization responses",),
     "jwt-claim-policy": (
         "ID token claim validation",
         "Whom a token was issued for",

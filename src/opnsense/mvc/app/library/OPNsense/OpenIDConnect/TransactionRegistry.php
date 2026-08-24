@@ -8,7 +8,7 @@
 namespace OPNsense\OpenIDConnect;
 
 /**
- * Short-lived, one-time login transactions for response_mode=form_post.
+ * Short-lived, one-time login transactions for Form POST response modes.
  *
  * OPNsense deliberately marks its PHP session cookie SameSite=Lax, so a cross-site
  * authorization response POST carries no original session cookie. Keeping only these

@@ -503,6 +503,15 @@ Checks::throws('Microsoft tenant-independent validation requires a signing-key i
     ]), 'signing key has no issuer');
 Checks::that('claims are selected automatically unless asked for', connector([])->claimsSource(), 'auto');
 Checks::that('authorization answers use query by default', connector([])->responseMode(), 'query');
+Checks::that('signed query answers can be selected for JARM', connector([
+    'openidconnect_response_mode' => 'query.jwt',
+])->responseMode(), 'query.jwt');
+Checks::that('signed Form POST answers can be selected for JARM', connector([
+    'openidconnect_response_mode' => 'form_post.jwt',
+])->responseMode(), 'form_post.jwt');
+Checks::that('an unknown signed response mode falls back to query', connector([
+    'openidconnect_response_mode' => 'fragment.jwt',
+])->responseMode(), 'query');
 Checks::that('a provider controls no groups unless explicitly scoped', connector([])->allowsAllGroups(), false);
 
 /* core acts on the lower case spelling and on no other, see the note at defaultGroups() */
@@ -744,6 +753,11 @@ $emailMatch = validator('openidconnect_email_match');
 Checks::that('a known e-mail matching mode', $emailMatch('always'), []);
 Checks::that('an unset one, which means the default', $emailMatch(''), []);
 Checks::that('one that is not a mode', count($emailMatch('sometimes')), 1);
+
+$responseMode = validator('openidconnect_response_mode');
+Checks::that('the settings form accepts a signed JARM query response', $responseMode('query.jwt'), []);
+Checks::that('the settings form accepts a signed JARM Form POST response', $responseMode('form_post.jwt'), []);
+Checks::that('the settings form refuses a browser fragment response', count($responseMode('fragment.jwt')), 1);
 
 $ageOptions = (new OPNsense\Auth\OpenIDConnect())->getConfigurationOptions()['openidconnect_max_age'];
 $age = $ageOptions['validate'];

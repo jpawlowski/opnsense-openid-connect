@@ -57,6 +57,22 @@ final class RequestObjectSigner
         if (isset($claims['max_age']) && preg_match('/^(?:0|[1-9][0-9]*)$/D', $claims['max_age'])) {
             $claims['max_age'] = (int)$claims['max_age'];
         }
+        if (isset($claims['claims'])) {
+            if (!is_string($claims['claims'])) {
+                throw new ProtocolException('The claims authorization parameter is not a JSON object');
+            }
+            try {
+                $requestedClaims = json_decode($claims['claims'], false, 16, JSON_THROW_ON_ERROR);
+            } catch (\JsonException $e) {
+                throw new ProtocolException('The claims authorization parameter is not a JSON object', 0, $e);
+            }
+            if (!is_object($requestedClaims)) {
+                throw new ProtocolException('The claims authorization parameter is not a JSON object');
+            }
+            /* The query parameter is form-encoded JSON, but RFC 9101 carries its value
+             * as a native JSON object inside the signed JWT claims set. */
+            $claims['claims'] = $requestedClaims;
+        }
         $claims['iss'] = $settings->clientId();
         $claims['aud'] = $metadata->issuer();
         $claims['iat'] = $now;
