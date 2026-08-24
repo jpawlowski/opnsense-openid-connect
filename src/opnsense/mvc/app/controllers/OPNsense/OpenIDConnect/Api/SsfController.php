@@ -121,12 +121,14 @@ class SsfController extends ApiControllerBase
                 return $this->accepted();
             }
             try {
-                $count = $event['actionable'] && $event['subject_issuer'] !== null && $event['subject'] !== null
+                $count = $event['actionable'] && $event['subject_issuer'] !== null
+                    && ($event['subject'] !== null || $event['session_id'] !== null)
                     ? SessionRegistry::terminateForSecurityEvent(
                         $resolved['name'],
                         $event['subject_issuer'],
                         $event['subject'],
-                        $event['cutoff']
+                        $event['cutoff'],
+                        $event['session_id']
                     ) : 0;
             } catch (\Throwable $e) {
                 try {
