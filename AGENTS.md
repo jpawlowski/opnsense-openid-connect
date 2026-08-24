@@ -141,6 +141,9 @@ pushes, requests review or merges. A review, failing check, foreign head, confir
 conflict, predecessor transition, approval, merge or closure returns ownership to
 the steward. If the platform cannot retain a monitor, hand off the exact pending
 conditions and the PR number; never describe waiting work as complete.
+When a previously active coordination notice disappears because its record was
+fulfilled, superseded or cleared, emit that transition explicitly; an empty new
+notice is a changed state and returns ownership to the steward.
 
 Every steward also observes exact changed-path overlap, shared interfaces and
 semantic dependencies with other open PRs. A material overlap needs one final,

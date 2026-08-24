@@ -501,6 +501,17 @@ def branch_lag(repository, base_main, base_name):
     )
 
 
+def coordination_state_notice(previous, current):
+    if previous == current:
+        return ""
+    if previous and not current:
+        return (
+            "The previous pull-request coordination is no longer active; its merge-order block was fulfilled, "
+            "superseded or otherwise cleared. Return to the steward at this checkpoint."
+        )
+    return current
+
+
 def observe_remote(
     state, synchronization, pr_max_age=github_watch.PR_REFRESH_TTL, require_pr_fresh=False,
     reconciled_pr_head="",
@@ -524,10 +535,9 @@ def observe_remote(
     pr_notice = github_watch.state_notice(state.get("pr_state"), current)
     state["pr_state"] = current
     coordination = github_watch.coordination_notice(snapshot)
-    if coordination == state.get("pr_coordination"):
-        coordination = ""
-    else:
-        state["pr_coordination"] = coordination
+    previous_coordination = state.get("pr_coordination", "")
+    state["pr_coordination"] = coordination
+    coordination = coordination_state_notice(previous_coordination, coordination)
     overlap = github_watch.overlap_notice(
         snapshot, work_paths(REPOSITORY, synchronization["base_main"]),
     )

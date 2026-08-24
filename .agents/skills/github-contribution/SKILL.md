@@ -203,6 +203,9 @@ foreign head, coordination predecessor transition, approval, merge or closure
 ends pure waiting and returns the PR to its steward. If the platform cannot
 retain a monitor, hand off the PR number and exact pending conditions; waiting
 work is not complete.
+If a previously active coordination notice becomes empty because its record was
+fulfilled, superseded or cleared, report that cleared-block transition rather
+than treating the empty value as silence.
 
 ### Coordinating overlapping pull requests
 

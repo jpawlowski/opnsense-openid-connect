@@ -1897,6 +1897,12 @@ module.update_registry(repository, update)
           cleanup_hook.cleanup_pull_number(
               {"pr_state": None}, {"status": "pr-linked", "pull_request": 41},
           ), 41)
+    check("a disappearing coordination record emits an explicit cleared-block transition",
+          "merge-order block was fulfilled" in cleanup_hook.coordination_state_notice(
+              "Final coordination #42 -> #57 is active", "",
+          ), True)
+    check("an unchanged absent coordination record remains silent",
+          cleanup_hook.coordination_state_notice("", ""), "")
     with tempfile.TemporaryDirectory() as temporary:
         state = pathlib.Path(temporary) / "state.json"
         state.write_text(json.dumps({
