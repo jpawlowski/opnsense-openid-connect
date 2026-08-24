@@ -84,9 +84,19 @@ Checks::that('an installation-specific provider label may differ from Descriptiv
 Checks::that('custom full button text is read literally', connector([
     'openidconnect_button_custom_text' => 'Continue through the identity portal',
 ])->customButtonText(), 'Continue through the identity portal');
-Checks::that('Generic OpenID Connect uses its neutral icon by default', connector([])->iconUrl(),
+Checks::that('Generic OpenID Connect uses the official OpenID icon by default', connector([])->iconUrl(),
     '/api/openidconnect/auth/builtinicon/general');
-Checks::that('icon rendering', connector([])->iconMode(), 'monochrome');
+Checks::that('Generic icon rendering follows the button text colour', connector([])->iconMode(), 'monochrome');
+Checks::that('named provider icons follow the button text colour', connector([
+    'openidconnect_provider_profile' => 'authentik',
+])->iconMode(), 'monochrome');
+Checks::that('an invalid named-provider icon mode falls back to single colour', connector([
+    'openidconnect_provider_profile' => 'authentik',
+    'openidconnect_icon_mode' => 'sepia',
+])->iconMode(), 'monochrome');
+Checks::that('the named-provider form displays the same single-colour default', connector([
+    'openidconnect_provider_profile' => 'authentik',
+])->getConfigurationOptions()['openidconnect_icon_mode']['default'], 'monochrome');
 Checks::that('maximum age, unset', connector([])->maximumAuthenticationAge(), 14400);
 Checks::that('maximum age, legacy empty value', connector(['openidconnect_max_age' => ''])->maximumAuthenticationAge(), 14400);
 Checks::that('maximum age, set', connector(['openidconnect_max_age' => '3600'])->maximumAuthenticationAge(), 3600);
@@ -259,6 +269,7 @@ $completePresetFields = [
     'openidconnect_button_provider_label',
     'openidconnect_button_custom_text',
     'openidconnect_icon_url',
+    'openidconnect_icon_mode',
 ];
 Checks::that('every provider preset covers every provider-dependent field', array_values(array_filter(
     array_keys($profilePresets),
@@ -305,9 +316,18 @@ Checks::that('a self-hosted provider keeps all three wording choices editable', 
     'openidconnect_button_provider_label' => 'Company identity',
     'openidconnect_button_custom_text' => 'Continue to Company identity',
 ])->buttonTextMode(), 'custom');
-Checks::that('Generic OpenID Connect selects the neutral package icon',
+Checks::that('Generic OpenID Connect selects the official package icon',
     $profilePresets['general']['values']['openidconnect_icon_url'],
     '/api/openidconnect/auth/builtinicon/general');
+Checks::that('Generic keeps the OpenID mark monochrome',
+    $profilePresets['general']['values']['openidconnect_icon_mode'], 'monochrome');
+$wrongNamedIconModes = array_keys(array_filter(
+    $profilePresets,
+    static fn($preset, $profile) => $profile !== 'general'
+        && ($preset['values']['openidconnect_icon_mode'] ?? '') !== 'monochrome',
+    ARRAY_FILTER_USE_BOTH
+));
+Checks::that('named provider profiles use the normalized single-colour marks', $wrongNamedIconModes, []);
 Checks::that('Generic OpenID Connect resolves its package icon',
     basename((string)OpenIDConnect::providerIconPath('general')), 'general.svg');
 Checks::that('an unknown profile resolves no package icon',

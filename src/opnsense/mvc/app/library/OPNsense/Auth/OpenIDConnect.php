@@ -781,7 +781,8 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'help' => gettext(
                     'A single colour icon is redrawn in the button\'s text colour, which is what makes a ' .
                     'dark provider logo readable on a coloured button in a light and a dark theme alike. ' .
-                    'It works for line art only: a logo with a filled background becomes a solid block.'
+                    'Bundled icons use transparent cut-outs so their identifying details remain visible. ' .
+                    'A custom icon must use transparency rather than white layers for the same result.'
                 ),
                 'type' => 'dropdown',
                 'default' => 'monochrome',
@@ -875,6 +876,7 @@ class OpenIDConnect extends Base implements IAuthConnector
             'openidconnect_button_provider_label' => '',
             'openidconnect_button_custom_text' => '',
             'openidconnect_icon_url' => static::providerIconUrl('general'),
+            'openidconnect_icon_mode' => 'monochrome',
         ];
         $named = array_replace($generic, ['openidconnect_bootstrap_mode' => 'approval']);
         $make = static function (

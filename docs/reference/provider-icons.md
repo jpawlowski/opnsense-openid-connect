@@ -9,8 +9,11 @@ guess a favicon or fetch branding while applying a provider profile.
 Every provider profile starts with a small package-owned SVG at
 `/api/openidconnect/auth/builtinicon/{profile}`. The icon is available before
 login, contains no script or external resource and needs no outbound request.
-**Generic OpenID Connect** uses a neutral `OIDC` letter mark rather than
-guessing which product is behind a generic issuer.
+All bundled marks use the same 24 by 24 pixel button slot and follow the button
+text colour by default. Their visible bounds are optically normalized, and
+light interior details are transparent cut-outs rather than opaque white
+layers. Original colours remain selectable. **Generic OpenID Connect** uses
+the official OpenID `i+D` mark rather than an invented `OIDC` letter tile.
 
 ## Installation-specific branding
 
@@ -34,12 +37,41 @@ be entered manually.
 
 ## Bundled asset provenance
 
-All bundled assets are small project-created letter marks. They are not copies
-of vendor artwork. This keeps the package self-contained and avoids implying
-that a third-party icon collection's licence also grants the trademark or
-redistribution rights for every individual brand asset. An installation that
-has permission to use an official or custom mark may replace the neutral asset
-through **Icon URL**.
+Every profile uses provider artwork rather than an invented letter tile. The
+SVGs are self-contained. Marks which otherwise collapse into a solid CSS mask
+use transparent cut-outs; intrinsically wide wordmarks use an official compact
+symbol or a compact brand-colour tile. This keeps the visible mark at a
+consistent scale without stretching its defining geometry.
 
-Names and marks remain trademarks of their respective owners. They identify
-the compatible provider profile and do not imply endorsement.
+The assets were retrieved on 24 August 2026 from these sources:
+
+- authentik: [official press kit, Icon — color](https://goauthentik.io/press/).
+- OpenID Connect: [OpenID Foundation logo guidelines](https://openid.net/policies/) and the
+  OpenID glyph from [Simple Icons 13.21.0][simple-icons].
+- Dex: [official source tree](https://github.com/dexidp/dex/tree/master/docs/logos), commit `ab64ed7`,
+  Apache-2.0.
+- Cisco Duo: [official website icon](https://duo.com/images/favicon/favicon-192x192.png).
+- Microsoft: [official sign-in symbol and guidance][microsoft-sign-in].
+- IBM Security Verify: [official IBM Design Language app icon][ibm-app-icons].
+- JumpCloud: [official press kit and website symbol](https://jumpcloud.com/press), placed in a
+  compact inverse-colour tile for equal button sizing.
+- OneLogin: [press-kit logomark via Wikimedia Commons][onelogin-mark], CC BY-SA 4.0.
+- Ping Identity: [official website mark](https://www.pingidentity.com/).
+- WSO2: [official brand icon](https://wso2.com/about/brand).
+- Auth0, Amazon Cognito and ORCID: [Simple Icons 13.21.0][simple-icons], CC0-1.0 collection.
+- Apple, Authelia, FusionAuth, GitLab, Google, Keycloak, LinkedIn, Okta, Oracle, Pocket ID,
+  Slack, Yahoo and ZITADEL: [Dashboard Icons][dashboard-icons], commit `8223c9c`, Apache-2.0
+  collection. Keycloak retains its coloured interlocking ribbons without the opaque faceted
+  backdrop; Oracle places its official oval in a compact inverse-colour tile.
+
+Collection licences do not waive third-party trademark or brand-guideline
+restrictions. Names and marks remain trademarks of their respective owners.
+They identify the compatible provider profile and do not imply affiliation or
+endorsement. An installation may still replace a bundled mark through
+**Icon URL** when it needs installation-specific branding.
+
+[dashboard-icons]: https://github.com/homarr-labs/dashboard-icons
+[ibm-app-icons]: https://www.ibm.com/design/language/iconography/app-icons/library/
+[microsoft-sign-in]: https://learn.microsoft.com/en-us/entra/identity-platform/howto-add-branding-in-apps
+[onelogin-mark]: https://commons.wikimedia.org/wiki/File:Onelogin_Mark_black_RGB.svg
+[simple-icons]: https://github.com/simple-icons/simple-icons/tree/13.21.0

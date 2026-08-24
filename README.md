@@ -164,7 +164,8 @@ Start with these fields:
 | Identity manager | after saving, map exact issuer/`sub` identities to existing local accounts and review pending approvals |
 | Shared Signals | optional push receiver; enter the transmitter issuer and assigned audience, then generate a delivery secret |
 | Login button wording | localized OPNsense sentence, provider label only or an exact custom text; fixed global services use their familiar short name |
-| Icon URL | every profile starts with a package-owned SVG, including a neutral OIDC mark for Generic; replace it only for installation-specific branding |
+| Icon URL | named profiles use their real package-owned brand SVG; Generic uses the official OpenID mark; replace it only for installation-specific branding |
+| Icon rendering | every bundled icon follows the button text colour by default; original brand colours remain selectable |
 
 The form displays the exact URLs to register. For application code `main` they
 have this shape:

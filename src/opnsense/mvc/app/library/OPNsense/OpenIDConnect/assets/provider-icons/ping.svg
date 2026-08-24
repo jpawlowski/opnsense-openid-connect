@@ -1,1 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img"><title>Ping Identity</title><rect x="1.5" y="1.5" width="21" height="21" rx="4" fill="none" stroke="#354052" stroke-width="1.5"/><text x="12" y="15.5" text-anchor="middle" fill="#354052" font-family="Arial,Helvetica,sans-serif" font-size="7" font-weight="700">PING</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" role="img">
+  <title>Ping Identity</title>
+  <defs>
+    <mask id="ping-cutout">
+      <path fill="#fff" d="M0 0h50v50H0z"/>
+      <path fill="#000" fill-rule="evenodd" transform="matrix(1.5 0 0 1.5 8.3 -16.85)" d="M12.7 26.4c-.4.7-.8.9-2.1.9H8.9v-5.2h2c1.3 0 2.1 1 2.1 2.6 0 .8-.1 1.3-.3 1.7m1.6-6.3c-.9-.5-1.7-.8-4.4-.8H5.8v17.2H9v-6.3h1.7c1.7 0 2.4-.2 3.1-.6 1.7-.9 2.7-2.7 2.7-5 0-2-.8-3.6-2.2-4.5"/>
+    </mask>
+  </defs>
+  <path fill="#d20e0f" mask="url(#ping-cutout)" d="M0 0h50v50H0z"/>
+</svg>
