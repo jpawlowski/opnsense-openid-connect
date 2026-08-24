@@ -10,7 +10,7 @@ Copyright (C) 2026 Julian Pawlowski. All rights reserved. BSD-2-Clause, see LICE
 | authorization request tampering or replay | optional or provider-required RFC 9101 signature over every authorization parameter; exact client/issuer audience binding, explicit JWT type, registered key `kid`, 60-second expiry and fresh `jti`; outer request carries only the matching client ID and `request` or provider-issued PAR reference |
 | forged or downgraded JARM response | the requested signed mode is frozen into the one-time transaction; asymmetric signature, advertised algorithm, exact issuer/audience, time, state and transport are checked before code or error processing |
 | authorization-server mix-up | frozen exact issuer/endpoints, distinct callback per provider, RFC 9207 when advertised and signed JARM issuer/audience binding when selected |
-| forged ID Token | asymmetric JWKS signature, algorithm allow-list, key metadata/curve/use checks, minimum 2048-bit RSA |
+| forged ID Token | verified RS/PS/ES/Ed25519 JWKS signature profile, public-key type/curve/size/use/operations/algorithm binding, 2048–8192-bit RSA bound |
 | provider ignores or misinterprets a requested authentication strength | an enabled requirement needs exact signed `acr`/`acrs` context and bounded `amr` evidence frozen into the login transaction; missing or mismatched evidence is refused before account lookup |
 | token for another client | exact `aud` and `azp` rules |
 | stale/future token | strict integer `exp`, `iat`, optional `nbf`, 60-second clock tolerance |
