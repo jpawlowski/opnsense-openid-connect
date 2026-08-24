@@ -4,10 +4,12 @@
 # All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
 """Prepare an agent's clone and run the deterministic test tier when needed."""
 
+import argparse
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -487,6 +489,7 @@ def branch_lag(repository, base_main, base_name):
 
 def observe_remote(
     state, synchronization, pr_max_age=github_watch.PR_REFRESH_TTL, require_pr_fresh=False,
+    reconciled_pr_head="",
 ):
     """Update one task's canonical and pull-request view without integrating either."""
     progress = main_progress(
@@ -513,7 +516,11 @@ def observe_remote(
         overlap = ""
     else:
         state["pr_overlap"] = overlap
-    pr_refusal = github_watch.remote_head_refusal(REPOSITORY, snapshot)
+    current_head = str((snapshot.get("current") or {}).get("head_sha") or "")
+    pr_refusal = (
+        "" if reconciled_pr_head and reconciled_pr_head == current_head
+        else github_watch.remote_head_refusal(REPOSITORY, snapshot)
+    )
     freshness_refusal = ""
     if require_pr_fresh and github_warning:
         freshness_refusal = (
@@ -523,6 +530,70 @@ def observe_remote(
     return (
         messages(progress, github_warning, pr_notice, overlap),
         messages(main_refusal, pr_refusal, freshness_refusal),
+    )
+
+
+def reconcile_pull_request_cli():
+    """Deliberately merge one freshly verified foreign PR head into this worktree."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--sha", required=True)
+    parser.add_argument("--strategy", required=True, choices=("merge",))
+    arguments = parser.parse_args(sys.argv[2:])
+    if not re.fullmatch(r"[0-9a-f]{40}", arguments.sha):
+        raise RuntimeError("the pull-request reconciliation SHA must be a full lowercase commit id")
+    if git_value(REPOSITORY, "status", "--porcelain=v1", "--untracked-files=all"):
+        raise RuntimeError("commit or hand off local changes before reconciling a foreign pull-request head")
+
+    synchronization = synchronize_repository(REPOSITORY, 0, required=True)
+    with RepositoryLock(REPOSITORY):
+        snapshot, warning = github_watch.refresh(
+            REPOSITORY, common_git_directory(REPOSITORY), CANONICAL_REPOSITORY, max_age=0,
+        )
+    if warning:
+        raise RuntimeError(f"fresh pull-request state is unavailable: {warning}")
+    current = snapshot.get("current") or {}
+    if str(current.get("head_sha") or "") != arguments.sha:
+        raise RuntimeError("the requested SHA is no longer the current pull-request head")
+    pull = next(
+        (value for value in snapshot.get("pulls") or [] if value.get("number") == current.get("number")), None,
+    )
+    branch = git_value(REPOSITORY, "symbolic-ref", "--short", "HEAD")
+    if not pull or pull.get("head_ref") != branch:
+        raise RuntimeError("the current pull request no longer uses this worktree branch")
+
+    head_repository = str(pull.get("head_repo") or "").lower()
+    remote = next((
+        name for name in ("origin", "upstream")
+        if github_repository(git_value(REPOSITORY, "remote", "get-url", name)) == head_repository
+    ), "")
+    if not remote:
+        raise RuntimeError(f"no configured remote fetches the pull-request head repository {head_repository}")
+
+    temporary_ref = "refs/opnsense-agent/reconcile/" + hashlib.sha256(
+        f"{REPOSITORY.resolve()}\0{arguments.sha}".encode()
+    ).hexdigest()
+    try:
+        with RepositoryLock(REPOSITORY):
+            fetched = repository_git(
+                REPOSITORY, "fetch", "--no-tags", remote,
+                f"+refs/heads/{branch}:{temporary_ref}", check=False, timeout=FETCH_TIMEOUT,
+            )
+            if fetched.returncode != 0:
+                raise RuntimeError(fetched.stderr.strip() or "the pull-request branch could not be fetched")
+            if git_value(REPOSITORY, "rev-parse", temporary_ref) != arguments.sha:
+                raise RuntimeError("the fetched branch no longer matches the verified pull-request head")
+        merged = repository_git(REPOSITORY, "merge", "--no-edit", arguments.sha, check=False)
+        if merged.returncode != 0:
+            raise RuntimeError(
+                (merged.stderr.strip() or merged.stdout.strip() or "the explicit merge needs manual resolution")
+                + "; resolve or abort the merge in this owned worktree"
+            )
+    finally:
+        with RepositoryLock(REPOSITORY):
+            repository_git(REPOSITORY, "update-ref", "-d", temporary_ref, check=False)
+    print(
+        f"merged verified pull request #{current.get('number')} head {arguments.sha[:12]} "
+        f"after refreshing {synchronization['base_name']}"
     )
 
 
@@ -743,7 +814,8 @@ def guard(event):
         ))
         return
 
-    uncached_remote = agent_guard.requires_uncached_remote(event)
+    reconciliation_sha = agent_guard.pull_reconciliation_sha(event)
+    uncached_remote = bool(reconciliation_sha) or agent_guard.requires_uncached_remote(event)
     try:
         synchronization = synchronize_repository(
             REPOSITORY, 0 if uncached_remote else ACTIVE_FETCH_TTL, required=uncached_remote,
@@ -761,6 +833,7 @@ def guard(event):
     notice, refusal = observe_remote(
         state, synchronization, pr_max_age=0 if uncached_remote else github_watch.PR_REFRESH_TTL,
         require_pr_fresh=uncached_remote,
+        reconciled_pr_head=reconciliation_sha,
     )
     save_state(state_path, state)
     if refusal:
@@ -915,6 +988,8 @@ def main():
         watch(event)
     elif action == "acknowledge-main":
         acknowledge_main_cli()
+    elif action == "reconcile-pr":
+        reconcile_pull_request_cli()
     else:
         raise ValueError(f"unknown hook action: {action}")
 

@@ -444,6 +444,22 @@ def is_main_acknowledgement(event):
     )
 
 
+def pull_reconciliation_sha(event):
+    """Return the exact foreign PR head named by the repository-owned reconciliation helper."""
+    if str(event.get("tool_name") or "") != "Bash":
+        return ""
+    program, arguments = _shell_invocation(event_command(event))
+    if not (
+        program in ("python", "python3")
+        and _repository_helper(arguments, ".agents/hooks/fast_gate.py", ("reconcile-pr",))
+        and len(arguments) == 6
+        and arguments[1:3] == ["reconcile-pr", "--sha"]
+        and arguments[4:] == ["--strategy", "merge"]
+    ):
+        return ""
+    return arguments[3] if re.fullmatch(r"[0-9a-f]{40}", arguments[3]) else ""
+
+
 def _git_invocation(arguments):
     """Locate a Git subcommand behind the documented global option grammar."""
     index = 0

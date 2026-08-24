@@ -37,6 +37,7 @@ separation is not decoration — keep it.
     python3 packaging/release-notes.py --tag vX.Y.Z   what a release would say
     python3 packaging/commit-lint.py --range main..HEAD
     python3 .agents/hooks/fast_gate.py refresh        refresh remote main before publishing
+    python3 .agents/hooks/fast_gate.py reconcile-pr --sha SHA --strategy merge
     python3 packaging/contribution-lint.py --help     what an issue or PR may contain
 
 Installed integration and destructive browser E2E are deliberate manual runs;
@@ -102,7 +103,9 @@ For a published branch the same event-driven check watches the pull request's
 remote head, checks, review decision, merge state and, when GitHub exposes them,
 unresolved review threads. It also reports open pull requests whose changed
 paths overlap the local work. A remote head not contained locally blocks
-further writing or publication until it is reconciled. When all local work is
+further writing or publication until it is reconciled. The refusal reports the
+exact SHA; invoke the explicit `reconcile-pr` helper above with that full SHA to
+fetch and merge only the freshly verified head. When all local work is
 done and only CI, review, approval or merge remains, offer — but never create
 without explicit user consent — a read-only ten-minute monitor using
 `python3 .agents/hooks/fast_gate.py watch`. Report only state changes or action

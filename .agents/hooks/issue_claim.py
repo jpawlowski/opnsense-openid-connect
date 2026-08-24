@@ -4,11 +4,15 @@
 # All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
 """Publish and retain one machine-readable implementation claim per worktree."""
 
+from contextlib import contextmanager
+import fcntl
 import json
+import os
 from pathlib import Path
 import re
 import secrets
 import subprocess
+import tempfile
 import time
 
 
@@ -48,7 +52,18 @@ def registry_path(repository):
     return common / "opnsense-agent-issue-claims.json"
 
 
-def load_registry(repository):
+@contextmanager
+def registry_lock(repository):
+    path = registry_path(repository).with_suffix(".lock")
+    with path.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _load_registry(repository):
     try:
         value = json.loads(registry_path(repository).read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
@@ -56,11 +71,38 @@ def load_registry(repository):
     return {"version": 1, "claims": dict(value.get("claims") or {})}
 
 
-def save_registry(repository, registry):
+def load_registry(repository):
+    with registry_lock(repository):
+        return _load_registry(repository)
+
+
+def _save_registry(repository, registry):
     path = registry_path(repository)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(registry, sort_keys=True), encoding="utf-8")
-    temporary.replace(path)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f"{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(registry, sort_keys=True))
+        temporary.replace(path)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def save_registry(repository, registry):
+    with registry_lock(repository):
+        _save_registry(repository, registry)
+
+
+def update_registry(repository, update):
+    """Apply one claim-registry read-modify-write while all worktrees are serialized."""
+    with registry_lock(repository):
+        registry = _load_registry(repository)
+        result = update(registry)
+        _save_registry(repository, registry)
+        return result
 
 
 def worktree_key(repository):
@@ -264,6 +306,7 @@ def claim(repository, number, now=None, language="en"):
     label_created = False
     comment_id = ""
     assignee_added = False
+    record = None
     try:
         # A contender may have paused before acquiring the atomic label. Check
         # the issue again only after this task owns that cross-clone mutex.
@@ -299,7 +342,23 @@ def claim(repository, number, now=None, language="en"):
         labels = [value for value in _claim_labels(issue) if value != label]
         if foreign or labels or _linked_open_pull(issue):
             raise RuntimeError("the issue changed while its public claim was being published; inspect it manually")
+        record = {
+            "issue": int(number), "token": token, "comment_id": ours["id"], "comment_url": ours["url"],
+            "label": label, "lock_label": lock_label, "login": login, "assignee_added": assignee_added,
+            "status": "active", "claimed_at": claimed_at,
+            "worktree_marker": True,
+        }
+        write_marker(repository, token)
+
+        def store(registry):
+            key = worktree_key(repository)
+            if registry["claims"].get(key):
+                raise RuntimeError("this worktree acquired another claim while the public claim was being published")
+            registry["claims"][key] = record
+
+        update_registry(repository, store)
     except RuntimeError:
+        remove_marker(repository)
         try:
             if comment_id:
                 _delete_comment(comment_id)
@@ -313,17 +372,6 @@ def claim(repository, number, now=None, language="en"):
                         "--remove-assignee", login,
                     ))
         raise
-
-    registry = load_registry(repository)
-    record = {
-        "issue": int(number), "token": token, "comment_id": ours["id"], "comment_url": ours["url"],
-        "label": label, "lock_label": lock_label, "login": login, "assignee_added": assignee_added,
-        "status": "active", "claimed_at": claimed_at,
-        "worktree_marker": True,
-    }
-    write_marker(repository, token)
-    registry["claims"][worktree_key(repository)] = record
-    save_registry(repository, registry)
     return record
 
 
@@ -352,19 +400,22 @@ def linked(repository, pull_number):
         _delete_comment(record.get("comment_id"))
     finally:
         _remove_claim_labels(record.get("label"), record.get("lock_label"))
-    registry = load_registry(repository)
-    record.update({
-        "status": "pr-linked", "pull_request": int(pull_number), "comment_id": "",
-        "branch": branch, "head": head,
-    })
-    registry["claims"][worktree_key(repository)] = record
-    save_registry(repository, registry)
+    def store(registry):
+        current = registry["claims"].get(worktree_key(repository))
+        if not current or current.get("token") != record.get("token"):
+            raise RuntimeError("the local issue claim changed while the pull request was being linked")
+        current.update({
+            "status": "pr-linked", "pull_request": int(pull_number), "comment_id": "",
+            "branch": branch, "head": head,
+        })
+        return current
+
+    record = update_registry(repository, store)
     return record
 
 
 def adopt_pull_request(repository, pull_number):
-    registry = load_registry(repository)
-    if (registry.get("claims") or {}).get(worktree_key(repository)):
+    if (load_registry(repository).get("claims") or {}).get(worktree_key(repository)):
         raise RuntimeError(
             "this worktree already owns an issue or pull request; link or release that claim before adoption"
         )
@@ -384,8 +435,17 @@ def adopt_pull_request(repository, pull_number):
         "adopted_at": time.time(), "worktree_marker": True,
     }
     write_marker(repository, record["token"])
-    registry["claims"][worktree_key(repository)] = record
-    save_registry(repository, registry)
+    try:
+        def store(registry):
+            key = worktree_key(repository)
+            if registry["claims"].get(key):
+                raise RuntimeError("this worktree acquired another claim while the pull request was being adopted")
+            registry["claims"][key] = record
+
+        update_registry(repository, store)
+    except RuntimeError:
+        remove_marker(repository)
+        raise
     return record
 
 
@@ -404,18 +464,15 @@ def release(repository, remove_assignee=True):
                  "--remove-assignee", record["login"]))
         except RuntimeError:
             pass
-    registry = load_registry(repository)
-    registry["claims"].pop(worktree_key(repository), None)
-    save_registry(repository, registry)
+    update_registry(repository, lambda registry: registry["claims"].pop(worktree_key(repository), None))
     remove_marker(repository)
     return record
 
 
 def forget(repository, worktree=None):
     """Drop a completed PR-linked local record after its public claim was already removed."""
-    registry = load_registry(repository)
-    record = registry["claims"].pop(worktree_key(repository if worktree is None else worktree), None)
-    save_registry(repository, registry)
+    key = worktree_key(repository if worktree is None else worktree)
+    record = update_registry(repository, lambda registry: registry["claims"].pop(key, None))
     if worktree is None:
         remove_marker(repository)
     return record

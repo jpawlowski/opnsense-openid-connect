@@ -701,6 +701,33 @@ def main():
         })
         check("a failed canonical fetch blocks publication",
               "canonical fetch failed" in emitted[0]["hookSpecificOutput"]["permissionDecisionReason"], True)
+        remote_head = "a" * 40
+        hook.synchronize_repository = lambda repository, max_age, required=False: {
+            "base_main": "base", "old_base": "base", "base_name": "origin/main",
+            "warning": "", "remote_available": True, "execution": "local",
+        }
+        hook.observe_remote = lambda state, synchronization, **keywords: (
+            "", "" if keywords.get("reconciled_pr_head") == remote_head else "foreign pull-request head",
+        )
+        emitted.clear()
+        hook.guard({
+            "session_id": "writer-one", "tool_name": "Bash",
+            "tool_input": {"command": (
+                "python3 .agents/hooks/fast_gate.py reconcile-pr "
+                f"--sha {remote_head} --strategy merge"
+            )},
+        })
+        check("the exact trusted helper can reconcile the freshly observed pull-request head", emitted[0], {})
+        emitted.clear()
+        hook.guard({
+            "session_id": "writer-one", "tool_name": "Bash",
+            "tool_input": {"command": (
+                "python3 .agents/hooks/fast_gate.py reconcile-pr "
+                f"--sha {'b' * 40} --strategy merge"
+            )},
+        })
+        check("a reconciliation request for any other head remains blocked",
+              "foreign pull-request head" in emitted[0]["hookSpecificOutput"]["permissionDecisionReason"], True)
         guard_module.release_lease(linked, "writer-one")
 
     group("Issue claims are unique, race-safe and completely temporary")
@@ -715,6 +742,36 @@ def main():
         (repository / "base.txt").write_text("base\n", encoding="utf-8")
         subprocess.run(("git", "add", "base.txt"), cwd=repository, check=True)
         subprocess.run(("git", "commit", "-q", "-m", "test: seed"), cwd=repository, check=True)
+        concurrent_update = """
+import importlib.util
+from pathlib import Path
+import sys
+import time
+
+spec = importlib.util.spec_from_file_location("claim_worker", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+repository = Path(sys.argv[2])
+key = sys.argv[3]
+
+def update(registry):
+    registry["claims"][key] = {"issue": key}
+    time.sleep(0.2)
+
+module.update_registry(repository, update)
+"""
+        workers = [
+            subprocess.Popen((
+                sys.executable, "-c", concurrent_update, str(ROOT / ".agents" / "hooks" / "issue_claim.py"),
+                str(repository), key,
+            ))
+            for key in ("first-worktree", "second-worktree")
+        ]
+        worker_results = [worker.wait() for worker in workers]
+        check("parallel worktrees serialize claim-registry read-modify-write cycles",
+              (worker_results, sorted(claim_module.load_registry(repository)["claims"])),
+              ([0, 0], ["first-worktree", "second-worktree"]))
+        claim_module.save_registry(repository, {"version": 1, "claims": {}})
         issue = {
             "number": 36, "state": "OPEN", "labels": [], "comments": [], "assignees": [],
             "closedByPullRequestsReferences": [], "url": "https://example.invalid/issues/36",
