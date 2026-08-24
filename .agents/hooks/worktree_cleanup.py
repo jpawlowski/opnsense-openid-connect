@@ -10,6 +10,7 @@ import subprocess
 import time
 
 import github_watch
+import issue_claim
 
 
 REGISTRY_NAME = "opnsense-agent-worktrees.json"
@@ -370,6 +371,7 @@ def sweep(repository, canonical_ref, canonical_repository, current_path=None, no
                 continue
             record["worktree_removed_at"] = now
             record.pop("cleanup_error", None)
+            issue_claim.forget(repository, worktree=path)
             actions.append(f"removed worktree {path}; local branch retained")
             removals += 1
         elif classified["state"] == "branch-ready" and (max_removals is None or removals < max_removals):

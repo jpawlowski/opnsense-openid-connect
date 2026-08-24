@@ -17,7 +17,7 @@ import worktree_cleanup
 
 LEASE_TTL = 30 * 60
 READ_ONLY_PROGRAMS = {
-    "cat", "file", "head", "ls", "pwd", "rg", "stat", "tail", "true", "wc", "which",
+    "cat", "file", "head", "ls", "pwd", "stat", "tail", "true", "wc", "which",
 }
 READ_ONLY_GIT = {
     "describe", "diff", "grep", "log", "ls-files", "merge-base", "name-rev", "rev-list", "rev-parse",
@@ -205,6 +205,14 @@ def _read_only_sed(arguments):
     return bool(re.fullmatch(r"(?:\d+(?:,\d+)?|\$)?[pq]", values[0]))
 
 
+def _read_only_rg(arguments):
+    executable_options = ("--hostname-bin", "--pre")
+    return not any(
+        argument == option or argument.startswith(f"{option}=")
+        for argument in arguments for option in executable_options
+    )
+
+
 def _worktree_helper(arguments):
     if len(arguments) < 2:
         return False
@@ -266,24 +274,20 @@ def _read_only_gh(arguments):
 
 
 def _shell_invocation(command):
-    if not command.strip() or re.search(r"[;&|<>`]", command) or "$(" in command:
+    if not command.strip() or re.search(r"[\r\n;&|<>`]", command) or "$(" in command:
         return "", []
     try:
         arguments = shlex.split(command)
     except ValueError:
         return "", []
-    while arguments and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", arguments[0]):
-        arguments.pop(0)
+    if arguments and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", arguments[0]):
+        return "", []
     if not arguments:
         return "", []
 
     program = Path(arguments.pop(0)).name
     if program == "env":
-        while arguments and (arguments[0].startswith("-") or "=" in arguments[0]):
-            arguments.pop(0)
-        if not arguments:
-            return "", []
-        program = Path(arguments.pop(0)).name
+        return "", []
     return program, arguments
 
 
@@ -298,6 +302,8 @@ def is_read_only_shell(command):
         return _read_only_find(arguments)
     if program == "sed":
         return _read_only_sed(arguments)
+    if program == "rg":
+        return _read_only_rg(arguments)
     if program == "git":
         return _read_only_git(arguments)
     if program == "gh":

@@ -65,8 +65,34 @@ def worktree_key(repository):
     return str(Path(repository).resolve())
 
 
+def marker_path(repository):
+    git_directory = resolve_git_path(repository, git_value(repository, "rev-parse", "--git-dir"))
+    return git_directory / "opnsense-agent-issue-claim"
+
+
+def write_marker(repository, token):
+    path = marker_path(repository)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(str(token), encoding="utf-8")
+    temporary.replace(path)
+
+
+def remove_marker(repository):
+    try:
+        marker_path(repository).unlink()
+    except FileNotFoundError:
+        pass
+
+
 def current_claim(repository):
-    return (load_registry(repository).get("claims") or {}).get(worktree_key(repository))
+    record = (load_registry(repository).get("claims") or {}).get(worktree_key(repository))
+    if not record or not record.get("worktree_marker"):
+        return None
+    try:
+        token = marker_path(repository).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    return record if token == str(record.get("token") or "") else None
 
 
 def _gh(arguments, json_output=False):
@@ -211,7 +237,9 @@ def claim(repository, number, now=None, language="en"):
     record = {
         "issue": int(number), "token": token, "comment_id": ours["id"], "comment_url": ours["url"],
         "label": label, "login": login, "status": "active", "claimed_at": claimed_at,
+        "worktree_marker": True,
     }
+    write_marker(repository, token)
     registry["claims"][worktree_key(repository)] = record
     save_registry(repository, registry)
     return record
@@ -262,9 +290,10 @@ def adopt_pull_request(repository, pull_number):
         raise RuntimeError("the open pull request must close one issue and use this worktree's exact branch head")
     registry = load_registry(repository)
     record = {
-        "issue": issue, "status": "pr-linked", "pull_request": int(pull_number),
-        "adopted_at": time.time(),
+        "issue": issue, "token": f"pr-{secrets.token_hex(6)}", "status": "pr-linked",
+        "pull_request": int(pull_number), "adopted_at": time.time(), "worktree_marker": True,
     }
+    write_marker(repository, record["token"])
     registry["claims"][worktree_key(repository)] = record
     save_registry(repository, registry)
     return record
@@ -288,12 +317,15 @@ def release(repository, remove_assignee=True):
     registry = load_registry(repository)
     registry["claims"].pop(worktree_key(repository), None)
     save_registry(repository, registry)
+    remove_marker(repository)
     return record
 
 
-def forget(repository):
+def forget(repository, worktree=None):
     """Drop a completed PR-linked local record after its public claim was already removed."""
     registry = load_registry(repository)
-    record = registry["claims"].pop(worktree_key(repository), None)
+    record = registry["claims"].pop(worktree_key(repository if worktree is None else worktree), None)
     save_registry(repository, registry)
+    if worktree is None:
+        remove_marker(repository)
     return record

@@ -604,7 +604,7 @@ def initialize(event):
         with RepositoryLock(REPOSITORY):
             cleanup_actions = worktree_cleanup.sweep(
                 REPOSITORY, synchronization["base_name"], CANONICAL_REPOSITORY,
-                current_path=REPOSITORY, max_removals=1, max_records=3,
+                current_path=REPOSITORY, max_removals=1,
             )
     cleanup_notice = " ".join(cleanup_actions)
     notice = messages(

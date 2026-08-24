@@ -109,8 +109,12 @@ def main():
         )
         hook.state_paths = lambda event: (state, state.with_suffix(".log"))
         hook.observe_remote = lambda task_state, synchronization: ("", "")
+        sweep_arguments = []
+        hook.worktree_cleanup.sweep = lambda *arguments, **keywords: sweep_arguments.append(keywords) or []
         hook.initialize({})
         check("session startup installs the local settings", configured, [hook.REPOSITORY])
+        check("startup limits removals without starving later cleanup records",
+              sweep_arguments, [{"current_path": hook.REPOSITORY, "max_removals": 1}])
 
     with tempfile.TemporaryDirectory() as temporary:
         repository = pathlib.Path(temporary)
@@ -368,6 +372,14 @@ def main():
         "agent_guard_test", ROOT / ".agents" / "hooks" / "agent_guard.py",
     )
     check("searches are read-only", guard_module.is_read_only_shell("rg worktree AGENTS.md"), True)
+    check("a newline cannot append a mutating command to a read-only search",
+          guard_module.is_read_only_shell("rg worktree AGENTS.md\nrm tracked-file"), False)
+    check("ripgrep preprocessors are not read-only",
+          guard_module.is_read_only_shell("rg --pre=rm worktree tracked-file"), False)
+    check("ripgrep hostname programs are not read-only",
+          guard_module.is_read_only_shell("rg --hostname-bin sh worktree AGENTS.md"), False)
+    check("environment overrides cannot alter an allow-listed program",
+          guard_module.is_read_only_shell("RIPGREP_CONFIG_PATH=config rg worktree AGENTS.md"), False)
     check("Git status is read-only", guard_module.is_read_only_shell("git status --short"), True)
     check("GitHub pull request inspection is read-only",
           guard_module.is_read_only_shell("gh pr view 42 --json headRefOid"), True)
@@ -507,8 +519,11 @@ def main():
               "No exclusive issue claim" in emitted[0]["hookSpecificOutput"]["permissionDecisionReason"], True)
         hook.issue_claim.save_registry(linked, {
             "version": 1,
-            "claims": {str(linked.resolve()): {"issue": 42, "status": "active"}},
+            "claims": {str(linked.resolve()): {
+                "issue": 42, "status": "active", "token": "test-claim", "worktree_marker": True,
+            }},
         })
+        hook.issue_claim.write_marker(linked, "test-claim")
         emitted.clear()
         hook.guard({"session_id": "writer-one", "tool_name": "apply_patch", "tool_input": {"command": "patch"}})
         check("a claimed writer in an isolated clean worktree is allowed", emitted[0], {})
@@ -588,6 +603,10 @@ def main():
         check("the marker and issue label carry the same unique id",
               claimed["token"] in issue["comments"][0]["body"]
               and issue["labels"] == [{"name": claimed["label"]}], True)
+        claim_module.marker_path(repository).unlink()
+        check("a reused worktree path cannot trust a claim without its private marker",
+              claim_module.current_claim(repository), None)
+        claim_module.write_marker(repository, claimed["token"])
         linked_claim = claim_module.linked(repository, 41)
         check("the linked pull request replaces the issue lock", linked_claim["status"], "pr-linked")
         check("linking deletes the comment, issue label and repository label definition",
@@ -768,12 +787,19 @@ def main():
         (linked / "ignored" / "artifact").unlink()
         (linked / "ignored").rmdir()
 
+        cleanup.issue_claim.save_registry(control, {
+            "version": 1,
+            "claims": {str(linked.resolve()): {"issue": 17, "status": "pr-linked"}},
+        })
+
         actions = cleanup.sweep(
             control, "main", "jpawlowski/opnsense-openid-connect", current_path=control,
             now=32 + cleanup.WORKTREE_GRACE + 1, reader=merged_reader,
         )
         check("the first sweep removes only the clean worktree", actions,
               [f"removed worktree {linked.resolve()}; local branch retained"])
+        check("worktree removal also forgets its completed local issue record",
+              cleanup.issue_claim.load_registry(control)["claims"], {})
         check("the local topic branch remains after worktree cleanup", subprocess.run(
             ("git", "show-ref", "--verify", "refs/heads/codex/cleanup"), cwd=control, check=False,
             capture_output=True, text=True,
