@@ -19,14 +19,15 @@ installed-integration or browser-E2E command.
 Provider interoperability artifacts are kept separately under the `providers/`
 subdirectory and are never read as audit evidence. Their cells have an
 additional contract in `tests/providers/capabilities.json`: a `live` or `adapter`
-cell must name a test
-date, the provider version or hosted-service revision, and a retained artifact
+cell must name retained evidence; an `unavailable` or `incompatible` cell may
+likewise use it instead of a feature-specific source. Each record names a test
+date and provider version or hosted-service revision, plus an artifact
 in that subdirectory. Revisions use a bounded `version:`, `release:` or `commit:`
 identifier, or `service:YYYY-MM-DD` for a hosted service without a published
 version. The JSON artifact uses schema version 1 and
 evidence type `provider_interoperability`; it repeats the provider, revision and
-date and has one result containing the feature and its `live` or `adapter`
-status. Its `configuration` object has exactly five publishable fields:
+date and has one result containing the feature and its exact evidence status.
+Its `configuration` object has exactly five publishable fields:
 `provider_profile`, the repository-relative `guide`, `client_type` set to
 `confidential`, `flow` set to `authorization_code`, and `feature_mode` set to
 `enabled`, `automatic` or `required`. The artifact and each result reject all

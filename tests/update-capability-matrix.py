@@ -20,6 +20,8 @@ CONNECTOR = ROOT / "src" / "opnsense" / "mvc" / "app" / "library" / "OPNsense" /
 IMPLEMENTATION = {"implemented", "partial", "candidate", "deferred", "not_planned", "not_applicable"}
 CLAIMS = {"verified", "unverified", "not_claimed", "not_applicable"}
 EVIDENCE = {"live", "adapter", "documented", "conditional", "unavailable", "incompatible", "unknown"}
+SOURCE_EVIDENCE = {"documented", "conditional", "unavailable", "incompatible"}
+ARTIFACT_EVIDENCE = {"live", "adapter", "unavailable", "incompatible"}
 REQUIREMENT_STRENGTH = {"must", "must_not", "should", "should_not", "may"}
 GATE_EVIDENCE_TEST = pathlib.PurePosixPath("tests/capability-matrix.py")
 PROVIDER_EVIDENCE_DIRECTORY = pathlib.PurePosixPath("tests/evidence/providers")
@@ -218,8 +220,14 @@ def validate_requirement(standard, requirement):
         raise CatalogError(f"{requirement['id']}: evidence must be an object")
     has_reviewed_deviation = reviewed_deviation(requirement)
     if not requirement["applicable"]:
-        if not requirement.get("rationale"):
-            raise CatalogError(f"{requirement['id']}: non-applicability needs a rationale")
+        rationale = requirement.get("rationale")
+        if (
+            not isinstance(rationale, str)
+            or rationale.strip() != rationale
+            or not 1 <= len(rationale) <= 1000
+            or not all(character.isprintable() for character in rationale)
+        ):
+            raise CatalogError(f"{requirement['id']}: non-applicability needs a reviewable rationale")
         return
     if requirement["applicable"]:
         if requirement["strength"] in {"must", "must_not"} and not {"positive", "negative"} <= evidence.keys():
@@ -401,13 +409,21 @@ def validate_providers(data, standard_ids):
         unknown = set(provider["capabilities"]) - feature_ids
         if unknown:
             raise CatalogError(f"{provider['id']}: unknown capabilities {sorted(unknown)}")
-        documented_features = {
+        source_eligible_features = {
+            feature_id for feature_id, status in provider["capabilities"].items()
+            if status in SOURCE_EVIDENCE
+        }
+        source_required_features = {
             feature_id for feature_id, status in provider["capabilities"].items()
             if status in {"documented", "conditional"}
         }
         sources = documentation[provider["id"]]
-        if not isinstance(sources, dict) or set(sources) != documented_features:
-            raise CatalogError(f"{provider['id']}: documentation must name every documented feature exactly once")
+        if (
+            not isinstance(sources, dict)
+            or not source_required_features <= set(sources)
+            or not set(sources) <= source_eligible_features
+        ):
+            raise CatalogError(f"{provider['id']}: documentation differs from its source-backed feature claims")
         for feature_id, source in sources.items():
             if (
                 not isinstance(source, str)
@@ -426,8 +442,8 @@ def validate_providers(data, standard_ids):
             if not isinstance(feature_id, str) or feature_id not in feature_ids:
                 raise CatalogError(f"{provider['id']}: live_evidence names an unknown feature")
             status = provider["capabilities"].get(feature_id)
-            if status not in {"live", "adapter"}:
-                raise CatalogError(f"{provider['id']}/{feature_id}: live evidence has no live or adapter cell")
+            if status not in ARTIFACT_EVIDENCE:
+                raise CatalogError(f"{provider['id']}/{feature_id}: interoperability evidence has no matching claim")
             validate_live_evidence_record(provider, feature_id, status, record)
             evidenced_features.add(feature_id)
         for feature_id, status in provider["capabilities"].items():
@@ -435,6 +451,14 @@ def validate_providers(data, standard_ids):
                 raise CatalogError(f"{provider['id']}/{feature_id}: invalid evidence status {status}")
             if status in {"live", "adapter"} and feature_id not in evidenced_features:
                 raise CatalogError(f"{provider['id']}/{feature_id}: live status needs a retained evidence record")
+            if (
+                status in {"unavailable", "incompatible"}
+                and feature_id not in sources
+                and feature_id not in evidenced_features
+            ):
+                raise CatalogError(
+                    f"{provider['id']}/{feature_id}: negative status needs a source or retained evidence"
+                )
 
 
 def cell(defaults, documentation, provider, feature_id):

@@ -196,6 +196,15 @@ def main():
         lambda: matrix.validate_standards(empty_requirement_section)
     ), True)
 
+    non_text_rationale = copy.deepcopy(complete)
+    requirement = non_text_rationale["standards"][0]["requirements"][0]
+    requirement["applicable"] = False
+    requirement["evidence"] = {}
+    requirement["rationale"] = True
+    check("a non-text value cannot justify excluding a normative requirement", refused(
+        lambda: matrix.validate_standards(non_text_rationale)
+    ), True)
+
     arbitrary = copy.deepcopy(complete)
     arbitrary["standards"][0]["requirements"][0]["evidence"]["positive"] = [{
         "path": "README.md",
@@ -257,6 +266,12 @@ def main():
     unrelated_documentation["providers"][1]["capabilities"]["back_logout"] = "documented"
     check("an unrelated guide URL cannot support another provider feature", refused(
         lambda: matrix.validate_providers(unrelated_documentation, standard_ids)
+    ), True)
+
+    unsupported_negative = copy.deepcopy(providers)
+    unsupported_negative["providers"][1]["capabilities"]["back_logout"] = "unavailable"
+    check("a definitive negative provider cell needs feature-specific evidence", refused(
+        lambda: matrix.validate_providers(unsupported_negative, standard_ids)
     ), True)
 
     unsupported = copy.deepcopy(providers)
@@ -372,6 +387,14 @@ def main():
                 provider, "login", "live", dated_record, evidence_root
             )
         ), False)
+        artifact["results"] = [{"feature": "login", "status": "unavailable"}]
+        retained_artifact(evidence_root, artifact)
+        check("a negative provider result uses the same retained evidence schema", refused(
+            lambda: matrix.validate_live_evidence_record(
+                provider, "login", "unavailable", dated_record, evidence_root
+            )
+        ), False)
+        artifact["results"] = [{"feature": "login", "status": "live"}]
         artifact["results"].append({"access_token": "must-not-be-retained"})
         retained_artifact(evidence_root, artifact)
         check("an unvalidated extra result cannot travel with live evidence", refused(
