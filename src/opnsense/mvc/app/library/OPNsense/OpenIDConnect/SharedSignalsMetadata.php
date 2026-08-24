@@ -152,7 +152,9 @@ final class SharedSignalsMetadata
     public function supportsDelivery(string $method): bool
     {
         $methods = $this->deliveryMethods();
-        return $methods === [] || in_array($method, $methods, true);
+        return $methods === []
+            ? hash_equals(self::PUSH_METHOD, $method)
+            : in_array($method, $methods, true);
     }
 
     public function configurationEndpoint(): ?string

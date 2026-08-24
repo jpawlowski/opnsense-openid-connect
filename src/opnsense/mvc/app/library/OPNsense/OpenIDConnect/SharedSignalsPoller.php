@@ -51,6 +51,7 @@ final class SharedSignalsPoller
             $errors = [];
             $batches++;
             foreach ($result['sets'] as $transportJti => $set) {
+                $transportJti = (string)$transportJti;
                 $deliveries++;
                 try {
                     $event = $this->events->verify($set, $settings, $metadata);

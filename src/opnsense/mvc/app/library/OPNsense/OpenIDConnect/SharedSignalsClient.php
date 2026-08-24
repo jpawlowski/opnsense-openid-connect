@@ -12,6 +12,15 @@ final class SharedSignalsClient
 {
     public const MAX_BYTES = 1048576;
     public const MAX_POLL_EVENTS = 20;
+    public const SET_ERROR_CODES = [
+        'invalid_request',
+        'invalid_key',
+        'invalid_issuer',
+        'invalid_audience',
+        'authentication_failed',
+        'access_denied',
+        'invalid_state',
+    ];
 
     public function __construct(private readonly HttpClient $http)
     {
@@ -27,6 +36,11 @@ final class SharedSignalsClient
         string $description = ''
     ): array {
         $this->requireDelivery($metadata, $method);
+        if ($metadata->defaultSubjects() === 'NONE') {
+            throw new ProtocolException(
+                'A transmitter with no default subjects requires unsupported subject management'
+            );
+        }
         $delivery = ['method' => $method];
         if ($method === SharedSignalsMetadata::PUSH_METHOD) {
             if ($pushEndpoint === null || $pushAuthorization === null) {
@@ -228,13 +242,26 @@ final class SharedSignalsClient
         }
         $request = ['maxEvents' => $maximumEvents, 'returnImmediately' => true];
         if ($acknowledged !== []) {
-            $request['ack'] = array_values(array_map([self::class, 'streamId'], $acknowledged));
+            $request['ack'] = array_values(array_map([self::class, 'setIdentifier'], $acknowledged));
         }
         if ($errors !== []) {
             if (count($errors) > self::MAX_POLL_EVENTS) {
                 throw new ProtocolException('Too many poll delivery errors were supplied');
             }
-            $request['setErrs'] = $errors;
+            $validatedErrors = [];
+            foreach ($errors as $jti => $error) {
+                $identifier = self::setIdentifier((string)$jti);
+                if (!is_array($error) || array_is_list($error)
+                    || !in_array($error['err'] ?? null, self::SET_ERROR_CODES, true)
+                    || !is_string($error['description'] ?? null)) {
+                    throw new ProtocolException('A poll delivery error is invalid');
+                }
+                $validatedErrors[$identifier] = [
+                    'err' => $error['err'],
+                    'description' => self::boundedText($error['description'], 255, 'poll error description'),
+                ];
+            }
+            $request['setErrs'] = (object)$validatedErrors;
         }
         $response = $this->jsonRequest('POST', $endpoint, $request, $metadata, $authorization, $errors !== []);
         if ($response->status !== 200) {
@@ -242,19 +269,22 @@ final class SharedSignalsClient
         }
         $body = $response->jsonObject();
         $sets = $body['sets'] ?? null;
-        if (!is_array($sets) || array_is_list($sets) || count($sets) > self::MAX_POLL_EVENTS) {
+        if (!is_array($sets) || ($sets !== [] && array_is_list($sets))
+            || count($sets) > self::MAX_POLL_EVENTS) {
             throw new ProtocolException('The poll endpoint returned an invalid SET collection');
         }
+        $validatedSets = [];
         foreach ($sets as $jti => $set) {
-            if (!is_string($jti) || self::streamId($jti) !== $jti
-                || !is_string($set) || $set === '' || strlen($set) > JwtVerifier::MAX_JWT_BYTES) {
+            $identifier = self::setIdentifier((string)$jti);
+            if (!is_string($set) || $set === '' || strlen($set) > JwtVerifier::MAX_JWT_BYTES) {
                 throw new ProtocolException('The poll endpoint returned an invalid Security Event Token');
             }
+            $validatedSets[$identifier] = $set;
         }
         if (isset($body['moreAvailable']) && !is_bool($body['moreAvailable'])) {
             throw new ProtocolException('The poll endpoint returned an invalid availability flag');
         }
-        return ['sets' => $sets, 'more_available' => (bool)($body['moreAvailable'] ?? false)];
+        return ['sets' => $validatedSets, 'more_available' => (bool)($body['moreAvailable'] ?? false)];
     }
 
     public static function validatedAuthorization(string $value): string
@@ -429,6 +459,14 @@ final class SharedSignalsClient
     {
         if ($value === '' || strlen($value) > 255 || !preg_match('/^[A-Za-z0-9._~-]+$/D', $value)) {
             throw new ProtocolException('The Shared Signals stream identifier is invalid');
+        }
+        return $value;
+    }
+
+    private static function setIdentifier(string $value): string
+    {
+        if ($value === '' || strlen($value) > 255 || preg_match('/[\x00-\x1f\x7f]/', $value)) {
+            throw new ProtocolException('The Security Event Token identifier is invalid');
         }
         return $value;
     }

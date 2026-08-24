@@ -178,6 +178,14 @@ Checks::that('poll-only metadata cannot silently receive push',
     $pollOnlyMetadata->supportsDelivery(SharedSignalsMetadata::PUSH_METHOD), false);
 Checks::that('poll-only metadata explicitly supports polling',
     $pollOnlyMetadata->supportsDelivery(SharedSignalsMetadata::POLL_METHOD), true);
+$legacyMetadata = SharedSignalsMetadata::fromArray('https://signals.example.net', [
+    'issuer' => 'https://signals.example.net',
+    'jwks_uri' => 'https://signals.example.net/keys',
+]);
+Checks::that('omitted delivery metadata retains only legacy push compatibility', [
+    $legacyMetadata->supportsDelivery(SharedSignalsMetadata::PUSH_METHOD),
+    $legacyMetadata->supportsDelivery(SharedSignalsMetadata::POLL_METHOD),
+], [true, false]);
 
 Checks::group('Shared Signals stream lifecycle client');
 $managementCalls = [];
@@ -193,6 +201,24 @@ $managementHttp = new HttpClient(static function (
     return array_shift($managementResponses);
 });
 $management = new SharedSignalsClient($managementHttp);
+$noDefaultSubjects = SharedSignalsMetadata::fromArray('https://signals.example.net', [
+    'issuer' => 'https://signals.example.net',
+    'jwks_uri' => 'https://signals.example.net/keys',
+    'delivery_methods_supported' => [SharedSignalsMetadata::PUSH_METHOD],
+    'configuration_endpoint' => 'https://signals.example.net/streams',
+    'default_subjects' => 'NONE',
+]);
+Checks::throws(
+    'stream creation refuses an empty default subject set without subject management',
+    fn() => $management->createStream(
+        $noDefaultSubjects,
+        'Bearer management-token',
+        SharedSignalsMetadata::PUSH_METHOD,
+        'https://firewall.example.net/api/openidconnect/ssf/push/main',
+        'Bearer ' . str_repeat('s', 43)
+    ),
+    'subject management'
+);
 $pushConfiguration = [
     'stream_id' => 'stream-1',
     'iss' => 'https://signals.example.net',
@@ -267,7 +293,7 @@ Checks::that('a poll endpoint is accepted only from the validated stream respons
 $managementResponses[] = [
     'status' => 200,
     'content_type' => 'application/json',
-    'body' => json_encode(['sets' => ['poll-jti' => 'signed-set'], 'moreAvailable' => false]),
+    'body' => json_encode(['sets' => ['urn:uuid:poll-jti' => 'signed-set'], 'moreAvailable' => false]),
     'location' => '',
     'headers' => [],
 ];
@@ -277,13 +303,40 @@ $polled = $management->poll(
     'https://signals.example.net/poll/stream-1'
 );
 Checks::that('poll delivery returns a bounded jti-to-SET collection', $polled, [
-    'sets' => ['poll-jti' => 'signed-set'],
+    'sets' => ['urn:uuid:poll-jti' => 'signed-set'],
     'more_available' => false,
 ]);
 Checks::that('polling is an explicit short POST with a batch limit', [
     $managementCalls[3]['method'],
     json_decode((string)$managementCalls[3]['body'], true),
 ], ['POST', ['maxEvents' => 20, 'returnImmediately' => true]]);
+
+$managementResponses[] = [
+    'status' => 200,
+    'content_type' => 'application/json',
+    'body' => json_encode(['sets' => (object)[]]),
+    'location' => '',
+    'headers' => [],
+];
+$management->poll(
+    $ssfMetadata,
+    'Bearer management-token',
+    'https://signals.example.net/poll/stream-1',
+    ['urn:uuid:poll-jti'],
+    ['urn:uuid:refused-jti' => [
+        'err' => 'invalid_key',
+        'description' => 'The Security Event Token was not accepted.',
+    ]],
+    0
+);
+$pollAcknowledgement = json_decode((string)$managementCalls[4]['body'], true);
+Checks::that('poll acknowledgements preserve opaque SET identifiers', $pollAcknowledgement['ack'], [
+    'urn:uuid:poll-jti',
+]);
+Checks::that('poll errors use the shared registered SET error code and language', [
+    $pollAcknowledgement['setErrs']['urn:uuid:refused-jti']['err'],
+    in_array('Content-Language: en', $managementCalls[4]['headers'], true),
+], ['invalid_key', true]);
 
 $mismatchedConfiguration = array_replace($pushConfiguration, ['iss' => 'https://other.example.net']);
 $managementResponses[] = [

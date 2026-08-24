@@ -34,6 +34,11 @@ local stream values only after a successful response; save the server
 afterwards. A transmitter that does not advertise the needed endpoint remains
 usable as a manually managed push stream.
 
+Automatic stream creation also requires discovery to default new streams to
+all applicable subjects. A transmitter advertising `default_subjects: NONE`
+needs subject-management operations that this bounded receiver does not offer;
+manage that stream outside OPNsense instead.
+
 The stream buttons require the separate **System: Access: Servers: OpenID
 Connect Shared Signals management** privilege because they send a credential
 and mutate an external transmitter. Ordinary authentication-server delegation
