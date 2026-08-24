@@ -516,6 +516,10 @@ def main():
     check("Git global options cannot hide a push boundary", guard_module.requires_uncached_remote({
         "tool_name": "Bash", "tool_input": {"command": "git -C . push origin codex/topic"},
     }), True)
+    check("a Git alias cannot hide a push boundary", guard_module.requires_uncached_remote({
+        "tool_name": "Bash",
+        "tool_input": {"command": "git -c alias.publish=push publish origin codex/topic"},
+    }), True)
     check("the command builtin cannot hide a push boundary", guard_module.requires_uncached_remote({
         "tool_name": "Bash", "tool_input": {"command": "command git push origin codex/topic"},
     }), True)
@@ -555,6 +559,9 @@ def main():
     }), True)
     check("Git global options cannot hide a detached-worktree commit", guard_module.requires_topic_branch({
         "tool_name": "Bash", "tool_input": {"command": "git -C . commit -m 'test: durable work'"},
+    }), True)
+    check("a Git alias cannot hide a detached-worktree commit", guard_module.requires_topic_branch({
+        "tool_name": "Bash", "tool_input": {"command": "git -c alias.save=commit save -m test"},
     }), True)
     check("the exec builtin cannot hide a detached-worktree commit", guard_module.requires_topic_branch({
         "tool_name": "Bash", "tool_input": {"command": "exec git commit -m 'test: durable work'"},
@@ -1065,6 +1072,20 @@ module.update_registry(repository, update)
         check("another open pull request reports changed-path overlap",
               "#2" in watch.overlap_notice(snapshot, {"shared.txt"}), True)
         check("the matching remote head is safe", watch.remote_head_refusal(repository, snapshot), "")
+        reused = watch.branch_pull_state(
+            "jpawlowski/opnsense-openid-connect", "jpawlowski/opnsense-openid-connect",
+            "codex/watch", head,
+            reader=lambda _repository, _path, _token: [
+                {"number": 8, "state": "closed", "merged_at": "2026-08-01T00:00:00Z",
+                 "head": {"ref": "codex/watch", "sha": head,
+                          "repo": {"full_name": "jpawlowski/opnsense-openid-connect"}}},
+                {"number": 9, "state": "open", "merged_at": None,
+                 "head": {"ref": "codex/watch", "sha": "foreign",
+                          "repo": {"full_name": "jpawlowski/opnsense-openid-connect"}}},
+            ],
+        )
+        check("an open reused branch head outranks an exact historical merged pull request",
+              (reused["state"], reused["number"]), ("foreign-head", 9))
         first_calls = len(calls)
         cached, warning = watch.refresh(
             repository, repository / ".git", "jpawlowski/opnsense-openid-connect",

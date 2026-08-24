@@ -207,6 +207,18 @@ def branch_pull_state(canonical_repository, publishing_repository, branch, head_
             exact.append(pull)
         else:
             foreign.append(pull)
+    open_foreign = [
+        pull for pull in foreign
+        if str(pull.get("state") or "").lower() == "open" and not pull.get("merged_at")
+    ]
+    if open_foreign:
+        pull = open_foreign[0]
+        return {
+            "state": "foreign-head",
+            "number": pull.get("number"),
+            "head_sha": str((pull.get("head") or {}).get("sha") or ""),
+            "warning": "",
+        }
     if exact:
         pull = exact[0]
         if pull.get("merged_at"):

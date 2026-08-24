@@ -27,6 +27,12 @@ READ_ONLY_GIT = {
 }
 READ_ONLY_GIT_CONFIG = {"--get", "--get-all", "--get-regexp", "--list", "-l"}
 READ_ONLY_GIT_BRANCH = {"--contains", "--list", "--points-at", "--show-current"}
+KNOWN_GIT_SUBCOMMANDS = READ_ONLY_GIT | {
+    "add", "am", "apply", "bisect", "branch", "checkout", "cherry-pick", "clean", "clone", "commit",
+    "config", "fetch", "format-patch", "gc", "init", "merge", "mv", "notes", "pull", "push", "rebase",
+    "remote", "reset", "restore", "revert", "rm", "send-pack", "sparse-checkout", "stash", "submodule",
+    "switch", "tag", "worktree",
+}
 
 
 def git(repository, *arguments, check=True):
@@ -596,6 +602,7 @@ def requires_uncached_remote(event):
     git_command, _git_arguments = _git_subcommand(arguments) if program == "git" else ("", [])
     return bool(
         (program == "git" and git_command in ("push", "send-pack"))
+        or (program == "git" and git_command not in KNOWN_GIT_SUBCOMMANDS)
         or (program == "gh" and not _read_only_gh(arguments))
         or (program not in ("git", "gh") and any(Path(value).name in ("git", "gh") for value in arguments))
     )
@@ -627,6 +634,7 @@ def requires_topic_branch(event):
                 break
     return bool(
         (program == "git" and git_command in ("commit", "push", "send-pack"))
+        or (program == "git" and git_command not in KNOWN_GIT_SUBCOMMANDS)
         or (program == "gh" and not _read_only_gh(arguments))
         or nested_durable
     )
