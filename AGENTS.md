@@ -162,7 +162,9 @@ participants remain publication targets but never re-enter the new merge order.
 Only markers whose GitHub author association is
 owner, member or collaborator are authoritative. The helper prints its identifier
 before the first comment; if mirroring is interrupted, rerun the same command with
-`--id ID` so already published copies are verified and skipped.
+`--id ID` so already published copies are verified and skipped. The helper writes
+the current open PR set before old-only targets. A retry recovers hidden
+superseded IDs and the complete target set from its own already-published marker.
 Recommendation and fulfillment each hold one atomic repository-label mutex from
 before their remote snapshot until every mirrored comment is complete. A
 concurrent publisher stands down and retries after release. Inspect and remove a

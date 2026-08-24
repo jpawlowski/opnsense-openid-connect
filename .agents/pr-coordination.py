@@ -190,11 +190,28 @@ def publication_identifier(prs, requested):
 
 
 def publication_targets(prs, active, replaced):
-    targets = set(prs)
+    targets = list(prs)
     for record in active:
         if record["id"] in replaced:
-            targets.update(record.get("targets", record["order"]))
-    return sorted(targets)
+            targets.extend(record.get("targets", record["order"]))
+    return list(dict.fromkeys(targets))
+
+
+def resumed_publication(values_by_pull, identifier):
+    records = [
+        record
+        for values in values_by_pull.values()
+        for _comment, record in matching_comments(values, identifier)
+    ]
+    if not records:
+        return None
+    expected = records[0]
+    fields = ("order", "state", "supersedes", "targets")
+    if any(any(record[field] != expected[field] for field in fields) for record in records[1:]):
+        raise RuntimeError(f"coordination id {identifier} has inconsistent mirrored markers")
+    if expected["state"] != "final":
+        raise RuntimeError(f"coordination id {identifier} is already fulfilled")
+    return expected
 
 
 def coordination_component(records, prs):
@@ -270,10 +287,14 @@ def recommend_locked(arguments, token):
     identifier = publication_identifier(prs, arguments.id)
     active = all_records(pulls, token, values_by_pull)
     replaced = set(arguments.supersedes)
-    unknown = replaced - {record["id"] for record in active}
+    resumed = resumed_publication(values_by_pull, identifier)
+    if resumed is not None and (resumed["order"] != order or set(resumed["supersedes"]) != replaced):
+        raise RuntimeError(f"coordination id {identifier} belongs to a different recommendation")
+    known_replaced = set(resumed["supersedes"]) if resumed is not None else set()
+    unknown = replaced - {record["id"] for record in active} - known_replaced
     if unknown:
         raise RuntimeError("superseded coordination is not active: " + ", ".join(sorted(unknown)))
-    targets = publication_targets(prs, active, replaced)
+    targets = resumed["targets"] if resumed is not None else publication_targets(prs, active, replaced)
     overlapping, participants = coordination_component(active, prs)
     unaddressed = [
         record["id"] for record in overlapping

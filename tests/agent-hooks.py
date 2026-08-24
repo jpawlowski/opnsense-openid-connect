@@ -1522,7 +1522,7 @@ module.update_registry(repository, update)
     check("a replacement is mirrored to old-only and new-only pull requests",
           publisher.publication_targets(
               [57, 63], [{"id": "old-order", "order": [42, 57]}], {"old-order"},
-          ), [42, 57, 63])
+          ), [57, 63, 42])
     related, participants = publisher.coordination_component([
         {"id": "first", "order": [42, 57]},
         {"id": "second", "order": [42, 71]},
@@ -1556,8 +1556,35 @@ module.update_registry(repository, update)
     check("a retry loads comments for closed targets absent from the open pull request inventory",
           (loaded_targets, sorted(target_comments)), ([42, 63], [42, 57, 63]))
 
+    retry_record = {
+        "id": "57-63-1787590801-d4e5f6", "order": [57, 63], "state": "final",
+        "supersedes": ["42-57-order"], "targets": [42, 57, 63],
+    }
+    retry_body = coordination.render_final(
+        retry_record, "the shared path moved", "the replacement minimizes rework", "the contract changes",
+    )
+    retry_comment = {
+        "id": 7, "created_at": "2026-08-24T13:30:00Z", "body": retry_body,
+        "author_association": "OWNER",
+    }
+    publisher.open_pulls = lambda _token: [{"number": 57}, {"number": 63}]
+    publisher.comment_sets = lambda _pulls, _token: {57: [mirrored[1], retry_comment], 63: []}
+    publisher.comments = lambda number, _token: [retry_comment] if number == 42 else []
+    resumed_publications = []
+    publisher.publish_mirrored = lambda numbers, body, identifier, _token, _values: (
+        resumed_publications.append((numbers, coordination.parse_marker(body), identifier)) or []
+    )
+    publisher.recommend_locked(SimpleNamespace(
+        prs=[57, 63], order=[57, 63], id=retry_record["id"], supersedes=["42-57-order"],
+        overlap="the shared path moved", reason="the replacement minimizes rework",
+        reconsider="the contract changes", language="en",
+    ), "token")
+    check("a partially mirrored replacement recovers its hidden superseded ID and complete target set",
+          (resumed_publications[0][0], resumed_publications[0][1]["targets"]),
+          ([42, 57, 63], [42, 57, 63]))
+
     final_comment = {
-        "id": 7, "created_at": "2026-08-24T14:00:00Z", "body": replacement_body,
+        "id": 8, "created_at": "2026-08-24T14:00:00Z", "body": replacement_body,
         "author_association": "OWNER",
     }
     publisher.require_token = lambda: "token"
@@ -1566,6 +1593,9 @@ module.update_registry(repository, update)
     publisher.open_pulls = lambda _token: [{"number": 57}, {"number": 63}]
     fulfillment_reads = []
     publisher.comments = lambda number, _token: fulfillment_reads.append(number) or [final_comment]
+    publisher.comment_sets = lambda pulls, token: {
+        int(pull["number"]): publisher.comments(int(pull["number"]), token) for pull in pulls
+    }
     fulfillment_publication = []
     publisher.publish_mirrored = lambda numbers, _body, identifier, _token, values: (
         fulfillment_publication.append((numbers, identifier, sorted(values))) or []

@@ -230,7 +230,9 @@ participants remain publication targets only. It refuses an order that would cre
 accepts machine markers only from GitHub authors associated as owner, member or
 collaborator. It prints the coordination identifier before its first public
 write. If one mirrored write fails, rerun the same command with `--id ID`; the
-helper verifies and skips matching copies instead of duplicating them.
+helper verifies and skips matching copies instead of duplicating them. It writes
+the current open PR set before old-only targets, and a retry recovers hidden
+superseded IDs plus the complete target set from its already-published marker.
 Recommendation and fulfillment each acquire one atomic repository-label mutex
 before reading the remote coordination snapshot and retain it through all
 mirrored comments. A competing publisher stands down until release. If a failed
