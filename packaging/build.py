@@ -109,8 +109,9 @@ Contains only additional files below /usr/local/opnsense/mvc/ plus the
 watchdog /usr/local/sbin/openid-connect-watch and its daily run. No file
 of the core package is replaced or altered.
 
-BSD-2-Clause. Runtime cryptography is provided by the phpseclib package that
-is part of OPNsense; this package does not bundle an OpenID Connect library.
+BSD-2-Clause, with Apache-2.0 portions in bundled provider icons. Runtime
+cryptography is provided by the phpseclib package that is part of OPNsense;
+this package does not bundle an OpenID Connect library.
 """
 
 
@@ -194,14 +195,14 @@ def manifest_for(version, entries):
         # Use the native FreeBSD/OPNsense identifier so `pkg info` exposes the
         # license as structured package metadata. Keep SPDX in annotations for
         # tools and readers outside the FreeBSD ports vocabulary.
-        "licenselogic": "single",
-        "licenses": ["BSD2CLAUSE"],
+        "licenselogic": "multi",
+        "licenses": ["BSD2CLAUSE", "APACHE20"],
         # explicitly installed, so `pkg autoremove` - which a plugin sync runs -
         # never considers it something that came along for the ride
         "automatic": False,
         "scripts": {"post-install": POST_INSTALL, "post-deinstall": POST_DEINSTALL},
         "annotations": {
-            "license": "BSD-2-Clause",
+            "license": "BSD-2-Clause AND Apache-2.0",
             "runtime_crypto": "OPNsense phpseclib3",
             "source": SOURCE_URL,
             "built_from": built_from,

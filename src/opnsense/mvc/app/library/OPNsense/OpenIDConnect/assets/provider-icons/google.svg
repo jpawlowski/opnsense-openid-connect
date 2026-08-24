@@ -1,4 +1,5 @@
 <?xml version="1.0"?>
+<!-- Modified from Dashboard Icons (Apache-2.0) for normalized single-colour rendering. -->
 <svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" viewBox="-5.1 0 512 512">
   <path d="M501.8 261.8c0-18.2-1.6-35.6-4.7-52.4H256v99.1h137.8c-6.1 31.9-24.2 58.9-51.4 77V450h83.1c48.3-44.6 76.3-110.2 76.3-188.2" style="fill:#4285f4"/>
   <path d="M256 512c69.1 0 127.1-22.8 169.4-61.9l-83.1-64.5c-22.8 15.4-51.9 24.7-86.3 24.7-66.6 0-123.1-44.9-143.4-105.4H27.5V371C69.6 454.5 155.9 512 256 512" style="fill:#34a853"/>
