@@ -31,6 +31,12 @@ confidential client with a derived ID such as `opnsense-keycloak` and generates
 its secret. Copy the secret from the client's **Credentials** tab, and copy the
 realm's exact issuer into OPNsense.
 
+The import links the standard Keycloak `email` and `profile` client scopes only
+when the current OPNsense scope list requests them. Keycloak's `email` scope
+maps the user's **Email verified** state to `email_verified`; keep that state
+false until the realm's enrollment or directory process has actually verified
+control of the current address.
+
 For pairwise subjects, first choose **Pairwise subject sector** in OPNsense and
 save the server as a disabled draft. The generated import then adds Keycloak's
 built-in `oidc-sha256-pairwise-sub-mapper` with the displayed sector identifier
@@ -86,6 +92,11 @@ On the **Credentials** tab, copy the generated client secret to OPNsense. Under
 the client's advanced OpenID Connect settings, set **Proof Key for Code Exchange
 Code Challenge Method** to `S256` if the installed Keycloak version exposes
 that control. OPNsense sends PKCE S256 on every request in either case.
+
+Under **Client scopes**, link `email` and `profile` as optional scopes when the
+OPNsense scope list requests them. The standard `email` scope emits
+`email_verified` from the user's **Email verified** state; do not replace it
+with a mapper that unconditionally reports true.
 
 Optional manual pairwise configuration uses Keycloak's **Pairwise subject
 identifier** protocol mapper. Select a stable OPNsense **Pairwise subject

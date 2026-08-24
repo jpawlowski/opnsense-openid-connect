@@ -29,7 +29,10 @@ Checks::that('the authentik provider identity is stable across display-name chan
 ), true);
 Checks::that('the blueprint never contains a client secret field', str_contains($authentik['content'], 'client_secret:'), false);
 Checks::that('the blueprint lets authentik generate the client ID too', str_contains($authentik['content'], 'client_id:'), false);
-Checks::that('the blueprint preserves generated credentials on a repeat import', substr_count($authentik['content'], 'state: created'), 2);
+Checks::that('the blueprint preserves generated resources on a repeat import', substr_count(
+    $authentik['content'],
+    'state: created'
+), 3);
 Checks::that('the provider identifier is not duplicated in attrs', substr_count(
     $authentik['content'],
     "name: 'OPNsense WebGUI (opnsense-private-fw)'"
@@ -59,6 +62,19 @@ Checks::that('YAML single quotes in a name are escaped', str_contains(
     $authentik['content'],
     "name: 'OPNsense administrator''s WebGUI'"
 ), true);
+Checks::that('authentik receives a dedicated verified e-mail scope mapping', str_contains(
+    $authentik['content'],
+    "name: 'OPNsense verified e-mail (opnsense-private-fw)'"
+), true);
+Checks::that('authentik e-mail verification fails closed unless its boolean user attribute is true', [
+    str_contains($authentik['content'], 'verified = request.user.attributes.get("email_verified", False)'),
+    str_contains($authentik['content'], '"email_verified": verified is True'),
+    str_contains($authentik['content'], 'goauthentik.io/providers/oauth2/scope-email'),
+], [true, true, false]);
+Checks::that('the authentik provider uses the dedicated e-mail mapping', str_contains(
+    $authentik['content'],
+    "- !KeyOf 'opnsense-private-fw-verified-email-scope'"
+), true);
 
 $authentikWithoutEmail = ProviderSetup::generate(
     'authentik',
@@ -76,8 +92,9 @@ $authentikWithoutEmail = ProviderSetup::generate(
 Checks::that('authentik receives only the configured standard scope mappings', [
     str_contains($authentikWithoutEmail['content'], 'scope-openid'),
     str_contains($authentikWithoutEmail['content'], 'scope-profile'),
-    str_contains($authentikWithoutEmail['content'], 'scope-email'),
-], [true, true, false]);
+    str_contains($authentikWithoutEmail['content'], 'verified-email-scope'),
+    str_contains($authentikWithoutEmail['content'], 'email_verified'),
+], [true, true, false, false]);
 
 $keycloak = ProviderSetup::generate(
     'keycloak',
@@ -93,6 +110,10 @@ Checks::that('Keycloak receives a partial realm import', $keycloak['media_type']
 Checks::that('a repeat Keycloak import preserves the client', $keycloakJson['ifResourceExists'], 'SKIP');
 Checks::that('the derived Keycloak client ID is portable', $client['clientId'], 'opnsense-main-one');
 Checks::that('Keycloak generates its own secret', array_key_exists('secret', $client), false);
+Checks::that('Keycloak links exactly the requested standard scopes as optional', [
+    $client['defaultClientScopes'],
+    $client['optionalClientScopes'],
+], [[], ['email', 'profile']]);
 Checks::that('Keycloak is a confidential client', $client['publicClient'], false);
 Checks::that('only authorization code is enabled', [
     $client['standardFlowEnabled'], $client['implicitFlowEnabled'], $client['directAccessGrantsEnabled'],
@@ -108,6 +129,25 @@ Checks::that('front-channel is selected consistently', [
 ], [true, 'true', false]);
 Checks::that('Keycloak public subjects remain unchanged unless a sector is selected',
     array_key_exists('protocolMappers', $client), false);
+
+$minimalKeycloak = ProviderSetup::generate(
+    'keycloak',
+    'minimal',
+    'Minimal OPNsense WebGUI',
+    ['https://firewall.example.net'],
+    false,
+    'backchannel',
+    '',
+    [
+        'openidconnect_scopes' => 'openid,profile',
+        'openidconnect_username_claim' => 'preferred_username',
+    ]
+);
+$minimalKeycloakClient = json_decode($minimalKeycloak['content'], true, 32, JSON_THROW_ON_ERROR)['clients'][0];
+Checks::that('Keycloak does not link an unrequested e-mail scope', [
+    $minimalKeycloakClient['defaultClientScopes'],
+    $minimalKeycloakClient['optionalClientScopes'],
+], [[], ['profile']]);
 
 $pairwiseKeycloak = ProviderSetup::generate(
     'keycloak',

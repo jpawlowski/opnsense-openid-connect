@@ -43,6 +43,14 @@ origins are registered. In either mode the first origin is the canonical
 front-channel or back-channel logout notification address; all origins receive
 authorization and optional post-logout redirect entries.
 
+The authentik file replaces its fail-closed standard e-mail mapping with an
+application-specific mapping. It reports `email_verified=true` only when the
+user's custom `email_verified` attribute is the JSON boolean `true`; an absent,
+false or differently typed value remains unverified. The attribute must be fed
+by the installation's actual address-verification authority. The Keycloak file
+links only the standard scopes requested by the OPNsense form; its realm owns
+the user-level `emailVerified` state behind the standard `email` scope.
+
 The download is a projection of the current form, not a generic provider
 template. Provider-side choices such as requested scopes, the claims OPNsense
 expects, authentication-strength evidence, redirect addresses, logout delivery

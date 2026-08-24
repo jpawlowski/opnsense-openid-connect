@@ -40,11 +40,12 @@ and the provider containers.
 The default `core` suite runs the two high-value implementations:
 
 - **Keycloak** is the deep interoperability suite. It covers Discovery, PKCE, enforced DPoP-bound tokens, state/nonce,
-  JIT and approval workflows,
+  verified e-mail evidence, JIT and approval workflows,
   stable subject binding, local fallback, session rotation, callback replay, `form_post`, both client-secret transport
   methods, RP/front-channel/back-channel logout and passive response-header checks with ZAP.
-- **authentik** exercises the second primary deployment target and imports the exact Blueprint downloaded from the
-  unsaved OPNsense form before completing a real login.
+- **authentik** exercises the second primary deployment target, imports the exact Blueprint downloaded from the
+  unsaved OPNsense form and proves that its trusted boolean user attribute becomes `email_verified=true` in a real
+  sign-in test before completing a login.
 
 The `full` suite adds two low-cost implementations whose official arm64 container images are small or self-contained:
 

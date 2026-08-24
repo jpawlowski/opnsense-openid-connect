@@ -591,7 +591,8 @@ async function testSignIn(page, { expectNoLocalAccount = false } = {}) {
   expectStandaloneHtmlHeaders(callbackResponse);
   await expect(page.locator('.oidc-signin-result .hero-icon')).toHaveText('✓');
   await expect(page.locator('.oidc-signin-result .card')).toHaveCount(3);
-  await expect(page.locator('.oidc-signin-results tr')).toHaveCount(6);
+  await expect(page.locator('.oidc-signin-results tr')).toHaveCount(7);
+  await expect(page.getByRole('row', { name: /E-mail verification claim/ })).toContainText('true');
   await expect(page.locator('body')).toContainText('PKCE binding');
   await expect(page.locator('body')).toContainText(process.env.E2E_TEST_USERNAME);
   await expect(page.locator('body')).toContainText(

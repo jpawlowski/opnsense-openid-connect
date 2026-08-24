@@ -28,8 +28,15 @@ opens the authentik steps without downloading another Blueprint.
 In authentik open **Admin interface > Customization > Blueprints > Import**, use
 **File upload**, review the YAML and import it. The Blueprint creates a
 confidential OAuth2/OpenID provider and linked application, exact Authorization
-and optional Post Logout redirects, the three standard scope mappings and an
-asymmetric signing key. authentik generates the Client ID and Client Secret.
+and optional Post Logout redirects, the standard OpenID and profile mappings, a
+dedicated verified e-mail mapping and an asymmetric signing key. authentik
+generates the Client ID and Client Secret.
+
+The dedicated `email` mapping sends `email_verified=true` only when the
+authentik user's custom `email_verified` attribute is the JSON boolean `true`.
+It sends `false` when that attribute is absent, false or another type. Populate
+the attribute only from a directory or enrollment flow that actually verified
+control of the current address; do not set it merely because an address exists.
 
 A green import result means authentik validated and immediately applied the
 file. This one-time **Import** operation deliberately does **not** create a
@@ -109,6 +116,20 @@ type:
 
 Assign the authentik application only to users or groups who should be able to
 reach this firewall.
+
+When creating the provider manually, replace authentik's standard `email`
+mapping with a custom scope mapping equivalent to the generated Blueprint:
+
+```python
+verified = request.user.attributes.get("email_verified", False)
+return {
+    "email": request.user.email,
+    "email_verified": verified is True,
+}
+```
+
+The strict boolean check deliberately treats missing values and strings such as
+`"true"` as unverified.
 
 ### 3. Configure one authentik logout method
 

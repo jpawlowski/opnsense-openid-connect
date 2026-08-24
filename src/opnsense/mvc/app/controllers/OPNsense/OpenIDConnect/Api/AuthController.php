@@ -761,6 +761,11 @@ class AuthController extends ApiControllerBase
                 $claimValue,
                 property_exists($claims, $claimName) ? 'success' : 'warning',
             ],
+            [
+                gettext('E-mail verification claim'),
+                $this->displayClaim($claims, 'email_verified'),
+                property_exists($claims, 'email_verified') ? 'info' : 'warning',
+            ],
             [gettext('Claims source'), $settings->claimsSource(), 'info'],
         ];
         $status = [

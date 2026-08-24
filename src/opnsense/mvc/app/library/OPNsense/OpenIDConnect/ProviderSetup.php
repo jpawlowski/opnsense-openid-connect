@@ -37,7 +37,6 @@ final class ProviderSetup
 
     private const AUTHENTIK_SCOPE_MAPPINGS = [
         'openid' => 'goauthentik.io/providers/oauth2/scope-openid',
-        'email' => 'goauthentik.io/providers/oauth2/scope-email',
         'profile' => 'goauthentik.io/providers/oauth2/scope-profile',
     ];
 
@@ -119,7 +118,8 @@ final class ProviderSetup
                 $origins,
                 $postLogoutRedirect,
                 $logoutChannel,
-                $sectorOrigin
+                $sectorOrigin,
+                $projection
             );
     }
 
@@ -245,6 +245,7 @@ final class ProviderSetup
         array $projection
     ): array {
         $providerId = $slug . '-provider';
+        $emailMappingId = $slug . '-verified-email-scope';
         $providerName = 'OPNsense WebGUI (' . $slug . ')';
         $redirects = [];
         foreach ($origins as $origin) {
@@ -269,6 +270,26 @@ final class ProviderSetup
             'metadata:',
             '  name: ' . self::yamlString($displayName),
             'entries:',
+        ];
+        if (in_array('email', $projection['scopes'], true)) {
+            $lines = array_merge($lines, [
+                '  - model: authentik_providers_oauth2.scopemapping',
+                '    id: ' . self::yamlString($emailMappingId),
+                '    identifiers:',
+                '      name: ' . self::yamlString('OPNsense verified e-mail (' . $slug . ')'),
+                '    state: created',
+                '    attrs:',
+                '      scope_name: email',
+                '      description: Verified e-mail address',
+                '      expression: |',
+                '        verified = request.user.attributes.get("email_verified", False)',
+                '        return {',
+                '            "email": request.user.email,',
+                '            "email_verified": verified is True',
+                '        }',
+            ]);
+        }
+        $lines = array_merge($lines, [
             '  - model: authentik_providers_oauth2.oauth2provider',
             '    id: ' . self::yamlString($providerId),
             '    identifiers:',
@@ -285,10 +306,14 @@ final class ProviderSetup
             '      issuer_mode: per_provider',
             '      sub_mode: hashed_user_id',
             '      property_mappings:',
-        ];
+        ]);
         foreach ($projection['scopes'] as $scope) {
-            $lines[] = '        - !Find [authentik_providers_oauth2.scopemapping, [managed, '
-                . self::AUTHENTIK_SCOPE_MAPPINGS[$scope] . ']]';
+            if ($scope === 'email') {
+                $lines[] = '        - !KeyOf ' . self::yamlString($emailMappingId);
+            } else {
+                $lines[] = '        - !Find [authentik_providers_oauth2.scopemapping, [managed, '
+                    . self::AUTHENTIK_SCOPE_MAPPINGS[$scope] . ']]';
+            }
         }
         $lines = array_merge($lines, [
             "      signing_key: !Find [authentik_crypto.certificatekeypair, [name, 'authentik Self-signed Certificate']]",
@@ -332,7 +357,8 @@ final class ProviderSetup
         array $origins,
         bool $postLogoutRedirect,
         string $logoutChannel,
-        string $sectorOrigin
+        string $sectorOrigin,
+        array $projection
     ): array {
         $callbacks = [];
         $postLogout = [];
@@ -375,6 +401,8 @@ final class ProviderSetup
             'redirectUris' => $callbacks,
             'webOrigins' => $origins,
             'attributes' => $attributes,
+            'defaultClientScopes' => [],
+            'optionalClientScopes' => array_values(array_diff($projection['scopes'], ['openid'])),
         ];
         if ($sectorOrigin !== '') {
             $client['protocolMappers'] = [[

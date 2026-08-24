@@ -72,7 +72,7 @@ async function provisionAuthentik(blueprintPath) {
   const user = await checkedJson(await api.post(`${providerApiOrigin}/api/v3/core/users/`, {
     data: {
       username: state.username, name: 'OIDC E2E', email: `${state.username}@example.com`,
-      is_active: true, type: 'internal', path: 'users',
+      attributes: { email_verified: true }, is_active: true, type: 'internal', path: 'users',
     },
   }), 'authentik user creation');
   await checked(await api.post(`${providerApiOrigin}/api/v3/core/users/${user.pk}/set_password/`, {
@@ -216,6 +216,17 @@ async function passwordLogin(page) {
   await action.click();
 }
 
+async function testAuthentikVerifiedEmail(page) {
+  await page.getByRole('row', { name: new RegExp(state.server_name) })
+    .getByRole('link', { name: 'Edit' }).click();
+  await page.getByRole('button', { name: 'Test sign-in' }).click();
+  await passwordLogin(page);
+  await expect(page.getByRole('heading', { name: 'Sign-in test succeeded' })).toBeVisible();
+  await expect(page.getByRole('row', { name: /E-mail verification claim/ })).toContainText('true');
+  await page.getByRole('link', { name: 'Return to authentication servers' }).click();
+  await expect(page.locator('input[name="name"]')).toHaveValue(state.server_name);
+}
+
 async function providerLogin(page) {
   await page.goto(origin);
   const before = (await page.context().cookies(origin)).find(cookie => cookie.name === 'PHPSESSID')?.value;
@@ -251,6 +262,7 @@ test(`real OPNsense login through ${state.provider}`, async ({ browser }) => {
   const adminPage = await admin.newPage();
   await localLogin(adminPage);
   await configureServer(adminPage);
+  if (state.provider === 'authentik') await testAuthentikVerifiedEmail(adminPage);
 
   const localFallback = await browser.newContext({ ignoreHTTPSErrors: true });
   await localLogin(await localFallback.newPage());
