@@ -277,7 +277,8 @@ def _read_only_sed(arguments):
 
 def _read_only_rg(arguments):
     executable_options = ("--hostname-bin", "--pre")
-    if os.environ.get("RIPGREP_CONFIG_PATH") and "--no-config" not in arguments:
+    option_end = arguments.index("--") if "--" in arguments else len(arguments)
+    if os.environ.get("RIPGREP_CONFIG_PATH") and "--no-config" not in arguments[:option_end]:
         return False
     return not any(
         argument == option or argument.startswith(f"{option}=")

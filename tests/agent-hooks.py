@@ -424,6 +424,10 @@ def main():
           guard_module.is_read_only_shell("rg worktree AGENTS.md"), False)
     check("--no-config suppresses ambient ripgrep configuration",
           guard_module.is_read_only_shell("rg --no-config worktree AGENTS.md"), True)
+    check("--no-config after the option terminator cannot suppress ambient configuration",
+          guard_module.is_read_only_shell("rg -- worktree AGENTS.md --no-config"), False)
+    check("--no-config before the option terminator remains effective",
+          guard_module.is_read_only_shell("rg --no-config -- worktree AGENTS.md"), True)
     if previous_rg_config is None:
         os.environ.pop("RIPGREP_CONFIG_PATH", None)
     else:
