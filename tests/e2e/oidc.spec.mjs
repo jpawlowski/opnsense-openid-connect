@@ -983,7 +983,7 @@ test('real OPNsense login, session binding and logout interoperability', async (
   await approvalDialog.getByRole('button', { name: 'Done' }).click();
   await expect(approvalDialog).toBeHidden();
 
-  await providerLogin(userPage, { formPost: true });
+  await providerLogin(userPage, { responseMode: 'form_post' });
   await userPage.getByRole('link', { name: /Logout/ }).click();
   await expect(userPage).toHaveTitle(/Login/);
 
