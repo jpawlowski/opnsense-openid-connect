@@ -152,7 +152,9 @@ the deterministic tie-breaker. Never give the human alternatives. For three or
 more PRs, publish one complete acyclic sequence. A replacement explicitly
 supersedes the earlier record and is mirrored to the union of the new PR set and
 every superseded record's PR set, so no former participant retains obsolete
-coordination. Only markers whose GitHub author association is
+coordination. The marker retains that complete publication target set for
+idempotent retries and later fulfillment, including PRs that have since closed.
+Only markers whose GitHub author association is
 owner, member or collaborator are authoritative. The helper prints its identifier
 before the first comment; if mirroring is interrupted, rerun the same command with
 `--id ID` so already published copies are verified and skipped.

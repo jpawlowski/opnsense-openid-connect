@@ -1452,6 +1452,7 @@ module.update_registry(repository, update)
           ), [42, 57, 63])
     replacement = {
         "id": "57-63-order", "order": [57, 63], "state": "final", "supersedes": ["42-57-order"],
+        "targets": [42, 57, 63],
     }
     replacement_body = coordination.render_final(
         replacement, "the shared path moved", "the replacement minimizes rework", "the contract changes",
@@ -1463,6 +1464,29 @@ module.update_registry(repository, update)
     ])
     check("the old-only pull request observes the replacement and retires its obsolete order",
           [(value["id"], value["order"]) for value in retired_old_only], [("57-63-order", [57, 63])])
+    loaded_targets = []
+    publisher.comments = lambda number, _token: loaded_targets.append(number) or []
+    target_comments = {57: []}
+    publisher.load_target_comments(target_comments, [42, 57, 63], "token")
+    check("a retry loads comments for closed targets absent from the open pull request inventory",
+          (loaded_targets, sorted(target_comments)), ([42, 63], [42, 57, 63]))
+
+    final_comment = {
+        "id": 7, "created_at": "2026-08-24T14:00:00Z", "body": replacement_body,
+        "author_association": "OWNER",
+    }
+    publisher.require_token = lambda: "token"
+    publisher.open_pulls = lambda _token: [{"number": 57}, {"number": 63}]
+    fulfillment_reads = []
+    publisher.comments = lambda number, _token: fulfillment_reads.append(number) or [final_comment]
+    fulfillment_publication = []
+    publisher.publish_mirrored = lambda numbers, _body, identifier, _token, values: (
+        fulfillment_publication.append((numbers, identifier, sorted(values))) or []
+    )
+    publisher.fulfill(SimpleNamespace(id="57-63-order", language="en"))
+    check("fulfillment reaches and loads every recorded replacement target",
+          (fulfillment_reads, fulfillment_publication),
+          ([57, 63, 42], [([42, 57, 63], "57-63-order", [42, 57, 63])]))
 
     group("Finished worktrees retire before local branches and never delete remote branches")
     cleanup = load_agent_module(

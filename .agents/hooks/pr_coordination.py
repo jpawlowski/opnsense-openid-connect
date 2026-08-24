@@ -27,11 +27,13 @@ def validate_order(prs, order):
 
 
 def marker(record):
+    targets = [int(number) for number in record.get("targets", record["order"])]
     value = {
         "id": str(record["id"]),
         "order": [int(number) for number in record["order"]],
         "state": str(record["state"]),
         "supersedes": sorted(str(value) for value in record.get("supersedes", [])),
+        "targets": targets,
     }
     return f"<!-- agent-pr-coordination:v1 {json.dumps(value, separators=(',', ':'), sort_keys=True)} -->"
 
@@ -46,11 +48,15 @@ def parse_marker(body):
         state = str(value.get("state") or "")
         identifier = str(value.get("id") or "")
         supersedes = [str(item) for item in value.get("supersedes", [])]
+        targets = [int(number) for number in value.get("targets", order)]
     except (TypeError, ValueError, json.JSONDecodeError):
         return None
-    if state not in ("final", "fulfilled") or not identifier or identifier in supersedes:
+    if state not in ("final", "fulfilled") or not identifier or identifier in supersedes \
+            or len(targets) != len(set(targets)) or not set(order).issubset(targets):
         return None
-    return {"id": identifier, "order": order, "state": state, "supersedes": supersedes}
+    return {
+        "id": identifier, "order": order, "state": state, "supersedes": supersedes, "targets": targets,
+    }
 
 
 def trusted_comment(comment):

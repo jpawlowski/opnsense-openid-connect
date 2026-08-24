@@ -72,6 +72,12 @@ def comment_sets(pulls, token):
     return {int(pull["number"]): comments(int(pull["number"]), token) for pull in pulls}
 
 
+def load_target_comments(values_by_pull, numbers, token):
+    for number in numbers:
+        if number not in values_by_pull:
+            values_by_pull[number] = comments(number, token)
+
+
 def all_records(pulls, token, values_by_pull=None):
     values_by_pull = comment_sets(pulls, token) if values_by_pull is None else values_by_pull
     records = {}
@@ -104,7 +110,7 @@ def publication_targets(prs, active, replaced):
     targets = set(prs)
     for record in active:
         if record["id"] in replaced:
-            targets.update(record["order"])
+            targets.update(record.get("targets", record["order"]))
     return sorted(targets)
 
 
@@ -175,6 +181,7 @@ def recommend(arguments):
         "order": order,
         "state": "final",
         "supersedes": sorted(replaced),
+        "targets": targets,
     }
     remaining = [value for value in active if value["id"] not in replaced and value["id"] != identifier]
     if pr_coordination.has_cycle([*remaining, record]):
@@ -183,6 +190,7 @@ def recommend(arguments):
         record, arguments.overlap.strip(), arguments.reason.strip(), arguments.reconsider.strip(),
         language=arguments.language,
     )
+    load_target_comments(values_by_pull, targets, token)
     urls = publish_mirrored(targets, body, identifier, token, values_by_pull)
     print(f"published final coordination {identifier}")
     for url in urls:
@@ -203,7 +211,9 @@ def fulfill(arguments):
     if record is None:
         raise RuntimeError("the coordination record is not active on an open pull request")
     body = pr_coordination.render_fulfilled(record, language=arguments.language)
-    urls = publish_mirrored(record["order"], body, record["id"], token, values_by_pull)
+    targets = record.get("targets", record["order"])
+    load_target_comments(values_by_pull, targets, token)
+    urls = publish_mirrored(targets, body, record["id"], token, values_by_pull)
     print(f"fulfilled coordination {record['id']}")
     for url in urls:
         print(url)
