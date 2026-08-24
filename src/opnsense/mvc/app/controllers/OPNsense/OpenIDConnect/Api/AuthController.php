@@ -283,7 +283,7 @@ class AuthController extends ApiControllerBase
 
         if ($purpose === 'test') {
             $settings->trace('the accepted answer completed a sign-in test without changing the local session');
-            return $this->signInTestResult($name, $settings, $exchange, $claims);
+            return $this->signInTestResult($name, $settings, $exchange, $claims, $target);
         }
 
         $account = $settings->localAccountFor($claims, $exchange->issuer(), $exchange->subject());
@@ -732,7 +732,8 @@ class AuthController extends ApiControllerBase
         string $name,
         OpenIDConnect $settings,
         RelyingParty $exchange,
-        object $claims
+        object $claims,
+        string $target
     ): string {
         if ($this->request->isPost()) {
             header_remove('Set-Cookie');
@@ -746,6 +747,10 @@ class AuthController extends ApiControllerBase
         $claimName = $settings->usernameClaim();
         $claimValue = $this->displayClaim($claims, $claimName);
         $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $returnTarget = preg_match(
+            '#^/system_authservers\.php(?:\?act=edit&id=(?:0|[1-9][0-9]*))?$#D',
+            $target
+        ) ? $target : '/system_authservers.php';
         $rows = [
             [gettext('Authentication server'), $name, 'info'],
             [gettext('Exact issuer'), $exchange->issuer(), 'success'],
@@ -812,7 +817,7 @@ class AuthController extends ApiControllerBase
             . $escape(gettext('Use a private window when a later test must begin without the provider SSO session.'))
             . '</span></div></div></div><section class="details"><h2>' . $escape(gettext('Verified details'))
             . '</h2><table class="oidc-signin-results"><tbody>' . $table . '</tbody></table></section><div class="actions">'
-            . '<a href="/system_authservers.php">' . $escape(gettext('Return to authentication servers'))
+            . '<a href="' . $escape($returnTarget) . '">' . $escape(gettext('Return to authentication servers'))
             . '</a></div></section></main></body></html>';
     }
 

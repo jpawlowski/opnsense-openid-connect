@@ -9,6 +9,7 @@ namespace OPNsense\OpenIDConnect\Api;
 
 use OPNsense\Auth\AuthenticationFactory;
 use OPNsense\Auth\OpenIDConnect;
+use OPNsense\Core\Config;
 use OPNsense\OpenIDConnect\RelyingParty;
 
 /** Start an authenticated, CSRF-protected browser sign-in test for a saved server. */
@@ -43,7 +44,7 @@ class TestController extends PrivateApiControllerBase
              */
             $authorizationUrl = (new RelyingParty($settings, $this))->authorizationUrl(
                 $name,
-                '/system_authservers.php',
+                $this->editTarget($name),
                 true
             );
             $this->session->close();
@@ -57,5 +58,23 @@ class TestController extends PrivateApiControllerBase
                 'message' => gettext('The sign-in test could not be started: ') . $e->getMessage(),
             ];
         }
+    }
+
+    /** Return to the exact core row that supplied the saved connector under test. */
+    private function editTarget(string $name): string
+    {
+        $matches = [];
+        $position = 0;
+        foreach (Config::getInstance()->object()->system->authserver ?? [] as $server) {
+            if ((string)($server->type ?? '') === OpenIDConnect::TYPE
+                && hash_equals($name, (string)($server->name ?? ''))) {
+                $matches[] = $position;
+            }
+            $position++;
+        }
+
+        return count($matches) === 1
+            ? '/system_authservers.php?act=edit&id=' . $matches[0]
+            : '/system_authservers.php';
     }
 }

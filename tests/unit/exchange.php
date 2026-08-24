@@ -8,6 +8,9 @@
 use OPNsense\Mvc\Controller;
 use OPNsense\Mvc\Request;
 use OPNsense\Mvc\Session;
+use OPNsense\Auth\Directory;
+use OPNsense\Core\Config;
+use OPNsense\OpenIDConnect\Api\TestController;
 use OPNsense\OpenIDConnect\HttpClient;
 use OPNsense\OpenIDConnect\JwtVerifier;
 use OPNsense\OpenIDConnect\ProviderMetadata;
@@ -1127,7 +1130,8 @@ Checks::throws(
 $testSession = new Session();
 $testController = new Controller(new Request('https', 'firewall.example.net'), $testSession);
 $testParty = new RelyingParty($settings, $testController, new HttpClient(fn() => jsonAnswer(metadata())));
-$testAuthorization = $testParty->authorizationUrl('authentik', '/system_authservers.php', true);
+$testReturnTarget = '/system_authservers.php?act=edit&id=3';
+$testAuthorization = $testParty->authorizationUrl('authentik', $testReturnTarget, true);
 parse_str((string)parse_url($testAuthorization, PHP_URL_QUERY), $testParameters);
 Checks::that(
     'a sign-in test receives the same provider authorization endpoint',
@@ -1145,6 +1149,25 @@ $testTransaction = RelyingParty::consumeTransaction(
     'authentik-main'
 );
 Checks::that('a sign-in test is marked server-side and not by a browser parameter', $testTransaction['purpose'], 'test');
+Checks::that('a sign-in test retains the exact saved server edit target', $testTransaction['target'], $testReturnTarget);
+
+Directory::reset();
+Config::getInstance()->addAuthServer(['type' => 'ldap', 'name' => 'Local accounts']);
+Config::getInstance()->addAuthServer(['name' => 'Office identity']);
+$testControllerMethod = new ReflectionMethod(TestController::class, 'editTarget');
+$testController = new TestController();
+Checks::that(
+    'the sign-in tester returns to the exact saved authentication-server row',
+    $testControllerMethod->invoke($testController, 'Office identity'),
+    '/system_authservers.php?act=edit&id=1'
+);
+Config::getInstance()->addAuthServer(['name' => 'Office identity']);
+Checks::that(
+    'an ambiguous saved server name returns only to the authentication-server list',
+    $testControllerMethod->invoke($testController, 'Office identity'),
+    '/system_authservers.php'
+);
+Directory::reset();
 
 $strengthSession = new Session();
 $strengthController = new Controller(new Request('https', 'firewall.example.net'), $strengthSession);

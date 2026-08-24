@@ -1398,6 +1398,9 @@ class OpenIDConnect extends Base implements IAuthConnector
             'signInTestSaveHelp' => gettext(
                 'Save this authentication server first. Saving remains independent of both tests.'
             ),
+            'signInTestUnsavedHelp' => gettext(
+                'Save or revert all unsaved changes before testing sign-in. The test always uses the saved server.'
+            ),
             'signInTestIncompleteHelp' => gettext(
                 'Complete and save `Exact issuer URL`, `Client ID` and `Client Secret` before testing sign-in.'
             ),

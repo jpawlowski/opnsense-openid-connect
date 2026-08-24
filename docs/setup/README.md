@@ -247,8 +247,10 @@ This cannot replace the mandatory Token endpoint or admit an unknown key.
 
 After the server has been saved, **Test sign-in** performs the complete browser
 flow even while **Offer on the login page** remains disabled. It checks the
-authorization response (including JARM when selected), PKCE binding, code exchange, ID Token and configured
-claims source. The result shows the exact issuer, subject and configured
+authorization response (including JARM when selected), PKCE binding, code
+exchange, ID Token and configured claims source. Unsaved changes disable the
+action so that the displayed form and the saved connector under test cannot
+disagree. The result shows the exact issuer, subject and configured
 username claim. It deliberately does not create a WebGUI login session or
 change a local account, subject binding or group membership. It is available
 only while the saved form is unchanged; save or exactly revert edits first.

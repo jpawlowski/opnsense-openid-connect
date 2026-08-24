@@ -37,6 +37,8 @@ a valid test and will always fail.
 Edit the saved OIDC server and use **Test discovery** for provider metadata or
 **Test sign-in** for the complete browser flow. Test sign-in does not establish
 a WebGUI session and does not create or modify local users, bindings or groups.
+Save or revert every form change before starting it; the action deliberately
+tests only the saved connector and returns to the same edit form afterward.
 
 ## A callback is shown twice
 

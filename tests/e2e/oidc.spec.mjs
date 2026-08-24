@@ -560,6 +560,7 @@ async function testSignIn(page, { expectNoLocalAccount = false } = {}) {
   await page.goto(`${origin}/system_authservers.php`);
   await page.getByRole('row', { name: new RegExp(process.env.E2E_SERVER_NAME) })
     .getByRole('link', { name: 'Edit' }).click();
+  const serverEditUrl = page.url();
   const startResponsePromise = page.waitForResponse(response => (
     new URL(response.url()).pathname === '/api/openidconnect/test/start'
   ));
@@ -597,8 +598,8 @@ async function testSignIn(page, { expectNoLocalAccount = false } = {}) {
     'No login session, local account, subject binding or group membership was changed.'
   );
   await page.getByRole('link', { name: 'Return to authentication servers' }).click();
-  await expect(page).toHaveURL(/\/system_authservers\.php$/);
-  await expect(page.getByRole('row', { name: new RegExp(process.env.E2E_SERVER_NAME) })).toBeVisible();
+  await expect(page).toHaveURL(serverEditUrl);
+  await expect(page.locator('input[name="name"]')).toHaveValue(process.env.E2E_SERVER_NAME);
 
   if (expectNoLocalAccount) {
     await page.goto(`${origin}/ui/auth/user`);

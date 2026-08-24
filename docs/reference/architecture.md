@@ -259,9 +259,11 @@ verification subset; Ed25519 is the separately audited RFC 8037 subset.
   bounded mode-`0600` server-side index. They remain random-state-bound,
   single-use and expire after ten minutes without weakening the session cookie.
 - A sign-in test uses the same transaction, Discovery, PKCE, token and claim
-  validation path, marked server-side as test-only. Its callback reports the
-  verified identity but does not resolve or mutate a local account and does not
-  elevate or replace the initiating WebGUI session.
+  validation path, marked server-side as test-only. The form enables it only
+  while its saved connector and displayed values agree, and the transaction
+  retains that connector's exact edit target. Its callback reports the verified
+  identity but does not resolve or mutate a local account and does not elevate
+  or replace the initiating WebGUI session.
 - Validated Discovery and JWKS responses are shared through bounded, HTTP-aware
   mode-`0600` caches and refreshed outside the login path. The exact metadata
   snapshot used at login is still frozen into the transaction so endpoints

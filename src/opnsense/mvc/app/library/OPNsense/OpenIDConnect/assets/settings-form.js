@@ -474,8 +474,9 @@
     function withSignInTest() {
         var submit = $('#submit');
         if (submit.length === 0) {
-            return;
+            return function () {};
         }
+        var form = submit.closest('form');
         var address = new URL(window.location.href);
         var nameInput = field('name');
         var savedName = nameInput ? nameInput.value.trim() : '';
