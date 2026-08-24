@@ -89,7 +89,10 @@ the earlier PR's changing head; after its predecessor merges, it integrates
 once at a safe checkpoint. A replacement is also mirrored to PRs present only
 in the superseded order, preventing them from retaining obsolete coordination.
 Its marker retains that complete target set for retry and fulfillment even when
-one of those PRs closes. Only repository-associated publishers are trusted;
+one of those PRs closes. Active orders sharing any participant form one
+transitive group and must be replaced by a single order covering the whole group;
+a predecessor closing unmerged invalidates that order immediately. Only
+repository-associated publishers are trusted;
 an interrupted mirroring resumes under its printed identifier without duplicate
 comments. No agent merges, enables auto-merge or queues a
 merge without an explicit human instruction naming that PR. Review,

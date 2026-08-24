@@ -223,7 +223,8 @@ then lower PR number as a deterministic tie-breaker. A replacement names every
 record it supersedes and is mirrored to every PR in both the new and superseded
 sets. The machine marker retains that complete target set so a retry or later
 fulfillment also reads and updates old-only or already closed PRs. The helper
-refuses an order that would create a cycle and
+requires every active record sharing a participant to be superseded by one order
+covering the complete transitive group. It refuses an order that would create a cycle and
 accepts machine markers only from GitHub authors associated as owner, member or
 collaborator. It prints the coordination identifier before its first public
 write. If one mirrored write fails, rerun the same command with `--id ID`; the
@@ -234,7 +235,8 @@ execution. The later steward may finish a coherent or protected phase, but does
 not merge first or repeatedly chase anticipated conflicts. After its predecessor
 merges, it integrates the predecessor once at its next checkpoint, validates and
 obtains any newly required current-head review. Every steward must inspect and
-obey a mirrored record on its PR. Mark a completed sequence with
+obey a mirrored record on its PR. A predecessor closing without merge invalidates
+the sequence immediately, regardless of other open predecessors. Mark a completed sequence with
 `.agents/pr-coordination.py fulfill --id ID`.
 
 The public recommendation tells the human exactly what to merge first and what

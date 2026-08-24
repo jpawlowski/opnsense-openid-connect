@@ -226,16 +226,16 @@ def status_notice(records, current_number, pull_states):
         merged_predecessors = [number for number in predecessors if pull_states.get(number) == "merged"]
         closed_predecessors = [number for number in predecessors if pull_states.get(number) == "closed"]
         sequence = " -> ".join(f"#{number}" for number in order)
-        if open_predecessors:
+        if closed_predecessors:
+            notices.append(
+                f"Final coordination {sequence} needs replacement because "
+                f"{', '.join(f'#{number}' for number in closed_predecessors)} closed without merging."
+            )
+        elif open_predecessors:
             notices.append(
                 f"Final coordination {sequence} is active: current pull request #{current_number} must not merge "
                 f"before {', '.join(f'#{number}' for number in open_predecessors)}, but may continue to its next "
                 "safe synchronization checkpoint."
-            )
-        elif closed_predecessors:
-            notices.append(
-                f"Final coordination {sequence} needs replacement because "
-                f"{', '.join(f'#{number}' for number in closed_predecessors)} closed without merging."
             )
         elif merged_predecessors:
             notices.append(

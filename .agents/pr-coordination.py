@@ -114,6 +114,23 @@ def publication_targets(prs, active, replaced):
     return sorted(targets)
 
 
+def coordination_component(records, prs):
+    participants = set(prs)
+    related = []
+    remaining = list(records)
+    changed = True
+    while changed:
+        changed = False
+        for record in list(remaining):
+            if not participants.intersection(record["order"]):
+                continue
+            related.append(record)
+            remaining.remove(record)
+            participants.update(record["order"])
+            changed = True
+    return related, participants
+
+
 def publish_mirrored(numbers, body, identifier, token, values_by_pull):
     urls = []
     desired = pr_coordination.parse_marker(body)
@@ -165,7 +182,7 @@ def recommend(arguments):
     if unknown:
         raise RuntimeError("superseded coordination is not active: " + ", ".join(sorted(unknown)))
     targets = publication_targets(prs, active, replaced)
-    overlapping = [record for record in active if len(set(record["order"]) & set(prs)) >= 2]
+    overlapping, participants = coordination_component(active, prs)
     unaddressed = [
         record["id"] for record in overlapping
         if record["id"] not in replaced and record["id"] != identifier
@@ -174,6 +191,12 @@ def recommend(arguments):
         raise RuntimeError(
             "an active recommendation already covers this pull-request set; supersede it explicitly: "
             + ", ".join(unaddressed)
+        )
+    missing = sorted(participants - set(prs))
+    if missing:
+        raise RuntimeError(
+            "the replacement must include every transitively coordinated pull request: "
+            + ", ".join(map(str, missing))
         )
 
     record = {

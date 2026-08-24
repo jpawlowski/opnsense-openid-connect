@@ -1412,6 +1412,14 @@ module.update_registry(repository, update)
           "integrate the merged predecessor" in coordination.status_notice(
               active, 57, {42: "merged", 57: "open"},
           ), True)
+    mixed_predecessors = {
+        "id": "42-57-63-order", "order": [42, 57, 63], "state": "final", "supersedes": [],
+    }
+    mixed_notice = coordination.status_notice(
+        [mixed_predecessors], 63, {42: "closed", 57: "open", 63: "open"},
+    )
+    check("one closed-unmerged predecessor invalidates an order despite another open predecessor",
+          ("needs replacement" in mixed_notice, "is active" in mixed_notice), (True, False))
     reverse = {"id": "57-42-order", "order": [57, 42], "state": "final", "supersedes": []}
     check("contradictory recommendations are detected as a cycle",
           coordination.has_cycle([record, reverse]), True)
@@ -1450,6 +1458,14 @@ module.update_registry(repository, update)
           publisher.publication_targets(
               [57, 63], [{"id": "old-order", "order": [42, 57]}], {"old-order"},
           ), [42, 57, 63])
+    related, participants = publisher.coordination_component([
+        {"id": "first", "order": [42, 57]},
+        {"id": "second", "order": [42, 71]},
+        {"id": "disjoint", "order": [80, 81]},
+    ], [57, 63])
+    check("shared participants pull every connected active order into one replacement",
+          ([record["id"] for record in related], sorted(participants)),
+          (["first", "second"], [42, 57, 63, 71]))
     replacement = {
         "id": "57-63-order", "order": [57, 63], "state": "final", "supersedes": ["42-57-order"],
         "targets": [42, 57, 63],

@@ -154,6 +154,9 @@ supersedes the earlier record and is mirrored to the union of the new PR set and
 every superseded record's PR set, so no former participant retains obsolete
 coordination. The marker retains that complete publication target set for
 idempotent retries and later fulfillment, including PRs that have since closed.
+Any active record sharing even one participant joins the same transitive
+coordination group; its replacement must supersede the record and give every PR
+in that connected group one complete order.
 Only markers whose GitHub author association is
 owner, member or collaborator are authoritative. The helper prints its identifier
 before the first comment; if mirroring is interrupted, rerun the same command with
@@ -165,7 +168,9 @@ anticipated conflicts. Once its predecessor merges, it integrates that result
 once at its next checkpoint, validates and obtains any newly required review.
 Other agents must notice and obey a mirrored recommendation; an uncoordinated
 overlap or an open predecessor blocks finalization, not ordinary local work.
-Mark the record fulfilled after the sequence has been absorbed. No agent ever
+Any predecessor that closes without merging invalidates the sequence immediately,
+even while another predecessor remains open. Mark the record fulfilled after the
+sequence has been absorbed. No agent ever
 merges, enables auto-merge or queues a merge without an explicit human instruction
 naming the pull request. Monitoring, review, repair, coordination and a request to
 make a PR ready never imply merge permission.
