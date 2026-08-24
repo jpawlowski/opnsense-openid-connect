@@ -252,10 +252,12 @@ def _current_pull(repository, pulls, cached=None):
 
 
 def _coherent_current(repository, canonical_repository, number, token, reader):
-    """Read one head-consistent PR snapshot, retrying if the head moves mid-read."""
+    """Read one open, head-consistent PR snapshot, retrying if the head moves mid-read."""
     owner, name = canonical_repository.split("/", 1)
     for _attempt in range(2):
         before = reader(canonical_repository, f"pulls/{number}", token)
+        if str(before.get("state") or "").lower() != "open" or before.get("merged_at"):
+            return None
         head_sha = str((before.get("head") or {}).get("sha") or "")
         reviews = _paged(canonical_repository, f"pulls/{number}/reviews", token, reader)
         comments = _paged(canonical_repository, f"issues/{number}/comments", token, reader)
@@ -263,6 +265,8 @@ def _coherent_current(repository, canonical_repository, number, token, reader):
         status = reader(canonical_repository, f"commits/{head_sha}/status", token)
         unresolved = github_graphql(owner, name, number, token)
         after = reader(canonical_repository, f"pulls/{number}", token)
+        if str(after.get("state") or "").lower() != "open" or after.get("merged_at"):
+            return None
         after_head = str((after.get("head") or {}).get("sha") or "")
         if head_sha != after_head:
             continue

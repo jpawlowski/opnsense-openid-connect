@@ -145,8 +145,9 @@ Once a branch has a pull request, its integrating agent remains steward until
 merge, closure or explicit handoff. Observation is bound to repository and PR
 number, not a commit SHA. A snapshot reads the current head, submitted reviews
 including `COMMENTED`, review threads, checks and merge state, then verifies the
-head again; discard and retry a mixed-head result. Old-head reviews do not satisfy
-the current-head gate, but every unresolved old thread still needs disposition.
+head and open state again; discard and retry a mixed-head result, and report a
+terminal transition immediately. Old-head reviews do not satisfy the current-head
+gate, but every unresolved old thread still needs disposition.
 A remote head for that PR that is not contained locally remains an immediate
 block until reconciled.
 

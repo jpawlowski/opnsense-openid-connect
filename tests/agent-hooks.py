@@ -1249,7 +1249,8 @@ module.update_registry(repository, update)
             if path.startswith("pulls/1/files") or path.startswith("pulls/2/files"):
                 return [{"filename": "shared.txt"}]
             if path == "pulls/1":
-                return {"html_url": "https://example.invalid/1", "draft": True, "mergeable": True,
+                return {"html_url": "https://example.invalid/1", "state": "open", "draft": True,
+                        "mergeable": True,
                         "mergeable_state": "clean", "head": {"sha": head}}
             if path.startswith("pulls/1/reviews"):
                 return [{"user": {"login": "reviewer"}, "state": "APPROVED", "commit_id": head}]
@@ -1339,7 +1340,8 @@ module.update_registry(repository, update)
         def moving_reader(_repository, path, _token):
             if path == "pulls/1":
                 value = next(moving_heads)
-                return {"html_url": "https://example.invalid/1", "draft": False, "mergeable": True,
+                return {"html_url": "https://example.invalid/1", "state": "open", "draft": False,
+                        "mergeable": True,
                         "mergeable_state": "clean", "head": {"sha": value}}
             if path.startswith("pulls/1/reviews") or path.startswith("issues/1/comments"):
                 return []
@@ -1356,6 +1358,26 @@ module.update_registry(repository, update)
         check("a head change during observation discards the mixed snapshot and follows the PR number",
               (coherent["head_sha"], any("old-head" in path for path in observed_checks),
                any("new-head" in path for path in observed_checks)), ("new-head", True, True))
+        closing_details = iter(("open", "closed"))
+
+        def closing_reader(_repository, path, _token):
+            if path == "pulls/1":
+                return {"html_url": "https://example.invalid/1", "state": next(closing_details),
+                        "merged_at": None, "draft": False, "mergeable": True,
+                        "mergeable_state": "clean", "head": {"sha": head}}
+            if path.startswith("pulls/1/reviews") or path.startswith("issues/1/comments"):
+                return []
+            if "/check-runs" in path:
+                return {"check_runs": [{"status": "completed", "conclusion": "success"}]}
+            if path.endswith("/status"):
+                return {"state": "success"}
+            raise AssertionError(f"unexpected closing-PR path {path}")
+
+        check("a PR closing during observation is not retained as the current open pull request",
+              watch._coherent_current(
+                  repository, "jpawlowski/opnsense-openid-connect", 1, "", closing_reader,
+              ), None)
+
         def failed_reader(_repository, _path, _token):
             raise ValueError("temporary GitHub failure")
 

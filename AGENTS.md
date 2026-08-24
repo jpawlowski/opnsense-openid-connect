@@ -119,8 +119,9 @@ The integrating agent remains steward of every pull request it creates or adopts
 until merge, closure or explicit handoff. The read-only observer identifies it by
 repository and pull-request number, never by a commit SHA. Each fresh snapshot
 reads the current head, reviews including `COMMENTED` submissions, all review
-threads, checks and merge state, then verifies the head again; a mixed-head
-snapshot is discarded. Reviews from older heads and their unresolved threads
+threads, checks and merge state, then verifies both the head and open state
+again; a mixed-head snapshot is discarded and a terminal transition is reported
+immediately. Reviews from older heads and their unresolved threads
 remain visible, but only review of the current head satisfies the merge gate. A
 remote head not contained locally remains an immediate coordination block and is
 reconciled only through the exact-SHA helper above.
