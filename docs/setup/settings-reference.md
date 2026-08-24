@@ -23,7 +23,7 @@ defaults below.
 | Pushed authorization requests | Automatic with availability fallback | use Required when authorization parameters must never pass through the browser, or Disabled for a provider whose optional PAR path is intentionally unreachable; a provider requirement always wins |
 | Username claim | `preferred_username` | the provider guide specifies `email`, a vendor claim or a custom mapping |
 | Claims source | Automatic | all required claims must come only from the ID Token, or UserInfo is explicitly required |
-| Authorization response mode | Query | Apple with requested user scopes requires Form POST |
+| Authorization response mode | Query | Apple with requested user scopes requires Form POST; select signed Query or signed Form POST only for a provider configured to return JARM |
 | Required authentication | Provider policy only; no additional `acr`/`amr` decision | require the verified ID Token to prove MFA or phishing-resistant authentication before local account and session processing |
 | Authentication context request | provider preset; essential `acr` for Generic and `acr_values` for Okta | the provider documents a different request form |
 | Accepted authentication contexts | requirement/provider preset | the provider uses an installation-specific, documented exact `acr` value |
@@ -69,6 +69,13 @@ Passwordless is deliberately not a separate policy because it describes the
 sign-in experience rather than a portable assurance level; Passkeys and FIDO2
 belong under phishing-resistant authentication.
 
+The signed Query and signed Form POST choices request JARM. OPNsense then accepts
+only the `response` JWT, verifies an advertised supported asymmetric signature,
+exact issuer and client audience, time and the one-time transaction state, and
+only afterwards processes its code or provider error. Encrypted JARM responses
+are not supported. Register or enable the matching signed authorization-response
+algorithm at the provider before selecting either mode.
+
 Selecting a client certificate while **Authentication method** follows the
 provider negotiates only `tls_client_auth` or
 `self_signed_tls_client_auth`; it never falls back to a shared secret. An
@@ -80,7 +87,6 @@ longest pending-login, access-token, refresh-token and WebGUI-session lifetime
 has elapsed. Replacing certificate material under the same OPNsense reference
 does not bypass this rule because each transaction also freezes its SHA-256
 thumbprint.
-
 Shared Signals is independent of offering new logins. It only ends sessions
 previously created by the same saved authentication server and never changes a
 local account, binding, group or privilege. See the [receiver setup](shared-signals.md)

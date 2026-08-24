@@ -77,7 +77,7 @@ class OpenIDConnect extends Base implements IAuthConnector
         'wso2', 'zitadel', 'linkedin', 'slack', 'yahoo', 'orcid',
     ];
     public const CLAIMS_SOURCES = ['auto', 'id_token', 'userinfo'];
-    public const RESPONSE_MODES = ['query', 'form_post'];
+    public const RESPONSE_MODES = ['query', 'form_post', 'query.jwt', 'form_post.jwt'];
     public const BOOTSTRAP_MODES = ['strict', 'approval', 'username', 'verified_email', 'either'];
     public const MICROSOFT_AUDIENCES = ['tenant', 'organizations', 'consumers', 'common'];
     public const ORIGIN_POLICIES = ['opnsense', 'custom'];
@@ -358,10 +358,18 @@ class OpenIDConnect extends Base implements IAuthConnector
             ],
             'openidconnect_response_mode' => [
                 'name' => gettext('Authorization response mode'),
-                'help' => gettext('Query is the interoperable default. Apple uses form_post when scopes are requested.'),
+                'help' => gettext(
+                    'Query is the interoperable default. Apple uses Form POST when scopes are requested. ' .
+                    'The JARM choices require a provider that returns signed authorization responses.'
+                ),
                 'type' => 'dropdown',
                 'default' => 'query',
-                'options' => ['query' => gettext('Query'), 'form_post' => gettext('Form POST')],
+                'options' => [
+                    'query' => gettext('Query'),
+                    'form_post' => gettext('Form POST'),
+                    'query.jwt' => gettext('Signed query (JARM)'),
+                    'form_post.jwt' => gettext('Signed Form POST (JARM)'),
+                ],
                 'validate' => fn($value) => in_array($value ?: 'query', self::RESPONSE_MODES, true)
                     ? [] : [gettext('Unknown response mode.')],
             ],

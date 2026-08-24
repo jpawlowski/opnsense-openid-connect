@@ -372,7 +372,7 @@ class AuthController extends ApiControllerBase
         }
 
         try {
-            $exchange = new RelyingParty($settings, $this, null, $clientAuthentication);
+            $exchange = new RelyingParty($settings, $this, null, null, $clientAuthentication);
             /*
              * A server name can be reused for another issuer after this session was
              * created. Never hand grants from the former issuer to endpoints discovered
@@ -562,7 +562,7 @@ class AuthController extends ApiControllerBase
     {
         $parameters = [];
         foreach ([
-            'state', 'code', 'iss', 'error', 'error_description', 'error_uri', 'session_state',
+            'response', 'state', 'code', 'iss', 'error', 'error_description', 'error_uri', 'session_state',
             'access_token', 'id_token', 'token_type', 'expires_in',
         ] as $name) {
             $value = $this->request->isPost()
