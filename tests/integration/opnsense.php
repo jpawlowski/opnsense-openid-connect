@@ -58,7 +58,7 @@ foreach ([
     'ProtocolException', 'ProviderUnavailableException', 'SecurityEventException', 'HttpResponse', 'HttpClient',
     'ProviderCache', 'ProviderMetadata', 'ProviderRuntimeState',
     'SharedSignalsMetadata', 'JwtVerifier', 'RequestObjectSigner', 'SecurityEventVerifier', 'PendingIdentityRegistry',
-    'SessionRegistry', 'TransactionRegistry', 'WebGuiAccess', 'ParClient',
+    'SessionRegistry', 'TransactionRegistry', 'WebGuiAccess', 'ParClient', 'ProviderProbe',
 ] as $class) {
     require_once $library . $class . '.php';
 }
@@ -366,6 +366,11 @@ $aclAccountWriterName = 'openidconnect-account-writer-' . bin2hex(random_bytes(6
 $aclAccountWriter->addChild('name', $aclAccountWriterName);
 $aclAccountWriter->addChild('uid', '65003');
 $aclAccountWriter->addChild('priv', 'page-system-authservers,page-system-usermanager');
+$aclDiscovery = $system->addChild('user');
+$aclDiscoveryName = 'openidconnect-discovery-admin-' . bin2hex(random_bytes(6));
+$aclDiscovery->addChild('name', $aclDiscoveryName);
+$aclDiscovery->addChild('uid', '65004');
+$aclDiscovery->addChild('priv', 'page-system-openidconnect-discovery');
 $delegatedAcl = new ACL();
 $check($delegatedAcl->isPageAccessible($aclProbeName, '/system_authservers.php'),
     'authentication-server privilege retains the core server page');
@@ -373,6 +378,10 @@ $check($delegatedAcl->isPageAccessible($aclProbeName, '/api/openidconnect/approv
     'authentication-server privilege includes the OIDC identity manager API');
 $check($delegatedAcl->isPageAccessible($aclProbeName, '/api/openidconnect/health/status'),
     'authentication-server privilege includes the read-only OIDC health API');
+$check(!$delegatedAcl->isPageAccessible($aclProbeName, '/api/openidconnect/health/probe'),
+    'authentication-server privilege does not grant a live probe of an unfinished provider URL');
+$check($delegatedAcl->isPageAccessible($aclDiscoveryName, '/api/openidconnect/health/probe'),
+    'the Discovery privilege includes the live current-form health probe');
 $check(!$delegatedAcl->isPageAccessible($aclProbeName, '/api/openidconnect/test/start'),
     'identity management does not grant the separate OIDC sign-in-test privilege');
 $check($delegatedAcl->hasPrivilege($aclProbeName, 'user-config-readonly'),
