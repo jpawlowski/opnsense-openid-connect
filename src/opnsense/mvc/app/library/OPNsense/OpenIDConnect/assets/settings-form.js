@@ -1208,6 +1208,7 @@
             .append($('<option value="frontchannel">').text(
                 options.setupFrontchannelLabel || 'Front-channel'
             ));
+        var receiver = field('openidconnect_logout_notifications');
         var button = $('<button class="btn btn-default">')
             .attr({ type: 'button' })
             .text(options.setupLabel || 'Download provider setup');
@@ -1235,7 +1236,19 @@
             };
         }
 
+        function synchronizeLogoutChannel() {
+            if (!receiver) {
+                return;
+            }
+            var selected = channel.val();
+            if (receiver.value !== 'both' && receiver.value !== selected) {
+                $(receiver).val(selected).trigger('change');
+                refreshSelectPicker(receiver);
+            }
+        }
+
         function generate(download) {
+            synchronizeLogoutChannel();
             var appCode = field('openidconnect_app_code');
             if (appCode && applicationCodeConflict(appCode.value)) {
                 $(appCode).trigger('input').trigger('focus');
@@ -1309,6 +1322,15 @@
 
         button.on('click', function () { generate(true); });
         guideButton.on('click', function () { generate(false); });
+        if (receiver && ['backchannel', 'frontchannel'].indexOf(receiver.value) !== -1) {
+            channel.val(receiver.value);
+        }
+        channel.on('change', synchronizeLogoutChannel);
+        $(receiver).on('change', function () {
+            if (['backchannel', 'frontchannel'].indexOf(receiver.value) !== -1) {
+                channel.val(receiver.value);
+            }
+        });
         panel.append(channel, button, guideButton);
         var setupSection = formActionSection(
             'provider-setup', options.providerSetupActionsHeading || 'Provider setup'

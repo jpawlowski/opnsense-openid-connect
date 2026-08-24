@@ -14,6 +14,9 @@ final class AuthorizationPreflight
 {
     private const MAX_BYTES = 65536;
     private const REDIRECT_STATUSES = [301, 302, 303, 307, 308];
+    private const SILENT_INTERACTION_ERRORS = [
+        'login_required', 'interaction_required', 'account_selection_required', 'consent_required',
+    ];
 
     public function __construct(private readonly HttpClient $http)
     {
@@ -81,12 +84,25 @@ final class AuthorizationPreflight
 
         if (in_array($response->status, self::REDIRECT_STATUSES, true)) {
             $location = $response->headers['location'] ?? null;
-            if (is_string($location) && $this->isAcceptedCallback($location, $redirectUri, $state)) {
+            $callback = is_string($location)
+                ? $this->callbackOutcome($location, $redirectUri, $state)
+                : null;
+            if ($callback === 'accepted') {
                 return $this->result(
                     'success',
                     gettext('Client ID and callback accepted'),
                     gettext(
                         'A silent authorization request returned to the exact callback without authenticating a user.'
+                    ),
+                    'live'
+                );
+            }
+            if ($callback === 'rejected') {
+                return $this->result(
+                    'error',
+                    gettext('Client registration rejected'),
+                    gettext(
+                        'The authorization endpoint rejected the Client ID, callback, or preliminary request before sign-in.'
                     ),
                     'live'
                 );
@@ -124,16 +140,28 @@ final class AuthorizationPreflight
         return compact('status', 'value', 'note', 'verification');
     }
 
-    private function isAcceptedCallback(string $location, string $redirectUri, string $state): bool
+    private function callbackOutcome(string $location, string $redirectUri, string $state): ?string
     {
         if (str_contains($location, '#') || !str_starts_with($location, $redirectUri . '?')) {
-            return false;
+            return null;
         }
         if (!hash_equals($redirectUri, substr($location, 0, strlen($redirectUri)))) {
-            return false;
+            return null;
         }
         parse_str((string)parse_url($location, PHP_URL_QUERY), $parameters);
-        return is_string($parameters['state'] ?? null) && hash_equals($state, $parameters['state']);
+        if (!is_string($parameters['state'] ?? null) || !hash_equals($state, $parameters['state'])) {
+            return null;
+        }
+        $error = $parameters['error'] ?? null;
+        if (!is_string($error) || $error === '') {
+            return 'inconclusive';
+        }
+        if (array_key_exists('code', $parameters)
+            || array_key_exists('id_token', $parameters)
+            || array_key_exists('access_token', $parameters)) {
+            return 'rejected';
+        }
+        return in_array($error, self::SILENT_INTERACTION_ERRORS, true) ? 'accepted' : 'rejected';
     }
 
     private static function randomValue(): string

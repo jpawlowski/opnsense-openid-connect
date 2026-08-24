@@ -67,6 +67,36 @@ Checks::that('an untrusted provider error body is not reflected', str_contains(
     'untrusted provider detail'
 ), false);
 
+$callbackRejection = (new AuthorizationPreflight(new HttpClient(static function (
+    string $method,
+    string $url
+) use ($preflightCallback): array {
+    parse_str((string)parse_url($url, PHP_URL_QUERY), $parameters);
+    return [
+        'status' => 302,
+        'content_type' => 'text/html',
+        'body' => '',
+        'location' => $preflightCallback . '?error=unauthorized_client&state=' . rawurlencode($parameters['state']),
+    ];
+})))->check($preflightSettings, $preflightMetadata, $preflightCallback);
+Checks::that('a registration error returned to the exact callback blocks the browser test',
+    $callbackRejection['status'], 'error');
+
+$unexpectedSuccess = (new AuthorizationPreflight(new HttpClient(static function (
+    string $method,
+    string $url
+) use ($preflightCallback): array {
+    parse_str((string)parse_url($url, PHP_URL_QUERY), $parameters);
+    return [
+        'status' => 302,
+        'content_type' => 'text/html',
+        'body' => '',
+        'location' => $preflightCallback . '?code=unused&state=' . rawurlencode($parameters['state']),
+    ];
+})))->check($preflightSettings, $preflightMetadata, $preflightCallback);
+Checks::that('only an expected silent-interaction error proves the registration',
+    $unexpectedSuccess['status'], 'warning');
+
 $wrongCallback = (new AuthorizationPreflight(new HttpClient(static function (
     string $method,
     string $url

@@ -277,6 +277,13 @@ async function configureServer(page) {
   await expect(providerSetupSection).toBeVisible();
   const setupChannel = providerSetupSection.locator('select');
   expect(await setupChannel.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThan(35);
+  const logoutNotifications = page.locator('select[name="openidconnect_logout_notifications"]');
+  await expect(logoutNotifications).toHaveValue('backchannel');
+  await selectNative(setupChannel, 'frontchannel');
+  await expect(logoutNotifications).toHaveValue('frontchannel');
+  await expect(selectPickerButton(logoutNotifications)).toContainText('Front-channel');
+  await selectNative(setupChannel, 'backchannel');
+  await expect(logoutNotifications).toHaveValue('backchannel');
   await expect(page.locator('input[name="openidconnect_provider_url"]')).toHaveValue('');
   await expect(page.locator('select[name="openidconnect_origin_policy"]')).toHaveValue('opnsense');
   await expect(page.locator('input[name="openidconnect_redirect_urls"]').locator('xpath=ancestor::tr')).toBeVisible();
@@ -298,7 +305,7 @@ async function configureServer(page) {
   // The Keycloak preset deliberately recommends back-channel only. This broad
   // interoperability test opts into both so it can exercise the alternative
   // front-channel notification later without weakening the preset itself.
-  await selectNative(page.locator('select[name="openidconnect_logout_notifications"]'), 'both');
+  await selectNative(logoutNotifications, 'both');
   await page.locator('input[name="openidconnect_debug"]').check();
 
   // The current unsaved form is sufficient to produce a no-secret provider import.
