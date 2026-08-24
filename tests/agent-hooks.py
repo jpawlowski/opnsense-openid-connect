@@ -11,6 +11,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tests"))
@@ -21,6 +22,13 @@ import harness  # noqa: E402
 
 def load_hook():
     spec = importlib.util.spec_from_file_location("fast_gate", ROOT / ".agents" / "hooks" / "fast_gate.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_agent_module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -61,8 +69,16 @@ def main():
           all("/.agents/hooks/fast_gate.py\"" in command for command in commands))
     start_timeout = configuration["hooks"]["SessionStart"][0]["hooks"][0]["timeout"]
     check("SessionStart allows both bounded fork fetches", start_timeout, 60)
+    pre_tool = configuration["hooks"]["PreToolUse"][0]
+    check("the guard observes shell, patch and delegated-agent tools",
+          all(name in pre_tool["matcher"] for name in ("Bash", "apply_patch", "Agent")), True)
+    check("the guard has enough time for one bounded refresh", pre_tool["hooks"][0]["timeout"], 60)
+    check("supporting subagents receive read-only context",
+          "SubagentStart" in configuration["hooks"], True)
     stop_timeout = configuration["hooks"]["Stop"][0]["hooks"][0]["timeout"]
     check("the Stop hook allows two bounded fetches and the test gate", stop_timeout, 120)
+    check("SessionEnd can wait for a serialized cleanup decision",
+          configuration["hooks"]["SessionEnd"][0]["hooks"][0]["timeout"], 60)
     copilot = json.loads((ROOT / ".github" / "hooks" / "agent-hygiene.json").read_text(encoding="utf-8"))
     copilot_hooks = [hook for hooks in copilot["hooks"].values() for hook in hooks]
     check("Copilot's schema adapter uses only the shared implementation",
@@ -92,6 +108,7 @@ def main():
             }
         )
         hook.state_paths = lambda event: (state, state.with_suffix(".log"))
+        hook.observe_remote = lambda task_state, synchronization: ("", "")
         hook.initialize({})
         check("session startup installs the local settings", configured, [hook.REPOSITORY])
 
@@ -323,16 +340,523 @@ def main():
         check("the divergent local main commit remains untouched", subprocess.run(
             ("git", "rev-parse", "main"), cwd=clone, check=True, capture_output=True, text=True,
         ).stdout.strip(), local_head)
-        progress = hook.main_progress(worktree, {
+        drift_state = {
             "base_main": remote_head, "seen_main": remote_head,
-        }, refused["base_main"], refused["base_name"])
+        }
+        progress = hook.main_progress(worktree, drift_state, refused["base_main"], refused["base_name"])
         check("overlapping remote and agent paths are called out", "shared.txt" in progress, True)
         check("progress identifies the selected canonical ref", "origin/main advanced" in progress, True)
+        check("overlapping canonical progress becomes pending",
+              drift_state["pending_main"], refused["base_main"])
+        check("pending overlap blocks another write",
+              "acknowledge-main" in hook.pending_main_refusal(
+                  worktree, drift_state, refused["base_main"], refused["base_name"],
+              ), True)
+        drift_state["acknowledged_main"] = refused["base_main"]
+        check("a deliberate deferral releases the write guard",
+              hook.pending_main_refusal(
+                  worktree, drift_state, refused["base_main"], refused["base_name"],
+              ), "")
         check("observing remote progress never rewrites the agent branch", subprocess.run(
             ("git", "rev-parse", "HEAD"), cwd=worktree, check=True, capture_output=True, text=True,
         ).stdout.strip(), agent_head)
         lag = hook.branch_lag(worktree, refused["base_main"], refused["base_name"])
         check("a stale topic branch is reported without rewriting it", "commit(s) behind origin/main" in lag, True)
+
+    group("The local control checkout is readable but not writable by agents")
+    guard_module = load_agent_module(
+        "agent_guard_test", ROOT / ".agents" / "hooks" / "agent_guard.py",
+    )
+    check("searches are read-only", guard_module.is_read_only_shell("rg worktree AGENTS.md"), True)
+    check("Git status is read-only", guard_module.is_read_only_shell("git status --short"), True)
+    check("GitHub pull request inspection is read-only",
+          guard_module.is_read_only_shell("gh pr view 42 --json headRefOid"), True)
+    check("GitHub API GET inspection is read-only",
+          guard_module.is_read_only_shell("gh api repos/example/project/pulls/42"), True)
+    check("the worktree bootstrap is an allowed control operation",
+          guard_module.is_read_only_shell(
+              "python3 .agents/worktrees.py create example --client codex",
+          ), True)
+    check("the issue claim helper is an allowed coordination operation",
+          guard_module.is_read_only_shell("python3 .agents/issues.py claim 42"), True)
+    check("issue creation may bootstrap public coordination before a claim",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash", "tool_input": {"command": "gh issue create --title example"},
+          }), True)
+    check("shell redirection is not read-only", guard_module.is_read_only_shell("rg value . > result"), False)
+    check("bounded sed line inspection remains read-only",
+          guard_module.is_read_only_shell("sed -n 1,20p AGENTS.md"), True)
+    check("a sed write command is not disguised as inspection",
+          guard_module.is_read_only_shell("sed -n 'w leaked.txt' AGENTS.md"), False)
+    check("in-place editing is not read-only", guard_module.is_read_only_shell("sed -i old new file"), False)
+    check("long in-place editing is not read-only",
+          guard_module.is_read_only_shell("sed --in-place old new file"), False)
+    check("Git checkout is not read-only", guard_module.is_read_only_shell("git checkout other"), False)
+    check("a mutating option cannot hide behind Git branch listing",
+          guard_module.is_read_only_shell("git branch --list -D old"), False)
+    check("a forced Git branch update cannot hide behind listing",
+          guard_module.is_read_only_shell("git branch --list --force old HEAD"), False)
+    check("a mutating option cannot hide behind Git config listing",
+          guard_module.is_read_only_shell("git config --list --unset user.name"), False)
+    check("a mutating remote command cannot hide behind verbose output",
+          guard_module.is_read_only_shell("git remote -v add other example.invalid/repo"), False)
+    check("a compound command fails closed", guard_module.is_read_only_shell("git status && git diff"), False)
+    check("an unclassified test command fails closed", guard_module.is_read_only_shell("./tests/run.sh"), False)
+    check("Git push forces an uncached remote observation", guard_module.requires_uncached_remote({
+        "tool_name": "Bash", "tool_input": {"command": "git push origin codex/topic"},
+    }), True)
+    check("GitHub CLI publication forces an uncached remote observation", guard_module.requires_uncached_remote({
+        "tool_name": "Bash", "tool_input": {"command": "gh pr ready"},
+    }), True)
+    check("GitHub API mutation forces an uncached remote observation", guard_module.requires_uncached_remote({
+        "tool_name": "Bash", "tool_input": {"command": "gh api --method PATCH repos/example/project/pulls/42"},
+    }), True)
+    check("a detached worktree needs a branch before commit", guard_module.requires_topic_branch({
+        "tool_name": "Bash", "tool_input": {"command": "git commit -m 'test: durable work'"},
+    }), True)
+    check("ordinary detached worktree tests need no branch", guard_module.requires_topic_branch({
+        "tool_name": "Bash", "tool_input": {"command": "./tests/run.sh"},
+    }), False)
+    check("a delegated read-only marker is required", guard_module.is_read_only_agent({
+        "tool_input": {"message": "[read-only] inspect the protocol"},
+    }), True)
+    check("an unmarked delegated task is not read-only", guard_module.is_read_only_agent({
+        "tool_input": {"message": "implement the protocol"},
+    }), False)
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = pathlib.Path(temporary)
+        control = root / "control"
+        linked = root / "linked"
+        subprocess.run(("git", "init", "-b", "main", "-q", str(control)), check=True)
+        subprocess.run(("git", "config", "user.name", "Test"), cwd=control, check=True)
+        subprocess.run(("git", "config", "user.email", "test"), cwd=control, check=True)
+        subprocess.run((
+            "git", "remote", "add", "origin", "https://github.com/jpawlowski/opnsense-openid-connect.git",
+        ), cwd=control, check=True)
+        (control / "base.txt").write_text("base\n", encoding="utf-8")
+        subprocess.run(("git", "add", "base.txt"), cwd=control, check=True)
+        subprocess.run(("git", "commit", "-q", "-m", "test: seed"), cwd=control, check=True)
+        subprocess.run(("git", "worktree", "add", "-q", "-b", "codex/test", str(linked)),
+                       cwd=control, check=True)
+
+        check("the primary checkout is recognized", guard_module.is_primary_worktree(control), True)
+        check("a linked worktree is isolated", guard_module.is_primary_worktree(linked), False)
+        subprocess.run(("git", "checkout", "--detach", "-q"), cwd=linked, check=True)
+        check("a detached linked worktree remains isolated", guard_module.is_primary_worktree(linked), False)
+
+        check("the first writer acquires a clean worktree",
+              guard_module.acquire_lease(linked, "session-one", now=0), "")
+        check("the same writer refreshes its lease",
+              guard_module.acquire_lease(linked, "session-one", now=1), "")
+        check("another live writer is refused",
+              "another writing task" in guard_module.acquire_lease(linked, "session-two", now=2), True)
+        check("a stale clean lease can be taken over",
+              guard_module.acquire_lease(linked, "session-two", now=guard_module.LEASE_TTL + 2), "")
+        guard_module.release_lease(linked, "session-two")
+
+        check("a clean worktree can be leased again",
+              guard_module.acquire_lease(linked, "session-one", now=0), "")
+        (linked / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+        check("a stale dirty worktree is never taken over",
+              "dirty worktree" in guard_module.acquire_lease(
+                  linked, "session-two", now=guard_module.LEASE_TTL + 1,
+              ), True)
+        guard_module.release_lease(linked, "session-one")
+        check("ending a dirty task preserves its resumable ownership",
+              guard_module.read_lease(linked).get("session_id"), "session-one")
+        check("the same task can resume its dirty worktree",
+              guard_module.acquire_lease(linked, "session-one", now=guard_module.LEASE_TTL + 2), "")
+        (linked / "dirty.txt").unlink()
+        guard_module.release_lease(linked, "session-one")
+
+        hook = load_hook()
+        hook.REPOSITORY = control
+        emitted = []
+        hook.emit = emitted.append
+        hook.guard({"session_id": "primary", "tool_name": "apply_patch", "tool_input": {"command": "patch"}})
+        check("a patch in the control checkout is blocked",
+              emitted[0]["hookSpecificOutput"]["permissionDecision"], "deny")
+        emitted.clear()
+        hook.guard({
+            "session_id": "primary", "tool_name": "Bash",
+            "tool_input": {"command": "gh issue create --title coordination"},
+        })
+        check("the control checkout may create the issue needed before implementation", emitted[0], {})
+
+        hook = load_hook()
+        hook.REPOSITORY = linked
+        hook.synchronize_repository = lambda repository, max_age: {
+            "base_main": "base", "old_base": "base", "base_name": "origin/main",
+            "warning": "", "remote_available": True, "execution": "local",
+        }
+        hook.observe_remote = lambda state, synchronization, pr_max_age=None: ("", "")
+        state = root / "guard-state.json"
+        hook.state_paths = lambda event: (state, state.with_suffix(".log"))
+        emitted = []
+        hook.emit = emitted.append
+        hook.guard({
+            "session_id": "writer-one", "tool_name": "Bash",
+            "tool_input": {"command": "git commit -m 'test: detached'"},
+        })
+        check("a durable commit is blocked while the isolated worktree is detached",
+              emitted[0]["hookSpecificOutput"]["permissionDecision"], "deny")
+        emitted.clear()
+        hook.guard({"session_id": "writer-one", "tool_name": "apply_patch", "tool_input": {"command": "patch"}})
+        check("an isolated writer without a public issue claim is blocked",
+              "No exclusive issue claim" in emitted[0]["hookSpecificOutput"]["permissionDecisionReason"], True)
+        hook.issue_claim.save_registry(linked, {
+            "version": 1,
+            "claims": {str(linked.resolve()): {"issue": 42, "status": "active"}},
+        })
+        emitted.clear()
+        hook.guard({"session_id": "writer-one", "tool_name": "apply_patch", "tool_input": {"command": "patch"}})
+        check("a claimed writer in an isolated clean worktree is allowed", emitted[0], {})
+        hook.guard({"session_id": "writer-two", "tool_name": "apply_patch", "tool_input": {"command": "patch"}})
+        check("a second worktree writer is blocked",
+              emitted[1]["hookSpecificOutput"]["permissionDecision"], "deny")
+        guard_module.release_lease(linked, "writer-one")
+
+    group("Issue claims are unique, race-safe and completely temporary")
+    claim_module = load_agent_module(
+        "issue_claim_test", ROOT / ".agents" / "hooks" / "issue_claim.py",
+    )
+    with tempfile.TemporaryDirectory() as temporary:
+        repository = pathlib.Path(temporary) / "repository"
+        subprocess.run(("git", "init", "-b", "codex/claimed", "-q", str(repository)), check=True)
+        subprocess.run(("git", "config", "user.name", "Test"), cwd=repository, check=True)
+        subprocess.run(("git", "config", "user.email", "test"), cwd=repository, check=True)
+        (repository / "base.txt").write_text("base\n", encoding="utf-8")
+        subprocess.run(("git", "add", "base.txt"), cwd=repository, check=True)
+        subprocess.run(("git", "commit", "-q", "-m", "test: seed"), cwd=repository, check=True)
+        issue = {
+            "number": 36, "state": "OPEN", "labels": [], "comments": [], "assignees": [],
+            "url": "https://example.invalid/issues/36",
+        }
+        label_definitions = set()
+
+        def issue_copy(_number):
+            return json.loads(json.dumps(issue))
+
+        def fake_gh(arguments, json_output=False):
+            arguments = tuple(arguments)
+            if arguments[:2] == ("api", "user"):
+                return "publisher"
+            if arguments[:2] == ("label", "create"):
+                label_definitions.add(arguments[2])
+                return ""
+            if arguments[:2] == ("label", "delete"):
+                label_definitions.discard(arguments[2])
+                return ""
+            if arguments[:2] == ("issue", "edit"):
+                if "--add-label" in arguments:
+                    label = arguments[arguments.index("--add-label") + 1]
+                    issue["labels"].append({"name": label})
+                if "--remove-label" in arguments:
+                    label = arguments[arguments.index("--remove-label") + 1]
+                    issue["labels"] = [value for value in issue["labels"] if value["name"] != label]
+                return ""
+            if arguments[:2] == ("issue", "comment"):
+                body = arguments[arguments.index("--body") + 1]
+                token = claim_module.CLAIM_PATTERN.search(body).group(1)
+                issue["comments"].append({
+                    "body": body, "id": f"comment-{token}",
+                    "url": f"https://example.invalid/comments/{token}", "createdAt": "2026-08-24T00:00:00Z",
+                })
+                return ""
+            if arguments[:2] == ("api", "graphql"):
+                comment_id = next(value.removeprefix("id=") for value in arguments if value.startswith("id="))
+                issue["comments"] = [value for value in issue["comments"] if value["id"] != comment_id]
+                return ""
+            if arguments[:2] == ("pr", "view"):
+                return {
+                    "number": 41, "state": "OPEN", "body": "Fixes #36",
+                    "headRefName": "codex/claimed",
+                    "headRefOid": subprocess.run(
+                        ("git", "rev-parse", "HEAD"), cwd=repository, check=True,
+                        capture_output=True, text=True,
+                    ).stdout.strip(),
+                    "url": "https://example.invalid/pulls/41",
+                }
+            raise AssertionError(arguments)
+
+        claim_module._issue = issue_copy
+        claim_module._gh = fake_gh
+        claimed = claim_module.claim(repository, 36, now=1_777_000_000)
+        check("the WIP label embeds the claim timestamp",
+              claimed["label"].startswith("wip:1777000000-"), True)
+        check("the marker and issue label carry the same unique id",
+              claimed["token"] in issue["comments"][0]["body"]
+              and issue["labels"] == [{"name": claimed["label"]}], True)
+        linked_claim = claim_module.linked(repository, 41)
+        check("the linked pull request replaces the issue lock", linked_claim["status"], "pr-linked")
+        check("linking deletes the comment, issue label and repository label definition",
+              (issue["comments"], issue["labels"], label_definitions), ([], [], set()))
+        try:
+            claim_module.claim(repository, 37, now=1_777_000_001)
+            replaced = True
+        except RuntimeError:
+            replaced = False
+        check("one worktree cannot abandon its current claim by claiming another issue", replaced, False)
+        claim_module.forget(repository)
+        released_claim = claim_module.claim(repository, 37, now=1_777_000_001)
+        claim_module.release(repository)
+        check("stopping before a pull request removes every public and local claim artifact",
+              (released_claim["label"] in label_definitions, issue["comments"], issue["labels"],
+               claim_module.current_claim(repository)), (False, [], [], None))
+
+    group("Open pull requests are observed without mutating GitHub")
+    watch = load_agent_module(
+        "github_watch_test", ROOT / ".agents" / "hooks" / "github_watch.py",
+    )
+    with tempfile.TemporaryDirectory() as temporary:
+        repository = pathlib.Path(temporary) / "repository"
+        subprocess.run(("git", "init", "-b", "codex/watch", "-q", str(repository)), check=True)
+        subprocess.run(("git", "config", "user.name", "Test"), cwd=repository, check=True)
+        subprocess.run(("git", "config", "user.email", "test"), cwd=repository, check=True)
+        subprocess.run((
+            "git", "remote", "add", "origin", "https://github.com/jpawlowski/opnsense-openid-connect.git",
+        ), cwd=repository, check=True)
+        (repository / "shared.txt").write_text("base\n", encoding="utf-8")
+        subprocess.run(("git", "add", "shared.txt"), cwd=repository, check=True)
+        subprocess.run(("git", "commit", "-q", "-m", "test: seed"), cwd=repository, check=True)
+        head = subprocess.run(("git", "rev-parse", "HEAD"), cwd=repository, check=True,
+                              capture_output=True, text=True).stdout.strip()
+        calls = []
+
+        def reader(_repository, path, _token):
+            calls.append(path)
+            if path.startswith("pulls?state=open"):
+                return [
+                    {"number": 1, "title": "Current", "html_url": "https://example.invalid/1", "draft": True,
+                     "head": {"ref": "codex/watch", "sha": head,
+                              "repo": {"full_name": "jpawlowski/opnsense-openid-connect"}}},
+                    {"number": 2, "title": "Other", "html_url": "https://example.invalid/2", "draft": False,
+                     "head": {"ref": "codex/other", "sha": "other",
+                              "repo": {"full_name": "jpawlowski/opnsense-openid-connect"}}},
+                ]
+            if path.startswith("pulls/1/files") or path.startswith("pulls/2/files"):
+                return [{"filename": "shared.txt"}]
+            if path == "pulls/1":
+                return {"html_url": "https://example.invalid/1", "draft": True, "mergeable": True,
+                        "mergeable_state": "clean", "head": {"sha": head}}
+            if path.startswith("pulls/1/reviews"):
+                return [{"user": {"login": "reviewer"}, "state": "APPROVED", "commit_id": head}]
+            if path.startswith(f"commits/{head}/check-runs"):
+                return {"check_runs": [{"status": "completed", "conclusion": "success"}]}
+            if path == f"commits/{head}/status":
+                return {"state": "success"}
+            raise AssertionError(f"unexpected GitHub path {path}")
+
+        watch.github_token = lambda environment=None: ""
+        watch.github_graphql = lambda owner, name, number, token: None
+        snapshot, warning = watch.refresh(
+            repository, repository / ".git", "jpawlowski/opnsense-openid-connect",
+            max_age=0, now=10, reader=reader,
+        )
+        check("the public fallback returned no warning", warning, "")
+        check("the current pull request is matched by branch and repository",
+              snapshot["current"]["number"], 1)
+        check("checks and reviews are summarized",
+              (snapshot["current"]["checks"], snapshot["current"]["review_decision"]),
+              ("passing", "approved"))
+        check("an approval on an older head is stale", watch._review_decision([
+            {"user": {"login": "reviewer"}, "state": "APPROVED", "commit_id": "older"},
+        ], head), "stale approval")
+        check("unavailable review threads remain explicitly unknown",
+              snapshot["current"]["unresolved_threads"], None)
+        check("a pull request leaving the open set ends the waiting phase",
+              "closed or merged" in watch.state_notice(snapshot["current"], None), True)
+        check("another open pull request reports changed-path overlap",
+              "#2" in watch.overlap_notice(snapshot, {"shared.txt"}), True)
+        check("the matching remote head is safe", watch.remote_head_refusal(repository, snapshot), "")
+        first_calls = len(calls)
+        cached, warning = watch.refresh(
+            repository, repository / ".git", "jpawlowski/opnsense-openid-connect",
+            max_age=watch.PR_REFRESH_TTL, now=11, reader=reader,
+        )
+        check("a fresh task-local PR snapshot is reused", len(calls), first_calls)
+        check("the cached snapshot keeps its current pull request", cached["current"]["number"], 1)
+        tree = subprocess.run(("git", "rev-parse", "HEAD^{tree}"), cwd=repository, check=True,
+                              capture_output=True, text=True).stdout.strip()
+        foreign = subprocess.run(("git", "commit-tree", tree, "-p", head, "-m", "test: foreign"),
+                                 cwd=repository, check=True, capture_output=True, text=True).stdout.strip()
+        snapshot["current"]["head_sha"] = foreign
+        check("a foreign remote head blocks more local writing",
+              "not contained" in watch.remote_head_refusal(repository, snapshot), True)
+
+    group("Finished worktrees retire before local branches and never delete remote branches")
+    cleanup = load_agent_module(
+        "worktree_cleanup_test", ROOT / ".agents" / "hooks" / "worktree_cleanup.py",
+    )
+    cleanup.github_watch.github_token = lambda environment=None: ""
+    with tempfile.TemporaryDirectory() as temporary:
+        control = pathlib.Path(temporary) / "control"
+        linked = pathlib.Path(temporary) / "linked"
+        subprocess.run(("git", "init", "-b", "main", "-q", str(control)), check=True)
+        subprocess.run(("git", "config", "user.name", "Test"), cwd=control, check=True)
+        subprocess.run(("git", "config", "user.email", "test"), cwd=control, check=True)
+        subprocess.run((
+            "git", "remote", "add", "origin", "https://github.com/jpawlowski/opnsense-openid-connect.git",
+        ), cwd=control, check=True)
+        (control / ".gitignore").write_text("ignored/\n", encoding="utf-8")
+        (control / "base.txt").write_text("base\n", encoding="utf-8")
+        subprocess.run(("git", "add", ".gitignore", "base.txt"), cwd=control, check=True)
+        subprocess.run(("git", "commit", "-q", "-m", "test: seed"), cwd=control, check=True)
+        subprocess.run(("git", "worktree", "add", "-q", "-b", "codex/cleanup", str(linked)),
+                       cwd=control, check=True)
+        (linked / "feature.txt").write_text("feature\n", encoding="utf-8")
+        subprocess.run(("git", "add", "feature.txt"), cwd=linked, check=True)
+        subprocess.run(("git", "commit", "-q", "-m", "test: feature"), cwd=linked, check=True)
+        head = subprocess.run(("git", "rev-parse", "HEAD"), cwd=linked, check=True,
+                              capture_output=True, text=True).stdout.strip()
+        subprocess.run(("git", "update-ref", "refs/remotes/origin/codex/cleanup", head),
+                       cwd=control, check=True)
+
+        cleanup.register(linked, client="codex", slug="cleanup", managed_by="repository", now=10)
+        waiting = cleanup.finish_session(linked, "task-one", pull_number=17, now=20)
+        check("an open pull request keeps its clean worktree", "still open" in waiting, True)
+        registry = cleanup.load_registry(control)
+        record = next(iter(registry["records"].values()))
+        check("waiting work is not retired", bool(record.get("retired_at")), False)
+        retired = cleanup.finish_session(linked, "task-one", now=30)
+        check("a clean completed session enters the cleanup queue", "queued" in retired, True)
+        cleanup.register(linked, session_id="task-one", now=31)
+        registry = cleanup.load_registry(control)
+        record = next(iter(registry["records"].values()))
+        check("resuming the same task cancels its pending retirement", bool(record.get("retired_at")), False)
+        cleanup.finish_session(linked, "task-one", now=32)
+
+        def merged_reader(_repository, path, _token):
+            if path.startswith("pulls?"):
+                return [{
+                    "number": 17, "state": "closed", "merged_at": "2026-08-24T10:00:00Z",
+                    "head": {"ref": "codex/cleanup", "sha": head,
+                             "repo": {"full_name": "jpawlowski/opnsense-openid-connect"}},
+                }]
+            raise AssertionError(f"unexpected GitHub path {path}")
+
+        too_early = cleanup.inventory(
+            control, "main", "jpawlowski/opnsense-openid-connect", current_path=control,
+            now=32 + cleanup.WORKTREE_GRACE - 1, reader=merged_reader,
+        )
+        cleanup_record = next(value for value in too_early if value.get("branch") == "codex/cleanup")
+        check("a retired worktree observes its safety grace period", cleanup_record["state"], "grace")
+        current = cleanup.inventory(
+            control, "main", "jpawlowski/opnsense-openid-connect", current_path=linked,
+            now=32 + cleanup.WORKTREE_GRACE + 1, reader=merged_reader,
+        )
+        cleanup_record = next(value for value in current if value.get("branch") == "codex/cleanup")
+        check("a sweep never removes its current worktree", cleanup_record["state"], "active")
+
+        (linked / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+        dirty = cleanup.inventory(
+            control, "main", "jpawlowski/opnsense-openid-connect", current_path=control,
+            now=32 + cleanup.WORKTREE_GRACE + 1, reader=merged_reader,
+        )
+        cleanup_record = next(value for value in dirty if value.get("branch") == "codex/cleanup")
+        check("a dirty retired worktree remains blocked", cleanup_record["state"], "blocked")
+        (linked / "dirty.txt").unlink()
+        (linked / "ignored").mkdir()
+        (linked / "ignored" / "artifact").write_text("generated\n", encoding="utf-8")
+        ignored = cleanup.inventory(
+            control, "main", "jpawlowski/opnsense-openid-connect", current_path=control,
+            now=32 + cleanup.WORKTREE_GRACE + 1, reader=merged_reader,
+        )
+        cleanup_record = next(value for value in ignored if value.get("branch") == "codex/cleanup")
+        check("ignored artifacts also block deletion", cleanup_record["reason"], "ignored files")
+        (linked / "ignored" / "artifact").unlink()
+        (linked / "ignored").rmdir()
+
+        actions = cleanup.sweep(
+            control, "main", "jpawlowski/opnsense-openid-connect", current_path=control,
+            now=32 + cleanup.WORKTREE_GRACE + 1, reader=merged_reader,
+        )
+        check("the first sweep removes only the clean worktree", actions,
+              [f"removed worktree {linked.resolve()}; local branch retained"])
+        check("the local topic branch remains after worktree cleanup", subprocess.run(
+            ("git", "show-ref", "--verify", "refs/heads/codex/cleanup"), cwd=control, check=False,
+            capture_output=True, text=True,
+        ).returncode, 0)
+        actions = cleanup.sweep(
+            control, "main", "jpawlowski/opnsense-openid-connect", current_path=control,
+            now=32 + cleanup.BRANCH_GRACE + 1, reader=merged_reader,
+        )
+        check("a later sweep deletes the exactly merged local branch", actions,
+              ["deleted merged local branch codex/cleanup; no remote branch was changed"])
+        check("the remote-tracking branch is never deleted", subprocess.run(
+            ("git", "show-ref", "--verify", "refs/remotes/origin/codex/cleanup"), cwd=control, check=False,
+            capture_output=True, text=True,
+        ).returncode, 0)
+
+        subprocess.run(("git", "branch", "codex/closed", "main"), cwd=control, check=True)
+        cleanup.retire(control, "codex/closed", now=40)
+        closed_head = subprocess.run(("git", "rev-parse", "codex/closed"), cwd=control, check=True,
+                                     capture_output=True, text=True).stdout.strip()
+
+        def closed_reader(_repository, path, _token):
+            if path.startswith("pulls?"):
+                return [{
+                    "number": 18, "state": "closed", "merged_at": None,
+                    "head": {"ref": "codex/closed", "sha": closed_head,
+                             "repo": {"full_name": "jpawlowski/opnsense-openid-connect"}},
+                }]
+            raise AssertionError(f"unexpected GitHub path {path}")
+
+        closed = cleanup.inventory(
+            control, "main", "jpawlowski/opnsense-openid-connect", current_path=control,
+            now=40 + cleanup.BRANCH_GRACE + 1, reader=closed_reader,
+        )
+        closed_record = next(value for value in closed if value.get("branch") == "codex/closed")
+        check("a closed unmerged pull request blocks branch deletion", closed_record["state"], "blocked")
+
+        subprocess.run(("git", "branch", "codex/foreign", "main"), cwd=control, check=True)
+        cleanup.retire(control, "foreign", now=50)
+
+        def foreign_reader(_repository, path, _token):
+            if path.startswith("pulls?"):
+                return [{
+                    "number": 19, "state": "open", "merged_at": None,
+                    "head": {"ref": "codex/foreign", "sha": "f" * 40,
+                             "repo": {"full_name": "jpawlowski/opnsense-openid-connect"}},
+                }]
+            raise AssertionError(f"unexpected GitHub path {path}")
+
+        foreign = cleanup.inventory(
+            control, "main", "jpawlowski/opnsense-openid-connect", current_path=control,
+            now=50 + cleanup.BRANCH_GRACE + 1, reader=foreign_reader,
+        )
+        foreign_record = next(value for value in foreign if value.get("branch") == "codex/foreign")
+        check("a foreign pull-request head blocks branch deletion", foreign_record["state"], "blocked")
+
+    group("The manual bootstrap creates an untracked topic branch from the canonical ref")
+    worktree_module = load_agent_module("worktrees_test", ROOT / ".agents" / "worktrees.py")
+    with tempfile.TemporaryDirectory() as temporary:
+        control = pathlib.Path(temporary) / "project"
+        subprocess.run(("git", "init", "-b", "main", "-q", str(control)), check=True)
+        subprocess.run(("git", "config", "user.name", "Test"), cwd=control, check=True)
+        subprocess.run(("git", "config", "user.email", "test"), cwd=control, check=True)
+        (control / "base.txt").write_text("base\n", encoding="utf-8")
+        subprocess.run(("git", "add", "base.txt"), cwd=control, check=True)
+        subprocess.run(("git", "commit", "-q", "-m", "test: seed"), cwd=control, check=True)
+        subprocess.run(("git", "update-ref", "refs/remotes/origin/main", "HEAD"), cwd=control, check=True)
+        head = subprocess.run(("git", "rev-parse", "HEAD"), cwd=control, check=True,
+                              capture_output=True, text=True).stdout.strip()
+        worktree_module.ROOT = control
+        worktree_module.fast_gate.synchronize_repository = lambda repository, max_age, required=False: {
+            "base_main": head, "base_name": "origin/main", "remote_available": True,
+        }
+        worktree_module.create(SimpleNamespace(slug="isolated", client="codex"))
+        target = control.parent / "project-codex-isolated"
+        check("the helper creates the deterministic sibling path", target.is_dir(), True)
+        check("the helper creates the requested topic branch", subprocess.run(
+            ("git", "symbolic-ref", "--short", "HEAD"), cwd=target, check=True,
+            capture_output=True, text=True,
+        ).stdout.strip(), "codex/isolated")
+        check("the new topic branch does not track canonical main", subprocess.run(
+            ("git", "rev-parse", "--abbrev-ref", "@{upstream}"), cwd=target, check=False,
+            capture_output=True, text=True,
+        ).returncode == 0, False)
 
     group("Explicit refresh reports the truth about local main")
     with tempfile.TemporaryDirectory() as temporary:
@@ -349,7 +873,7 @@ def main():
             "execution": "local",
         }
         hook.state_paths = lambda event: (state, state.with_suffix(".log"))
-        hook.main_progress = lambda *arguments: ""
+        hook.observe_remote = lambda task_state, synchronization, pr_max_age=0: ("", "")
         emitted = []
         hook.emit = emitted.append
         hook.refresh({})
@@ -357,6 +881,13 @@ def main():
         check("a refused main fast-forward surfaces its warning", "was not changed" in message, True)
         check("a refused main fast-forward is not called a safe mirror",
               "safe fast-forward mirror" in message, False)
+        emitted.clear()
+        hook.synchronize_repository = lambda repository, max_age, required=False: {
+            "base_main": "abcdef1234567890", "old_base": "abcdef1234567890",
+            "base_name": "origin/main", "warning": "", "remote_available": True, "execution": "local",
+        }
+        hook.watch({})
+        check("an unchanged waiting monitor remains silent", emitted[0], {})
 
 
 if __name__ == "__main__":
