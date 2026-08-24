@@ -189,7 +189,9 @@ def _read_only_git(arguments):
         if rest and rest[0] == "get-url":
             return all(value in ("--all", "--push") or not value.startswith("-") for value in rest[1:])
         if rest and rest[0] == "show":
-            return all(value == "-n" or not value.startswith("-") for value in rest[1:])
+            return "-n" in rest[1:] and all(
+                value == "-n" or not value.startswith("-") for value in rest[1:]
+            )
         return False
     if command == "worktree":
         return bool(rest) and rest[0] == "list"
@@ -423,6 +425,59 @@ def _git_subcommand(arguments):
     return "", []
 
 
+def _effective_invocation(command):
+    """Unwrap simple execution builtins without trying to interpret a shell program."""
+    program, arguments = _literal_shell_invocation(command)
+    for _depth in range(4):
+        if program == "builtin" and arguments and arguments[0] in ("command", "exec"):
+            program, arguments = arguments[0], arguments[1:]
+            continue
+        if program == "command":
+            while arguments and arguments[0] in ("--", "-p"):
+                arguments.pop(0)
+            if not arguments or arguments[0] in ("-V", "-v"):
+                return program, arguments, True
+            program, arguments = arguments[0], arguments[1:]
+            continue
+        if program == "exec":
+            while arguments and arguments[0] in ("--", "-c", "-l"):
+                arguments.pop(0)
+            if arguments and arguments[0] == "-a":
+                if len(arguments) < 3:
+                    return program, arguments, True
+                arguments = arguments[2:]
+            if not arguments:
+                return program, arguments, True
+            program, arguments = arguments[0], arguments[1:]
+            continue
+        if program == "env":
+            while arguments:
+                value = arguments[0]
+                if value == "--":
+                    arguments.pop(0)
+                    break
+                if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", value):
+                    arguments.pop(0)
+                    continue
+                if value in ("-i", "--ignore-environment") or value.startswith("--unset="):
+                    arguments.pop(0)
+                    continue
+                if value in ("-C", "--chdir", "-u", "--unset"):
+                    if len(arguments) < 2:
+                        return program, arguments, True
+                    arguments = arguments[2:]
+                    continue
+                if value.startswith("-"):
+                    return program, arguments, True
+                break
+            if not arguments:
+                return program, arguments, True
+            program, arguments = arguments[0], arguments[1:]
+            continue
+        break
+    return program, arguments, program in ("builtin", "command", "env", "exec")
+
+
 def requires_uncached_remote(event):
     """Identify publication boundaries whose remote view must never come from the active-work cache."""
     tool = str(event.get("tool_name") or "")
@@ -431,7 +486,11 @@ def requires_uncached_remote(event):
     if tool != "Bash":
         return False
     command = event_command(event)
-    program, arguments = _literal_shell_invocation(command)
+    program, arguments, uncertain = _effective_invocation(command)
+    if uncertain:
+        return True
+    if Path(program).name in ("git", "gh") and Path(program).name != program:
+        return True
     if _shell_hazard(command) == "expansion" and (program == "git" or program == "gh" or not program.isidentifier()):
         return True
     git_command, _git_arguments = _git_subcommand(arguments) if program == "git" else ("", [])
@@ -446,7 +505,11 @@ def requires_topic_branch(event):
     if str(event.get("tool_name") or "") != "Bash":
         return False
     command = event_command(event)
-    program, arguments = _literal_shell_invocation(command)
+    program, arguments, uncertain = _effective_invocation(command)
+    if uncertain:
+        return True
+    if Path(program).name in ("git", "gh") and Path(program).name != program:
+        return True
     if _shell_hazard(command) == "expansion" and (program == "git" or program == "gh" or not program.isidentifier()):
         return True
     git_command, _git_arguments = _git_subcommand(arguments) if program == "git" else ("", [])

@@ -405,6 +405,10 @@ def main():
     check("environment overrides cannot alter an allow-listed program",
           guard_module.is_read_only_shell("RIPGREP_CONFIG_PATH=config rg worktree AGENTS.md"), False)
     check("Git status is read-only", guard_module.is_read_only_shell("git status --short"), True)
+    check("remote inspection must explicitly avoid querying the transport",
+          guard_module.is_read_only_shell("git remote show origin"), False)
+    check("remote inspection with no query is read-only",
+          guard_module.is_read_only_shell("git remote show -n origin"), True)
     check("a path-qualified look-alike Git executable is not trusted",
           guard_module.is_read_only_shell("/tmp/git status --short"), False)
     check("Git grep cannot launch a pager command",
@@ -452,6 +456,16 @@ def main():
     check("Git global options cannot hide a push boundary", guard_module.requires_uncached_remote({
         "tool_name": "Bash", "tool_input": {"command": "git -C . push origin codex/topic"},
     }), True)
+    check("the command builtin cannot hide a push boundary", guard_module.requires_uncached_remote({
+        "tool_name": "Bash", "tool_input": {"command": "command git push origin codex/topic"},
+    }), True)
+    check("a path-qualified Git executable fails closed at a publication boundary",
+          guard_module.requires_uncached_remote({
+              "tool_name": "Bash", "tool_input": {"command": "/usr/bin/git push origin codex/topic"},
+          }), True)
+    check("an environment wrapper cannot hide a push boundary", guard_module.requires_uncached_remote({
+        "tool_name": "Bash", "tool_input": {"command": "env GIT_OPTIONAL_LOCKS=0 git push origin codex/topic"},
+    }), True)
     check("GitHub CLI publication forces an uncached remote observation", guard_module.requires_uncached_remote({
         "tool_name": "Bash", "tool_input": {"command": "gh pr ready"},
     }), True)
@@ -463,6 +477,9 @@ def main():
     }), True)
     check("Git global options cannot hide a detached-worktree commit", guard_module.requires_topic_branch({
         "tool_name": "Bash", "tool_input": {"command": "git -C . commit -m 'test: durable work'"},
+    }), True)
+    check("the exec builtin cannot hide a detached-worktree commit", guard_module.requires_topic_branch({
+        "tool_name": "Bash", "tool_input": {"command": "exec git commit -m 'test: durable work'"},
     }), True)
     check("quoted commit punctuation cannot hide a detached-worktree commit", guard_module.requires_topic_branch({
         "tool_name": "Bash", "tool_input": {"command": "git commit -m 'test: durable work?'"},
