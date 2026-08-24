@@ -274,7 +274,7 @@ final class ProviderProbe
                 'info',
                 gettext('Discovery advertises this mandatory server path; Test sign-in exercises it with a code.'),
                 ['opnsense', 'idp'],
-                $userInfo === null ? 'metadata' : 'not-tested'
+                'not-tested'
             ),
             self::check(
                 gettext('UserInfo endpoint'),

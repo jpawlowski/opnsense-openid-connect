@@ -6,6 +6,7 @@
  */
 
 use OPNsense\OpenIDConnect\HttpClient;
+use OPNsense\OpenIDConnect\ProviderMetadata;
 use OPNsense\OpenIDConnect\ProviderProbe;
 
 Checks::group('Provider diagnostics');
@@ -135,6 +136,24 @@ Checks::that(
 Checks::that('draft PAR names the path it did not execute', $draftSemantics['PAR endpoint'], [
     'opnsense,idp', 'not-tested',
 ]);
+
+$providerWithoutUserInfo = $provider;
+unset($providerWithoutUserInfo['userinfo_endpoint']);
+$withoutUserInfoChecks = inspect(
+    new ProviderProbe(new HttpClient(static fn(): array => [])),
+    'metadataChecks',
+    $draft,
+    ProviderMetadata::fromArray($providerWithoutUserInfo)
+);
+$withoutUserInfoRows = array_values(array_filter(
+    $withoutUserInfoChecks,
+    static fn(array $check): bool => $check['label'] === 'Token endpoint'
+));
+Checks::that(
+    'a token endpoint remains untested when UserInfo is not offered',
+    $withoutUserInfoRows[0]['verification'],
+    'not-tested'
+);
 
 $requestObjectDraft = ProviderProbe::settings([
     'openidconnect_provider_url' => $issuer,
