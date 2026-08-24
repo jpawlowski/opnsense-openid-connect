@@ -55,6 +55,7 @@ HOST_CAPABILITIES = {
     ),
     "jarm-response-policy": ("JWT-secured authorization responses",),
     "jwt-claim-policy": (
+        "Asymmetric JWA verification profile",
         "ID token claim validation",
         "Whom a token was issued for",
     ),
