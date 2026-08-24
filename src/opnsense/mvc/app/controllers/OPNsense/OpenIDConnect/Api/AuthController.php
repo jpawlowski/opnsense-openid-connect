@@ -561,7 +561,7 @@ class AuthController extends ApiControllerBase
     {
         $parameters = [];
         foreach ([
-            'state', 'code', 'iss', 'error', 'error_description', 'error_uri', 'session_state',
+            'response', 'state', 'code', 'iss', 'error', 'error_description', 'error_uri', 'session_state',
             'access_token', 'id_token', 'token_type', 'expires_in',
         ] as $name) {
             $value = $this->request->isPost()

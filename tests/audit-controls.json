@@ -8,6 +8,7 @@
         "discovery-exact-issuer",
         "authorization-code-pkce",
         "mix-up-replay-protection",
+        "jarm-response-policy",
         "jwt-claim-policy",
         "provider-http-policy",
         "dpop-sender-constraint",
@@ -50,6 +51,7 @@
         "browser-local-group-assignment",
         "browser-local-password-fallback",
         "browser-form-post",
+        "browser-jarm",
         "browser-rp-logout",
         "browser-backchannel-logout",
         "browser-frontchannel-logout",
@@ -148,6 +150,34 @@
                 "tier": "host-independent",
                 "capabilities": ["mix-up-replay-protection"],
                 "validation": ["tests/unit/exchange.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "jarm-response-policy",
+          "claim": "Signed JARM query and Form POST responses are bound to the frozen issuer, audience, advertised asymmetric algorithm, time, transport and one-time transaction before a code or error is processed; unsigned downgrade and encrypted responses are refused.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RelyingParty.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/JwtVerifier.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderMetadata.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["jarm-response-policy"],
+                "validation": ["tests/unit/exchange.php", "tests/unit/settings.php"]
+              },
+              {
+                "tier": "installed-integration",
+                "capabilities": ["runtime-jws-crypto"],
+                "validation": ["tests/integration/opnsense.php"]
+              },
+              {
+                "tier": "browser-e2e",
+                "capabilities": ["browser-jarm"],
+                "validation": ["tests/e2e/oidc.spec.mjs", "tests/e2e/run-keycloak.sh"]
               }
             ]
           }

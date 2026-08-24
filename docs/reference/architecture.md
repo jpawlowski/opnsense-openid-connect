@@ -219,9 +219,9 @@ The exact endpoint matrix and the reasons for the two exceptions are recorded in
 
 ## State and persistence
 
-- Query-mode pending logins live only in the initiating PHP session, keyed by
+- Query and signed-query pending logins live only in the initiating PHP session, keyed by
   random state. At most five are retained for ten minutes. OPNsense sets its
-  session cookie to `SameSite=Lax`, so `form_post` transactions instead use a
+  session cookie to `SameSite=Lax`, so Form POST and signed Form POST transactions instead use a
   bounded mode-`0600` server-side index. They remain random-state-bound,
   single-use and expire after ten minutes without weakening the session cookie.
 - A sign-in test uses the same transaction, Discovery, PKCE, token and claim
@@ -248,6 +248,11 @@ The exact endpoint matrix and the reasons for the two exceptions are recorded in
 - Pending approval requests live in a mode-`0600` local index, contain no token
   or secret, are capped at 100 and expire after seven days. Only approval moves
   the exact issuer/subject pair into OPNsense configuration.
+- A selected JARM mode is frozen into the transaction. Its response JWT is
+  accepted only with the frozen issuer and key-set URL, a supported advertised
+  asymmetric algorithm, this client's audience, valid time and the exact
+  one-time state; the transport must match and direct parameters cannot
+  downgrade it. Encrypted JARM is deliberately unsupported.
 - ID, access and refresh tokens live only in the authenticated PHP session for
   optional provider logout/revocation. A DPoP session also retains only its
   proof-key thumbprint so logout can reopen the exact stored generation. Tokens,

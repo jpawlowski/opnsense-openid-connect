@@ -113,6 +113,8 @@ const capabilities = [
     'The native local-password login remains usable independently of the provider flow.'],
   ['browser-form-post',
     'A form_post authorization response reaches the bound callback as a URL-encoded POST.'],
+  ['browser-jarm',
+    'Signed query and Form POST JARM responses complete through a real provider and OPNsense WebGUI.'],
   ['browser-rp-logout',
     'RP-initiated logout ends both the local WebGUI session and the provider browser session.'],
   ['browser-backchannel-logout',

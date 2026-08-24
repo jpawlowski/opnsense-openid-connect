@@ -90,6 +90,8 @@ final class ProviderMetadata
         }
         foreach ([
             'id_token_signing_alg_values_supported', 'userinfo_signing_alg_values_supported',
+            'authorization_signing_alg_values_supported',
+            'authorization_encryption_alg_values_supported', 'authorization_encryption_enc_values_supported',
             'token_endpoint_auth_methods_supported', 'response_modes_supported',
             'code_challenge_methods_supported', 'grant_types_supported', 'scopes_supported',
             'revocation_endpoint_auth_methods_supported', 'dpop_signing_alg_values_supported',
@@ -279,6 +281,13 @@ final class ProviderMetadata
     public function supportsDpop(): bool
     {
         return in_array('ES256', $this->dpopSigningAlgorithms(), true);
+    }
+
+    /** @return string[] advertised JARM algorithms, or the specification's RS256 default */
+    public function authorizationResponseSigningAlgorithms(): array
+    {
+        return array_key_exists('authorization_signing_alg_values_supported', $this->values)
+            ? $this->values['authorization_signing_alg_values_supported'] : ['RS256'];
     }
 
     public function toArray(): array
