@@ -383,6 +383,11 @@ final class ProviderSetup
         }
         if ($postLogout !== []) {
             $attributes['post.logout.redirect.uris'] = implode('##', $postLogout);
+            // Keycloak 26.5 introduced an independent confirmation landing page.
+            // Leaving it enabled would consume a valid post_logout_redirect_uri
+            // until the user clicks again, contradicting OPNsense's explicit
+            // Return here after logout setting.
+            $attributes['logout.confirmation.enabled'] = 'false';
         }
 
         $client = [
@@ -401,7 +406,10 @@ final class ProviderSetup
             'redirectUris' => $callbacks,
             'webOrigins' => $origins,
             'attributes' => $attributes,
-            'defaultClientScopes' => [],
+            // Keycloak 25 moved the mandatory sub and max_age/auth_time evidence
+            // into this built-in default scope. Omitting it produces a valid-looking
+            // client which the RP must refuse after the first authorization response.
+            'defaultClientScopes' => ['basic'],
             'optionalClientScopes' => array_values(array_diff($projection['scopes'], ['openid'])),
         ];
         if ($sectorOrigin !== '') {

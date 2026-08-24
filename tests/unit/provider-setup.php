@@ -110,10 +110,10 @@ Checks::that('Keycloak receives a partial realm import', $keycloak['media_type']
 Checks::that('a repeat Keycloak import preserves the client', $keycloakJson['ifResourceExists'], 'SKIP');
 Checks::that('the derived Keycloak client ID is portable', $client['clientId'], 'opnsense-main-one');
 Checks::that('Keycloak generates its own secret', array_key_exists('secret', $client), false);
-Checks::that('Keycloak links exactly the requested standard scopes as optional', [
+Checks::that('Keycloak retains its required basic scope and links requested scopes as optional', [
     $client['defaultClientScopes'],
     $client['optionalClientScopes'],
-], [[], ['email', 'profile']]);
+], [['basic'], ['email', 'profile']]);
 Checks::that('Keycloak is a confidential client', $client['publicClient'], false);
 Checks::that('only authorization code is enabled', [
     $client['standardFlowEnabled'], $client['implicitFlowEnabled'], $client['directAccessGrantsEnabled'],
@@ -121,6 +121,9 @@ Checks::that('only authorization code is enabled', [
 Checks::that('Keycloak receives exact web origins', $client['webOrigins'], ['https://firewall.example.net']);
 Checks::that('no unused post logout address is registered', isset(
     $client['attributes']['post.logout.redirect.uris']
+), false);
+Checks::that('no Keycloak logout-page preference is imposed without a return address', isset(
+    $client['attributes']['logout.confirmation.enabled']
 ), false);
 Checks::that('front-channel is selected consistently', [
     $client['frontchannelLogout'],
@@ -147,7 +150,26 @@ $minimalKeycloakClient = json_decode($minimalKeycloak['content'], true, 32, JSON
 Checks::that('Keycloak does not link an unrequested e-mail scope', [
     $minimalKeycloakClient['defaultClientScopes'],
     $minimalKeycloakClient['optionalClientScopes'],
-], [[], ['profile']]);
+], [['basic'], ['profile']]);
+
+$returningKeycloak = ProviderSetup::generate(
+    'keycloak',
+    'returning',
+    'Returning OPNsense WebGUI',
+    ['https://firewall.example.net'],
+    true,
+    'backchannel'
+);
+$returningKeycloakClient = json_decode(
+    $returningKeycloak['content'],
+    true,
+    32,
+    JSON_THROW_ON_ERROR
+)['clients'][0];
+Checks::that('Keycloak returns immediately when the generated setup requests it', [
+    $returningKeycloakClient['attributes']['post.logout.redirect.uris'],
+    $returningKeycloakClient['attributes']['logout.confirmation.enabled'],
+], ['https://firewall.example.net/', 'false']);
 
 $pairwiseKeycloak = ProviderSetup::generate(
     'keycloak',

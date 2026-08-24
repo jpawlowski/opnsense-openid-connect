@@ -31,11 +31,18 @@ confidential client with a derived ID such as `opnsense-keycloak` and generates
 its secret. Copy the secret from the client's **Credentials** tab, and copy the
 realm's exact issuer into OPNsense.
 
-The import links the standard Keycloak `email` and `profile` client scopes only
-when the current OPNsense scope list requests them. Keycloak's `email` scope
-maps the user's **Email verified** state to `email_verified`; keep that state
-false until the realm's enrollment or directory process has actually verified
-control of the current address.
+The import keeps Keycloak's `basic` client scope as a default because current
+Keycloak versions use it for the mandatory `sub` claim and the `auth_time`
+evidence required by OPNsense maximum-age validation. It links the standard
+`email` and `profile` client scopes only when the current OPNsense scope list
+requests them. Keycloak's `email` scope maps the user's **Email verified** state
+to `email_verified`; keep that state false until the realm's enrollment or
+directory process has actually verified control of the current address.
+
+When **Return here after logout** is selected before generation, the import
+also disables Keycloak's separate logout confirmation landing page. Otherwise
+Keycloak 26.5 and newer can hold the browser on **You are logged out** until a
+second click even though the exact post-logout redirect URI was accepted.
 
 For pairwise subjects, first choose **Pairwise subject sector** in OPNsense and
 save the server as a disabled draft. The generated import then adds Keycloak's
@@ -265,4 +272,5 @@ and [Authentication Method Reference mapper](https://www.keycloak.org/docs/lates
 For every remaining OPNsense field, see the [settings
 reference](../setup/settings-reference.md).
 
-Reference: [Keycloak Server Administration Guide](https://www.keycloak.org/docs/latest/server_admin/).
+References: [Keycloak Server Administration Guide](https://www.keycloak.org/docs/latest/server_admin/)
+and [Keycloak release notes for the `basic` client scope](https://www.keycloak.org/docs/latest/release_notes/).
