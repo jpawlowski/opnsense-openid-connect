@@ -1567,9 +1567,9 @@
       "reference": "https://www.rfc-editor.org/rfc/rfc7518.html",
       "scope": "RS256/384/512, PS256/384/512 and ES256/384/512 JWS verification with public RSA and EC JWKs",
       "implementation": "implemented",
-      "claim": "verified",
-      "audit_complete": true,
-      "note": "Verified only for the named asymmetric JWS verification subset; HMAC, unsecured JWS, JWE and all other algorithm families are outside this claim.",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "The named asymmetric JWS verification subset is implemented and structurally tested, but the normative digest, padding and successful cryptographic verification evidence is not complete for every 384/512 variant. HMAC, unsecured JWS, JWE and all other algorithm families remain outside the profile.",
       "source_review": {
         "specification_revision": "RFC 7518, May 2015",
         "reviewed_on": "2026-08-24",
