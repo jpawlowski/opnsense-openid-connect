@@ -39,7 +39,6 @@ final class ClientAuthenticator
         HttpClient::assertHttpsUrl($endpoint);
         $algorithmsField = $kind . '_endpoint_auth_signing_alg_values_supported';
         $method = $this->selectMethod($metadata, $kind, $requiredMethod);
-        $fields['client_id'] = $this->settings->clientId();
 
         if ($method === 'client_secret_basic') {
             $secret = $this->settings->clientSecret();
@@ -55,6 +54,7 @@ final class ClientAuthenticator
             if ($secret === '') {
                 throw new ProtocolException('POST client authentication has no client secret');
             }
+            $fields['client_id'] = $this->settings->clientId();
             $fields['client_secret'] = $secret;
             return;
         }
@@ -64,6 +64,7 @@ final class ClientAuthenticator
                 $algorithmsField,
                 is_array($algorithms) ? $algorithms : []
             );
+            $fields['client_id'] = $this->settings->clientId();
             $fields['client_assertion_type'] = ClientAssertion::TYPE;
             $fields['client_assertion'] = $this->assertion->create(
                 $audience ?? $endpoint,
@@ -113,7 +114,10 @@ final class ClientAuthenticator
         if ($privateKeyFailure !== null) {
             throw $privateKeyFailure;
         }
-        throw new ProtocolException('The provider offers no supported client authentication method with a credential');
+        throw new ProtocolException(sprintf(
+            'The provider offers no supported client authentication method for the %s endpoint',
+            $kind
+        ));
     }
 
     private function assertPrivateKeyUsable(ProviderMetadata $metadata, string $kind): void
