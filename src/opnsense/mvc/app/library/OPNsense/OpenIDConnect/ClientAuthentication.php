@@ -26,7 +26,22 @@ final class ClientAuthentication
         ProviderMetadata $metadata,
         ?array $frozen = null
     ): self {
-        $method = self::selectedMethod($settings, $metadata);
+        $frozenMethod = null;
+        if ($frozen !== null) {
+            if (!is_string($frozen['method'] ?? null)
+                || !is_bool($frozen['certificate_bound_access_tokens'] ?? null)
+                || !is_string($frozen['certificate_ref'] ?? null)
+                || !is_string($frozen['certificate_thumbprint'] ?? null)) {
+                throw new ProtocolException('The pending login carries invalid client authentication state');
+            }
+            /*
+             * Discovery preferences may change during a login or a long-lived session.  The
+             * previously selected method remains the only one known to match the issued grant,
+             * so verify its continued support instead of silently negotiating a new preference.
+             */
+            $frozenMethod = $metadata->tokenEndpointAuthMethod($frozen['method']);
+        }
+        $method = $frozenMethod ?? self::selectedMethod($settings, $metadata);
         $bound = $settings->certificateBoundAccessTokens();
         if ($bound && !$metadata->supportsCertificateBoundAccessTokens()) {
             throw new ProtocolException('The provider does not advertise certificate-bound access tokens');
@@ -35,14 +50,7 @@ final class ClientAuthentication
         $reference = $settings->clientCertificateRef();
         $expectedThumbprint = null;
         if ($frozen !== null) {
-            if (!is_string($frozen['method'] ?? null)
-                || !is_bool($frozen['certificate_bound_access_tokens'] ?? null)
-                || !is_string($frozen['certificate_ref'] ?? null)
-                || !is_string($frozen['certificate_thumbprint'] ?? null)) {
-                throw new ProtocolException('The pending login carries invalid client authentication state');
-            }
-            if (!hash_equals($method, $frozen['method'])
-                || $bound !== $frozen['certificate_bound_access_tokens']) {
+            if ($bound !== $frozen['certificate_bound_access_tokens']) {
                 throw new ProtocolException('Client authentication changed while the login was pending');
             }
             $reference = $frozen['certificate_ref'];

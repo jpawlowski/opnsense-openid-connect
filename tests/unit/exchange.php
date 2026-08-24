@@ -506,6 +506,40 @@ Checks::throws(
     'no usable revocation endpoint authentication method'
 );
 
+$automaticPostSettings = connector([
+    'openidconnect_client_id' => 'automatic-secret-client',
+    'openidconnect_client_secret' => 'secret',
+]);
+$automaticPost = ClientAuthentication::negotiate(
+    $automaticPostSettings,
+    ProviderMetadata::fromArray(metadata([
+        'token_endpoint_auth_methods_supported' => ['client_secret_post'],
+    ]))
+);
+$restoredPost = ClientAuthentication::negotiate(
+    $automaticPostSettings,
+    ProviderMetadata::fromArray(metadata([
+        'token_endpoint_auth_methods_supported' => ['client_secret_basic', 'client_secret_post'],
+    ])),
+    $automaticPost->snapshot()
+);
+Checks::that(
+    'restored grants retain their frozen authentication method when provider preferences expand',
+    $restoredPost->method(),
+    'client_secret_post'
+);
+Checks::throws(
+    'restored grants are refused after their frozen authentication method loses provider support',
+    fn() => ClientAuthentication::negotiate(
+        $automaticPostSettings,
+        ProviderMetadata::fromArray(metadata([
+            'token_endpoint_auth_methods_supported' => ['client_secret_basic'],
+        ])),
+        $automaticPost->snapshot()
+    ),
+    'not advertised'
+);
+
 $mtlsTokenRequest = [];
 $mtlsParty = new RelyingParty(
     $mtlsSettings,
