@@ -164,11 +164,11 @@ def _git_config(*arguments):
     return result.stdout.splitlines() if result.returncode == 0 else []
 
 
-def _configured_git_helper(command, arguments):
+def _configured_git_helper(command, arguments, global_arguments):
     if any(
         value in ("-c", "--config-env") or value.startswith("-c") and value != "-c"
         or value.startswith("--config-env=")
-        for value in arguments
+        for value in global_arguments
     ):
         return True
     disabled = {"", "0", "false", "no", "off"}
@@ -177,10 +177,10 @@ def _configured_git_helper(command, arguments):
         return True
 
     no_pager_index = max(
-        (index for index, value in enumerate(arguments) if value in ("--no-pager", "-P")), default=-1,
+        (index for index, value in enumerate(global_arguments) if value in ("--no-pager", "-P")), default=-1,
     )
     pager_index = max(
-        (index for index, value in enumerate(arguments) if value in ("--paginate", "-p")), default=-1,
+        (index for index, value in enumerate(global_arguments) if value in ("--paginate", "-p")), default=-1,
     )
     if pager_index >= 0:
         return True
@@ -202,8 +202,8 @@ def _configured_git_helper(command, arguments):
 def _read_only_git(arguments):
     if not arguments:
         return False
-    command, rest = _git_subcommand(arguments)
-    if not command or _configured_git_helper(command, arguments):
+    command, rest, global_arguments = _git_invocation(arguments)
+    if not command or _configured_git_helper(command, arguments, global_arguments):
         return False
     if command in READ_ONLY_GIT:
         executable = {"--ext-diff", "--textconv"}
@@ -444,7 +444,7 @@ def is_main_acknowledgement(event):
     )
 
 
-def _git_subcommand(arguments):
+def _git_invocation(arguments):
     """Locate a Git subcommand behind the documented global option grammar."""
     index = 0
     with_value = {"-C", "-c", "--config-env", "--git-dir", "--namespace", "--work-tree"}
@@ -462,7 +462,7 @@ def _git_subcommand(arguments):
         if value in with_value:
             index += 2
             if index > len(arguments):
-                return "", []
+                return "", [], []
             continue
         if value in flags or any(value.startswith(f"{option}=") for option in equals):
             index += 1
@@ -471,11 +471,16 @@ def _git_subcommand(arguments):
             index += 1
             continue
         if value.startswith("-"):
-            return "", []
-        return value, arguments[index + 1:]
+            return "", [], []
+        return value, arguments[index + 1:], arguments[:index]
     if index < len(arguments):
-        return arguments[index], arguments[index + 1:]
-    return "", []
+        return arguments[index], arguments[index + 1:], arguments[:index]
+    return "", [], []
+
+
+def _git_subcommand(arguments):
+    command, rest, _global_arguments = _git_invocation(arguments)
+    return command, rest
 
 
 def _effective_invocation(command):
@@ -483,6 +488,10 @@ def _effective_invocation(command):
     if _shell_hazard(command) == "control":
         return "", [], True
     program, arguments = _literal_shell_invocation(command)
+    while re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", program):
+        if not arguments:
+            return program, arguments, True
+        program, arguments = arguments[0], arguments[1:]
     for _depth in range(4):
         if program == "builtin" and arguments and arguments[0] in ("command", "exec"):
             program, arguments = arguments[0], arguments[1:]

@@ -422,6 +422,8 @@ def main():
           guard_module.is_read_only_shell("git --no-pager status --short"), True)
     check("a later paginate flag cannot re-enable a configured Git pager",
           guard_module.is_read_only_shell("git --no-pager --paginate log -1"), False)
+    check("a subcommand patch flag is not mistaken for a global Git pager",
+          guard_module.is_read_only_shell("git --no-pager diff -p"), True)
     check("command-line Git configuration cannot install a read helper",
           guard_module.is_read_only_shell(
               "git --no-pager -c core.fsmonitor=/tmp/helper status --short",
@@ -503,6 +505,10 @@ def main():
     check("an environment wrapper cannot hide a push boundary", guard_module.requires_uncached_remote({
         "tool_name": "Bash", "tool_input": {"command": "env GIT_OPTIONAL_LOCKS=0 git push origin codex/topic"},
     }), True)
+    check("a leading environment assignment cannot hide a push boundary",
+          guard_module.requires_uncached_remote({
+              "tool_name": "Bash", "tool_input": {"command": "FOO=bar git push origin codex/topic"},
+          }), True)
     check("GitHub CLI publication forces an uncached remote observation", guard_module.requires_uncached_remote({
         "tool_name": "Bash", "tool_input": {"command": "gh pr ready"},
     }), True)
@@ -518,6 +524,10 @@ def main():
     check("the exec builtin cannot hide a detached-worktree commit", guard_module.requires_topic_branch({
         "tool_name": "Bash", "tool_input": {"command": "exec git commit -m 'test: durable work'"},
     }), True)
+    check("a leading environment assignment cannot hide a detached-worktree commit",
+          guard_module.requires_topic_branch({
+              "tool_name": "Bash", "tool_input": {"command": "FOO=bar git commit -m test"},
+          }), True)
     check("a shell interpreter cannot hide a push boundary", guard_module.requires_uncached_remote({
         "tool_name": "Bash", "tool_input": {"command": "bash -c 'git push origin codex/topic'"},
     }), True)
@@ -805,6 +815,11 @@ def main():
             pass
         check("failed verification preserves a pre-existing assignee",
               issue["assignees"], [{"login": "publisher"}])
+        issue_state.update({"fail_after_comment": False, "comment_published": False})
+        claim_module.claim(repository, 36, now=1_776_999_999)
+        claim_module.release(repository)
+        check("releasing a successful claim preserves a pre-existing assignee",
+              issue["assignees"], [{"login": "publisher"}])
         issue["assignees"] = []
         claimed = claim_module.claim(repository, 36, now=1_777_000_000)
         check("the WIP label embeds the claim timestamp",
@@ -846,11 +861,12 @@ def main():
             replaced = False
         check("one worktree cannot abandon its current claim by claiming another issue", replaced, False)
         claim_module.forget(repository)
+        issue["assignees"] = []
         released_claim = claim_module.claim(repository, 37, now=1_777_000_001)
         claim_module.release(repository)
         check("stopping before a pull request removes every public and local claim artifact",
-              (released_claim["label"] in label_definitions, issue["comments"], issue["labels"],
-               claim_module.current_claim(repository)), (False, [], [], None))
+              (released_claim["label"] in label_definitions, issue["comments"], issue["labels"], issue["assignees"],
+               claim_module.current_claim(repository)), (False, [], [], [], None))
 
     group("Open pull requests are observed without mutating GitHub")
     watch = load_agent_module(

@@ -317,7 +317,7 @@ def claim(repository, number, now=None, language="en"):
     registry = load_registry(repository)
     record = {
         "issue": int(number), "token": token, "comment_id": ours["id"], "comment_url": ours["url"],
-        "label": label, "lock_label": lock_label, "login": login,
+        "label": label, "lock_label": lock_label, "login": login, "assignee_added": assignee_added,
         "status": "active", "claimed_at": claimed_at,
         "worktree_marker": True,
     }
@@ -398,7 +398,7 @@ def release(repository, remove_assignee=True):
             _delete_comment(record["comment_id"])
     finally:
         _remove_claim_labels(record.get("label"), record.get("lock_label"))
-    if remove_assignee and record.get("login"):
+    if remove_assignee and record.get("login") and record.get("assignee_added"):
         try:
             _gh(("issue", "edit", str(record["issue"]), "--repo", CANONICAL_REPOSITORY,
                  "--remove-assignee", record["login"]))
