@@ -28,7 +28,17 @@ final class SharedSignalsEventProcessor
         return $this->apply($event, $serverName, $settings, $metadata);
     }
 
-    /** @return array{jti:string,subject:?string,subject_issuer:?string,cutoff:int,actionable:bool,event:string} */
+    /**
+     * @return array{
+     *     jti:string,
+     *     subject:?string,
+     *     subject_issuer:?string,
+     *     session_id:?string,
+     *     cutoff:int,
+     *     actionable:bool,
+     *     event:string
+     * }
+     */
     public function verify(string $set, OpenIDConnect $settings, SharedSignalsMetadata $metadata): array
     {
         return (new SecurityEventVerifier(new JwtVerifier($this->http, 'ssf-jwks')))->verify(
@@ -41,7 +51,15 @@ final class SharedSignalsEventProcessor
     }
 
     /**
-     * @param array{jti:string,subject:?string,subject_issuer:?string,cutoff:int,actionable:bool,event:string} $event
+     * @param array{
+     *     jti:string,
+     *     subject:?string,
+     *     subject_issuer:?string,
+     *     session_id:?string,
+     *     cutoff:int,
+     *     actionable:bool,
+     *     event:string
+     * } $event
      * @return array{jti:string,event:string,count:int,duplicate:bool}
      */
     public function apply(
@@ -59,12 +77,14 @@ final class SharedSignalsEventProcessor
             return ['jti' => $event['jti'], 'event' => $event['event'], 'count' => 0, 'duplicate' => true];
         }
         try {
-            $count = $event['actionable'] && $event['subject_issuer'] !== null && $event['subject'] !== null
+            $count = $event['actionable'] && $event['subject_issuer'] !== null
+                && ($event['subject'] !== null || $event['session_id'] !== null)
                 ? SessionRegistry::terminateForSecurityEvent(
                     $serverName,
                     $event['subject_issuer'],
                     $event['subject'],
-                    $event['cutoff']
+                    $event['cutoff'],
+                    $event['session_id']
                 ) : 0;
         } catch (\Throwable $e) {
             try {

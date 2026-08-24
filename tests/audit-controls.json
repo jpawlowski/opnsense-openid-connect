@@ -482,7 +482,7 @@
         },
         {
           "slug": "shared-signals-policy",
-          "claim": "Shared Signals stream management and explicit push or poll delivery stay bound to discovered HTTPS endpoints, authorization scheme, exact transmitter, stream, audience and delivery method; accepted SETs additionally require an asymmetric signature, an audited CAEP/RISC action allow-list, provider-and-issuer-scoped iss_sub matching, replay protection and a session creation time no later than the event.",
+          "claim": "Shared Signals stream management and explicit push or poll delivery stay bound to discovered HTTPS endpoints, authorization scheme, exact transmitter, stream, audience and delivery method; accepted SETs additionally require an asymmetric signature, unambiguous claims, an audited CAEP/RISC action allow-list, strict known-event claim types, provider-and-issuer-scoped user or session matching, replay protection and a session creation time no later than the event.",
           "implementation": [
             "src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/SsfController.php",
             "src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/SsfSetupController.php",
