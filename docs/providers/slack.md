@@ -23,7 +23,9 @@ eligible for a Marketplace listing, but a listing is unnecessary here.
 Slack's OpenID Connect flow is separate from legacy Slack OAuth scopes and
 uses the `openid`, `email` and `profile` scopes. App installation alone is not
 a firewall admission decision; an approved exact subject binding remains the
-safe home-lab default.
+safe home-lab default. Assessed automatic matching remains selectable for a
+deliberately restricted workspace, but **Create an account on first login** is
+unavailable because OPNsense cannot prove that external restriction.
 
 References: [Sign in with Slack](https://api.slack.com/authentication/sign-in-with-slack)
 [Slack app distribution](https://docs.slack.dev/app-management/distribution/),

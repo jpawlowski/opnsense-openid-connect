@@ -131,6 +131,8 @@ async function configureServer(page) {
   const issuerField = page.locator('input[name="openidconnect_provider_url"]');
   const iconField = page.locator('input[name="openidconnect_icon_url"]');
   const buttonTextMode = page.locator('select[name="openidconnect_button_text_mode"]');
+  const admissionPolicy = page.locator('select[name="openidconnect_bootstrap_mode"]');
+  const createUsers = page.locator('input[name="openidconnect_create_users"]');
   const buttonProviderLabel = page.locator('input[name="openidconnect_button_provider_label"]');
   const customButtonText = page.locator('input[name="openidconnect_button_custom_text"]');
   await expect(iconField).toHaveValue('/api/openidconnect/auth/builtinicon/general');
@@ -146,7 +148,14 @@ async function configureServer(page) {
     .toHaveValue('client_secret_post');
   await expect(page.locator('select[name="openidconnect_claims_source"]')).toBeDisabled();
   await expect(page.locator('select[name="openidconnect_response_mode"]')).toBeDisabled();
-  await expect(page.locator('select[name="openidconnect_bootstrap_mode"]')).toHaveValue('approval');
+  await expect(admissionPolicy).toHaveValue('approval');
+  await expect(admissionPolicy.locator('option[value="username"]')).toBeDisabled();
+  await expect(admissionPolicy.locator('option[value="verified_email"]')).toBeDisabled();
+  await expect(createUsers).not.toBeChecked();
+  await expect(createUsers).toBeDisabled();
+  await expect(createUsers.locator('xpath=ancestor::tr')).toBeHidden();
+  await expect(page.locator('.oidc-public-admission-boundary')).toBeVisible();
+  await expect(page.locator('.oidc-public-creation-boundary')).toBeVisible();
   await expect(page.locator('input[name="openidconnect_scopes"]')).toHaveValue('openid,email,name');
   await expect(iconField).toHaveValue('/api/openidconnect/auth/builtinicon/apple');
   await expect(buttonTextMode).toBeDisabled();
@@ -163,6 +172,10 @@ async function configureServer(page) {
   await expect(issuerField).toHaveValue('https://orcid.org');
   await expect(page.locator('input[name="openidconnect_scopes"]')).toHaveValue('openid');
   await selectNative(providerProfile, 'keycloak');
+  await expect(admissionPolicy.locator('option[value="username"]')).toBeEnabled();
+  await selectNative(admissionPolicy, 'username');
+  await expect(createUsers).toBeEnabled();
+  await expect(createUsers.locator('xpath=ancestor::tr')).toBeVisible();
   await expect(iconField).toHaveValue('/api/openidconnect/auth/builtinicon/keycloak');
   await expect(buttonTextMode).toBeEnabled();
   await expect(buttonTextMode).toHaveValue('localized');

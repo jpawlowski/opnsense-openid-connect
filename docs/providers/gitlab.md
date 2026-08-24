@@ -42,11 +42,17 @@ For GitLab.com discovery is
 `https://gitlab.com/.well-known/openid-configuration`; configure the issuer
 `https://gitlab.com`, not that document URL.
 
+GitLab.com is a global account population. With that issuer the form offers
+only Strict or Administrator approval and disables **Create an account on first
+login**. These restrictions update immediately when the issuer changes.
+
 For Self-Managed or Dedicated, configure the public instance root as issuer.
 For example, issuer `https://gitlab.example.com` has Discovery at
 `https://gitlab.example.com/.well-known/openid-configuration`. The profile
 initially fills `https://gitlab.com`, but deliberately leaves it editable for
-this reason. Do not enter the Discovery URL itself.
+this reason. An assessed self-managed or Dedicated instance retains automatic
+matching and account creation because its population can be controlled by the
+operator. Do not enter the Discovery URL itself.
 
 ## Defaults and remaining settings
 

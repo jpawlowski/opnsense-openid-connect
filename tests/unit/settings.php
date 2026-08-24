@@ -316,6 +316,7 @@ $completePresetFields = [
     'openidconnect_scopes',
     'openidconnect_select_account',
     'openidconnect_bootstrap_mode',
+    'openidconnect_create_users',
     'openidconnect_logout_menu',
     'openidconnect_logout_redirect',
     'openidconnect_logout_notifications',
@@ -338,7 +339,6 @@ $installationSpecificFields = [
     'openidconnect_redirect_urls',
     'openidconnect_sector_origin',
     'openidconnect_max_age',
-    'openidconnect_create_users',
     'openidconnect_default_groups',
     'openidconnect_allow_root',
     'openidconnect_assignable_groups',
@@ -531,6 +531,68 @@ Checks::that('named profiles safely queue an unknown first identity for approval
         'openidconnect_provider_profile' => $profile,
     ])->bootstrapMode() !== 'approval'
 )), []);
+$accountCreationBlockedProfiles = ['apple', 'google', 'linkedin', 'orcid', 'slack', 'yahoo'];
+Checks::that(
+    'global provider profiles expose no automatic local-account creation',
+    OpenIDConnect::accountCreationBlockedProfiles(),
+    $accountCreationBlockedProfiles
+);
+Checks::that('blocked account-creation profiles classify the setting as unsupported', array_values(array_filter(
+    $accountCreationBlockedProfiles,
+    static fn($profile) => $profilePresets[$profile]['values']['openidconnect_create_users'] !== '0'
+        || $profilePresets[$profile]['classifications']['openidconnect_create_users'] !== 'unsupported'
+)), []);
+Checks::that(
+    'personal global providers expose no automatic admission',
+    OpenIDConnect::automaticAdmissionBlockedProfiles(),
+    ['apple', 'linkedin', 'orcid', 'yahoo']
+);
+Checks::that('stale automatic admission fails closed to approval for a personal global provider', connector([
+    'openidconnect_provider_profile' => 'apple',
+    'openidconnect_bootstrap_mode' => 'either',
+])->bootstrapMode(), 'approval');
+Checks::that('strict admission remains available for a personal global provider', connector([
+    'openidconnect_provider_profile' => 'apple',
+    'openidconnect_bootstrap_mode' => 'strict',
+])->bootstrapMode(), 'strict');
+Checks::that('a Workspace-capable Google profile retains deliberate existing-account matching', connector([
+    'openidconnect_provider_profile' => 'google',
+    'openidconnect_bootstrap_mode' => 'verified_email',
+])->bootstrapMode(), 'verified_email');
+Checks::that('a global Google population can never create local accounts automatically', connector([
+    'openidconnect_provider_profile' => 'google',
+    'openidconnect_create_users' => '1',
+])->createsUsers(), false);
+Checks::that('GitLab.com fails closed to approval', connector([
+    'openidconnect_provider_profile' => 'gitlab',
+    'openidconnect_provider_url' => 'https://gitlab.com',
+    'openidconnect_bootstrap_mode' => 'username',
+])->bootstrapMode(), 'approval');
+Checks::that('self-managed GitLab may use a deliberately assessed bootstrap', connector([
+    'openidconnect_provider_profile' => 'gitlab',
+    'openidconnect_provider_url' => 'https://gitlab.example.net',
+    'openidconnect_bootstrap_mode' => 'username',
+])->bootstrapMode(), 'username');
+Checks::that('self-managed GitLab may deliberately create local accounts', connector([
+    'openidconnect_provider_profile' => 'gitlab',
+    'openidconnect_provider_url' => 'https://gitlab.example.net',
+    'openidconnect_create_users' => '1',
+])->createsUsers(), true);
+Checks::that('a broad Microsoft audience fails closed to approval', connector([
+    'openidconnect_provider_profile' => 'entra',
+    'openidconnect_microsoft_audience' => 'common',
+    'openidconnect_bootstrap_mode' => 'either',
+])->bootstrapMode(), 'approval');
+Checks::that('one Entra tenant may use deliberately assessed account creation', connector([
+    'openidconnect_provider_profile' => 'entra',
+    'openidconnect_microsoft_audience' => 'tenant',
+    'openidconnect_create_users' => '1',
+])->createsUsers(), true);
+Checks::that('a broad Microsoft audience cannot create local accounts automatically', connector([
+    'openidconnect_provider_profile' => 'entra',
+    'openidconnect_microsoft_audience' => 'organizations',
+    'openidconnect_create_users' => '1',
+])->createsUsers(), false);
 Checks::that('a fixed Google issuer cannot be replaced by stale configuration', connector([
     'openidconnect_provider_profile' => 'google',
     'openidconnect_provider_url' => 'https://wrong.example.net',
@@ -682,6 +744,42 @@ Checks::that(
 );
 $discoveryUrlWithQuery = 'https://id.example.net/.well-known/openid-configuration?tenant=x';
 Checks::that('a discovery URL carrying a query is still refused', count($issuer($discoveryUrlWithQuery)), 1);
+
+$_POST['type'] = 'openidconnect';
+$_POST['openidconnect_provider_profile'] = 'apple';
+$populationOptions = (new OpenIDConnect())->getConfigurationOptions();
+$createUsers = $populationOptions['openidconnect_create_users']['validate'];
+$admission = $populationOptions['openidconnect_bootstrap_mode']['validate'];
+Checks::that('the form refuses account creation for a personal global provider', count($createUsers('yes')), 1);
+Checks::that('the form refuses automatic admission for a personal global provider', count($admission('username')), 1);
+Checks::that('the form retains administrator approval for a personal global provider', $admission('approval'), []);
+$_POST['openidconnect_provider_profile'] = 'google';
+Checks::that('the form refuses account creation for a potentially global Google population', count(
+    $createUsers('yes')
+), 1);
+Checks::that('the form permits assessed Google existing-account matching', $admission('verified_email'), []);
+$_POST['openidconnect_provider_profile'] = 'gitlab';
+$_POST['openidconnect_provider_url'] = 'https://gitlab.com';
+Checks::that('the form refuses account creation for GitLab.com', count($createUsers('yes')), 1);
+Checks::that('the form refuses automatic admission for GitLab.com', count($admission('either')), 1);
+$_POST['openidconnect_provider_url'] = 'https://gitlab.example.net';
+Checks::that('the form permits assessed account creation for self-managed GitLab', $createUsers('yes'), []);
+Checks::that('the form permits assessed automatic admission for self-managed GitLab', $admission('username'), []);
+$_POST['openidconnect_provider_profile'] = 'entra';
+$_POST['openidconnect_microsoft_audience'] = 'common';
+Checks::that('the form refuses account creation for a broad Microsoft audience', count($createUsers('yes')), 1);
+Checks::that('the form refuses automatic admission for a broad Microsoft audience', count(
+    $admission('verified_email')
+), 1);
+$_POST['openidconnect_microsoft_audience'] = 'tenant';
+Checks::that('the form permits assessed account creation for one Entra tenant', $createUsers('yes'), []);
+Checks::that('the form permits assessed automatic admission for one Entra tenant', $admission('username'), []);
+unset(
+    $_POST['type'],
+    $_POST['openidconnect_provider_profile'],
+    $_POST['openidconnect_provider_url'],
+    $_POST['openidconnect_microsoft_audience']
+);
 
 $_POST['type'] = 'openidconnect';
 $_POST['openidconnect_enabled'] = 'yes';

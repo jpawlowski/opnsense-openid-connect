@@ -200,6 +200,18 @@ Checks::that(
 );
 
 directory($ok);
+Checks::that(
+    'a public provider profile cannot create an account even from stale enabled configuration',
+    connector([
+        'openidconnect_provider_profile' => 'google',
+        'openidconnect_bootstrap_mode' => 'username',
+        'openidconnect_create_users' => '1',
+    ])->localAccountFor(claims(['preferred_username' => 'anna'])),
+    null
+);
+Checks::that('the public-provider refusal never asks configd to create an account', Recorder::$backendCalls, []);
+
+directory($ok);
 Directory::$creationOutput = "\nWarning: Undefined variable in add_user.php\n" . json_encode([
     'status' => 'ok',
     'uid' => '1002',

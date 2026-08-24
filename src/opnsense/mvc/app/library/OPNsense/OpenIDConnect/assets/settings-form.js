@@ -1605,12 +1605,51 @@
     }
 
     function conditionalFields() {
+        var admissionInput = field('openidconnect_bootstrap_mode');
+        var creationInput = field('openidconnect_create_users');
+        var admissionNotice = $('<div class="help-block text-warning oidc-public-admission-boundary">').hide();
+        var creationNotice = $('<div class="help-block text-warning oidc-public-creation-boundary">').hide();
+        row('openidconnect_bootstrap_mode').find('td').last().append(admissionNotice, creationNotice);
+
+        function populationBoundary(provider) {
+            var audience = field('openidconnect_microsoft_audience').value || 'tenant';
+            var issuer = (field('openidconnect_provider_url').value || '').trim()
+                .replace(/\/\.well-known\/openid-configuration$/, '').replace(/\/+$/, '');
+            var publicGitLab = provider === 'gitlab' && issuer === 'https://gitlab.com';
+            return {
+                creation: (options.accountCreationBlockedProfiles || []).indexOf(provider) !== -1
+                    || publicGitLab || (provider === 'entra' && audience !== 'tenant'),
+                admission: (options.automaticAdmissionBlockedProfiles || []).indexOf(provider) !== -1
+                    || publicGitLab || (provider === 'entra' && audience !== 'tenant')
+            };
+        }
+
         function update() {
-            var creates = $(field('openidconnect_create_users')).is(':checked');
-            var admission = field('openidconnect_bootstrap_mode').value || 'strict';
-            var automatic = ['username', 'verified_email', 'either'].indexOf(admission) !== -1;
             var groupClaim = (field('openidconnect_group_claim').value || '').trim() !== '';
             var provider = field('openidconnect_provider_profile').value || 'general';
+            var boundary = populationBoundary(provider);
+            $(admissionInput).find('option').each(function () {
+                $(this).prop('disabled', boundary.admission
+                    && ['username', 'verified_email', 'either'].indexOf(this.value) !== -1);
+            });
+            var admission = admissionInput.value || 'strict';
+            var automatic = ['username', 'verified_email', 'either'].indexOf(admission) !== -1;
+            if (boundary.admission && automatic) {
+                $(admissionInput).val('approval');
+                admission = 'approval';
+                automatic = false;
+            }
+            if (boundary.creation) {
+                $(creationInput).prop('checked', false);
+            }
+            $(creationInput).prop('disabled', boundary.creation);
+            var creates = $(creationInput).is(':checked');
+            admissionNotice.toggle(boundary.admission).text(
+                boundary.admission ? (options.publicPopulationAdmissionHelp || '') : ''
+            );
+            creationNotice.toggle(boundary.creation).text(
+                boundary.creation ? (options.publicPopulationAccountCreationHelp || '') : ''
+            );
             var authentication = field('openidconnect_required_authentication').value || '';
             var authenticationRequired = authentication !== '';
             var buttonTextMode = field('openidconnect_button_text_mode').value || 'localized';
@@ -1621,8 +1660,8 @@
             row('openidconnect_acr_values').toggle(authenticationRequired && provider !== 'entra');
             row('openidconnect_amr_values').toggle(authenticationRequired);
             row('openidconnect_entra_auth_context').toggle(authenticationRequired && provider === 'entra');
-            row('openidconnect_create_users').toggle(automatic);
-            row('openidconnect_default_groups').toggle(automatic && creates);
+            row('openidconnect_create_users').toggle(automatic && !boundary.creation);
+            row('openidconnect_default_groups').toggle(automatic && creates && !boundary.creation);
             row('openidconnect_assignable_groups').toggle(groupClaim);
             row('openidconnect_allow_all_groups').toggle(groupClaim);
             row('openidconnect_logout_redirect').toggle($(field('openidconnect_logout_menu')).is(':checked'));
@@ -1652,6 +1691,8 @@
         $(field('openidconnect_origin_policy')).on('change', update);
         $(field('openidconnect_bootstrap_mode')).on('change', update);
         $(field('openidconnect_provider_profile')).on('change', update);
+        $(field('openidconnect_microsoft_audience')).on('change', update);
+        $(field('openidconnect_provider_url')).on('input change', update);
         $(field('openidconnect_required_authentication')).on('change', update);
         $(field('openidconnect_button_text_mode')).on('change', update);
         update();

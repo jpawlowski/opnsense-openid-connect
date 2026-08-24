@@ -95,6 +95,16 @@ class OpenIDConnect extends Base implements IAuthConnector
         'yahoo' => 'Yahoo',
     ];
 
+    /** Global services for which this form cannot prove an organization-bounded account population. */
+    private const ACCOUNT_CREATION_BLOCKED_PROFILES = [
+        'apple', 'google', 'linkedin', 'orcid', 'slack', 'yahoo',
+    ];
+
+    /** Personal-account services which cannot be narrowed to an operator-controlled directory. */
+    private const AUTOMATIC_ADMISSION_BLOCKED_PROFILES = [
+        'apple', 'linkedin', 'orcid', 'yahoo',
+    ];
+
     /** Require a fresh provider authentication after four hours by default. */
     public const DEFAULT_MAX_AUTHENTICATION_AGE = 14400;
 
@@ -562,7 +572,7 @@ class OpenIDConnect extends Base implements IAuthConnector
                     'service that should take on new users because an identity provider says so.'
                 ),
                 'type' => 'checkbox',
-                'validate' => fn($value) => [],
+                'validate' => fn($value) => $this->validateAutomaticAccountCreation($value),
             ],
             'openidconnect_bootstrap_mode' => [
                 'name' => gettext('Admission policy'),
@@ -581,8 +591,7 @@ class OpenIDConnect extends Base implements IAuthConnector
                     'verified_email' => gettext('Bootstrap by unique verified e-mail'),
                     'either' => gettext('Bootstrap by exact username or unique verified e-mail'),
                 ],
-                'validate' => fn($value) => in_array($value ?: 'strict', self::BOOTSTRAP_MODES, true)
-                    ? [] : [gettext('Unknown admission policy.')],
+                'validate' => fn($value) => $this->validateBootstrapMode($value),
             ],
             'openidconnect_default_groups' => [
                 'name' => gettext('Groups for a new account'),
@@ -1038,6 +1047,7 @@ class OpenIDConnect extends Base implements IAuthConnector
             'openidconnect_scopes' => 'openid,email,profile',
             'openidconnect_select_account' => '0',
             'openidconnect_bootstrap_mode' => 'strict',
+            'openidconnect_create_users' => '0',
             'openidconnect_logout_menu' => '0',
             'openidconnect_logout_redirect' => '0',
             'openidconnect_logout_notifications' => 'both',
@@ -1063,6 +1073,7 @@ class OpenIDConnect extends Base implements IAuthConnector
             'openidconnect_acr_values',
             'openidconnect_amr_values',
             'openidconnect_select_account',
+            'openidconnect_create_users',
             'openidconnect_logout_menu',
             'openidconnect_logout_redirect',
             'openidconnect_logout_notifications',
@@ -1241,6 +1252,10 @@ class OpenIDConnect extends Base implements IAuthConnector
         ];
         foreach ($profiles as $profile => &$preset) {
             $preset['values']['openidconnect_icon_url'] = static::providerIconUrl($profile);
+            if (in_array($profile, self::ACCOUNT_CREATION_BLOCKED_PROFILES, true)) {
+                $preset['values']['openidconnect_create_users'] = '0';
+                $preset['classifications']['openidconnect_create_users'] = 'unsupported';
+            }
             if (isset(self::FIXED_PROVIDER_BUTTON_LABELS[$profile])) {
                 $preset['values']['openidconnect_button_text_mode'] = 'label_only';
                 $preset['values']['openidconnect_button_provider_label'] =
@@ -1320,6 +1335,18 @@ class OpenIDConnect extends Base implements IAuthConnector
         return self::FIXED_PROVIDER_BUTTON_LABELS;
     }
 
+    /** @return string[] profiles whose public population cannot create local accounts automatically */
+    public static function accountCreationBlockedProfiles(): array
+    {
+        return self::ACCOUNT_CREATION_BLOCKED_PROFILES;
+    }
+
+    /** @return string[] profiles limited to strict or administrator-approved admission */
+    public static function automaticAdmissionBlockedProfiles(): array
+    {
+        return self::AUTOMATIC_ADMISSION_BLOCKED_PROFILES;
+    }
+
     /** Resolve a profile name to one package-owned SVG without accepting a filesystem path. */
     public static function providerIconPath(string $profile): ?string
     {
@@ -1360,6 +1387,16 @@ class OpenIDConnect extends Base implements IAuthConnector
             'profilePresets' => static::providerProfilePresets(),
             'authenticationRequirementPresets' => static::authenticationRequirementPresets(),
             'fixedButtonProfiles' => array_keys(static::fixedProviderButtonLabels()),
+            'accountCreationBlockedProfiles' => static::accountCreationBlockedProfiles(),
+            'automaticAdmissionBlockedProfiles' => static::automaticAdmissionBlockedProfiles(),
+            'publicPopulationAccountCreationHelp' => gettext(
+                'Automatic local-account creation is unavailable for this public provider population. ' .
+                'Pre-create and bind the account, or use Administrator approval.'
+            ),
+            'publicPopulationAdmissionHelp' => gettext(
+                'This public provider population permits only Strict or Administrator approval. Automatic ' .
+                'username or e-mail admission could bind an unrelated external identity to this firewall.'
+            ),
             'configuredFields' => array_values(array_filter(
                 array_keys($this->settings),
                 static fn($name) => str_starts_with((string)$name, 'openidconnect_')
@@ -2668,6 +2705,33 @@ class OpenIDConnect extends Base implements IAuthConnector
         return [];
     }
 
+    private function validateAutomaticAccountCreation($value): array
+    {
+        if (!static::settingFlag($value) || $this->submittedProviderAllowsAutomaticAccountCreation()) {
+            return [];
+        }
+        return [gettext(
+            'Automatic local-account creation is not available for this public provider population. ' .
+            'Pre-create and bind the account, or use Administrator approval.'
+        )];
+    }
+
+    private function validateBootstrapMode($value): array
+    {
+        $mode = trim((string)$value) ?: 'strict';
+        if (!in_array($mode, self::BOOTSTRAP_MODES, true)) {
+            return [gettext('Unknown admission policy.')];
+        }
+        if (in_array($mode, ['username', 'verified_email', 'either'], true)
+            && !$this->submittedProviderAllowsAutomaticAdmission()) {
+            return [gettext(
+                'Automatic admission is not available for this public provider population. ' .
+                'Select Strict or Administrator approval.'
+            )];
+        }
+        return [];
+    }
+
     private function validateMicrosoftAuthenticationContext($value): array
     {
         $value = trim((string)$value);
@@ -2702,10 +2766,64 @@ class OpenIDConnect extends Base implements IAuthConnector
 
     private function submittedChoice(string $field, array $allowed, string $default): string
     {
-        $value = isset($_POST['type']) && (string)$_POST['type'] === self::TYPE
+        $value = $this->submittedText($field);
+        return in_array($value, $allowed, true) ? $value : $default;
+    }
+
+    private function submittedText(string $field): string
+    {
+        return isset($_POST['type']) && (string)$_POST['type'] === self::TYPE
             ? trim((string)($_POST[$field] ?? ''))
             : $this->text($field);
-        return in_array($value, $allowed, true) ? $value : $default;
+    }
+
+    private static function settingFlag($value): bool
+    {
+        return in_array(strtolower(trim((string)$value)), ['1', 'yes', 'true', 'on'], true);
+    }
+
+    private function submittedProviderAllowsAutomaticAccountCreation(): bool
+    {
+        return static::providerAllowsAutomaticAccountCreation(
+            $this->submittedChoice('openidconnect_provider_profile', self::PROVIDER_PROFILES, 'general'),
+            $this->submittedChoice('openidconnect_microsoft_audience', self::MICROSOFT_AUDIENCES, 'tenant'),
+            $this->submittedText('openidconnect_provider_url')
+        );
+    }
+
+    private function submittedProviderAllowsAutomaticAdmission(): bool
+    {
+        return static::providerAllowsAutomaticAdmission(
+            $this->submittedChoice('openidconnect_provider_profile', self::PROVIDER_PROFILES, 'general'),
+            $this->submittedChoice('openidconnect_microsoft_audience', self::MICROSOFT_AUDIENCES, 'tenant'),
+            $this->submittedText('openidconnect_provider_url')
+        );
+    }
+
+    private static function providerAllowsAutomaticAccountCreation(
+        string $profile,
+        string $microsoftAudience,
+        string $issuer
+    ): bool {
+        return !in_array($profile, self::ACCOUNT_CREATION_BLOCKED_PROFILES, true)
+            && !($profile === 'entra' && $microsoftAudience !== 'tenant')
+            && !static::isPublicGitLabIssuer($profile, $issuer);
+    }
+
+    private static function providerAllowsAutomaticAdmission(
+        string $profile,
+        string $microsoftAudience,
+        string $issuer
+    ): bool {
+        return !in_array($profile, self::AUTOMATIC_ADMISSION_BLOCKED_PROFILES, true)
+            && !($profile === 'entra' && $microsoftAudience !== 'tenant')
+            && !static::isPublicGitLabIssuer($profile, $issuer);
+    }
+
+    private static function isPublicGitLabIssuer(string $profile, string $issuer): bool
+    {
+        return $profile === 'gitlab'
+            && rtrim(ProviderMetadata::normalizeIssuerInput($issuer), '/') === 'https://gitlab.com';
     }
 
     private function submittedButtonTextMode(): string
@@ -3296,14 +3414,14 @@ class OpenIDConnect extends Base implements IAuthConnector
     }
     public function bootstrapMode(): string
     {
-        if ($this->legacyBootstrapDefault() === 'either') {
-            return 'either';
-        }
-        return $this->choice(
+        $legacyDefault = $this->legacyBootstrapDefault();
+        $mode = $legacyDefault === 'either' ? 'either' : $this->choice(
             'openidconnect_bootstrap_mode',
             self::BOOTSTRAP_MODES,
-            $this->profileDefault('openidconnect_bootstrap_mode', $this->legacyBootstrapDefault())
+            $this->profileDefault('openidconnect_bootstrap_mode', $legacyDefault)
         );
+        return in_array($mode, ['username', 'verified_email', 'either'], true)
+            && !$this->allowsAutomaticAdmission() ? 'approval' : $mode;
     }
 
     /** Existing beta configurations predate the admission-policy field and matched either local identifier. */
@@ -3530,7 +3648,25 @@ class OpenIDConnect extends Base implements IAuthConnector
 
     public function createsUsers(): bool
     {
-        return $this->flag('openidconnect_create_users');
+        return $this->allowsAutomaticAccountCreation() && $this->flag('openidconnect_create_users');
+    }
+
+    public function allowsAutomaticAccountCreation(): bool
+    {
+        return static::providerAllowsAutomaticAccountCreation(
+            $this->providerProfile(),
+            $this->microsoftAudience(),
+            $this->issuerUrl()
+        );
+    }
+
+    public function allowsAutomaticAdmission(): bool
+    {
+        return static::providerAllowsAutomaticAdmission(
+            $this->providerProfile(),
+            $this->microsoftAudience(),
+            $this->issuerUrl()
+        );
     }
 
     /** @return string when an e-mail address may stand in for the username claim */

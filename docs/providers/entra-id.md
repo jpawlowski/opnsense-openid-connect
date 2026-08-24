@@ -90,6 +90,11 @@ different trust population from a managed tenant. The Administrator approval
 policy ensures that owning any Microsoft account is insufficient for firewall
 access.
 
+Organizations, Consumers and Common therefore offer only Strict or
+Administrator approval and disable **Create an account on first login**. One
+specific Entra tenant retains assessed automatic matching and account creation.
+The form updates these choices when **Microsoft account audience** changes.
+
 ## Which Microsoft identifier to bind
 
 Use **Manage identities** and bind the exact `sub` claim from the ID Token, not

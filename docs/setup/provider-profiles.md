@@ -57,6 +57,7 @@ Unless the table below says otherwise, every named profile starts with:
 | Provider logout notifications | Off unless a retained provider guide reviews a channel |
 | Receive Shared Signals | Off; transmitter details are always installation-specific |
 | Admission policy | Administrator approval |
+| Create an account on first login | Off; unavailable when the selected profile cannot prove a bounded account population |
 | Login button wording | localized OPNsense sentence; an empty provider label follows Descriptive name |
 
 Administrator approval is intentionally useful but not permissive. A valid unknown
@@ -82,23 +83,23 @@ the whole visible string and is intentionally literal rather than translated.
 | Cisco Duo Single Sign-On | enter the per-application issuer | username `email`; require UserInfo |
 | Dex | enter configured issuer | shared defaults; add `groups` only when group mapping is intended |
 | FusionAuth | enter tenant issuer | redirect the Log Out menu through documented provider logout |
-| GitLab | `https://gitlab.com` is filled but editable for self-managed GitLab | shared defaults |
-| Google / Google Workspace | fixed `https://accounts.google.com` | username `email`; ID Token only |
+| GitLab | `https://gitlab.com` is filled but editable for self-managed GitLab | GitLab.com permits only Strict/Approval and no automatic account creation; a self-managed issuer retains assessed automatic choices |
+| Google / Google Workspace | fixed `https://accounts.google.com` | username `email`; ID Token only; no automatic local-account creation because the form cannot prove an Internal Workspace audience |
 | IBM Security Verify | enter tenant issuer | redirect the Log Out menu through documented provider logout; adjust the claim only when explicitly mapped differently |
 | JumpCloud | enter the exact regional issuer | shared defaults |
 | Keycloak | enter realm issuer | redirect the Log Out menu through provider logout; prefer Back-channel logout notifications; its guide documents the Front-channel alternative |
-| LinkedIn | fixed `https://www.linkedin.com/oauth` | username `email`; ID Token only; fixed `client_secret_post` |
-| Microsoft Entra ID / Microsoft account | enter one tenant's v2 issuer; broader audience modes manage their authority automatically | redirect the Log Out menu through documented provider logout; ID Token only; tenant audience recommended; a required authentication policy additionally needs its configured `c1`-`c25` Conditional Access context |
+| LinkedIn | fixed `https://www.linkedin.com/oauth` | username `email`; ID Token only; fixed `client_secret_post`; only Strict/Approval and no automatic account creation |
+| Microsoft Entra ID / Microsoft account | enter one tenant's v2 issuer; broader audience modes manage their authority automatically | broad audiences permit only Strict/Approval and no automatic account creation; one tenant retains assessed automatic choices; redirect the Log Out menu through documented provider logout; ID Token only; tenant audience recommended |
 | Okta | enter organization or custom authorization-server issuer | redirect the Log Out menu through documented provider logout; MFA uses `urn:okta:loa:2fa:any`; phishing-resistant authentication uses `phr`/`phrh` when deliberately enabled; optional Shared Signals stays off until its separate stream is configured |
 | OneLogin | enter exact v2 issuer | redirect the Log Out menu through documented provider logout |
-| ORCID | fixed `https://orcid.org` | username `sub`; ID Token only; fixed `client_secret_post`; fixed sole scope `openid` |
+| ORCID | fixed `https://orcid.org` | username `sub`; ID Token only; fixed `client_secret_post`; fixed sole scope `openid`; only Strict/Approval and no automatic account creation |
 | Oracle Identity Cloud / OCI IAM | enter identity-domain issuer | redirect the Log Out menu through documented provider logout; adjust the claim only when explicitly mapped differently |
 | Ping Identity | enter environment issuer | redirect the Log Out menu through documented provider logout; insist on Basic only when the application was configured that way |
 | Pocket ID | enter the instance `APP_URL` issuer | redirect the Log Out menu through documented provider logout; add `groups` only when group mapping is intended |
-| Apple | fixed `https://appleid.apple.com` | username `email`; fixed ID Token only, Form POST and `client_secret_post`; scopes `openid,email,name` |
-| Slack | fixed `https://slack.com` | username `email`; ID Token only |
+| Apple | fixed `https://appleid.apple.com` | username `email`; fixed ID Token only, Form POST and `client_secret_post`; scopes `openid,email,name`; only Strict/Approval and no automatic account creation |
+| Slack | fixed `https://slack.com` | username `email`; ID Token only; no automatic account creation because the form cannot prove a single-workspace population |
 | WSO2 Identity Server | enter exact published issuer | redirect the Log Out menu through documented provider logout |
-| Yahoo | fixed `https://api.login.yahoo.com` | username `email`; require UserInfo |
+| Yahoo | fixed `https://api.login.yahoo.com` | username `email`; require UserInfo; only Strict/Approval and no automatic account creation |
 | ZITADEL | enter instance or custom-domain issuer | redirect the Log Out menu through documented provider logout |
 
 The Apple username and scopes remain editable even though the transport rules are

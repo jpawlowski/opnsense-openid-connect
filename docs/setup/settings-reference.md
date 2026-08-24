@@ -95,8 +95,8 @@ worker.
 
 | Setting | Safe/default behaviour | Change it when |
 |---|---|---|
-| Create an account on first login | Off; shown only for automatic admission policies | the provider is an approved source of new firewall accounts and default privileges are reviewed |
-| Admission policy | Administrator approval for a named profile; Strict for Generic | use Strict with manual bindings, or use automatic username/e-mail matching only for an assessed, controlled claim source |
+| Create an account on first login | Off; unavailable for Apple, Google, LinkedIn, ORCID, Slack, Yahoo, GitLab.com and broad Microsoft audiences | a bounded provider population such as one Entra tenant, self-managed GitLab or a controlled directory is an approved source of new firewall accounts |
+| Admission policy | Administrator approval for a named profile; Strict for Generic; automatic choices unavailable for Apple, LinkedIn, ORCID, Yahoo, GitLab.com and broad Microsoft audiences | use Strict with manual bindings, Approval for public identities, or automatic matching only for an assessed controlled population |
 | Groups for a new account | Empty | just-in-time creation is intentionally enabled and a bounded initial group set is required |
 | Allow the built-in root account | Off | the recovery superuser should deliberately be controlled by the IdP |
 | Group claim | Empty; memberships remain local | the provider should manage selected OPNsense memberships |

@@ -293,6 +293,13 @@ issuer/subject binding is used instead of repeating claim-based matching. Open
 **Manage identities** at any time to review, edit or remove it. Keep **Create an account on first login** and
 **Allow the built-in root account** off unless their consequences are intended.
 
+Public provider populations add a hard boundary to that recommendation. Apple,
+Google, LinkedIn, ORCID, Slack and Yahoo never offer automatic local-account
+creation. GitLab.com and Microsoft Organizations, Consumers or Common are
+blocked dynamically, while self-managed GitLab and one Entra tenant retain the
+choice. Apple, LinkedIn, ORCID, Yahoo, GitLab.com and broad Microsoft audiences
+also limit Admission policy to Strict or Administrator approval.
+
 See [Admission policy and identity approvals](admission-policy.md) for the
 complete workflow, request retention and Apple Private Relay behaviour.
 
