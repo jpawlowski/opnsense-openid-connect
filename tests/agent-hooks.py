@@ -722,8 +722,12 @@ def main():
               ("passing", "approved"))
         check("a pending legacy status keeps completed check runs pending", watch._check_state(
             {"check_runs": [{"status": "completed", "conclusion": "success"}]},
-            {"state": "pending"},
+            {"state": "pending", "statuses": [{"context": "legacy", "state": "pending"}]},
         ), "pending")
+        check("the empty combined-status default does not hide successful check runs", watch._check_state(
+            {"check_runs": [{"status": "completed", "conclusion": "success"}]},
+            {"state": "pending", "statuses": []},
+        ), "passing")
         check("an approval on an older head is stale", watch._review_decision([
             {"user": {"login": "reviewer"}, "state": "APPROVED", "commit_id": "older"},
         ], head), "stale approval")
