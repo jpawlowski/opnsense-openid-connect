@@ -43,6 +43,7 @@ class ClientAssertion
             'sub' => $clientId,
             'aud' => $audience,
             'jti' => JwtVerifier::base64UrlEncode(random_bytes(32)),
+            'nbf' => $now,
             'iat' => $now,
             'exp' => $now + self::LIFETIME,
         ]));

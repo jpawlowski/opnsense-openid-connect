@@ -46,10 +46,12 @@ function testClientAssertion(OPNsense\Auth\OpenIDConnect $settings): ClientAsser
 
         protected function selectAlgorithm(object $key, array $advertisedAlgorithms): string
         {
-            if (!in_array('RS256', $advertisedAlgorithms, true)) {
-                throw new ProtocolException('no shared test algorithm');
+            foreach (['PS256', 'RS256'] as $algorithm) {
+                if (in_array($algorithm, $advertisedAlgorithms, true)) {
+                    return $algorithm;
+                }
             }
-            return 'RS256';
+            throw new ProtocolException('no shared test algorithm');
         }
 
         protected function sign(object $key, string $algorithm, string $input): string
@@ -89,8 +91,8 @@ Checks::that('issuer and subject both identify the OAuth client', [
     $assertionClaims['iss'], $assertionClaims['sub'], $assertionClaims['aud'],
 ], ['client-id', 'client-id', 'https://id.example.net/token']);
 Checks::that('the assertion has a tightly bounded validity window', [
-    $assertionClaims['iat'], $assertionClaims['exp'],
-], [2000000000, 2000000000 + ClientAssertion::LIFETIME]);
+    $assertionClaims['nbf'], $assertionClaims['iat'], $assertionClaims['exp'],
+], [2000000000, 2000000000, 2000000000 + ClientAssertion::LIFETIME]);
 Checks::that('every request receives a fresh replay identifier',
     $assertionClaims['jti'] === $secondClaims['jti'], false);
 Checks::throws(
@@ -262,6 +264,27 @@ Checks::that('the shared authenticator is ready for endpoint-specific introspect
 
 $missingAlgorithms = clientAuthenticationMetadata()->toArray();
 unset($missingAlgorithms['token_endpoint_auth_signing_alg_values_supported']);
+$entraSettings = connector([
+    'openidconnect_provider_profile' => 'entra',
+    'openidconnect_client_id' => 'entra-client',
+    'openidconnect_token_auth' => 'private_key_jwt',
+    'openidconnect_signing_certificate' => '0123456789abc',
+]);
+$entraFields = [];
+$entraHeaders = [];
+(new ClientAuthenticator($entraSettings, testClientAssertion($entraSettings)))->authenticate(
+    ProviderMetadata::fromArray($missingAlgorithms),
+    'https://id.example.net/token',
+    ClientAuthenticator::TOKEN,
+    $entraFields,
+    $entraHeaders
+);
+[$entraHeader, $entraClaims] = clientAssertionParts($entraFields['client_assertion']);
+Checks::that('Entra receives its documented not-before claim with the PS256 fallback', [
+    $entraHeader['alg'],
+    $entraClaims['nbf'] === $entraClaims['iat'],
+    $entraClaims['exp'] - $entraClaims['nbf'],
+], ['PS256', true, ClientAssertion::LIFETIME]);
 Checks::throws(
     'Generic refuses private-key JWT when Discovery supplies no negotiable algorithm',
     function () use ($authenticator, $missingAlgorithms): void {
