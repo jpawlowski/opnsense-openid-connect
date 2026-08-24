@@ -209,7 +209,7 @@ It checks two things, and the order is deliberate:
 1. **Live probe** — the login page is actually fetched and checked for the
    form, the SSO button, a clean closing tag and PHP errors. This is the check
    that matters.
-2. **Fingerprint** — a `sha256` over the 31 platform files this module hangs
+2. **Fingerprint** — a `sha256` over the 32 platform files this module hangs
    off. If it differs, the ground has moved.
 
 A mere version change deliberately triggers nothing: OPNsense moves often

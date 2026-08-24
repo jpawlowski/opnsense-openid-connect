@@ -88,6 +88,7 @@ TOUCHPOINTS="
 /usr/local/opnsense/scripts/auth/add_user.php
 /usr/local/opnsense/service/conf/actions.d/actions_auth.conf
 /usr/local/sbin/pluginctl
+/usr/local/share/phpseclib/Crypt/EC/Curves/Ed25519.php
 /usr/local/share/phpseclib/Crypt/EC/Formats/Keys/JWK.php
 /usr/local/share/phpseclib/Crypt/EC/PublicKey.php
 /usr/local/share/phpseclib/Crypt/RSA.php
