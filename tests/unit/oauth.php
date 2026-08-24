@@ -319,12 +319,18 @@ Checks::throws(
 $authorizationError = $authorizationParty;
 Checks::throws(
     'RFC6749-4.1.2.1-MUST-SAFE-ERROR positive: a bounded authorization error is classified safely',
-    fn() => $authorizationError->complete($authorizationTransaction, ['error' => 'access_denied']),
+    fn() => $authorizationError->complete($authorizationTransaction, [
+        'state' => $authorizationFields['state'],
+        'error' => 'access_denied',
+    ]),
     'access_denied'
 );
 Checks::throws(
     'RFC6749-4.1.2.1-MUST-SAFE-ERROR negative: malformed authorization errors are not reflected',
-    fn() => $authorizationError->complete($authorizationTransaction, ['error' => "denied\nsecret"]),
+    fn() => $authorizationError->complete($authorizationTransaction, [
+        'state' => $authorizationFields['state'],
+        'error' => "denied\nsecret",
+    ]),
     'provider_error'
 );
 
@@ -353,6 +359,27 @@ Checks::that(
     'RFC6749-5.1-MUST-TOKEN-RESPONSE positive: a complete Bearer token response is accepted',
     [$basicTokens['access_token'], $basicTokens['token_type']],
     ['access-token', 'Bearer']
+);
+$serializedLifetimes = [];
+foreach (['3600.0', '3.6e3'] as $serializedLifetime) {
+    $tokens = inspect(
+        oauthProfileParty(static fn(): array => [
+            'status' => 200,
+            'content_type' => 'application/json',
+            'body' => '{"access_token":"access-token","token_type":"Bearer",'
+                . '"id_token":"header.payload.signature","expires_in":' . $serializedLifetime . '}',
+            'location' => '',
+        ]),
+        'exchangeCode',
+        'code',
+        'verifier'
+    );
+    $serializedLifetimes[] = $tokens['expires_in'];
+}
+Checks::that(
+    'RFC6749-5.1-MUST-TOKEN-RESPONSE positive: alternate JSON number lifetimes are accepted',
+    $serializedLifetimes,
+    [3600.0, 3600.0]
 );
 $missingAccess = oauthProfileParty(fn() => jsonAnswer([
     'token_type' => 'Bearer',
@@ -391,6 +418,18 @@ foreach ([
         $invalidTokenAnswer['message']
     );
 }
+$unboundedLifetime = oauthProfileParty(static fn(): array => [
+    'status' => 200,
+    'content_type' => 'application/json',
+    'body' => '{"access_token":"access-token","token_type":"Bearer",'
+        . '"id_token":"header.payload.signature","expires_in":1e400}',
+    'location' => '',
+]);
+Checks::throws(
+    'RFC6749-5.1-MUST-TOKEN-RESPONSE negative: a non-finite access token lifetime is refused',
+    fn() => inspect($unboundedLifetime, 'exchangeCode', 'code', 'verifier'),
+    'invalid access token lifetime'
+);
 $unknownTokenAnswer = oauthTokenAnswer();
 for ($index = 0; $index < 40; $index++) {
     $unknownTokenAnswer['extension_' . $index] = str_repeat('x', $index + 1);
@@ -586,7 +625,10 @@ Checks::that(
 );
 Checks::throws(
     'RFC6749-10.14-MUST-VALIDATE-INPUT negative: a control character in an authorization code is refused',
-    fn() => $authorizationParty->complete($authorizationTransaction, ['code' => "code\nsecond"]),
+    fn() => $authorizationParty->complete($authorizationTransaction, [
+        'state' => $authorizationFields['state'],
+        'code' => "code\nsecond",
+    ]),
     'no usable code'
 );
 

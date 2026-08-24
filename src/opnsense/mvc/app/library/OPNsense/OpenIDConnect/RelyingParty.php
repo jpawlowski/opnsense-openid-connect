@@ -419,9 +419,11 @@ class RelyingParty
             throw new ProtocolException('The token endpoint returned an unsupported token type');
         }
         self::bearerAuthorization($tokens['access_token']);
-        if (array_key_exists('expires_in', $tokens)
-            && (!is_int($tokens['expires_in']) || $tokens['expires_in'] < 0)) {
-            throw new ProtocolException('The token endpoint returned an invalid access token lifetime');
+        if (array_key_exists('expires_in', $tokens)) {
+            $lifetime = $tokens['expires_in'];
+            if ((!is_int($lifetime) && !is_float($lifetime)) || !is_finite((float)$lifetime) || $lifetime < 0) {
+                throw new ProtocolException('The token endpoint returned an invalid access token lifetime');
+            }
         }
         if (array_key_exists('scope', $tokens) && (!is_string($tokens['scope'])
             || !preg_match('/^[\x21\x23-\x5B\x5D-\x7E]+(?: [\x21\x23-\x5B\x5D-\x7E]+)*$/D', $tokens['scope']))) {
