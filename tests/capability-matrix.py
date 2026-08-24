@@ -7,6 +7,7 @@
 import copy
 import importlib.util
 import json
+import os
 import pathlib
 import sys
 import tempfile
@@ -60,6 +61,21 @@ def unreachable_evidence_fixture():
     )
 
 
+def gate_executed_tests():
+    path = pathlib.Path(os.environ.get("OPENIDCONNECT_EXECUTED_TESTS", ""))
+    try:
+        records = json.loads(path.read_text(encoding="utf-8"))["executed_tests"]
+    except (FileNotFoundError, KeyError, json.JSONDecodeError, OSError):
+        return set()
+    return {
+        (pathlib.PurePosixPath(record["path"]), record["test"])
+        for record in records
+        if isinstance(record, dict)
+        and isinstance(record.get("path"), str)
+        and isinstance(record.get("test"), str)
+    }
+
+
 def main():
     standards = matrix.read_json(matrix.STANDARDS)
     providers = matrix.read_json(matrix.PROVIDERS)
@@ -88,7 +104,7 @@ def main():
         )),
         True,
     )
-    matrix.EXECUTED_TESTS = {
+    matrix.EXECUTED_TESTS = gate_executed_tests() | {
         (pathlib.PurePosixPath(source), test)
         for source, test in harness.executed_tests()
     }

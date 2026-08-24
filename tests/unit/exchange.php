@@ -47,11 +47,85 @@ function jsonAnswer(array $value, int $status = 200, array $headers = []): array
     ];
 }
 
+function jwaToken(
+    string $algorithm,
+    string $signature,
+    ?string $kid = 'profile-key',
+    array $claims = ['profile' => true]
+): string
+{
+    $header = ['alg' => $algorithm];
+    if ($kid !== null) {
+        $header['kid'] = $kid;
+    }
+    return JwtVerifier::base64UrlEncode(json_encode($header, JSON_THROW_ON_ERROR)) . '.'
+        . JwtVerifier::base64UrlEncode(json_encode($claims, JSON_THROW_ON_ERROR)) . '.'
+        . JwtVerifier::base64UrlEncode($signature);
+}
+
+function rsaJwaKey(int $bytes = 256, array $extra = []): array
+{
+    return $extra + [
+        'kty' => 'RSA',
+        'kid' => 'profile-key',
+        'n' => JwtVerifier::base64UrlEncode("\x80" . str_repeat("\x01", $bytes - 1)),
+        'e' => 'AQAB',
+    ];
+}
+
+function ecJwaKey(string $curve, int $bytes, array $extra = []): array
+{
+    return $extra + [
+        'kty' => 'EC',
+        'kid' => 'profile-key',
+        'crv' => $curve,
+        'x' => JwtVerifier::base64UrlEncode(str_repeat("\x01", $bytes)),
+        'y' => JwtVerifier::base64UrlEncode(str_repeat("\x01", $bytes)),
+    ];
+}
+
+function ed25519JwaKey(array $extra = []): array
+{
+    return $extra + [
+        'kty' => 'OKP',
+        'kid' => 'profile-key',
+        'crv' => 'Ed25519',
+        'x' => JwtVerifier::base64UrlEncode(str_repeat("\x01", 32)),
+    ];
+}
+
+function verifyJwaProfile(
+    string $algorithm,
+    array $key,
+    int $signatureBytes,
+    bool $valid = true,
+    ?array $advertisedAlgorithms = null
+): array
+{
+    $http = new HttpClient(fn() => jsonAnswer(['keys' => [$key]]));
+    $verifier = new class($http, $valid) extends JwtVerifier {
+        public function __construct(HttpClient $http, private readonly bool $valid)
+        {
+            parent::__construct($http);
+        }
+
+        protected function verifySignature(string $algorithm, array $jwk, string $payload, string $signature): bool
+        {
+            return $this->valid;
+        }
+    };
+    return $verifier->verifySignedJwt(
+        jwaToken($algorithm, str_repeat("\x5a", $signatureBytes)),
+        'https://profile.example.net/keys',
+        $advertisedAlgorithms ?? [$algorithm]
+    );
+}
+
 function compactJwt(array $claims, array $header = ['alg' => 'RS256', 'kid' => 'test-key']): string
 {
     return JwtVerifier::base64UrlEncode(json_encode($header, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)) . '.'
         . JwtVerifier::base64UrlEncode(json_encode($claims, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)) . '.'
-        . JwtVerifier::base64UrlEncode('test-signature');
+        . JwtVerifier::base64UrlEncode(str_repeat("\x5a", 256));
 }
 
 Checks::group('Strict provider discovery');
@@ -863,7 +937,7 @@ Checks::throws(
         new Controller(new Request('https', 'firewall.example.net'), new Session()),
         new HttpClient(fn() => jsonAnswer(metadata([
             'response_modes_supported' => ['query.jwt'],
-            'authorization_signing_alg_values_supported' => ['EdDSA'],
+            'authorization_signing_alg_values_supported' => ['HS256'],
         ])))
     ))->begin('unsupported-jarm', '/'),
     'JARM signing algorithm'
@@ -1196,10 +1270,312 @@ Checks::throws(
     'pending login'
 );
 
+Checks::group('Asymmetric JWA verification profile');
+Checks::that(
+    'the allow-list is the complete documented asymmetric profile',
+    JwtVerifier::ALGORITHMS,
+    ['RS256', 'RS384', 'RS512', 'PS256', 'PS384', 'PS512', 'ES256', 'ES384', 'ES512', 'EdDSA']
+);
+$completeJwaProfile = [
+    'RS256' => [rsaJwaKey(), 256],
+    'RS384' => [rsaJwaKey(), 256],
+    'RS512' => [rsaJwaKey(), 256],
+    'PS256' => [rsaJwaKey(), 256],
+    'PS384' => [rsaJwaKey(), 256],
+    'PS512' => [rsaJwaKey(), 256],
+    'ES256' => [ecJwaKey('P-256', 32), 64],
+    'ES384' => [ecJwaKey('P-384', 48), 96],
+    'ES512' => [ecJwaKey('P-521', 66), 132],
+    'EdDSA' => [ed25519JwaKey(), 64],
+];
+$acceptedJwaAlgorithms = [];
+foreach ($completeJwaProfile as $profileAlgorithm => [$profileKey, $profileSignatureBytes]) {
+    $acceptedJwaAlgorithms[] = verifyJwaProfile(
+        $profileAlgorithm,
+        $profileKey,
+        $profileSignatureBytes
+    )['header']['alg'];
+}
+Checks::that(
+    'every documented asymmetric algorithm reaches its exact verification profile',
+    $acceptedJwaAlgorithms,
+    JwtVerifier::ALGORITHMS
+);
+Checks::that(
+    'Discovery accepts an Ed25519-capable provider advertising EdDSA',
+    ProviderMetadata::fromArray(metadata(['id_token_signing_alg_values_supported' => ['EdDSA']]))
+        ->get('id_token_signing_alg_values_supported'),
+    ['EdDSA']
+);
+Checks::throws(
+    'an EdDSA token is refused unless the issuer advertised it',
+    fn() => verifyJwaProfile('EdDSA', ed25519JwaKey(), 64, true, ['RS256']),
+    'not advertised'
+);
+$probeVerifier = new JwtVerifier(new HttpClient(fn() => jsonAnswer(['keys' => [
+    rsaJwaKey(),
+    ecJwaKey('P-256', 32),
+    ed25519JwaKey(),
+    rsaJwaKey(256, ['use' => 'enc', 'kid' => 'encryption-only']),
+]])));
+Checks::that(
+    'the setup probe counts only keys accepted by the verification profile',
+    $probeVerifier->probeKeySet('https://profile.example.net/probe-keys'),
+    3
+);
+Checks::that(
+    'jwa-rsa-minimum-size positive: a 2048-bit RSA key is accepted',
+    verifyJwaProfile('RS256', rsaJwaKey(), 256)['header']['alg'],
+    'RS256'
+);
+Checks::throws(
+    'jwa-rsa-minimum-size negative: a shorter RSA key is refused',
+    fn() => verifyJwaProfile('RS256', rsaJwaKey(255), 255),
+    'matches'
+);
+Checks::that(
+    'jwa-rsa-modulus positive: a canonical RSA modulus is accepted',
+    verifyJwaProfile('PS256', rsaJwaKey(256, ['alg' => 'PS256']), 256)['key']['n'],
+    rsaJwaKey()['n']
+);
+$missingModulus = rsaJwaKey();
+unset($missingModulus['n']);
+Checks::throws(
+    'jwa-rsa-modulus negative: a missing RSA modulus is refused',
+    fn() => verifyJwaProfile('RS256', $missingModulus, 256),
+    'matches'
+);
+Checks::that(
+    'jwa-rsa-exponent positive: a canonical RSA exponent is accepted',
+    verifyJwaProfile('RS256', rsaJwaKey(), 256)['key']['e'],
+    'AQAB'
+);
+$missingExponent = rsaJwaKey();
+unset($missingExponent['e']);
+Checks::throws(
+    'jwa-rsa-exponent negative: a missing RSA exponent is refused',
+    fn() => verifyJwaProfile('RS256', $missingExponent, 256),
+    'matches'
+);
+Checks::that(
+    'jwa-rsa-exponent-encoding positive: 65537 uses its canonical three-octet encoding',
+    verifyJwaProfile('RS384', rsaJwaKey(), 256)['key']['e'],
+    'AQAB'
+);
+Checks::throws(
+    'jwa-rsa-exponent-encoding negative: a leading zero in the exponent is refused',
+    fn() => verifyJwaProfile('RS384', rsaJwaKey(256, ['e' => 'AAEAAQ']), 256),
+    'matches'
+);
+Checks::that(
+    'jwa-base64url-uint positive: an unsigned integer uses its minimum octet representation',
+    verifyJwaProfile('RS256', rsaJwaKey(), 256)['key']['n'],
+    rsaJwaKey()['n']
+);
+Checks::throws(
+    'jwa-base64url-uint negative: a leading zero octet in an unsigned integer is refused',
+    fn() => verifyJwaProfile('RS256', rsaJwaKey(256, [
+        'n' => JwtVerifier::base64UrlEncode("\0" . "\x80" . str_repeat("\x01", 255)),
+    ]), 257),
+    'matches'
+);
+Checks::that(
+    'the ECDSA algorithm is bound to its exact curve and digest family',
+    verifyJwaProfile('ES256', ecJwaKey('P-256', 32), 64)['key']['crv'],
+    'P-256'
+);
+Checks::throws(
+    'an ECDSA algorithm cannot select another curve',
+    fn() => verifyJwaProfile('ES256', ecJwaKey('P-384', 48), 96),
+    'matches'
+);
+Checks::that(
+    'jwa-ecdsa-signature-size positive: ES256 accepts its 64-octet raw signature',
+    verifyJwaProfile('ES256', ecJwaKey('P-256', 32), 64)['header']['alg'],
+    'ES256'
+);
+Checks::throws(
+    'jwa-ecdsa-signature-size negative: ES256 refuses a shortened raw signature',
+    fn() => verifyJwaProfile('ES256', ecJwaKey('P-256', 32), 63),
+    'signature length'
+);
+Checks::that(
+    'jwa-ec-curve-member positive: a supported EC curve member is accepted',
+    verifyJwaProfile('ES512', ecJwaKey('P-521', 66), 132)['key']['crv'],
+    'P-521'
+);
+$missingCurve = ecJwaKey('P-384', 48);
+unset($missingCurve['crv']);
+Checks::throws(
+    'jwa-ec-curve-member negative: a missing EC curve member is refused',
+    fn() => verifyJwaProfile('ES384', $missingCurve, 96),
+    'matches'
+);
+Checks::that(
+    'jwa-ec-x-coordinate-size positive: a full-size EC x coordinate is accepted',
+    verifyJwaProfile('ES384', ecJwaKey('P-384', 48), 96)['key']['crv'],
+    'P-384'
+);
+$shortX = ecJwaKey('P-384', 48);
+$shortX['x'] = JwtVerifier::base64UrlEncode(str_repeat("\x01", 47));
+Checks::throws(
+    'jwa-ec-x-coordinate-size negative: a shortened EC x coordinate is refused',
+    fn() => verifyJwaProfile('ES384', $shortX, 96),
+    'matches'
+);
+Checks::that(
+    'jwa-ec-y-coordinate-size positive: a full-size EC y coordinate is accepted',
+    verifyJwaProfile('ES384', ecJwaKey('P-384', 48), 96)['key']['crv'],
+    'P-384'
+);
+$shortY = ecJwaKey('P-384', 48);
+$shortY['y'] = JwtVerifier::base64UrlEncode(str_repeat("\x01", 47));
+Checks::throws(
+    'jwa-ec-y-coordinate-size negative: a shortened EC y coordinate is refused',
+    fn() => verifyJwaProfile('ES384', $shortY, 96),
+    'matches'
+);
+Checks::that(
+    'jwa-key-size-limit positive: an 8192-bit RSA key stays within the processing bound',
+    verifyJwaProfile('RS512', rsaJwaKey(1024), 1024)['header']['alg'],
+    'RS512'
+);
+Checks::throws(
+    'jwa-key-size-limit negative: a larger RSA key is refused before cryptographic work',
+    fn() => verifyJwaProfile('RS512', rsaJwaKey(1025), 1025),
+    'matches'
+);
+Checks::that(
+    'eddsa-okp-kty positive: an OKP signing key is accepted',
+    verifyJwaProfile('EdDSA', ed25519JwaKey(['use' => 'sig', 'key_ops' => ['verify']]), 64)['key']['crv'],
+    'Ed25519'
+);
+Checks::throws(
+    'eddsa-okp-kty negative: another key type is refused for EdDSA',
+    fn() => verifyJwaProfile('EdDSA', ecJwaKey('P-256', 32), 64),
+    'matches'
+);
+Checks::that(
+    'eddsa-okp-curve positive: the Ed25519 subtype is accepted',
+    verifyJwaProfile('EdDSA', ed25519JwaKey(), 64)['key']['crv'],
+    'Ed25519'
+);
+$missingEdCurve = ed25519JwaKey();
+unset($missingEdCurve['crv']);
+Checks::throws(
+    'eddsa-okp-curve negative: a missing OKP curve is refused',
+    fn() => verifyJwaProfile('EdDSA', $missingEdCurve, 64),
+    'matches'
+);
+Checks::that(
+    'eddsa-okp-x positive: a 32-octet Ed25519 public key is accepted',
+    verifyJwaProfile('EdDSA', ed25519JwaKey(), 64)['key']['crv'],
+    'Ed25519'
+);
+$shortEdX = ed25519JwaKey();
+$shortEdX['x'] = JwtVerifier::base64UrlEncode(str_repeat("\x01", 31));
+Checks::throws(
+    'eddsa-okp-x negative: a shortened Ed25519 public key is refused',
+    fn() => verifyJwaProfile('EdDSA', $shortEdX, 64),
+    'matches'
+);
+Checks::that(
+    'eddsa-okp-public-only positive: a public-only Ed25519 JWK is accepted',
+    verifyJwaProfile('EdDSA', ed25519JwaKey(), 64)['key']['crv'],
+    'Ed25519'
+);
+Checks::throws(
+    'eddsa-okp-public-only negative: private Ed25519 material in provider JWKS is refused',
+    fn() => verifyJwaProfile('EdDSA', ed25519JwaKey(['d' => JwtVerifier::base64UrlEncode(random_bytes(32))]), 64),
+    'matches'
+);
+Checks::that(
+    'eddsa-signing-curve positive: Ed25519 remains a signing subtype',
+    verifyJwaProfile('EdDSA', ed25519JwaKey(), 64)['key']['crv'],
+    'Ed25519'
+);
+Checks::throws(
+    'eddsa-signing-curve negative: an X25519 key-agreement subtype cannot verify EdDSA',
+    fn() => verifyJwaProfile('EdDSA', ed25519JwaKey(['crv' => 'X25519']), 64),
+    'matches'
+);
+Checks::that(
+    'eddsa-ed25519-verification positive: a valid Ed25519 signature reaches verification',
+    verifyJwaProfile('EdDSA', ed25519JwaKey(['alg' => 'EdDSA']), 64)['header']['alg'],
+    'EdDSA'
+);
+Checks::throws(
+    'eddsa-ed25519-verification negative: an invalid Ed25519 signature is refused',
+    fn() => verifyJwaProfile('EdDSA', ed25519JwaKey(), 64, false),
+    'signature is invalid'
+);
+Checks::throws(
+    'a key type from another algorithm family is refused',
+    fn() => verifyJwaProfile('RS256', ecJwaKey('P-256', 32), 256),
+    'matches'
+);
+Checks::throws(
+    'Ed448 remains outside the bounded EdDSA profile',
+    fn() => verifyJwaProfile('EdDSA', ed25519JwaKey(['crv' => 'Ed448']), 114),
+    'matches'
+);
+Checks::throws(
+    'a JWK algorithm cannot contradict the protected header',
+    fn() => verifyJwaProfile('RS256', rsaJwaKey(256, ['alg' => 'PS256']), 256),
+    'matches'
+);
+Checks::throws(
+    'an encryption key cannot verify a signature',
+    fn() => verifyJwaProfile('RS256', rsaJwaKey(256, ['use' => 'enc']), 256),
+    'matches'
+);
+Checks::throws(
+    'unrelated or duplicate key operations are refused',
+    fn() => verifyJwaProfile('RS256', rsaJwaKey(256, ['key_ops' => ['verify', 'verify', 'decrypt']]), 256),
+    'matches'
+);
+Checks::throws(
+    'a symmetric ID-token signature remains outside the asymmetric profile',
+    fn() => verifyJwaProfile('HS256', ['kty' => 'oct', 'kid' => 'profile-key', 'k' => 'c2VjcmV0'], 32),
+    'unsupported signing algorithm'
+);
+$eddsaAccessToken = 'access-token-bound-to-ed25519';
+$eddsaNow = time();
+$eddsaClaims = [
+    'iss' => 'https://id.example.net',
+    'sub' => 'ed25519-subject',
+    'aud' => 'client-id',
+    'exp' => $eddsaNow + 300,
+    'iat' => $eddsaNow - 5,
+    'nonce' => 'eddsa-nonce',
+    'at_hash' => JwtVerifier::base64UrlEncode(substr(hash('sha512', $eddsaAccessToken, true), 0, 32)),
+];
+$eddsaHttp = new HttpClient(fn() => jsonAnswer(['keys' => [ed25519JwaKey(['alg' => 'EdDSA'])]]));
+$eddsaVerifier = new class($eddsaHttp) extends JwtVerifier {
+    protected function verifySignature(string $algorithm, array $jwk, string $payload, string $signature): bool
+    {
+        return true;
+    }
+};
+$eddsaMetadata = ProviderMetadata::fromArray(metadata([
+    'id_token_signing_alg_values_supported' => ['EdDSA'],
+]));
+Checks::that(
+    'Ed25519 access-token binding uses the algorithm internal SHA-512 digest',
+    $eddsaVerifier->verify(
+        jwaToken('EdDSA', str_repeat("\x5a", 64), 'profile-key', $eddsaClaims),
+        $eddsaMetadata,
+        'client-id',
+        'eddsa-nonce',
+        $eddsaAccessToken
+    )['claims']['at_hash'],
+    $eddsaClaims['at_hash']
+);
+
 Checks::group('JWT-secured authorization responses');
 
 $jarmNow = time();
-$jarmKey = ['kty' => 'RSA', 'kid' => 'test-key', 'alg' => 'RS256', 'use' => 'sig'];
+$jarmKey = rsaJwaKey(256, ['kid' => 'test-key', 'alg' => 'RS256', 'use' => 'sig']);
 $jarmMetadata = ProviderMetadata::fromArray(metadata([
     'response_modes_supported' => ['query.jwt', 'form_post.jwt'],
     'authorization_signing_alg_values_supported' => ['RS256'],

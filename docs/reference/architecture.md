@@ -220,6 +220,34 @@ The exact endpoint matrix and the reasons for the two exceptions are recorded in
 - phpseclib is an OPNsense runtime component. The plugin owns algorithm policy
   and claim validation; it does not implement RSA or elliptic-curve arithmetic.
 
+## Asymmetric JWS verification profile
+
+`JwtVerifier` accepts only the following public-key verification profile. The
+algorithm must be on this fixed list and, for ID Tokens or another response
+whose Discovery metadata advertises algorithms, in the issuer's list as well.
+The protected header cannot supply a key URL or embedded key.
+
+| JWS `alg` | Public JWK | Exact verification parameters |
+|---|---|---|
+| `RS256`, `RS384`, `RS512` | `RSA`, 2048–8192-bit `n`, safe odd `e` | PKCS#1 v1.5 and the named SHA-2 digest |
+| `PS256`, `PS384`, `PS512` | `RSA`, 2048–8192-bit `n`, safe odd `e` | PSS with the named SHA-2 digest for both the message and MGF1, and salt length equal to the digest length |
+| `ES256` | `EC`, `P-256`, 32-byte `x` and `y` | SHA-256 and a 64-byte IEEE P1363 `R || S` signature |
+| `ES384` | `EC`, `P-384`, 48-byte `x` and `y` | SHA-384 and a 96-byte IEEE P1363 `R || S` signature |
+| `ES512` | `EC`, `P-521`, 66-byte `x` and `y` | SHA-512 and a 132-byte IEEE P1363 `R || S` signature |
+| `EdDSA` | `OKP`, `Ed25519`, 32-byte `x` | RFC 8037 Ed25519 and a 64-byte signature; SHA-512 for OIDC `at_hash` |
+
+Every JWK is public-only. If present, `alg` must exactly match the protected
+header, `use` must be `sig`, and `key_ops` must contain `verify`, contain no
+duplicate, and name no unrelated operation. `kid` selects one exact key; a
+header without `kid` is accepted only when these filters leave exactly one
+key. The authenticated setup probe applies the same structural policy before
+reporting a usable key.
+
+Symmetric `HS*`, unsecured `none`, Ed448, other curves and signature families,
+private JWK material, JWE key management and content encryption are outside
+this profile. RFC 7518 conformance is claimed only for the named RS/PS/ES
+verification subset; Ed25519 is the separately audited RFC 8037 subset.
+
 ## State and persistence
 
 - Query and signed-query pending logins live only in the initiating PHP session, keyed by

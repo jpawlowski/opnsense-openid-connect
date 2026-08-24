@@ -6,6 +6,7 @@
  */
 
 use OPNsense\OpenIDConnect\HttpClient;
+use OPNsense\OpenIDConnect\JwtVerifier;
 use OPNsense\OpenIDConnect\ProviderMetadata;
 use OPNsense\OpenIDConnect\ProviderProbe;
 
@@ -44,7 +45,7 @@ $transport = static function (
             'kid' => 'probe-key',
             'use' => 'sig',
             'alg' => 'RS256',
-            'n' => 'AQAB',
+            'n' => JwtVerifier::base64UrlEncode("\x80" . str_repeat("\x01", 255)),
             'e' => 'AQAB',
         ]]]);
     }
@@ -278,7 +279,7 @@ $unsupportedTransport = static function (
             'kid' => 'probe-key',
             'use' => 'sig',
             'alg' => 'RS256',
-            'n' => 'AQAB',
+            'n' => JwtVerifier::base64UrlEncode("\x80" . str_repeat("\x01", 255)),
             'e' => 'AQAB',
         ]]]);
     }

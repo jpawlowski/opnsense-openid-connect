@@ -202,7 +202,7 @@
         },
         {
           "slug": "jwt-claim-policy",
-          "claim": "ID Tokens are restricted to the supported asymmetric algorithms and validated for signature-key metadata, issuer, subject, audience, authorized party, time, nonce and access-token binding.",
+          "claim": "ID Tokens use the verified RS, PS, ES or Ed25519 verification profile and are validated for public-key type, curve, size, purpose, operations and algorithm binding plus issuer, subject, audience, authorized party, time, nonce and access-token binding.",
           "implementation": [
             "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/JwtVerifier.php"
           ],

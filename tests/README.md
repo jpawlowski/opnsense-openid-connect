@@ -124,7 +124,7 @@ one. A stub that grew far enough to test those would start passing tests the
 real thing would fail.
 
 After installing on an actual firewall, `tests/integration/opnsense.php` checks
-the OPNsense-supplied phpseclib implementation with RSA, RSA-PSS and ECDSA, plus
+the OPNsense-supplied phpseclib implementation with RSA, RSA-PSS, ECDSA and Ed25519 EdDSA, plus
 the real session directory, logout replay index, one-time form-post index and
 administrator-approval registry. `--network` additionally checks exact
 Discovery against the public providers whose metadata is available without an
