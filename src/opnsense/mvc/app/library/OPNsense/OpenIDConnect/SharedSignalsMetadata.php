@@ -12,6 +12,9 @@ final class SharedSignalsMetadata
 {
     public const MAX_BYTES = 262144;
     public const PUSH_METHOD = 'urn:ietf:rfc:8935';
+    public const POLL_METHOD = 'urn:ietf:rfc:8936';
+    public const OAUTH_AUTHORIZATION = 'urn:ietf:rfc:6749';
+    public const BASIC_AUTHORIZATION = 'urn:ietf:rfc:7617';
 
     private function __construct(private readonly array $values)
     {
@@ -73,9 +76,32 @@ final class SharedSignalsMetadata
                 throw new ProtocolException(sprintf('Shared Signals discovery carries an invalid %s', $field));
             }
         }
-        $methods = $values['delivery_methods_supported'] ?? [];
-        if ($methods !== [] && !in_array(self::PUSH_METHOD, $methods, true)) {
-            throw new ProtocolException('The transmitter does not advertise push delivery');
+        foreach ([
+            'configuration_endpoint', 'status_endpoint', 'add_subject_endpoint',
+            'remove_subject_endpoint', 'verification_endpoint',
+        ] as $endpoint) {
+            if (isset($values[$endpoint])) {
+                if (!is_string($values[$endpoint])) {
+                    throw new ProtocolException(sprintf('Shared Signals discovery carries an invalid %s', $endpoint));
+                }
+                HttpClient::assertHttpsUrl($values[$endpoint]);
+            }
+        }
+        if (isset($values['authorization_schemes'])) {
+            if (!is_array($values['authorization_schemes']) || !array_is_list($values['authorization_schemes'])
+                || count($values['authorization_schemes']) > 16) {
+                throw new ProtocolException('Shared Signals discovery carries invalid authorization schemes');
+            }
+            foreach ($values['authorization_schemes'] as $scheme) {
+                if (!is_array($scheme) || array_is_list($scheme)
+                    || !is_string($scheme['spec_urn'] ?? null) || $scheme['spec_urn'] === ''
+                    || strlen($scheme['spec_urn']) > 255 || preg_match('/[\x00-\x20\x7f]/', $scheme['spec_urn'])) {
+                    throw new ProtocolException('Shared Signals discovery carries an invalid authorization scheme');
+                }
+            }
+        }
+        if (isset($values['default_subjects']) && !in_array($values['default_subjects'], ['ALL', 'NONE'], true)) {
+            throw new ProtocolException('Shared Signals discovery carries invalid default subjects');
         }
         if (isset($values['spec_version'])
             && (!is_string($values['spec_version']) || strlen($values['spec_version']) > 32
@@ -115,5 +141,52 @@ final class SharedSignalsMetadata
     public function criticalSubjectMembers(): array
     {
         return $this->values['critical_subject_members'] ?? [];
+    }
+
+    /** @return string[] */
+    public function deliveryMethods(): array
+    {
+        return $this->values['delivery_methods_supported'] ?? [];
+    }
+
+    public function supportsDelivery(string $method): bool
+    {
+        $methods = $this->deliveryMethods();
+        return $methods === [] || in_array($method, $methods, true);
+    }
+
+    public function configurationEndpoint(): ?string
+    {
+        return $this->endpoint('configuration_endpoint');
+    }
+
+    public function statusEndpoint(): ?string
+    {
+        return $this->endpoint('status_endpoint');
+    }
+
+    /** @return string[] */
+    public function authorizationSchemes(): array
+    {
+        return array_values(array_map(
+            static fn(array $scheme): string => (string)$scheme['spec_urn'],
+            $this->values['authorization_schemes'] ?? []
+        ));
+    }
+
+    public function supportsAuthorization(string $specification): bool
+    {
+        $schemes = $this->authorizationSchemes();
+        return $schemes === [] || in_array($specification, $schemes, true);
+    }
+
+    public function defaultSubjects(): ?string
+    {
+        return isset($this->values['default_subjects']) ? (string)$this->values['default_subjects'] : null;
+    }
+
+    private function endpoint(string $name): ?string
+    {
+        return isset($this->values[$name]) ? (string)$this->values[$name] : null;
     }
 }

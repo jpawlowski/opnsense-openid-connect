@@ -7,8 +7,10 @@
 
 use OPNsense\OpenIDConnect\HttpClient;
 use OPNsense\OpenIDConnect\JwtVerifier;
+use OPNsense\OpenIDConnect\ProviderRuntimeState;
 use OPNsense\OpenIDConnect\SecurityEventVerifier;
 use OPNsense\OpenIDConnect\SessionRegistry;
+use OPNsense\OpenIDConnect\SharedSignalsClient;
 use OPNsense\OpenIDConnect\SharedSignalsMetadata;
 use OPNsense\OpenIDConnect\Api\SsfController;
 use OPNsense\Auth\Directory;
@@ -33,6 +35,36 @@ Checks::that(
     $ssfOptions['openidconnect_ssf_push_secret']['validate'](str_repeat('a', 43)),
     []
 );
+$_POST = [
+    'type' => 'openidconnect',
+    'openidconnect_ssf_enabled' => '1',
+    'openidconnect_ssf_delivery_method' => 'poll',
+];
+Checks::that(
+    'explicit polling requires management authorization',
+    count($ssfOptions['openidconnect_ssf_management_authorization']['validate']('')),
+    1
+);
+Checks::that(
+    'explicit polling requires a managed stream ID',
+    count($ssfOptions['openidconnect_ssf_stream_id']['validate']('')),
+    1
+);
+Checks::that(
+    'explicit polling requires its assigned HTTPS endpoint',
+    count($ssfOptions['openidconnect_ssf_poll_endpoint']['validate']('')),
+    1
+);
+Checks::that(
+    'polling never requires a push secret as fallback',
+    $ssfOptions['openidconnect_ssf_push_secret']['validate'](''),
+    []
+);
+Checks::that(
+    'a bounded Bearer management authorization is accepted',
+    $ssfOptions['openidconnect_ssf_management_authorization']['validate']('Bearer management-token'),
+    []
+);
 $_POST = [];
 $ssfConnector = connector([
     'openidconnect_ssf_enabled' => '1',
@@ -46,6 +78,20 @@ Checks::that(
     $ssfConnector->sharedSignalsIssuer(),
     'https://signals.example.net/tenant'
 );
+Checks::that('push remains the compatibility delivery default', $ssfConnector->sharedSignalsDeliveryMethod(),
+    SharedSignalsMetadata::PUSH_METHOD);
+Checks::that('polling is selected only by its explicit setting', connector([
+    'openidconnect_ssf_delivery_method' => 'poll',
+])->sharedSignalsDeliveryMethod(), SharedSignalsMetadata::POLL_METHOD);
+ProviderRuntimeState::ssfPollSuccess('shared-signals-health', 2, 1000);
+Checks::that('a recent successful poll is observable', ProviderRuntimeState::ssfStatus(
+    'shared-signals-health',
+    1100
+)['status'], 'fresh');
+Checks::that('a stopped poll worker becomes observable', ProviderRuntimeState::ssfStatus(
+    'shared-signals-health',
+    1200
+)['status'], 'stale');
 
 Checks::group('Shared Signals push boundary');
 Directory::reset();
@@ -106,10 +152,15 @@ $ssfMetadata = SharedSignalsMetadata::fromArray('https://signals.example.net', [
     'spec_version' => '1_0',
     'issuer' => 'https://signals.example.net',
     'jwks_uri' => 'https://signals.example.net/keys',
-    'delivery_methods_supported' => [SharedSignalsMetadata::PUSH_METHOD],
+    'delivery_methods_supported' => [SharedSignalsMetadata::PUSH_METHOD, SharedSignalsMetadata::POLL_METHOD],
+    'configuration_endpoint' => 'https://signals.example.net/streams',
+    'status_endpoint' => 'https://signals.example.net/status',
+    'authorization_schemes' => [['spec_urn' => SharedSignalsMetadata::OAUTH_AUTHORIZATION]],
     'critical_subject_members' => ['user'],
 ]);
 Checks::that('push metadata exposes its exact issuer', $ssfMetadata->issuer(), 'https://signals.example.net');
+Checks::that('management endpoints come only from validated metadata', $ssfMetadata->configurationEndpoint(),
+    'https://signals.example.net/streams');
 Checks::throws(
     'metadata for another issuer is refused',
     fn() => SharedSignalsMetadata::fromArray('https://signals.example.net', [
@@ -118,14 +169,141 @@ Checks::throws(
     ]),
     'exactly match'
 );
+$pollOnlyMetadata = SharedSignalsMetadata::fromArray('https://signals.example.net', [
+    'issuer' => 'https://signals.example.net',
+    'jwks_uri' => 'https://signals.example.net/keys',
+    'delivery_methods_supported' => [SharedSignalsMetadata::POLL_METHOD],
+]);
+Checks::that('poll-only metadata cannot silently receive push',
+    $pollOnlyMetadata->supportsDelivery(SharedSignalsMetadata::PUSH_METHOD), false);
+Checks::that('poll-only metadata explicitly supports polling',
+    $pollOnlyMetadata->supportsDelivery(SharedSignalsMetadata::POLL_METHOD), true);
+
+Checks::group('Shared Signals stream lifecycle client');
+$managementCalls = [];
+$managementResponses = [];
+$managementHttp = new HttpClient(static function (
+    string $method,
+    string $url,
+    ?string $body,
+    array $headers,
+    int $maximum
+) use (&$managementCalls, &$managementResponses): array {
+    $managementCalls[] = compact('method', 'url', 'body', 'headers', 'maximum');
+    return array_shift($managementResponses);
+});
+$management = new SharedSignalsClient($managementHttp);
+$pushConfiguration = [
+    'stream_id' => 'stream-1',
+    'iss' => 'https://signals.example.net',
+    'aud' => 'firewall-receiver',
+    'delivery' => [
+        'method' => SharedSignalsMetadata::PUSH_METHOD,
+        'endpoint_url' => 'https://firewall.example.net/api/openidconnect/ssf/push/main',
+    ],
+    'events_requested' => SecurityEventVerifier::ACTIONABLE_EVENTS,
+    'events_delivered' => [SecurityEventVerifier::CAEP_SESSION_REVOKED],
+];
+$managementResponses[] = [
+    'status' => 201,
+    'content_type' => 'application/json',
+    'body' => json_encode($pushConfiguration),
+    'location' => '',
+    'headers' => [],
+];
+$createdStream = $management->createStream(
+    $ssfMetadata,
+    'Bearer management-token',
+    SharedSignalsMetadata::PUSH_METHOD,
+    'https://firewall.example.net/api/openidconnect/ssf/push/main',
+    'Bearer ' . str_repeat('s', 43),
+    'OPNsense'
+);
+Checks::that('stream creation accepts the transmitter-assigned ID and audience', [
+    $createdStream['stream_id'], $createdStream['audience'],
+], ['stream-1', 'firewall-receiver']);
+Checks::that('stream creation uses the discovered configuration endpoint', [
+    $managementCalls[0]['method'], $managementCalls[0]['url'],
+], ['POST', 'https://signals.example.net/streams']);
+Checks::that('stream management credentials are sent only as a request header', [
+    in_array('Authorization: Bearer management-token', $managementCalls[0]['headers'], true),
+    str_contains((string)$managementCalls[0]['body'], 'management-token'),
+], [true, false]);
+
+$managementResponses[] = [
+    'status' => 200,
+    'content_type' => 'application/json',
+    'body' => json_encode(['stream_id' => 'stream-1', 'status' => 'paused', 'reason' => 'maintenance']),
+    'location' => '',
+    'headers' => [],
+];
+Checks::that('the discovered status endpoint reports a bounded lifecycle state',
+    $management->readStatus($ssfMetadata, 'Bearer management-token', 'stream-1')['status'], 'paused');
+
+$pollConfiguration = array_replace($pushConfiguration, [
+    'delivery' => [
+        'method' => SharedSignalsMetadata::POLL_METHOD,
+        'endpoint_url' => 'https://signals.example.net/poll/stream-1',
+    ],
+]);
+$managementResponses[] = [
+    'status' => 200,
+    'content_type' => 'application/json',
+    'body' => json_encode($pollConfiguration),
+    'location' => '',
+    'headers' => [],
+];
+$readPoll = $management->readStream(
+    $ssfMetadata,
+    'Bearer management-token',
+    'stream-1',
+    SharedSignalsMetadata::POLL_METHOD,
+    'https://signals.example.net/poll/stream-1',
+    'firewall-receiver'
+);
+Checks::that('a poll endpoint is accepted only from the validated stream response',
+    $readPoll['poll_endpoint'], 'https://signals.example.net/poll/stream-1');
+
+$managementResponses[] = [
+    'status' => 200,
+    'content_type' => 'application/json',
+    'body' => json_encode(['sets' => ['poll-jti' => 'signed-set'], 'moreAvailable' => false]),
+    'location' => '',
+    'headers' => [],
+];
+$polled = $management->poll(
+    $ssfMetadata,
+    'Bearer management-token',
+    'https://signals.example.net/poll/stream-1'
+);
+Checks::that('poll delivery returns a bounded jti-to-SET collection', $polled, [
+    'sets' => ['poll-jti' => 'signed-set'],
+    'more_available' => false,
+]);
+Checks::that('polling is an explicit short POST with a batch limit', [
+    $managementCalls[3]['method'],
+    json_decode((string)$managementCalls[3]['body'], true),
+], ['POST', ['maxEvents' => 20, 'returnImmediately' => true]]);
+
+$mismatchedConfiguration = array_replace($pushConfiguration, ['iss' => 'https://other.example.net']);
+$managementResponses[] = [
+    'status' => 200,
+    'content_type' => 'application/json',
+    'body' => json_encode($mismatchedConfiguration),
+    'location' => '',
+    'headers' => [],
+];
 Checks::throws(
-    'metadata that excludes push is refused',
-    fn() => SharedSignalsMetadata::fromArray('https://signals.example.net', [
-        'issuer' => 'https://signals.example.net',
-        'jwks_uri' => 'https://signals.example.net/keys',
-        'delivery_methods_supported' => ['urn:ietf:rfc:8936'],
-    ]),
-    'push delivery'
+    'a stream response for another issuer is refused',
+    fn() => $management->readStream(
+        $ssfMetadata,
+        'Bearer management-token',
+        'stream-1',
+        SharedSignalsMetadata::PUSH_METHOD,
+        'https://firewall.example.net/api/openidconnect/ssf/push/main',
+        'firewall-receiver'
+    ),
+    'issuer'
 );
 
 Checks::group('Shared Signals event profile');

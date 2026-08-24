@@ -514,11 +514,11 @@
       "id": "shared-signals",
       "title": "OpenID Shared Signals Framework 1.0",
       "reference": "https://openid.net/specs/openid-sharedsignals-framework-1_0-final.html",
-      "scope": "Push-based stream receiver",
+      "scope": "Managed push and poll stream receiver",
       "implementation": "partial",
       "claim": "unverified",
       "audit_complete": false,
-      "note": "A bounded push receiver is implemented; stream management and polling are outside the current profile."
+      "note": "Discovery-driven configuration and status lifecycle, bounded push and explicit poll delivery are implemented; subject and verification management remain outside the current profile."
     },
     {
       "id": "caep",
@@ -909,6 +909,16 @@
       "claim": "unverified",
       "audit_complete": false,
       "note": "Authenticated push delivery and explicit response handling are implemented; normative evidence is incomplete."
+    },
+    {
+      "id": "set-poll",
+      "title": "Poll-Based Security Event Token Delivery (RFC 8936)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc8936.html",
+      "scope": "Explicit short-poll delivery to the RP Shared Signals receiver",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Bounded polling, validation-aware acknowledgement and error reporting are implemented; normative evidence is incomplete."
     },
     {
       "id": "oauth-browser-apps",

@@ -69,6 +69,17 @@ class HealthController extends PrivateApiControllerBase
                         'label' => gettext('Shared Signals signing keys'),
                         'direction' => gettext('OPNsense → transmitter'),
                     ] + ProviderCache::status('ssf-jwks', $ssf->jwksUri());
+                    if ($settings->sharedSignalsDeliveryMethod() === SharedSignalsMetadata::POLL_METHOD) {
+                        $poll = ProviderRuntimeState::ssfStatus(ProviderRuntimeState::ssfKey($settings, $ssf));
+                        $items[] = [
+                            'label' => gettext('Shared Signals polling'),
+                            'direction' => gettext('OPNsense → transmitter'),
+                            'status' => (string)($poll['status'] ?? 'missing'),
+                            'stored' => is_int($poll['updated'] ?? null) ? $poll['updated'] : null,
+                            'fresh_until' => is_int($poll['fresh_until'] ?? null) ? $poll['fresh_until'] : null,
+                            'stale_until' => null,
+                        ];
+                    }
                 }
             }
             return ['status' => 'ok', 'items' => $items];

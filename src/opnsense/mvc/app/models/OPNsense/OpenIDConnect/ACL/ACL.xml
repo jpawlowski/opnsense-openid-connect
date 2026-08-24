@@ -11,7 +11,9 @@
     being typed. It makes this firewall fetch an address somebody chose, which is why it
     is a privilege of its own. Provider setup is separate too: it performs no network
     request, but only a delegated server administrator should generate security
-    configuration intended for another system. The read-only health endpoint
+    configuration intended for another system. Shared Signals stream management
+    is separate because it mutates an external transmitter and sends the saved
+    management credential. The read-only health endpoint
     extends the existing authentication-server privilege and reveals only cache
     states and timestamps. The sign-in test starts the same
     provider redirect as a login, but only after an authenticated, CSRF-protected
@@ -44,6 +46,12 @@
             <pattern>api/openidconnect/test/*</pattern>
         </patterns>
     </page-system-openidconnect-test>
+    <page-system-openidconnect-ssf-management>
+        <name>System: Access: Servers: OpenID Connect Shared Signals management</name>
+        <patterns>
+            <pattern>api/openidconnect/ssfsetup/*</pattern>
+        </patterns>
+    </page-system-openidconnect-ssf-management>
     <page-system-authservers>
         <name>System: Authentication Servers</name>
         <patterns>

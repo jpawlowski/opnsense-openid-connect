@@ -196,7 +196,9 @@ enough.
 | End-session endpoint | Browser → IdP | RP-initiated provider logout | real logout |
 | Back-channel logout | IdP → OPNsense | that notification channel is registered | provider logout |
 | Front-channel logout | IdP → browser → OPNsense | that notification channel is registered | provider logout |
-| Shared Signals push | transmitter → OPNsense | SSF is enabled | Test Shared Signals plus a real event |
+| Shared Signals management | OPNsense → transmitter | a discovered lifecycle operation is requested | Test Shared Signals plus Create/Read stream |
+| Shared Signals push | transmitter → OPNsense | Push delivery is explicitly selected | Test Shared Signals plus a real event |
+| Shared Signals poll | OPNsense → transmitter | Poll delivery is explicitly selected | connectivity status plus a real event |
 
 There is no generic OIDC ping endpoint. A TCP or unauthenticated HTTP probe would
 not prove TLS trust, client authentication or protocol compatibility. Endpoint-

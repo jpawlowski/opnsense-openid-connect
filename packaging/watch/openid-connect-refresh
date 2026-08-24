@@ -16,7 +16,10 @@ use OPNsense\OpenIDConnect\ProviderMetadata;
 use OPNsense\OpenIDConnect\ProviderRuntimeState;
 use OPNsense\OpenIDConnect\ProviderUnavailableException;
 use OPNsense\OpenIDConnect\RelyingParty;
+use OPNsense\OpenIDConnect\SharedSignalsClient;
+use OPNsense\OpenIDConnect\SharedSignalsEventProcessor;
 use OPNsense\OpenIDConnect\SharedSignalsMetadata;
+use OPNsense\OpenIDConnect\SharedSignalsPoller;
 
 require_once('script/load_phalcon.php');
 
@@ -110,6 +113,31 @@ foreach (Config::getInstance()->object()->system->authserver ?? [] as $server) {
                 (new JwtVerifier($http, 'ssf-jwks'))->probeKeySet($ssf->jwksUri());
             } catch (Throwable $error) {
                 syslog(LOG_NOTICE, 'OIDC: background Shared Signals signing-key refresh could not complete');
+            }
+        }
+        if ($settings->sharedSignalsDeliveryMethod() === SharedSignalsMetadata::POLL_METHOD) {
+            $ssfKey = ProviderRuntimeState::ssfKey($settings, $ssf);
+            try {
+                $result = (new SharedSignalsPoller(
+                    new SharedSignalsClient($http),
+                    new SharedSignalsEventProcessor($http)
+                ))->run((string)($server->name ?? ''), $settings, $ssf);
+                ProviderRuntimeState::ssfPollSuccess($ssfKey, $result['deliveries']);
+                if ($result['deliveries'] > 0 || $result['errors'] > 0) {
+                    syslog(LOG_NOTICE, sprintf(
+                        'OIDC: Shared Signals poll processed %d delivery item(s), ended %d session(s), refused %d',
+                        $result['deliveries'],
+                        $result['sessions'],
+                        $result['errors']
+                    ));
+                }
+            } catch (Throwable $error) {
+                ProviderRuntimeState::ssfPollFailure(
+                    $ssfKey,
+                    $error instanceof ProviderUnavailableException
+                        ? 'temporarily_unavailable' : 'configuration_or_protocol'
+                );
+                syslog(LOG_NOTICE, 'OIDC: Shared Signals poll could not complete');
             }
         }
     } catch (Throwable $error) {
