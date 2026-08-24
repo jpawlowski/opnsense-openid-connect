@@ -88,8 +88,21 @@ $dpopJwk = [
     'y' => 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
 ];
 $dpopProof = DpopProof::forTesting($dpopJwk, static fn(string $input): string => str_repeat("\x01", 64));
+$paddedDpopJwk = $dpopJwk;
+$paddedDpopJwk['x'] .= '=';
+$paddedDpopJwk['y'] .= '=';
+$paddedDpopProof = DpopProof::forTesting(
+    $paddedDpopJwk,
+    static fn(string $input): string => str_repeat("\x01", 64)
+);
 
 Checks::group('RFC 9449 DPoP proofs');
+
+Checks::that(
+    'the padded JWK form emitted by OPNsense phpseclib is canonicalized',
+    [$paddedDpopProof->publicKey(), $paddedDpopProof->keyId()],
+    [$dpopJwk, $dpopProof->keyId()]
+);
 
 $firstProof = decodedDpop($dpopProof->proof(
     'post',

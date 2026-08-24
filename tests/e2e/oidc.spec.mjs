@@ -614,7 +614,8 @@ async function testSignIn(page, {
     new URL(response.url()).pathname === callbackPath
   ));
   await page.getByRole('button', { name: 'Test sign-in' }).click();
-  expectPrivateResponseHeaders(await startResponsePromise);
+  const startResponse = await startResponsePromise;
+  expectPrivateResponseHeaders(startResponse);
 
   let arrival = 'waiting';
   await expect.poll(async () => {
@@ -622,9 +623,14 @@ async function testSignIn(page, {
       arrival = 'provider';
     } else if (await page.getByRole('heading', { name: 'Sign-in test succeeded' }).count()) {
       arrival = 'result';
+    } else if (await page.getByRole('dialog').filter({ hasText: 'Test sign-in' }).count()) {
+      arrival = 'error';
     }
     return arrival;
   }).not.toBe('waiting');
+  if (arrival === 'error') {
+    throw new Error(`Test sign-in start failed: ${await page.getByRole('dialog').innerText()}`);
+  }
 
   if (arrival === 'provider' && await page.getByRole('textbox', { name: 'Username' }).isVisible()) {
     await page.getByRole('textbox', { name: 'Username' }).fill(process.env.E2E_TEST_USERNAME);
