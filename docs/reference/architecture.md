@@ -188,7 +188,7 @@ flowchart TD
 | WebGUI TLS listener or reverse proxy | HTTPS and host-wide HSTS; with TLS offload, the proxy must also preserve the public HTTPS origin and harden response cookies |
 
 The exact endpoint matrix and the reasons for the two exceptions are recorded in
-[Browser response security](security.md#browser-response-security).
+[Browser response security](security-and-conformance.md#browser-response-security).
 
 ## Trust boundaries
 

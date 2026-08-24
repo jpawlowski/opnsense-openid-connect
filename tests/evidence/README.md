@@ -2,7 +2,7 @@
 
 Place sanitized evidence produced by an installed OPNsense integration run or
 the disposable browser/ZAP run in this directory when its validated statements
-should appear in `docs/reference/audit-report.md`.
+should appear in `docs/reference/security-and-conformance.md`.
 
 Only `*.json` files are read. The report generator accepts a passing result only
 when it uses the current evidence schema, names a known tier, is bound to a

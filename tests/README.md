@@ -2,18 +2,20 @@
 
     ./tests/run.sh
 
-The security validation report is generated from a versioned control catalog
-and machine-readable evidence. Refresh its host-independent statements with:
+The unified security and conformance report is generated from versioned
+standards, provider and control catalogs plus machine-readable evidence. Refresh
+its host-independent statements with:
 
-    python3 tests/update-audit-report.py --update
+    python3 tests/update-security-report.py --update
 
-`--check` runs the same suite without changing the report and fails when the
+`--check` runs the same suite without changing the unified report and fails when the
 report is stale. A failing suite makes generation fail and leaves the existing
 report untouched; CI already presents the failure. The report contains only
 positive security properties whose complete evidence requirement is met. It
 has no finding backlog, audit IDs or test-count dashboard.
 
-The separate standards and provider matrix has a stricter, normative gate:
+The standards and provider section has a stricter, normative gate and an
+intermediate generated fragment:
 
     python3 tests/update-capability-matrix.py --check
 

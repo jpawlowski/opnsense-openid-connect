@@ -43,7 +43,7 @@ jobs:
         # Syntax for every language in the tree, the behaviour checks, and the
         # package that gets built. The wrapper runs the same ./tests/run.sh
         # anyone can run locally and also prevents its audit snapshot drifting.
-        run: python3 tests/update-audit-report.py --check
+        run: python3 tests/update-security-report.py --check
 
       - name: Pull request title and description
         if: github.event_name == 'pull_request'

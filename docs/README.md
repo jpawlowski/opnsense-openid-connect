@@ -20,9 +20,7 @@ at their profile defaults.
 ## Design and review
 
 - [Architecture and trust boundaries](reference/architecture.md)
-- [Security, conformance and threat model](reference/security.md)
-- [Evidence-backed security validation](reference/audit-report.md)
-- [OpenID Connect standards and provider capabilities](reference/provider-capabilities.md)
+- [Security, conformance, provider capabilities and validation evidence](reference/security-and-conformance.md)
 - [Comparison with the commercial OPNsense package](reference/commercial-comparison.md)
 
 Project-wide security reporting and support information remain in the
