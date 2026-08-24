@@ -118,7 +118,7 @@ class DiscoveryController extends PrivateApiControllerBase
         ));
         $authMethods = array_values(array_intersect(
             $list($metadata->get('token_endpoint_auth_methods_supported', ['client_secret_basic'])),
-            ['client_secret_basic', 'client_secret_post']
+            OpenIDConnect::TOKEN_AUTH_METHODS
         ));
         $responseModes = $list($metadata->get('response_modes_supported', []));
         $advertisedAuth = $list($metadata->get(
@@ -184,6 +184,15 @@ class DiscoveryController extends PrivateApiControllerBase
                 $authMethods === []
                     ? gettext('No supported token endpoint authentication method is advertised.')
                     : gettext('At least one confidential-client authentication method is usable.')
+            ),
+            $this->check(
+                gettext('Certificate-bound access tokens'),
+                $metadata->supportsCertificateBoundAccessTokens()
+                    ? gettext('Advertised') : gettext('Not advertised'),
+                $metadata->supportsCertificateBoundAccessTokens() ? 'success' : 'info',
+                $metadata->supportsCertificateBoundAccessTokens()
+                    ? gettext('The provider can bind access tokens to the mutual-TLS client certificate.')
+                    : gettext('Certificate-bound access tokens cannot be required for this provider.')
             ),
             $this->check(
                 gettext('PKCE'),
@@ -278,6 +287,8 @@ class DiscoveryController extends PrivateApiControllerBase
         $fields = [
             'openidconnect_app_code', 'openidconnect_provider_profile', 'openidconnect_microsoft_audience',
             'openidconnect_client_id', 'openidconnect_client_secret', 'openidconnect_token_auth',
+            'openidconnect_client_certificate', 'openidconnect_retiring_client_certificate',
+            'openidconnect_certificate_bound_access_tokens',
             'openidconnect_par_mode', 'openidconnect_scopes', 'openidconnect_response_mode',
             'openidconnect_max_age', 'openidconnect_select_account', 'openidconnect_required_authentication',
             'openidconnect_acr_request', 'openidconnect_acr_values', 'openidconnect_amr_values',
@@ -319,12 +330,12 @@ class DiscoveryController extends PrivateApiControllerBase
                     : gettext('Automatic mode uses a normal browser authorization request.')
             );
         }
-        if ($settings->clientId() === '' || $settings->clientSecret() === '') {
+        if (!$settings->isSignInTestReady()) {
             return $this->check(
                 gettext('PAR endpoint (OPNsense → IdP)'),
                 gettext('Not tested'),
                 'warning',
-                gettext('Enter Client ID and Client Secret to run the authenticated live PAR check.')
+                gettext('Enter a Client ID and the selected client credential to run the live PAR check.')
             );
         }
         $redirectUri = RelyingParty::acceptedRedirectUri($settings, $this->request);

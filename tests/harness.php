@@ -185,6 +185,21 @@ function claims(array $values): object
     return (object)$values;
 }
 
+/** Create a short-lived real certificate/key pair inside the OPNsense Trust Store stub. */
+function installClientCertificate(string $reference, string $description = 'OIDC client'): array
+{
+    $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_RSA, 'private_key_bits' => 2048]);
+    $request = openssl_csr_new(['commonName' => $reference], $key, ['digest_alg' => 'sha256']);
+    $certificate = openssl_csr_sign($request, null, $key, 30, ['digest_alg' => 'sha256']);
+    if ($key === false || $request === false || $certificate === false
+        || !openssl_pkey_export($key, $privateKey) || !openssl_x509_export($certificate, $pem)) {
+        throw new RuntimeException('Could not create the client-certificate fixture');
+    }
+    $stored = ['descr' => $description, 'crt' => $pem, 'prv' => $privateKey];
+    OPNsense\Trust\Store::$certificates[$reference] = $stored;
+    return $stored;
+}
+
 /** the validator of one settings field, as the form would call it */
 function validator(string $field): callable
 {

@@ -11,6 +11,8 @@
 
 use OPNsense\OpenIDConnect\HttpClient;
 use OPNsense\OpenIDConnect\JwtVerifier;
+use OPNsense\OpenIDConnect\ClientAuthentication;
+use OPNsense\OpenIDConnect\ClientCertificate;
 use OPNsense\OpenIDConnect\PendingIdentityRegistry;
 use OPNsense\OpenIDConnect\ProviderMetadata;
 use OPNsense\OpenIDConnect\SessionRegistry;
@@ -27,10 +29,27 @@ use phpseclib3\Crypt\EC;
 use phpseclib3\Crypt\RSA;
 
 $evidencePath = null;
+$mutualTlsProbe = [
+    'issuer' => null,
+    'client_id' => null,
+    'certificate_ref' => null,
+    'redirect_uri' => null,
+];
 foreach ($argv as $argument) {
     if (str_starts_with($argument, '--evidence=')) {
         $evidencePath = substr($argument, strlen('--evidence='));
     }
+    foreach (array_keys($mutualTlsProbe) as $name) {
+        $prefix = '--mtls-' . str_replace('_', '-', $name) . '=';
+        if (str_starts_with($argument, $prefix)) {
+            $mutualTlsProbe[$name] = substr($argument, strlen($prefix));
+        }
+    }
+}
+$mutualTlsValues = array_filter($mutualTlsProbe, static fn($value): bool => is_string($value) && $value !== '');
+if ($mutualTlsValues !== [] && count($mutualTlsValues) !== count($mutualTlsProbe)) {
+    fwrite(STDERR, "FAIL: the mutual-TLS probe requires issuer, client-id, certificate-ref and redirect-uri\n");
+    exit(2);
 }
 if ($evidencePath !== null) {
     $evidenceDirectory = dirname($evidencePath);
@@ -56,7 +75,8 @@ $library = '/usr/local/opnsense/mvc/app/library/OPNsense/OpenIDConnect/';
 foreach ([
     'ProtocolException', 'ProviderUnavailableException', 'SecurityEventException', 'HttpResponse', 'HttpClient',
     'ProviderCache', 'ProviderMetadata', 'ProviderRuntimeState',
-    'SharedSignalsMetadata', 'JwtVerifier', 'SecurityEventVerifier', 'PendingIdentityRegistry',
+    'SharedSignalsMetadata', 'JwtVerifier', 'ClientCertificate', 'ClientAuthentication',
+    'SecurityEventVerifier', 'PendingIdentityRegistry',
     'SessionRegistry', 'TransactionRegistry', 'WebGuiAccess', 'ParClient',
 ] as $class) {
     require_once $library . $class . '.php';
@@ -101,7 +121,8 @@ $writeEvidence = static function (string $status) use (
     $packageVersion,
     $sourceRevision,
     $opnsenseVersion,
-    $argv
+    $argv,
+    $mutualTlsValues
 ): void {
     if ($evidencePath === null) {
         return;
@@ -137,7 +158,8 @@ $writeEvidence = static function (string $status) use (
         ],
         'execution' => [
             'status' => $status,
-            'network' => in_array('--network', $argv, true) ? 'included' : 'not-requested',
+            'network' => in_array('--network', $argv, true) || $mutualTlsValues !== []
+                ? 'included' : 'not-requested',
             'checks_passed' => $checks,
         ],
         'capabilities' => array_map(
@@ -441,6 +463,35 @@ $check($offloadedHttp->isWebGuiTransportReady(), 'real OPNsense config accepts c
 $system->webgui->protocol = $originalProtocol;
 $validated('runtime-transport-policy');
 
+$clientCertificate = null;
+foreach (Config::getInstance()->object()->cert ?? [] as $storedCertificate) {
+    if ((string)($storedCertificate->refid ?? '') !== '' && (string)($storedCertificate->prv ?? '') !== '') {
+        try {
+            $clientCertificate = ClientCertificate::load((string)$storedCertificate->refid);
+            break;
+        } catch (\Throwable $error) {
+            continue;
+        }
+    }
+}
+$check($clientCertificate !== null, 'the installed OPNsense trust store contains a usable certificate with its key');
+if ($clientCertificate !== null) {
+    try {
+        $curlOptions = $clientCertificate->curlOptions();
+        $check(
+            $clientCertificate->reference() !== '',
+            'the real OPNsense Trust Store resolves a client certificate by refid'
+        );
+        $check(
+            isset($curlOptions[constant('CURLOPT_SSLCERT_BLOB')], $curlOptions[constant('CURLOPT_SSLKEY_BLOB')]),
+            'the installed PHP cURL keeps mutual-TLS certificate material in memory'
+        );
+    } catch (\Throwable $error) {
+        $check(false, 'a real OPNsense certificate and private key pass the mutual-TLS boundary');
+    }
+}
+$validated('runtime-mtls-client-certificates');
+
 if (in_array('--network', $argv, true)) {
     foreach ([
         'Google' => 'https://accounts.google.com',
@@ -471,6 +522,43 @@ if (in_array('--network', $argv, true)) {
     $check(hash_equals($personalIssuer, $microsoftConsumers->issuer()),
         'Microsoft consumers fixed personal-account issuer');
     $validated('public-provider-discovery');
+}
+
+if (count($mutualTlsValues) === count($mutualTlsProbe)) {
+    HttpClient::assertHttpsUrl((string)$mutualTlsProbe['redirect_uri']);
+    $mtlsHttp = new HttpClient();
+    $mtlsMetadata = ProviderMetadata::discover((string)$mutualTlsProbe['issuer'], $mtlsHttp, null, true, false);
+    $mtlsSettings = new OpenIDConnect();
+    $mtlsSettings->setProperties([
+        'openidconnect_provider_url' => (string)$mutualTlsProbe['issuer'],
+        'openidconnect_client_id' => (string)$mutualTlsProbe['client_id'],
+        'openidconnect_client_certificate' => (string)$mutualTlsProbe['certificate_ref'],
+        'openidconnect_token_auth' => 'tls_client_auth',
+    ]);
+    $mtlsAuthentication = ClientAuthentication::negotiate($mtlsSettings, $mtlsMetadata);
+    $mtlsFields = [
+        'grant_type' => 'authorization_code',
+        'code' => 'deliberately-invalid-' . bin2hex(random_bytes(16)),
+        'client_id' => $mtlsSettings->clientId(),
+        'redirect_uri' => (string)$mutualTlsProbe['redirect_uri'],
+        'code_verifier' => JwtVerifier::base64UrlEncode(random_bytes(64)),
+    ];
+    $mtlsHeaders = ['Accept: application/json'];
+    $mtlsAuthentication->authenticate($mtlsSettings, $mtlsFields, $mtlsHeaders);
+    $mtlsResponse = $mtlsHttp->postForm(
+        (string)$mtlsAuthentication->endpoint($mtlsMetadata, 'token_endpoint'),
+        $mtlsFields,
+        262144,
+        $mtlsHeaders,
+        $mtlsAuthentication->certificate()
+    );
+    $mtlsError = $mtlsResponse->contentType === 'application/json'
+        ? ($mtlsResponse->jsonObject()['error'] ?? null) : null;
+    $check(
+        $mtlsResponse->status === 400 && $mtlsError === 'invalid_grant',
+        'a configured provider accepts the installed mutual-TLS client certificate before refusing the test grant'
+    );
+    $validated('provider-mtls-interoperability');
 }
 
 try {

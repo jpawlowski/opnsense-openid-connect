@@ -13,7 +13,9 @@ final class ProviderMetadata
     public const MAX_BYTES = 262144;
     public const DISCOVERY_SUFFIX = '/.well-known/openid-configuration';
 
-    private const CLIENT_AUTH_METHODS = ['client_secret_basic', 'client_secret_post'];
+    private const CLIENT_AUTH_METHODS = [
+        'client_secret_basic', 'client_secret_post', 'tls_client_auth', 'self_signed_tls_client_auth',
+    ];
 
     private function __construct(private readonly array $values)
     {
@@ -121,6 +123,31 @@ final class ProviderMetadata
             && !isset($values['pushed_authorization_request_endpoint'])) {
             throw new ProtocolException('Discovery requires pushed authorization requests but offers no endpoint');
         }
+        if (isset($values['tls_client_certificate_bound_access_tokens'])
+            && !is_bool($values['tls_client_certificate_bound_access_tokens'])) {
+            throw new ProtocolException('Discovery carries an invalid certificate-bound access token flag');
+        }
+        if (isset($values['mtls_endpoint_aliases'])) {
+            $aliases = $values['mtls_endpoint_aliases'];
+            if (!is_array($aliases) || (array_is_list($aliases) && $aliases !== []) || count($aliases) > 32) {
+                throw new ProtocolException('Discovery carries invalid mutual-TLS endpoint aliases');
+            }
+            foreach ([
+                'token_endpoint', 'userinfo_endpoint', 'revocation_endpoint',
+                'pushed_authorization_request_endpoint',
+            ] as $endpoint) {
+                if (!array_key_exists($endpoint, $aliases)) {
+                    continue;
+                }
+                if (!is_string($aliases[$endpoint])) {
+                    throw new ProtocolException(sprintf(
+                        'Discovery carries an invalid mutual-TLS alias for %s',
+                        $endpoint
+                    ));
+                }
+                HttpClient::assertHttpsUrl($aliases[$endpoint]);
+            }
+        }
         $algorithms = $values['id_token_signing_alg_values_supported'] ?? null;
         if (!is_array($algorithms) || array_intersect($algorithms, JwtVerifier::ALGORITHMS) === []) {
             throw new ProtocolException('The provider advertises no supported asymmetric ID token algorithm');
@@ -210,6 +237,31 @@ final class ProviderMetadata
     public function requiresPushedAuthorizationRequests(): bool
     {
         return ($this->values['require_pushed_authorization_requests'] ?? false) === true;
+    }
+
+    public function supportsCertificateBoundAccessTokens(): bool
+    {
+        return ($this->values['tls_client_certificate_bound_access_tokens'] ?? false) === true;
+    }
+
+    /** An mTLS client must prefer the matching alias while retaining the conventional fallback. */
+    public function endpoint(string $name, bool $mutualTls): ?string
+    {
+        $known = [
+            'token_endpoint', 'userinfo_endpoint', 'revocation_endpoint',
+            'pushed_authorization_request_endpoint',
+        ];
+        if (!in_array($name, $known, true)) {
+            throw new \InvalidArgumentException('Unknown provider endpoint');
+        }
+        if ($mutualTls) {
+            $aliases = $this->values['mtls_endpoint_aliases'] ?? [];
+            if (is_array($aliases) && isset($aliases[$name]) && is_string($aliases[$name])) {
+                return $aliases[$name];
+            }
+        }
+        return isset($this->values[$name]) && is_string($this->values[$name])
+            ? $this->values[$name] : null;
     }
 
     public function authorizationResponseIssuerSupported(): bool

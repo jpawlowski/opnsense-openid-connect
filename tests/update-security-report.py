@@ -57,6 +57,10 @@ HOST_CAPABILITIES = {
         "Whom a token was issued for",
     ),
     "provider-http-policy": ("Bounded HTTPS transport",),
+    "mutual-tls-policy": (
+        "Mutual-TLS client authentication and certificate-bound tokens",
+        "Bounded HTTPS transport",
+    ),
     "userinfo-subject-binding": (
         "Separating identity claims from protocol claims",
         "Strict endpoint responses and logout binding",

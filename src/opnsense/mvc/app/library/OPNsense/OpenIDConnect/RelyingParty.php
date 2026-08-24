@@ -41,19 +41,27 @@ class RelyingParty
     private string $redirectUri;
     private ?ProviderMetadata $metadata = null;
     private ?string $tokenAuthMethod = null;
+    private ?ClientAuthentication $clientAuthentication = null;
+    /** @var array<string,mixed>|null trusted snapshot retained with an established session */
+    private ?array $restoredClientAuthentication;
     /** @var array<string,mixed> */
     private array $tokens = [];
     /** @var array<string,mixed> */
     private array $idTokenClaims = [];
 
-    public function __construct(OpenIDConnect $settings, Controller $controller, ?HttpClient $http = null)
-    {
+    public function __construct(
+        OpenIDConnect $settings,
+        Controller $controller,
+        ?HttpClient $http = null,
+        ?array $restoredClientAuthentication = null
+    ) {
         $this->settings = $settings;
         $this->session = $controller->session;
         $this->request = $controller->request;
         $this->response = $controller->response;
         $this->http = $http ?? new HttpClient();
         $this->verifier = new JwtVerifier($this->http);
+        $this->restoredClientAuthentication = $restoredClientAuthentication;
 
         $redirect = static::acceptedRedirectUri($settings, $controller->request);
         if ($redirect === null) {
@@ -122,13 +130,14 @@ class RelyingParty
         $this->metadata = $metadata;
         $responseMode = $this->settings->responseMode();
         $metadata->assertAuthorizationCapabilities($responseMode);
-        $this->tokenAuthMethod = $metadata->tokenEndpointAuthMethod($this->settings->tokenAuthMethod());
         $formPost = $responseMode === 'form_post';
         $state = ($formPost ? 'p.' : '') . self::randomValue(32);
         $nonce = self::randomValue(32);
         $verifier = self::randomValue(64);
         $challenge = JwtVerifier::base64UrlEncode(hash('sha256', $verifier, true));
         $authenticationRequirement = $this->settings->authenticationRequirement();
+        $this->clientAuthentication = ClientAuthentication::negotiate($this->settings, $metadata);
+        $this->tokenAuthMethod = $this->clientAuthentication->method();
 
         $transaction = [
             'created' => time(),
@@ -142,6 +151,7 @@ class RelyingParty
             'code_verifier' => $verifier,
             'token_auth_method' => $this->tokenAuthMethod,
             'metadata' => $metadata->toArray(),
+            'client_authentication' => $this->clientAuthentication->snapshot(),
         ];
         if ($authenticationRequirement !== null) {
             $transaction['authentication_requirement'] = $authenticationRequirement->toArray();
@@ -168,7 +178,7 @@ class RelyingParty
             $parameters['prompt'] = 'select_account';
         }
 
-        $parEndpoint = $metadata->pushedAuthorizationRequestEndpoint();
+        $parEndpoint = $this->clientAuthentication->endpoint($metadata, 'pushed_authorization_request_endpoint');
         $parRequired = $metadata->requiresPushedAuthorizationRequests();
         $parMode = $this->settings->parMode();
         if ($parMode === 'disabled' && $parRequired) {
@@ -224,7 +234,7 @@ class RelyingParty
         string $endpoint,
         array $parameters
     ): string {
-        $requestUri = (new ParClient($this->settings, $this->http))->push(
+        $requestUri = (new ParClient($this->settings, $this->http, $this->clientAuthentication))->push(
             $metadata,
             $endpoint,
             $parameters
@@ -282,7 +292,18 @@ class RelyingParty
         if (!is_string($frozenAuthMethod)) {
             throw new ProtocolException('The login transaction carries no client authentication method');
         }
-        $this->tokenAuthMethod = $this->metadata->tokenEndpointAuthMethod($frozenAuthMethod);
+        if (!is_array($transaction['client_authentication'] ?? null)) {
+            throw new ProtocolException('The pending login carries no client authentication state');
+        }
+        $this->clientAuthentication = ClientAuthentication::negotiate(
+            $this->settings,
+            $this->metadata,
+            $transaction['client_authentication']
+        );
+        if (!hash_equals($this->clientAuthentication->method(), $frozenAuthMethod)) {
+            throw new ProtocolException('The pending login carries inconsistent client authentication state');
+        }
+        $this->tokenAuthMethod = $frozenAuthMethod;
         $frozenRequirement = null;
         if (array_key_exists('authentication_requirement', $transaction)) {
             if (!is_array($transaction['authentication_requirement'])) {
@@ -371,7 +392,13 @@ class RelyingParty
         $headers = ['Accept: application/json'];
         $this->authenticateClient($fields, $headers);
 
-        $response = $this->http->postForm($this->metadata->tokenEndpoint(), $fields, self::TOKEN_MAX_BYTES, $headers);
+        $response = $this->http->postForm(
+            (string)$this->clientAuthentication()->endpoint($this->metadata, 'token_endpoint'),
+            $fields,
+            self::TOKEN_MAX_BYTES,
+            $headers,
+            $this->clientAuthentication()->certificate()
+        );
         if ($response->status !== 200) {
             throw new ProtocolException(sprintf('The token endpoint returned HTTP %d', $response->status));
         }
@@ -397,6 +424,9 @@ class RelyingParty
             && (!is_string($tokens['token_type']) || strcasecmp($tokens['token_type'], 'Bearer') !== 0)) {
             throw new ProtocolException('The token endpoint returned an unsupported token type');
         }
+        if (is_string($tokens['access_token'] ?? null)) {
+            $this->clientAuthentication()->assertAccessTokenBinding($tokens['access_token']);
+        }
 
         return $tokens;
     }
@@ -404,18 +434,19 @@ class RelyingParty
     /** @param array<string,string> $fields @param string[] $headers */
     private function authenticateClient(array &$fields, array &$headers, ?string $method = null): void
     {
-        $method ??= $this->tokenAuthMethod
-            ?? $this->metadata?->tokenEndpointAuthMethod($this->settings->tokenAuthMethod());
-        if ($method === 'client_secret_basic') {
-            $credentials = urlencode($this->settings->clientId()) . ':' . urlencode($this->settings->clientSecret());
-            $headers[] = 'Authorization: Basic ' . base64_encode($credentials);
-            return;
+        $this->clientAuthentication()->authenticate($this->settings, $fields, $headers, $method);
+    }
+
+    private function clientAuthentication(): ClientAuthentication
+    {
+        if ($this->metadata === null) {
+            throw new ProtocolException('Provider metadata is not available for client authentication');
         }
-        if ($method === 'client_secret_post') {
-            $fields['client_secret'] = $this->settings->clientSecret();
-            return;
-        }
-        throw new ProtocolException('No supported token endpoint authentication method is available');
+        return $this->clientAuthentication ??= ClientAuthentication::negotiate(
+            $this->settings,
+            $this->metadata,
+            $this->restoredClientAuthentication
+        );
     }
 
     private function claimsForAccount(?string $accessToken): object
@@ -428,7 +459,7 @@ class RelyingParty
             $this->settings->groupClaim() ?: null,
         ]);
         $missing = array_filter($required, fn(string $name): bool => !array_key_exists($name, $claims));
-        $endpoint = $this->metadata->userInfoEndpoint();
+        $endpoint = $this->clientAuthentication()->endpoint($this->metadata, 'userinfo_endpoint');
         $callUserInfo = $source === 'userinfo'
             || ($source === 'auto' && $endpoint !== null && $missing !== []);
 
@@ -472,7 +503,8 @@ class RelyingParty
         $response = $this->http->get(
             $endpoint,
             self::USERINFO_MAX_BYTES,
-            ['Authorization: Bearer ' . $accessToken, 'Accept: application/json, application/jwt']
+            ['Authorization: Bearer ' . $accessToken, 'Accept: application/json, application/jwt'],
+            $this->clientAuthentication()->protectedResourceCertificate()
         );
         if ($response->status !== 200) {
             throw new ProtocolException(sprintf('UserInfo returned HTTP %d', $response->status));
@@ -511,7 +543,7 @@ class RelyingParty
     public function revokeToken(string $token, string $hint = ''): void
     {
         $this->metadata ??= $this->discoverMetadata();
-        $endpoint = $this->metadata->revocationEndpoint();
+        $endpoint = $this->clientAuthentication()->endpoint($this->metadata, 'revocation_endpoint');
         if ($endpoint === null) {
             return;
         }
@@ -520,8 +552,18 @@ class RelyingParty
             $fields['token_type_hint'] = $hint;
         }
         $headers = [];
-        $this->authenticateClient($fields, $headers, $this->metadata->revocationEndpointAuthMethod());
-        $response = $this->http->postForm($endpoint, $fields, 262144, $headers);
+        $this->authenticateClient(
+            $fields,
+            $headers,
+            $this->clientAuthentication()->revocationMethod($this->metadata)
+        );
+        $response = $this->http->postForm(
+            $endpoint,
+            $fields,
+            262144,
+            $headers,
+            $this->clientAuthentication()->certificate()
+        );
         if (!in_array($response->status, [200, 204], true)) {
             throw new ProtocolException(sprintf('Token revocation returned HTTP %d', $response->status));
         }
@@ -590,6 +632,12 @@ class RelyingParty
     public function getRefreshToken(): string
     {
         return is_string($this->tokens['refresh_token'] ?? null) ? $this->tokens['refresh_token'] : '';
+    }
+
+    /** @return array<string,mixed> */
+    public function getClientAuthenticationSnapshot(): array
+    {
+        return $this->clientAuthentication()->snapshot();
     }
 
     public static function issuedForThisFirewall(object $claims, string $clientId): bool

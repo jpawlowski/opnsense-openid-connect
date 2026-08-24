@@ -10,6 +10,8 @@ use OPNsense\Mvc\Request;
 use OPNsense\Mvc\Session;
 use OPNsense\OpenIDConnect\HttpClient;
 use OPNsense\OpenIDConnect\JwtVerifier;
+use OPNsense\OpenIDConnect\ClientAuthentication;
+use OPNsense\OpenIDConnect\ClientCertificate;
 use OPNsense\OpenIDConnect\ProviderMetadata;
 use OPNsense\OpenIDConnect\RelyingParty;
 
@@ -301,6 +303,32 @@ Checks::throws(
     'invalid pushed authorization request requirement'
 );
 Checks::throws(
+    'the certificate-bound token capability must be a boolean',
+    fn() => ProviderMetadata::discover(
+        'https://id.example.net',
+        new HttpClient(fn() => jsonAnswer(metadata(['tls_client_certificate_bound_access_tokens' => 'true'])))
+    ),
+    'certificate-bound access token flag'
+);
+Checks::throws(
+    'mutual-TLS endpoint aliases must be an object',
+    fn() => ProviderMetadata::discover(
+        'https://id.example.net',
+        new HttpClient(fn() => jsonAnswer(metadata(['mtls_endpoint_aliases' => ['https://mtls.example.net/token']])))
+    ),
+    'endpoint aliases'
+);
+Checks::throws(
+    'a mutual-TLS endpoint alias cannot downgrade to HTTP',
+    fn() => ProviderMetadata::discover(
+        'https://id.example.net',
+        new HttpClient(fn() => jsonAnswer(metadata(['mtls_endpoint_aliases' => [
+            'token_endpoint' => 'http://mtls.example.net/token',
+        ]])))
+    ),
+    'HTTPS'
+);
+Checks::throws(
     'an issuer carrying a query is refused before discovery',
     fn() => ProviderMetadata::discover('https://id.example.net?tenant=x', $http),
     'query'
@@ -363,12 +391,182 @@ Checks::throws(
     ]))->postForm('https://id.example.net/token', ['client_secret' => 'secret'], 100),
     'credential-bearing'
 );
+$transportCertificate = installClientCertificate('transport-client');
+$transportClientCertificate = ClientCertificate::load('transport-client');
+Checks::throws(
+    'a mutual-TLS credential is never carried through a redirect',
+    fn() => (new HttpClient(fn() => [
+        'status' => 307, 'content_type' => '', 'body' => '',
+        'location' => 'https://elsewhere.example.net/token',
+    ]))->get('https://id.example.net/token', 100, [], $transportClientCertificate),
+    'credential-bearing'
+);
 Checks::throws(
     'the response limit is enforced even by an alternate transport',
     fn() => (new HttpClient(fn() => [
         'status' => 200, 'content_type' => 'application/json', 'body' => '12345', 'location' => '',
     ]))->get('https://id.example.net/data', 4),
     'oversized'
+);
+
+Checks::group('Mutual-TLS client authentication and certificate-bound tokens');
+$oldStoredCertificate = installClientCertificate('mtls-old', 'Old OIDC certificate');
+installClientCertificate('mtls-new', 'New OIDC certificate');
+$mtlsMetadata = ProviderMetadata::fromArray(metadata([
+    'token_endpoint_auth_methods_supported' => [
+        'tls_client_auth', 'self_signed_tls_client_auth', 'client_secret_basic',
+    ],
+    'revocation_endpoint_auth_methods_supported' => ['tls_client_auth'],
+    'tls_client_certificate_bound_access_tokens' => true,
+    'userinfo_endpoint' => 'https://id.example.net/userinfo',
+    'revocation_endpoint' => 'https://id.example.net/revoke',
+    'pushed_authorization_request_endpoint' => 'https://id.example.net/par',
+    'mtls_endpoint_aliases' => [
+        'token_endpoint' => 'https://mtls.example.net/token',
+        'userinfo_endpoint' => 'https://mtls.example.net/userinfo',
+        'revocation_endpoint' => 'https://mtls.example.net/revoke',
+        'pushed_authorization_request_endpoint' => 'https://mtls.example.net/par',
+    ],
+]));
+$mtlsSettings = connector([
+    'openidconnect_client_id' => 'mtls-client',
+    'openidconnect_client_certificate' => 'mtls-old',
+    'openidconnect_certificate_bound_access_tokens' => '1',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+]);
+$mtlsAuthentication = ClientAuthentication::negotiate($mtlsSettings, $mtlsMetadata);
+$mtlsSnapshot = $mtlsAuthentication->snapshot();
+$mtlsMetadataProperty = new ReflectionProperty(RelyingParty::class, 'metadata');
+Checks::that(
+    'following a provider with a certificate prefers PKI mutual TLS',
+    $mtlsSnapshot['method'],
+    'tls_client_auth'
+);
+Checks::that('the active certificate reference is frozen into the login', $mtlsSnapshot['certificate_ref'], 'mtls-old');
+Checks::that(
+    'a mutual-TLS client prefers the advertised token alias',
+    $mtlsAuthentication->endpoint($mtlsMetadata, 'token_endpoint'),
+    'https://mtls.example.net/token'
+);
+Checks::that(
+    'a certificate-bound token prefers the advertised UserInfo alias',
+    $mtlsAuthentication->endpoint($mtlsMetadata, 'userinfo_endpoint'),
+    'https://mtls.example.net/userinfo'
+);
+Checks::that(
+    'mutual TLS remains the revocation authentication method when advertised',
+    $mtlsAuthentication->revocationMethod($mtlsMetadata),
+    'tls_client_auth'
+);
+Checks::throws(
+    'mutual-TLS revocation never downgrades to a client secret',
+    fn() => $mtlsAuthentication->revocationMethod(ProviderMetadata::fromArray(metadata([
+        'revocation_endpoint_auth_methods_supported' => ['client_secret_basic'],
+    ]))),
+    'no usable revocation endpoint authentication method'
+);
+
+$mtlsTokenRequest = [];
+$mtlsParty = new RelyingParty(
+    $mtlsSettings,
+    new Controller(new Request('https', 'firewall.example.net'), new Session()),
+    new HttpClient(function (
+        string $method,
+        string $url,
+        ?string $body,
+        array $headers,
+        int $maximum,
+        ?ClientCertificate $certificate
+    ) use (&$mtlsTokenRequest): array {
+        $mtlsTokenRequest = compact('method', 'url', 'body', 'headers', 'certificate');
+        return jsonAnswer(['id_token' => 'id-token', 'access_token' => 'opaque-access', 'token_type' => 'Bearer']);
+    })
+);
+$mtlsMetadataProperty->setValue($mtlsParty, $mtlsMetadata);
+inspect($mtlsParty, 'exchangeCode', 'code', 'verifier');
+Checks::that(
+    'the token exchange uses the mutual-TLS alias',
+    $mtlsTokenRequest['url'],
+    'https://mtls.example.net/token'
+);
+Checks::that(
+    'mutual TLS authenticates without placing a secret in the request',
+    str_contains((string)$mtlsTokenRequest['body'], 'client_secret='),
+    false
+);
+Checks::that(
+    'the token exchange presents the selected OPNsense certificate',
+    $mtlsTokenRequest['certificate']->reference(),
+    'mtls-old'
+);
+
+$reportedCertificate = null;
+$userinfoParty = new RelyingParty(
+    $mtlsSettings,
+    new Controller(new Request('https', 'firewall.example.net'), new Session()),
+    new HttpClient(function (
+        string $method,
+        string $url,
+        ?string $body,
+        array $headers,
+        int $maximum,
+        ?ClientCertificate $certificate
+    ) use (&$reportedCertificate): array {
+        $reportedCertificate = $certificate;
+        return jsonAnswer(['sub' => 'stable-subject']);
+    })
+);
+$mtlsMetadataProperty->setValue($userinfoParty, $mtlsMetadata);
+inspect($userinfoParty, 'requestUserInfo', 'https://mtls.example.net/userinfo', 'opaque-access');
+Checks::that(
+    'UserInfo presents the certificate used for a bound token',
+    $reportedCertificate?->thumbprint(),
+    $mtlsSnapshot['certificate_thumbprint']
+);
+
+$wrongThumbprint = JwtVerifier::base64UrlEncode('{}') . '.' . JwtVerifier::base64UrlEncode(json_encode([
+    'cnf' => ['x5t#S256' => 'different-certificate'],
+], JSON_THROW_ON_ERROR)) . '.signature';
+Checks::throws(
+    'an explicit access-token thumbprint mismatch is refused before resource access',
+    fn() => $mtlsAuthentication->assertAccessTokenBinding($wrongThumbprint),
+    'different client certificate'
+);
+
+$rotatedSettings = connector([
+    'openidconnect_client_id' => 'mtls-client',
+    'openidconnect_client_certificate' => 'mtls-new',
+    'openidconnect_retiring_client_certificate' => 'mtls-old',
+    'openidconnect_certificate_bound_access_tokens' => '1',
+]);
+$rotated = ClientAuthentication::negotiate($rotatedSettings, $mtlsMetadata, $mtlsSnapshot);
+Checks::that(
+    'rotation retains the exact certificate of an already pending exchange',
+    $rotated->snapshot()['certificate_ref'],
+    'mtls-old'
+);
+Checks::throws(
+    'removing the retiring certificate refuses an in-flight authentication downgrade',
+    fn() => ClientAuthentication::negotiate(connector([
+        'openidconnect_client_id' => 'mtls-client',
+        'openidconnect_client_secret' => 'secret',
+    ]), $mtlsMetadata, $mtlsSnapshot),
+    'authentication changed'
+);
+$replacement = installClientCertificate('mtls-old', 'Unexpected replacement');
+Checks::throws(
+    'replacing a stored certificate under the same reference is detected by its fingerprint',
+    fn() => ClientAuthentication::negotiate($rotatedSettings, $mtlsMetadata, $mtlsSnapshot),
+    'certificate changed'
+);
+OPNsense\Trust\Store::$certificates['mtls-old'] = $oldStoredCertificate;
+
+Checks::throws(
+    'requesting bound tokens cannot be downgraded by omitted provider support',
+    fn() => ClientAuthentication::negotiate($mtlsSettings, ProviderMetadata::fromArray(metadata([
+        'token_endpoint_auth_methods_supported' => ['tls_client_auth'],
+    ]))),
+    'does not advertise certificate-bound'
 );
 
 Checks::group('Strict endpoint responses and logout binding');

@@ -293,6 +293,8 @@
                     'openidconnect_app_code', 'openidconnect_provider_profile',
                     'openidconnect_microsoft_audience', 'openidconnect_client_id',
                     'openidconnect_client_secret', 'openidconnect_token_auth',
+                    'openidconnect_client_certificate', 'openidconnect_retiring_client_certificate',
+                    'openidconnect_certificate_bound_access_tokens',
                     'openidconnect_par_mode', 'openidconnect_scopes', 'openidconnect_response_mode',
                     'openidconnect_max_age', 'openidconnect_select_account',
                     'openidconnect_required_authentication', 'openidconnect_acr_request',
@@ -391,14 +393,31 @@
         var savedName = nameInput ? nameInput.value.trim() : '';
         var saved = address.searchParams.get('act') === 'edit'
             && /^\d+$/.test(address.searchParams.get('id') || '') && savedName !== '';
-        var requiredFields = [
-            'openidconnect_provider_url', 'openidconnect_client_id', 'openidconnect_client_secret'
+        var requiredFields = ['openidconnect_provider_url', 'openidconnect_client_id'];
+        var credentialFields = [
+            'openidconnect_client_secret', 'openidconnect_client_certificate',
+            'openidconnect_token_auth', 'openidconnect_certificate_bound_access_tokens'
         ];
+
+        function currentFieldsComplete() {
+            var basics = requiredFields.every(function (name) {
+                var input = field(name);
+                return input && input.value.trim() !== '';
+            });
+            var method = (field('openidconnect_token_auth') || {}).value || '';
+            var secret = (field('openidconnect_client_secret') || {}).value || '';
+            var certificate = (field('openidconnect_client_certificate') || {}).value || '';
+            var boundInput = field('openidconnect_certificate_bound_access_tokens');
+            var bound = boundInput ? $(boundInput).is(':checked') : false;
+            var tlsMethod = method === 'tls_client_auth' || method === 'self_signed_tls_client_auth';
+            var needsCertificate = bound || tlsMethod || (method === '' && certificate.trim() !== '');
+            var needsSecret = method === 'client_secret_basic' || method === 'client_secret_post'
+                || (method === '' && certificate.trim() === '');
+            return basics && (!needsCertificate || certificate.trim() !== '')
+                && (!needsSecret || secret.trim() !== '');
+        }
         var savedReady = saved && options.webGuiTransportReady !== false
-            && requiredFields.every(function (name) {
-            var input = field(name);
-            return input && input.value.trim() !== '';
-        });
+            && currentFieldsComplete();
         var running = false;
         var button = $('<button>')
             .attr({
@@ -450,13 +469,6 @@
             });
         var help = $('<span class="help-block auth_options auth_openidconnect oidc-signin-help">');
 
-        function currentFieldsComplete() {
-            return requiredFields.every(function (name) {
-                var input = field(name);
-                return input && input.value.trim() !== '';
-            });
-        }
-
         function updateAvailability() {
             var ready = saved && savedReady && currentFieldsComplete() && currentTransportReady();
             button.prop('disabled', running || !ready);
@@ -475,7 +487,8 @@
             } else if (!ready) {
                 help.empty().append(inlineCode(
                     options.signInTestIncompleteHelp
-                        || 'Complete and save `Exact issuer URL`, `Client ID` and `Client Secret` before testing sign-in.'
+                        || 'Complete and save the issuer, client ID and selected client credential '
+                        + 'before testing sign-in.'
                 ));
             } else {
                 help.text(options.signInTestHelp || 'Runs a complete browser sign-in without changing OPNsense.');
@@ -483,6 +496,9 @@
         }
 
         requiredFields.forEach(function (name) {
+            $(field(name)).on('input change', updateAvailability);
+        });
+        credentialFields.forEach(function (name) {
             $(field(name)).on('input change', updateAvailability);
         });
         ['openidconnect_tls_offloading', 'openidconnect_origin_policy', 'openidconnect_redirect_urls']

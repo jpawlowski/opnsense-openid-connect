@@ -112,6 +112,7 @@ namespace OPNsense\Auth {
             self::$creationWorks = true;
             self::$creationOutput = null;
             \OPNsense\Core\Config::reset();
+            \OPNsense\Trust\Store::reset();
         }
 
         public static function add(array $fields): void
@@ -205,6 +206,24 @@ namespace OPNsense\Core {
             \OPNsense\Auth\Directory::add(['name' => (string)($params[0] ?? '')]);
 
             return \OPNsense\Auth\Directory::$creationOutput ?? json_encode(['status' => 'ok']);
+        }
+    }
+}
+
+namespace OPNsense\Trust {
+    /** Test-owned certificate records shaped like Trust\Store::getCertificate(). */
+    class Store
+    {
+        public static array $certificates = [];
+
+        public static function getCertificate($reference)
+        {
+            return self::$certificates[(string)$reference] ?? false;
+        }
+
+        public static function reset(): void
+        {
+            self::$certificates = [];
         }
     }
 }
@@ -389,6 +408,18 @@ namespace {
     if (!function_exists('config_read_array')) {
         function config_read_array(...$path): array
         {
+            if ($path === ['cert']) {
+                $answer = [];
+                foreach (\OPNsense\Trust\Store::$certificates as $reference => $certificate) {
+                    $answer[] = [
+                        'refid' => $reference,
+                        'descr' => (string)($certificate['descr'] ?? ''),
+                        'crt' => empty($certificate['crt']) ? '' : 'stored',
+                        'prv' => empty($certificate['prv']) ? '' : 'stored',
+                    ];
+                }
+                return $answer;
+            }
             if (array_slice($path, 0, 2) === ['virtualip', 'vip']) {
                 return OidcTestNetwork::$virtualIps;
             }

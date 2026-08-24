@@ -14,6 +14,7 @@ final class SessionGrant
     public const ISSUER = 'openidconnect_grant_issuer';
     public const ID_TOKEN = 'openidconnect_grant_id_token';
     public const TOKENS = 'openidconnect_grant_tokens';
+    public const CLIENT_AUTHENTICATION = 'openidconnect_grant_client_authentication';
 
     public static function currentProvider(): string
     {
