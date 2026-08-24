@@ -210,7 +210,7 @@ It checks two things, and the order is deliberate:
 1. **Live probe** — the login page is actually fetched and checked for the
    form, the SSO button, a clean closing tag and PHP errors. This is the check
    that matters.
-2. **Fingerprint** — a `sha256` over the 28 core files this module hangs
+2. **Fingerprint** — a `sha256` over the 29 core/runtime files this module hangs
    off. If it differs, the ground has moved.
 
 A mere version change deliberately triggers nothing: OPNsense moves often
@@ -218,7 +218,7 @@ without touching those files.
 
 **The anchor lives on the machine, not in the package**
 (`/var/db/openid-connect/`). The same package has to run on any OPNsense, and a
-fingerprint over core files is only ever true for one of them. The first
+fingerprint over core and bundled runtime files is only ever true for one of them. The first
 `--check` writes it and says so in the log.
 
     openid-connect-watch --status    show the state, without mail

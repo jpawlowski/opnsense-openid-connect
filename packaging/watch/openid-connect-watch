@@ -14,13 +14,13 @@
 #   1. LIVE PROBE. The login page is actually fetched and checked for the form,
 #      the SSO button and a clean closing tag. This is the check that matters -
 #      it answers the only question that counts: can I still get in tomorrow?
-#   2. FINGERPRINT. A sha256 over exactly those core files this package hangs
+#   2. FINGERPRINT. A sha256 over exactly those core and bundled runtime files this package hangs
 #      off. If it differs from the recorded one, the ground has moved and the
 #      code wants reading through - even if everything still works today.
 #
 # The anchor is written on the FIRST run on this machine rather than built into
 # the package: the same package has to run on any OPNsense, and a fingerprint
-# over core files is only ever true for one of them.
+# over core and runtime files is only ever true for one of them.
 #
 # A version number alone is no trigger: OPNsense moves often without touching
 # these files. Then there is nothing to do, and there should be no mail either.
@@ -57,7 +57,7 @@ LOGTAG=openid-connect-watch
 ANCHOR="$STATE/core.digest"
 ANCHOR_VERSION="$STATE/core.version"
 
-# The core files this package hangs off. A change to any of them can affect
+# The core and bundled runtime files this package hangs off. A change to any of them can affect
 # single sign-on.
 TOUCHPOINTS="
 /usr/local/www/authgui.inc
@@ -88,6 +88,7 @@ TOUCHPOINTS="
 /usr/local/opnsense/scripts/auth/add_user.php
 /usr/local/opnsense/service/conf/actions.d/actions_auth.conf
 /usr/local/sbin/pluginctl
+/usr/local/share/phpseclib/Crypt/EC.php
 "
 
 digest() {
@@ -329,7 +330,7 @@ identity provider is missing."
     fi
 
     note "OPNsense changed files that single sign-on hangs off (now $have_version, anchored at $want_version). The login page is in order, but the code wants reading through"
-    send "openid-connect-watch: the core moved underneath the module" \
+    send "openid-connect-watch: the OPNsense runtime moved underneath the module" \
 "OPNsense changed files that the single sign-on module hangs off. The login page
 has been checked and is in order, so there is no hurry. The code does want
 reading through before the next upgrade.

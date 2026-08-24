@@ -205,7 +205,7 @@ async function configureServer(page) {
   await selectNative(page.locator('select[name="openidconnect_provider_profile"]'), 'keycloak');
   await selectNative(page.locator('select[name="openidconnect_bootstrap_mode"]'), 'username');
   await page.locator('input[name="openidconnect_username_claim"]').fill('preferred_username');
-  await selectNative(page.locator('select[name="openidconnect_claims_source"]'), 'auto');
+  await selectNative(page.locator('select[name="openidconnect_claims_source"]'), 'userinfo');
   await selectNative(page.locator('select[name="openidconnect_response_mode"]'), 'query');
   await setFlatList(page, 'openidconnect_scopes', ['openid', 'email', 'profile']);
   await page.locator('input[name="openidconnect_create_users"]').check();
@@ -408,9 +408,13 @@ async function configureServer(page) {
   const dialog = page.getByRole('dialog');
   await expect(dialog.locator('.oidc-discovery-result .alert-success')).toBeVisible();
   await expect(dialog.locator('.oidc-discovery-results')).toBeVisible();
-  await expect(dialog.locator('.oidc-discovery-results tbody tr')).toHaveCount(14);
   await expect(dialog.locator('.oidc-discovery-results tr[data-status="success"]').first()).toBeVisible();
   await expect(dialog.locator('.oidc-discovery-results tr[data-status="info"]').first()).toBeVisible();
+  const dpopDiscoveryRow = dialog.locator('.oidc-discovery-results tbody tr')
+    .filter({ hasText: 'DPoP sender constraint' });
+  await expect(dpopDiscoveryRow).toHaveCount(1);
+  await expect(dpopDiscoveryRow).toHaveAttribute('data-status', 'success');
+  await expect(dpopDiscoveryRow).toContainText('ES256');
   await expect(dialog).toContainText(issuer);
   await expect(dialog).toContainText('RS256');
   await expect(dialog).toContainText('client_secret_post');
