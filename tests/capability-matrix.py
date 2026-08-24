@@ -92,6 +92,15 @@ def main():
         (pathlib.PurePosixPath(source), test)
         for source, test in harness.executed_tests()
     }
+    # This file attacks catalog structure in isolation. The publication generator below it in
+    # tests/run.sh independently loads the shared manifest and proves these PHP checks executed.
+    for standard in standards["standards"]:
+        for requirement in standard.get("requirements", []):
+            for references in requirement.get("evidence", {}).values():
+                matrix.EXECUTED_TESTS.update(
+                    (pathlib.PurePosixPath(reference["path"]), reference["test"])
+                    for reference in references
+                )
 
     one_sided = copy.deepcopy(standards)
     one_sided["standards"][0]["requirements"] = [{
@@ -238,6 +247,25 @@ def main():
     }
     check("empty source-review pins cannot make a standard verified", refused(
         lambda: matrix.validate_standards(unpinned)
+    ), True)
+
+    group("An active draft remains informative")
+    check("a pinned draft delta inventory remains non-conformant", refused(
+        lambda: matrix.validate_standards(standards)
+    ), False)
+
+    claimed_draft = copy.deepcopy(standards)
+    tracked = next(item for item in claimed_draft["standards"] if item["id"] == "oauth2-1-draft")
+    tracked["claim"] = "verified"
+    check("draft tracking cannot become a verified claim", refused(
+        lambda: matrix.validate_standards(claimed_draft)
+    ), True)
+
+    malformed_draft = copy.deepcopy(standards)
+    tracked = next(item for item in malformed_draft["standards"] if item["id"] == "oauth2-1-draft")
+    tracked["draft_tracking"]["deltas"][0]["disposition"] = "conformant"
+    check("a draft delta cannot invent a conformance disposition", refused(
+        lambda: matrix.validate_standards(malformed_draft)
     ), True)
 
     group("A provider claim cannot outrun retained interoperability evidence")

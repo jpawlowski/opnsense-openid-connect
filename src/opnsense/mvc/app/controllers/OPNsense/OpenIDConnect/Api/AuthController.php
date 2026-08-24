@@ -556,7 +556,10 @@ class AuthController extends ApiControllerBase
     private function authorizationResponse(): array
     {
         $parameters = [];
-        foreach (['state', 'code', 'iss', 'error', 'error_description', 'error_uri', 'session_state'] as $name) {
+        foreach ([
+            'state', 'code', 'iss', 'error', 'error_description', 'error_uri', 'session_state',
+            'access_token', 'id_token', 'token_type', 'expires_in',
+        ] as $name) {
             $value = $this->request->isPost()
                 ? $this->request->getPost($name, null, null)
                 : $this->request->get($name, null);

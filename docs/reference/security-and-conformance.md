@@ -36,7 +36,7 @@ revision; it does not expire automatically and does not silently prove later rev
 | [JSON Web Token Best Current Practices (RFC 8725)](https://www.rfc-editor.org/rfc/rfc8725.html) | JWT validation by the RP | Implemented | 🟡 unverified | Defensive JWT validation exists; the cross-specification normative audit is not complete. |
 | [OAuth 2.0 Pushed Authorization Requests (RFC 9126)](https://www.rfc-editor.org/rfc/rfc9126.html) | RP sending pushed authorization requests | Implemented | 🟡 unverified | Supported in automatic and required modes; requirement-level evidence is incomplete. |
 | [OAuth 2.0 Authorization Server Issuer Identification (RFC 9207)](https://www.rfc-editor.org/rfc/rfc9207.html) | RP validating the authorization response issuer | Implemented | 🟡 unverified | Issuer response validation exists; requirement-level evidence is incomplete. |
-| [Best Current Practice for OAuth 2.0 Security (RFC 9700)](https://www.rfc-editor.org/rfc/rfc9700.html) | Confidential browser-based RP | Partial | 🟡 unverified | Multiple recommendations are implemented, but a complete applicable-requirement audit is pending. |
+| [Best Current Practice for OAuth 2.0 Security (RFC 9700)](https://www.rfc-editor.org/rfc/rfc9700.html) | Confidential browser-based RP | Implemented | ✅ verified | The applicable confidential web RP requirements are inventoried and backed by current positive and refusal evidence; reviewed deviations are explicit. |
 | [OpenID Connect RP-Initiated Logout 1.0](https://openid.net/specs/openid-connect-rpinitiated-1_0.html) | RP initiating provider logout | Implemented | 🟡 unverified | Implemented when the provider advertises an end-session endpoint; normative evidence is incomplete. |
 | [OpenID Connect Front-Channel Logout 1.0](https://openid.net/specs/openid-connect-frontchannel-1_0.html) | RP receiving front-channel logout notifications | Implemented | 🟡 unverified | Implemented with issuer and session binding; normative evidence is incomplete. |
 | [OpenID Connect Back-Channel Logout 1.0](https://openid.net/specs/openid-connect-backchannel-1_0.html) | RP receiving logout tokens | Implemented | 🟡 unverified | Implemented with logout-token replay protection; normative evidence is incomplete. |
@@ -91,6 +91,21 @@ revision; it does not expire automatically and does not silently prove later rev
 | [OAuth 2.0 Threat Model and Security Considerations (RFC 6819)](https://www.rfc-editor.org/rfc/rfc6819.html) | Historic OAuth security guidance | N/A | N/A | RFC 9700 is the current Best Current Practice and explicitly updates the security baseline used by this profile. |
 | [IETF URN Sub-Namespace for OAuth (RFC 6755)](https://www.rfc-editor.org/rfc/rfc6755.html) | Registry namespace allocation | N/A | N/A | This registry document assigns no runtime behaviour to the RP. |
 | [OAuth 2.1 Authorization Framework (active IETF draft)](https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/) | Consolidated authorization-code profile for a confidential web client | Partial | — not claimed | The design already follows many consolidated security requirements, but the document remains an active draft and is not an RFC conformance target. Reconsider: The specification is published or a provider requires a pinned draft profile. |
+
+### OAuth 2.1 Authorization Framework (active IETF draft) tracking
+
+Informative only: `draft-ietf-oauth-v2-1-15` was reviewed 2026-08-24; no draft conformance is claimed.
+
+| Draft difference | RP status | Current disposition |
+|---|---:|---|
+| Authorization Code flow incorporates mandatory PKCE parameters (Section 10) | Aligned | Every login sends a transaction-specific S256 challenge and proves the exact verifier at the token endpoint. |
+| Registered redirect URIs use exact string matching (Section 10) | Aligned | The RP emits only exact configured HTTPS callbacks and refuses a callback under another origin or application code. |
+| The Implicit grant is omitted (Sections 10 and 10.1) | Aligned | The RP requests only code and now rejects any front-channel access or ID token even when a code is also present. |
+| The Resource Owner Password Credentials grant is omitted (Section 10) | Aligned | The firewall never accepts or sends identity-provider usernames or passwords; only an authorization code is exchanged. |
+| Bearer token use in URI query strings is omitted (Section 10) | Aligned | UserInfo receives its access token only in the Authorization header and revocation receives the token in a POST body. |
+| Public-client refresh tokens require sender constraint or rotation (Section 10) | N/A | This RP is a confidential server-side client and never refreshes an access token during the WebGUI session. |
+| The authorization-code token request omits redirect_uri (Sections 10 and 10.2) | Differs | The current published OIDC and OAuth 2.0 profile sends the exact frozen redirect_uri for provider interoperability; reconsider only after OAuth 2.1 is stable and the OIDC relationship is resolved. |
+| Authorization servers support client credentials in the request body (Section 10) | N/A | This requirement is assigned to the provider. The RP supports client_secret_post when advertised or configured but makes no server-conformance claim. |
 
 ### Provider interoperability matrix
 
