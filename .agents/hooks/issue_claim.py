@@ -342,6 +342,11 @@ def linked(repository, pull_number):
 
 
 def adopt_pull_request(repository, pull_number):
+    registry = load_registry(repository)
+    if (registry.get("claims") or {}).get(worktree_key(repository)):
+        raise RuntimeError(
+            "this worktree already owns an issue or pull request; link or release that claim before adoption"
+        )
     pull = _gh((
         "pr", "view", str(pull_number), "--repo", CANONICAL_REPOSITORY,
         "--json", "number,state,body,headRefName,headRefOid,url",
@@ -352,7 +357,6 @@ def adopt_pull_request(repository, pull_number):
     if (str(pull.get("state") or "").upper() != "OPEN" or not issue
             or pull.get("headRefName") != branch or pull.get("headRefOid") != head):
         raise RuntimeError("the open pull request must close one issue and use this worktree's exact branch head")
-    registry = load_registry(repository)
     record = {
         "issue": issue, "token": f"pr-{secrets.token_hex(6)}", "status": "pr-linked",
         "pull_request": int(pull_number), "branch": branch, "head": head,

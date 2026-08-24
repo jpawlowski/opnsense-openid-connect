@@ -635,17 +635,26 @@ def initialize(event):
     emit(informational(notice))
 
 
+def cleanup_pull_number(state, claim):
+    observed = ((state.get("pr_state") or {}).get("number"))
+    if observed:
+        return observed
+    if claim and claim.get("status") == "pr-linked":
+        return claim.get("pull_request")
+    return None
+
+
 def cleanup(event):
     state_path, _ = state_paths(event)
     state = load_state(state_path) or {}
-    pull_number = ((state.get("pr_state") or {}).get("number"))
+    claim = issue_claim.current_claim(REPOSITORY)
+    pull_number = cleanup_pull_number(state, claim)
     cleanup_status = "cloud or snapshot checkout retained"
     if execution_context(REPOSITORY) == "local":
         with RepositoryLock(REPOSITORY):
             cleanup_status = worktree_cleanup.finish_session(
                 REPOSITORY, event.get("session_id"), pull_number=pull_number,
             )
-            claim = issue_claim.current_claim(REPOSITORY)
             try:
                 if claim and claim.get("status") == "active" and pull_number:
                     issue_claim.linked(REPOSITORY, pull_number)

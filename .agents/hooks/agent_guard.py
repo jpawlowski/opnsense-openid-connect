@@ -252,6 +252,8 @@ def _issue_helper(arguments):
 
 
 def _read_only_gh(arguments):
+    if any(value in ("--web", "-w") for value in arguments):
+        return False
     if len(arguments) >= 2 and arguments[0] in ("issue", "pr", "repo", "run"):
         read_actions = {
             "issue": {"list", "status", "view"},
@@ -427,6 +429,8 @@ def _git_subcommand(arguments):
 
 def _effective_invocation(command):
     """Unwrap simple execution builtins without trying to interpret a shell program."""
+    if _shell_hazard(command) == "control":
+        return "", [], True
     program, arguments = _literal_shell_invocation(command)
     for _depth in range(4):
         if program == "builtin" and arguments and arguments[0] in ("command", "exec"):
@@ -474,6 +478,15 @@ def _effective_invocation(command):
                 return program, arguments, True
             program, arguments = arguments[0], arguments[1:]
             continue
+        interpreter_options = {
+            "bash": "c", "dash": "c", "ksh": "c", "sh": "c", "zsh": "c",
+            "node": "e", "perl": "e", "php": "r", "python": "c", "python3": "c", "ruby": "e",
+        }
+        name = Path(program).name
+        option = interpreter_options.get(name)
+        if (program in ("eval", "source", ".", "xargs")
+                or (option and any(value.startswith("-") and option in value[1:] for value in arguments))):
+            return program, arguments, True
         break
     return program, arguments, program in ("builtin", "command", "env", "exec")
 

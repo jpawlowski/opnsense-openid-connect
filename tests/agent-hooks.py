@@ -417,6 +417,8 @@ def main():
           guard_module.is_read_only_shell("git diff --ext-diff"), False)
     check("GitHub pull request inspection is read-only",
           guard_module.is_read_only_shell("gh pr view 42 --json headRefOid"), True)
+    check("GitHub inspection cannot launch a configured browser helper",
+          guard_module.is_read_only_shell("gh pr view 42 --web"), False)
     check("GitHub API GET inspection is read-only",
           guard_module.is_read_only_shell("gh api repos/example/project/pulls/42"), True)
     check("the worktree bootstrap is an allowed control operation",
@@ -481,6 +483,13 @@ def main():
     check("the exec builtin cannot hide a detached-worktree commit", guard_module.requires_topic_branch({
         "tool_name": "Bash", "tool_input": {"command": "exec git commit -m 'test: durable work'"},
     }), True)
+    check("a shell interpreter cannot hide a push boundary", guard_module.requires_uncached_remote({
+        "tool_name": "Bash", "tool_input": {"command": "bash -c 'git push origin codex/topic'"},
+    }), True)
+    check("a shell control list fails closed at a publication boundary",
+          guard_module.requires_uncached_remote({
+              "tool_name": "Bash", "tool_input": {"command": "true; git push origin codex/topic"},
+          }), True)
     check("quoted commit punctuation cannot hide a detached-worktree commit", guard_module.requires_topic_branch({
         "tool_name": "Bash", "tool_input": {"command": "git commit -m 'test: durable work?'"},
     }), True)
@@ -715,6 +724,13 @@ def main():
         except RuntimeError:
             lock_was_exclusive = True
         check("the fixed per-issue label definition is an atomic cross-clone lock", lock_was_exclusive, True)
+        try:
+            claim_module.adopt_pull_request(repository, 41)
+            adopted_over_claim = True
+        except RuntimeError:
+            adopted_over_claim = False
+        check("adoption cannot overwrite an active issue claim",
+              (adopted_over_claim, bool(issue["comments"]), bool(issue["labels"])), (False, True, True))
         claim_module.marker_path(repository).unlink()
         check("a reused worktree path cannot trust a claim without its private marker",
               claim_module.current_claim(repository), None)
@@ -1055,6 +1071,11 @@ def main():
         ).returncode == 0, False)
 
     group("Explicit refresh reports the truth about local main")
+    cleanup_hook = load_hook()
+    check("an unavailable observation preserves a PR-linked worktree",
+          cleanup_hook.cleanup_pull_number(
+              {"pr_state": None}, {"status": "pr-linked", "pull_request": 41},
+          ), 41)
     with tempfile.TemporaryDirectory() as temporary:
         state = pathlib.Path(temporary) / "state.json"
         state.write_text(json.dumps({
