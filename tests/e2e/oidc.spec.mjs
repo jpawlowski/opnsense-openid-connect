@@ -104,6 +104,7 @@ async function configureServer(page) {
   await page.goto(`${origin}/system_authservers.php?act=new`);
   await selectNative(page.locator('select[name="type"]'), 'openidconnect');
   await expect(page.locator('input[name="openidconnect_provider_url"]')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Connection health' })).toBeDisabled();
   await expect(page.locator('input[name="openidconnect_tls_offloading"]')
     .locator('xpath=ancestor::tr')).toBeHidden();
   await expect(page.locator('input[name="openidconnect_max_age"]')).toHaveValue('14400');
@@ -376,9 +377,7 @@ async function configureServer(page) {
   await page.locator('input[name="openidconnect_provider_url"]')
     .fill(`${issuer}/.well-known/openid-configuration`);
   await expect(signInTestButton).toBeDisabled();
-  await expect(page.locator('.oidc-signin-help')).toContainText(
-    'Complete and save Exact issuer URL, Client ID and Client Secret'
-  );
+  await expect(page.locator('.oidc-signin-help')).toContainText('Save or revert your changes');
   const refusedTestResponsePromise = page.waitForResponse(response => (
     new URL(response.url()).pathname === '/api/openidconnect/test/start'
   ));
@@ -394,36 +393,152 @@ async function configureServer(page) {
   expect(refusedIncompleteTest.message).toContain(
     'Complete and save Exact issuer URL, Client ID and Client Secret'
   );
+
+  // Public Discovery and signing material can be checked before client registration is complete.
+  const draftDiscoveryResponsePromise = page.waitForResponse(response => (
+    new URL(response.url()).pathname === '/api/openidconnect/discovery/probe'
+  ));
+  await page.getByRole('button', { name: 'Test discovery' }).click();
+  expectPrivateResponseHeaders(await draftDiscoveryResponsePromise);
+  let dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Enter Client ID and Client Secret');
+  await expect(dialog.locator('tr[data-verification="not-tested"]')).toBeVisible();
+  await dialog.getByRole('button', { name: '×' }).click();
+
   await page.locator('input[name="openidconnect_client_id"]').fill(process.env.E2E_KEYCLOAK_CLIENT_ID);
   await expect(signInTestButton).toBeDisabled();
   await page.locator('input[name="openidconnect_client_secret"]').fill(process.env.E2E_KEYCLOAK_CLIENT_SECRET);
   // All three current fields are populated, but the sign-in test uses saved values only.
   await expect(signInTestButton).toBeDisabled();
+
+  const healthButton = page.getByRole('button', { name: 'Connection health' });
+  await expect(healthButton).toBeEnabled();
+  const healthRequestPromise = page.waitForRequest(request => (
+    new URL(request.url()).pathname === '/api/openidconnect/health/probe'
+  ));
+  const healthResponsePromise = page.waitForResponse(response => (
+    new URL(response.url()).pathname === '/api/openidconnect/health/probe'
+  ));
+  await healthButton.focus();
+  await expect(healthButton).toBeFocused();
+  await page.keyboard.press('Enter');
+  const healthRequest = await healthRequestPromise;
+  expect(healthRequest.method()).toBe('POST');
+  const healthForm = new URLSearchParams(healthRequest.postData() || '');
+  expect(healthForm.get('openidconnect_provider_url')).toContain(issuer);
+  expect(healthForm.get('openidconnect_client_id')).toBe(process.env.E2E_KEYCLOAK_CLIENT_ID);
+  const healthResponse = await healthResponsePromise;
+  expectPrivateResponseHeaders(healthResponse);
+  const healthAnswer = await healthResponse.json();
+  expect(healthAnswer.status).toBe('ok');
+  expect(JSON.stringify(healthAnswer)).not.toContain(process.env.E2E_KEYCLOAK_CLIENT_SECRET);
+  dialog = page.getByRole('dialog');
+  await expect(dialog.locator('.oidc-discovery-results')).toBeVisible();
+  await expect(dialog).toContainText('Client configuration');
+  await expect(dialog).toContainText('WebGUI transport');
+  await expect(dialog).toContainText('Client credentials');
+  await expect(dialog.locator('tr[data-verification="live"]')).toBeVisible();
+  await expect(dialog.locator('tr[data-verification="metadata"]')).toBeVisible();
+  await expect(dialog.locator('tr[data-verification="configuration"]')).toBeVisible();
+  await expect(dialog.locator('tr[data-verification="not-tested"]')).toBeVisible();
+  await dialog.getByRole('button', { name: '×' }).click();
+
   const discoveryResponsePromise = page.waitForResponse(response => (
     new URL(response.url()).pathname === '/api/openidconnect/discovery/probe'
   ));
   await page.getByRole('button', { name: 'Test discovery' }).click();
   expectPrivateResponseHeaders(await discoveryResponsePromise);
   await expect(page.locator('input[name="openidconnect_provider_url"]')).toHaveValue(issuer);
-  const dialog = page.getByRole('dialog');
+  dialog = page.getByRole('dialog');
   await expect(dialog.locator('.oidc-discovery-result .alert-success')).toBeVisible();
   await expect(dialog.locator('.oidc-discovery-results')).toBeVisible();
-  await expect(dialog.locator('.oidc-discovery-results tbody tr')).toHaveCount(14);
+  await expect(dialog.locator('.oidc-discovery-results tbody tr')).toHaveCount(16);
+  await expect(dialog.locator('.oidc-check-flow')).toHaveCount(16);
+  await expect(dialog.locator('.oidc-check-flow[aria-label]')).toHaveCount(16);
+  await expect(dialog.locator('.oidc-check-actor')).not.toHaveCount(0);
+  await expect(dialog.locator('.oidc-check-actor i[aria-hidden="true"]')).not.toHaveCount(0);
+  await expect(dialog.locator('th > div').filter({ hasText: /\(.*(?:OPNsense|Browser|IdP).*\)/ }))
+    .toHaveCount(0);
+  const resultSemantics = await dialog.locator('.oidc-discovery-results tbody tr').evaluateAll(rows => (
+    Object.fromEntries(rows.map(row => [
+      row.querySelector('th > div:first-child').textContent.trim(),
+      [row.querySelector('.oidc-check-flow').dataset.actors, row.dataset.verification],
+    ]))
+  ));
+  expect(resultSemantics).toEqual({
+    Discovery: ['opnsense,idp', 'live'],
+    'Provider profile': ['opnsense', 'configuration'],
+    'Authorization endpoint': ['browser,idp', 'not-tested'],
+    'Token endpoint': ['opnsense,idp', 'not-tested'],
+    'UserInfo endpoint': ['opnsense,idp', 'not-tested'],
+    'ID Token signatures': ['opnsense', 'metadata'],
+    'Client authentication': ['opnsense', 'metadata'],
+    PKCE: ['opnsense', 'metadata'],
+    'PAR metadata': ['opnsense,idp', 'metadata'],
+    'Authorization response mode': ['idp,browser,opnsense', 'metadata'],
+    'Selected authentication method': ['opnsense', 'metadata'],
+    'Authorization response issuer': ['idp,browser,opnsense', 'metadata'],
+    'Provider sign-out': ['browser,idp', 'not-tested'],
+    'Token revocation': ['opnsense,idp', 'not-tested'],
+    'Signing keys': ['opnsense,idp', 'live'],
+    'PAR endpoint': ['opnsense,idp', 'live'],
+  });
   await expect(dialog.locator('.oidc-discovery-results tr[data-status="success"]').first()).toBeVisible();
   await expect(dialog.locator('.oidc-discovery-results tr[data-status="info"]').first()).toBeVisible();
   await expect(dialog).toContainText(issuer);
   await expect(dialog).toContainText('RS256');
   await expect(dialog).toContainText('client_secret_post');
   await expect(dialog).toContainText('PAR will be used automatically');
+  await page.setViewportSize({ width: 500, height: 900 });
+  await expect.poll(() => dialog.locator('.oidc-check-verification').first().evaluate(element => (
+    window.getComputedStyle(element).flexBasis
+  ))).toBe('100%');
+  await page.setViewportSize({ width: 1280, height: 720 });
   await dialog.getByRole('button', { name: '×' }).click();
 
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page).toHaveURL(/\/system_authservers\.php$/);
-  expect(discoveryRequests).toBe(1);
+  expect(discoveryRequests).toBe(2);
   await page.getByRole('row', { name: new RegExp(process.env.E2E_SERVER_NAME) })
     .getByRole('link', { name: 'Edit' }).click();
   await expect(page.locator('input[name="openidconnect_provider_url"]')).toHaveValue(issuer);
+  const savedSignInTest = page.getByRole('button', { name: 'Test sign-in' });
+  await expect(savedSignInTest).toBeEnabled();
+
+  const maxAge = page.locator('input[name="openidconnect_max_age"]');
+  const savedMaxAge = await maxAge.inputValue();
+  await maxAge.fill('60');
+  await expect(savedSignInTest).toBeDisabled();
+  await expect(page.locator('.oidc-signin-help')).toContainText('Save or revert your changes');
+  await maxAge.fill(savedMaxAge);
+  await expect(savedSignInTest).toBeEnabled();
+
+  const selectAccount = page.locator('input[name="openidconnect_select_account"]');
+  await selectAccount.check();
+  await expect(savedSignInTest).toBeDisabled();
+  await selectAccount.uncheck();
+  await expect(savedSignInTest).toBeEnabled();
+
+  await setFlatList(page, 'openidconnect_scopes', ['openid', 'email']);
+  await expect(savedSignInTest).toBeDisabled();
+  await setFlatList(page, 'openidconnect_scopes', ['openid', 'email', 'profile']);
+  await expect(savedSignInTest).toBeEnabled();
+
+  const secretField = page.locator('input[name="openidconnect_client_secret"]');
+  await secretField.fill(`${process.env.E2E_KEYCLOAK_CLIENT_SECRET}-changed`);
+  await expect(savedSignInTest).toBeDisabled();
+  await secretField.fill(process.env.E2E_KEYCLOAK_CLIENT_SECRET);
+  await expect(savedSignInTest).toBeEnabled();
+
+  await selectNative(page.locator('select[name="openidconnect_provider_profile"]'), 'authentik');
+  await expect(savedSignInTest).toBeDisabled();
+  await page.reload();
   await expect(page.getByRole('button', { name: 'Test sign-in' })).toBeEnabled();
+
+  await page.locator('input[name="openidconnect_provider_url"]').fill('not-an-issuer');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.locator('body')).toContainText('Exact issuer URL');
+  await expect(page.getByRole('button', { name: 'Test sign-in' })).toBeDisabled();
 }
 
 async function editServer(page, change) {
@@ -658,6 +773,17 @@ test('real OPNsense login, session binding and logout interoperability', async (
   expect(deniedTest.status()).toBe(302);
   expect(deniedTest.headers().location).toBe('/?url=/api/openidconnect/test/start');
   expectPrivateResponseHeaders(deniedTest);
+  const deniedHealth = await unauthenticated.post(`${origin}/api/openidconnect/health/probe`, {
+    form: {
+      openidconnect_provider_url: issuer,
+      openidconnect_client_id: process.env.E2E_KEYCLOAK_CLIENT_ID,
+      openidconnect_client_secret: process.env.E2E_KEYCLOAK_CLIENT_SECRET,
+    },
+    maxRedirects: 0,
+  });
+  expect(deniedHealth.status()).toBe(302);
+  expect(deniedHealth.headers().location).toBe('/?url=/api/openidconnect/health/probe');
+  expectPrivateResponseHeaders(deniedHealth);
   const admin = await browser.newContext();
   const adminPage = await admin.newPage();
   await localLogin(adminPage);
