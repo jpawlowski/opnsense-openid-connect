@@ -165,6 +165,9 @@ before the first comment; if mirroring is interrupted, rerun the same command wi
 `--id ID` so already published copies are verified and skipped. The helper writes
 the current open PR set before old-only targets. A retry recovers hidden
 superseded IDs and the complete target set from its own already-published marker.
+If its first target has since closed, publish a new order for the remaining open
+PRs with the partial ID in `--supersedes`; IDs identify the closed PRs whose
+comments must be read, so the successor also retires that stranded marker.
 Recommendation and fulfillment each hold one atomic repository-label mutex from
 before their remote snapshot until every mirrored comment is complete. A
 concurrent publisher stands down and retries after release. Inspect and remove a

@@ -233,6 +233,9 @@ write. If one mirrored write fails, rerun the same command with `--id ID`; the
 helper verifies and skips matching copies instead of duplicating them. It writes
 the current open PR set before old-only targets, and a retry recovers hidden
 superseded IDs plus the complete target set from its already-published marker.
+If that marker's first target has closed, publish a new remaining-open-PR order
+with the partial ID in `--supersedes`. The ID directs the helper to read the
+closed PR and mirror the successor there, so reopening cannot revive it.
 Recommendation and fulfillment each acquire one atomic repository-label mutex
 before reading the remote coordination snapshot and retain it through all
 mirrored comments. A competing publisher stands down until release. If a failed

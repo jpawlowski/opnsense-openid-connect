@@ -189,6 +189,13 @@ def publication_identifier(prs, requested):
     return requested
 
 
+def identifier_pull_requests(identifier):
+    if not IDENTIFIER.fullmatch(str(identifier or "")):
+        return []
+    prefix, _timestamp, _nonce = str(identifier).rsplit("-", 2)
+    return [int(number) for number in prefix.split("-")]
+
+
 def publication_targets(prs, active, replaced):
     targets = list(prs)
     for record in active:
@@ -280,16 +287,25 @@ def recommend_locked(arguments, token):
     pulls = open_pulls(token)
     values_by_pull = comment_sets(pulls, token)
     open_numbers = {int(pull["number"]) for pull in pulls}
-    missing = sorted(set(prs) - open_numbers)
-    if missing:
-        raise RuntimeError("coordination targets must be open pull requests: " + ", ".join(map(str, missing)))
 
     identifier = publication_identifier(prs, arguments.id)
+    referenced_numbers = {
+        number
+        for value in (identifier, *arguments.supersedes)
+        for number in identifier_pull_requests(value)
+    }
+    load_target_comments(values_by_pull, sorted(referenced_numbers), token)
     active = all_records(pulls, token, values_by_pull)
     replaced = set(arguments.supersedes)
     resumed = resumed_publication(values_by_pull, identifier)
     if resumed is not None and (resumed["order"] != order or set(resumed["supersedes"]) != replaced):
         raise RuntimeError(f"coordination id {identifier} belongs to a different recommendation")
+    missing = sorted(set(prs) - open_numbers)
+    if missing:
+        guidance = f"; publish a new open-PR order that supersedes {identifier}" if resumed is not None else ""
+        raise RuntimeError(
+            "coordination targets must be open pull requests: " + ", ".join(map(str, missing)) + guidance
+        )
     known_replaced = set(resumed["supersedes"]) if resumed is not None else set()
     unknown = replaced - {record["id"] for record in active} - known_replaced
     if unknown:

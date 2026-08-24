@@ -1583,8 +1583,39 @@ module.update_registry(repository, update)
           (resumed_publications[0][0], resumed_publications[0][1]["targets"]),
           ([42, 57, 63], [42, 57, 63]))
 
+    closed_partial = {
+        "id": "57-63-1787590802-abcdef", "order": [57, 63], "state": "final",
+        "supersedes": ["42-57-order"], "targets": [57, 63, 42],
+    }
+    closed_partial_body = coordination.render_final(
+        closed_partial, "the shared path moved", "the replacement minimizes rework", "the contract changes",
+    )
+    closed_partial_comment = {
+        "id": 8, "created_at": "2026-08-24T13:45:00Z", "body": closed_partial_body,
+        "author_association": "OWNER",
+    }
+    publisher.open_pulls = lambda _token: [{"number": 63}, {"number": 71}]
+    publisher.comment_sets = lambda _pulls, _token: {63: [], 71: []}
+    closed_target_reads = []
+    publisher.comments = lambda number, _token: (
+        closed_target_reads.append(number) or ([closed_partial_comment] if number == 57 else [])
+    )
+    successor_publications = []
+    publisher.publish_mirrored = lambda numbers, body, identifier, _token, _values: (
+        successor_publications.append((numbers, coordination.parse_marker(body), identifier)) or []
+    )
+    publisher.recommend_locked(SimpleNamespace(
+        prs=[63, 71], order=[63, 71], id="63-71-1787590803-fedcba",
+        supersedes=[closed_partial["id"]], overlap="the remaining shared path moved",
+        reason="the closed participant cannot remain in the merge order", reconsider="the contract changes",
+        language="en",
+    ), "token")
+    check("a new open order discovers and supersedes a partial marker on its closed first target",
+          (closed_target_reads, successor_publications[0][0], successor_publications[0][1]["supersedes"]),
+          ([57, 42], [63, 71, 57, 42], [closed_partial["id"]]))
+
     final_comment = {
-        "id": 8, "created_at": "2026-08-24T14:00:00Z", "body": replacement_body,
+        "id": 9, "created_at": "2026-08-24T14:00:00Z", "body": replacement_body,
         "author_association": "OWNER",
     }
     publisher.require_token = lambda: "token"
