@@ -145,7 +145,7 @@ namespace OPNsense\Core {
 
         private function __construct()
         {
-            $this->root = (object)['system' => (object)[
+            $this->root = (object)['cert' => [], 'system' => (object)[
                 'user' => [],
                 'authserver' => [],
             ]];
@@ -172,6 +172,16 @@ namespace OPNsense\Core {
             $server = (object)($settings + ['type' => 'openidconnect', 'openidconnect_app_code' => 'main']);
             $this->root->system->authserver[] = $server;
             return $server;
+        }
+
+        public function addCertificate(string $reference, string $description, bool $privateKey = true): void
+        {
+            $this->root->cert[] = (object)[
+                'refid' => $reference,
+                'descr' => $description,
+                'prv' => $privateKey ? base64_encode('private key') : '',
+                'crt' => base64_encode('certificate'),
+            ];
         }
 
         public function lock(): void

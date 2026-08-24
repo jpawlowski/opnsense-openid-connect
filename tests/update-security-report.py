@@ -49,6 +49,7 @@ HOST_CAPABILITIES = {
         "Login transactions, PKCE and mix-up protection",
         "Choosing the address the provider returns to",
     ),
+    "jar-request-object": ("JWT-secured authorization requests",),
     "mix-up-replay-protection": (
         "Login transactions, PKCE and mix-up protection",
     ),

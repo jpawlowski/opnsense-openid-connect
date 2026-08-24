@@ -372,7 +372,7 @@ class AuthController extends ApiControllerBase
         }
 
         try {
-            $exchange = new RelyingParty($settings, $this, null, null, $clientAuthentication);
+            $exchange = new RelyingParty($settings, $this, null, null, null, $clientAuthentication);
             /*
              * A server name can be reused for another issuer after this session was
              * created. Never hand grants from the former issuer to endpoints discovered

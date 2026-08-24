@@ -217,6 +217,22 @@ Checks::that('PAR can be required', connector(['openidconnect_par_mode' => 'requ
 Checks::that('an unknown PAR mode falls back to automatic', connector([
     'openidconnect_par_mode' => 'sometimes',
 ])->parMode(), 'auto');
+Checks::that('Request Object signing is off unless a key is selected',
+    connector([])->requestObjectSigningKey(), '');
+\OPNsense\Core\Config::getInstance()->addCertificate('jar-current', 'JAR current');
+\OPNsense\Core\Config::getInstance()->addCertificate('public-only', 'Public only', false);
+$jarSettings = connector(['openidconnect_request_object_key' => 'jar-current']);
+Checks::that('the selected Request Object signing key is retained as its kid',
+    $jarSettings->requestObjectSigningKey(), 'jar-current');
+Checks::that('private-key certificates are offered with their kid',
+    $jarSettings->requestObjectSigningKeyOptions()['jar-current'], 'JAR current (kid: jar-current)');
+Checks::that('a certificate without a private key is not offered',
+    isset($jarSettings->requestObjectSigningKeyOptions()['public-only']), false);
+Checks::that('the form refuses an unknown Request Object signing key', count(
+    connector([])->getConfigurationOptions()['openidconnect_request_object_key']['validate']('missing')
+), 1);
+Checks::that('a deleted Request Object key remains visible to runtime fail-closed handling',
+    connector(['openidconnect_request_object_key' => 'missing'])->requestObjectSigningKey(), 'missing');
 Checks::that('both provider logout notification channels are accepted by default', [
     connector([])->acceptsBackchannelLogout(),
     connector([])->acceptsFrontchannelLogout(),

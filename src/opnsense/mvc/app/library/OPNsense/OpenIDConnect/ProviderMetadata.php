@@ -92,6 +92,7 @@ final class ProviderMetadata
         }
         foreach ([
             'id_token_signing_alg_values_supported', 'userinfo_signing_alg_values_supported',
+            'request_object_signing_alg_values_supported',
             'authorization_signing_alg_values_supported',
             'authorization_encryption_alg_values_supported', 'authorization_encryption_enc_values_supported',
             'token_endpoint_auth_methods_supported', 'response_modes_supported',
@@ -120,6 +121,10 @@ final class ProviderMetadata
         if (array_key_exists('require_pushed_authorization_requests', $values)
             && !is_bool($values['require_pushed_authorization_requests'])) {
             throw new ProtocolException('Discovery carries an invalid pushed authorization request requirement');
+        }
+        if (array_key_exists('require_signed_request_object', $values)
+            && !is_bool($values['require_signed_request_object'])) {
+            throw new ProtocolException('Discovery carries an invalid signed Request Object requirement');
         }
         if (($values['require_pushed_authorization_requests'] ?? false) === true
             && !isset($values['pushed_authorization_request_endpoint'])) {
@@ -153,6 +158,11 @@ final class ProviderMetadata
         $algorithms = $values['id_token_signing_alg_values_supported'] ?? null;
         if (!is_array($algorithms) || array_intersect($algorithms, JwtVerifier::ALGORITHMS) === []) {
             throw new ProtocolException('The provider advertises no supported asymmetric ID token algorithm');
+        }
+        $requestAlgorithms = $values['request_object_signing_alg_values_supported'] ?? [];
+        if (($values['require_signed_request_object'] ?? false) === true
+            && array_intersect($requestAlgorithms, RequestObjectSigner::ALGORITHMS) === []) {
+            throw new ProtocolException('Discovery requires signed Request Objects but offers no supported algorithm');
         }
 
         return new self($values);
@@ -264,6 +274,11 @@ final class ProviderMetadata
         }
         return isset($this->values[$name]) && is_string($this->values[$name])
             ? $this->values[$name] : null;
+    }
+
+    public function requiresSignedRequestObject(): bool
+    {
+        return ($this->values['require_signed_request_object'] ?? false) === true;
     }
 
     public function authorizationResponseIssuerSupported(): bool

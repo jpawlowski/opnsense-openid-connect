@@ -627,12 +627,11 @@
       "id": "jar",
       "title": "JWT-Secured Authorization Request (RFC 9101)",
       "reference": "https://www.rfc-editor.org/rfc/rfc9101.html",
-      "scope": "Signed or encrypted authorization requests",
-      "implementation": "deferred",
-      "claim": "not_claimed",
+      "scope": "Signed authorization requests; encrypted Request Objects are outside this RP profile",
+      "implementation": "implemented",
+      "claim": "unverified",
       "audit_complete": false,
-      "note": "PAR already protects request delivery for the current profile; JAR adds RP signing-key lifecycle.",
-      "reconsider_when": "A target provider requires signed request objects or FAPI alignment is pursued."
+      "note": "Signed Request Objects are supported directly and through PAR with explicit OPNsense certificate selection and rotation; requirement-level evidence is incomplete."
     },
     {
       "id": "jarm",

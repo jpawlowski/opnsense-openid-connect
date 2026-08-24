@@ -38,6 +38,7 @@ class RelyingParty
     private $response;
     private HttpClient $http;
     private JwtVerifier $verifier;
+    private RequestObjectSigner $requestObjectSigner;
     private string $redirectUri;
     private ?ProviderMetadata $metadata = null;
     private ?string $tokenAuthMethod = null;
@@ -54,6 +55,7 @@ class RelyingParty
         Controller $controller,
         ?HttpClient $http = null,
         ?JwtVerifier $verifier = null,
+        ?RequestObjectSigner $requestObjectSigner = null,
         ?array $restoredClientAuthentication = null
     ) {
         $this->settings = $settings;
@@ -62,6 +64,7 @@ class RelyingParty
         $this->response = $controller->response;
         $this->http = $http ?? new HttpClient();
         $this->verifier = $verifier ?? new JwtVerifier($this->http);
+        $this->requestObjectSigner = $requestObjectSigner ?? new RequestObjectSigner();
         $this->restoredClientAuthentication = $restoredClientAuthentication;
 
         $redirect = static::acceptedRedirectUri($settings, $controller->request);
@@ -185,6 +188,19 @@ class RelyingParty
             $parameters['prompt'] = 'select_account';
         }
 
+        $usedRequestObject = false;
+        $requestObjectKey = $this->settings->requestObjectSigningKey();
+        if ($metadata->requiresSignedRequestObject() && $requestObjectKey === '') {
+            throw new ProtocolException('Discovery requires signed Request Objects but no signing key is selected');
+        }
+        if ($requestObjectKey !== '') {
+            $parameters = [
+                'client_id' => $this->settings->clientId(),
+                'request' => $this->requestObjectSigner->sign($this->settings, $metadata, $parameters),
+            ];
+            $usedRequestObject = true;
+        }
+
         $parEndpoint = $this->clientAuthentication->endpoint($metadata, 'pushed_authorization_request_endpoint');
         $parRequired = $metadata->requiresPushedAuthorizationRequests();
         $parMode = $this->settings->parMode();
@@ -226,10 +242,11 @@ class RelyingParty
         }
 
         $this->settings->trace(sprintf(
-            'exchange prepared for exact issuer %s, callback %s, PKCE S256, response mode %s%s',
+            'exchange prepared for exact issuer %s, callback %s, PKCE S256, response mode %s%s%s',
             $metadata->issuer(),
             $this->redirectUri,
             $responseMode,
+            $usedRequestObject ? ', signed Request Object' : '',
             $usedPar ? ', pushed authorization request' : ''
         ));
         return $authorizationUrl;
