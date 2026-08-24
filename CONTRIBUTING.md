@@ -86,7 +86,9 @@ Material overlap between open PRs gets one machine-readable recommendation
 mirrored in each PR. It gives the human one exact merge order, never
 alternatives. The later PR may keep working but does not merge first or chase
 the earlier PR's changing head; after its predecessor merges, it integrates
-once at a safe checkpoint. Only repository-associated publishers are trusted;
+once at a safe checkpoint. A replacement is also mirrored to PRs present only
+in the superseded order, preventing them from retaining obsolete coordination.
+Only repository-associated publishers are trusted;
 an interrupted mirroring resumes under its printed identifier without duplicate
 comments. No agent merges, enables auto-merge or queues a
 merge without an explicit human instruction naming that PR. Review,

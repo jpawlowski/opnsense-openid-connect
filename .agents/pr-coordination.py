@@ -100,6 +100,14 @@ def publication_identifier(prs, requested):
     return requested
 
 
+def publication_targets(prs, active, replaced):
+    targets = set(prs)
+    for record in active:
+        if record["id"] in replaced:
+            targets.update(record["order"])
+    return sorted(targets)
+
+
 def publish_mirrored(numbers, body, identifier, token, values_by_pull):
     urls = []
     desired = pr_coordination.parse_marker(body)
@@ -150,6 +158,7 @@ def recommend(arguments):
     unknown = replaced - {record["id"] for record in active}
     if unknown:
         raise RuntimeError("superseded coordination is not active: " + ", ".join(sorted(unknown)))
+    targets = publication_targets(prs, active, replaced)
     overlapping = [record for record in active if len(set(record["order"]) & set(prs)) >= 2]
     unaddressed = [
         record["id"] for record in overlapping
@@ -174,7 +183,7 @@ def recommend(arguments):
         record, arguments.overlap.strip(), arguments.reason.strip(), arguments.reconsider.strip(),
         language=arguments.language,
     )
-    urls = publish_mirrored(prs, body, identifier, token, values_by_pull)
+    urls = publish_mirrored(targets, body, identifier, token, values_by_pull)
     print(f"published final coordination {identifier}")
     for url in urls:
         print(url)

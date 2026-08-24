@@ -1446,6 +1446,23 @@ module.update_registry(repository, update)
     check("a partial mirrored recommendation resumes without duplicating its first comment",
           (published_paths, resumed_urls[0]),
           (["issues/57/comments"], "https://example.invalid/existing"))
+    check("a replacement is mirrored to old-only and new-only pull requests",
+          publisher.publication_targets(
+              [57, 63], [{"id": "old-order", "order": [42, 57]}], {"old-order"},
+          ), [42, 57, 63])
+    replacement = {
+        "id": "57-63-order", "order": [57, 63], "state": "final", "supersedes": ["42-57-order"],
+    }
+    replacement_body = coordination.render_final(
+        replacement, "the shared path moved", "the replacement minimizes rework", "the contract changes",
+    )
+    retired_old_only = coordination.records_from_comments([
+        mirrored[0],
+        {"id": 6, "created_at": "2026-08-24T13:00:00Z", "body": replacement_body,
+         "author_association": "OWNER"},
+    ])
+    check("the old-only pull request observes the replacement and retires its obsolete order",
+          [(value["id"], value["order"]) for value in retired_old_only], [("57-63-order", [57, 63])])
 
     group("Finished worktrees retire before local branches and never delete remote branches")
     cleanup = load_agent_module(

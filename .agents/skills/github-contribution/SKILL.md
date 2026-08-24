@@ -220,7 +220,8 @@ helper supplies the machine marker, concise human explanation and authorship
 notice. It publishes one total order, never alternatives: prerequisite first,
 then the current-head reviewed or more merge-ready PR, then least total rework,
 then lower PR number as a deterministic tie-breaker. A replacement names every
-record it supersedes. The helper refuses an order that would create a cycle and
+record it supersedes and is mirrored to every PR in both the new and superseded
+sets. The helper refuses an order that would create a cycle and
 accepts machine markers only from GitHub authors associated as owner, member or
 collaborator. It prints the coordination identifier before its first public
 write. If one mirrored write fails, rerun the same command with `--id ID`; the
