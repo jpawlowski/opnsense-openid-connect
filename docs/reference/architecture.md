@@ -52,7 +52,7 @@ flowchart TD
     AuthController --> ExistingSession
     ExistingSession -->|"Yes"| LocalRedirect
     ExistingSession -->|"No; accepted WebGUI origin"| RelyingParty
-    RelyingParty -->|"Discovery and optional PAR"| ProviderServices
+    RelyingParty -->|"Discovery, optional signed JAR and PAR"| ProviderServices
     RelyingParty --> TokenVerification
     RelyingParty -->|"Server-side state, nonce and PKCE;<br/>exact provider callback"| VerifiedClaims
     VerifiedClaims --> Connector
@@ -161,9 +161,10 @@ flowchart TD
 | Component | Responsibility | Must not do |
 |---|---|---|
 | `AuthController` | public protocol endpoints including the exact-origin pairwise-sector document, package-owned and safely proxied login icons, generic browser errors, audit records, session elevation/logout | decide JWT validity or account policy |
-| `RelyingParty` | authorization transaction, optional PAR, code exchange, claim-source composition, logout/revocation requests | perform cryptography or grant privileges |
+| `RelyingParty` | authorization transaction, optional signed JAR and PAR, code exchange, claim-source composition, logout/revocation requests | perform cryptography or grant privileges |
 | `ClientAuthenticator` | negotiate endpoint-specific Basic, POST or `private_key_jwt` authentication for direct provider requests | invent a provider algorithm or send more than one client credential |
 | `ClientAssertion` | load the selected OPNsense certificate and sign one short-lived, single-use assertion | retain private keys, reuse assertions or implement cryptographic primitives |
+| `RequestObjectSigner` | bounded RFC 9101 claims, provider/key algorithm selection and phpseclib signature | choose authorization policy, expose a private key or encrypt Request Objects |
 | `ProviderMetadata` | exact Discovery validation and immutable per-login metadata snapshot | guess provider endpoints |
 | `TestController` | authenticated and CSRF-protected initiation of a saved provider's non-mutating browser test | accept an unsaved secret, grant a session or change local identity state |
 | `ApprovalController` | authenticated CRUD for durable bindings, explicit local-account creation and approval/denial of identities queued for one saved server; rechecks the core authentication-server, user-manager and read-only privileges | authenticate the identity, create a session, trust button visibility as authorization or choose a local account automatically |
@@ -235,6 +236,11 @@ The exact endpoint matrix and the reasons for the two exceptions are recorded in
   cannot change halfway through it. Automatic PAR may bypass only a temporarily
   unavailable optional endpoint; the provider requirement and every TLS,
   authentication or protocol failure remain fail-closed.
+- A selected dedicated OPNsense certificate signs all authorization parameters
+  into a 60-second RFC 9101 Request Object with exact issuer/audience binding
+  and a fresh `jti`. Its certificate reference is the registered `kid`; PAR
+  transports the signed object unchanged. Provider-required JAR, missing keys
+  and algorithm mismatches fail before browser state is stored.
 - Identity bindings live in the normal `<system><authserver>` OPNsense
   configuration and bind an issuer/subject pair to a numeric local UID. Their
   opaque storage field is administered only through the combined identity

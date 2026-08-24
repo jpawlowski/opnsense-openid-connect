@@ -7,6 +7,7 @@
       "capabilities": [
         "discovery-exact-issuer",
         "authorization-code-pkce",
+        "jar-request-object",
         "mix-up-replay-protection",
         "jarm-response-policy",
         "jwt-claim-policy",
@@ -96,6 +97,25 @@
               {
                 "tier": "host-independent",
                 "capabilities": ["discovery-exact-issuer"],
+                "validation": ["tests/unit/exchange.php", "tests/unit/settings.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "jar-request-object",
+          "claim": "A selected or provider-required RFC 9101 Request Object signs every authorization parameter with an advertised key-compatible algorithm, exact client and issuer binding, a 60-second lifetime and a fresh replay identifier; direct and PAR delivery duplicate only the matching client ID.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RequestObjectSigner.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderMetadata.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RelyingParty.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ParClient.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["jar-request-object"],
                 "validation": ["tests/unit/exchange.php", "tests/unit/settings.php"]
               }
             ]

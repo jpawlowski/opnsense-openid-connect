@@ -58,6 +58,32 @@ class ClientAssertion
         $this->signingMaterial($advertisedAlgorithms);
     }
 
+    /**
+     * The settings form has no provider metadata yet, but it must reject a key which
+     * can never satisfy this client's asymmetric algorithm policy.
+     *
+     * @param string[] $allowedAlgorithms
+     */
+    public function assertCertificateUsable(string $reference, array $allowedAlgorithms): void
+    {
+        $certificate = $this->certificateMaterial($reference);
+        $privateKey = openssl_pkey_get_private($certificate['prv']);
+        $details = $privateKey === false ? false : openssl_pkey_get_details($privateKey);
+        if (!is_array($details)) {
+            throw new ProtocolException('The client signing private key could not be loaded');
+        }
+        if (!openssl_x509_check_private_key($certificate['crt'], $privateKey)) {
+            throw new ProtocolException('The client signing certificate does not match its private key');
+        }
+        $this->selectAlgorithmDetails(
+            $details['type'] ?? null,
+            (int)($details['bits'] ?? 0),
+            is_string($details['ec']['curve_name'] ?? null) ? $details['ec']['curve_name'] : '',
+            $allowedAlgorithms
+        );
+        $this->certificateThumbprint($certificate['crt']);
+    }
+
     /** @param string[] $advertisedAlgorithms @return array{object,string,string} */
     private function signingMaterial(array $advertisedAlgorithms): array
     {
@@ -65,17 +91,24 @@ class ClientAssertion
         if ($reference === '') {
             throw new ProtocolException('Private-key client authentication has no signing certificate');
         }
+        $certificate = $this->certificateMaterial($reference);
+
+        $key = $this->loadPrivateKey($certificate['prv']);
+        $algorithm = $this->selectAlgorithm($key, $advertisedAlgorithms);
+        $thumbprint = $this->certificateThumbprint($certificate['crt']);
+        return [$key, $algorithm, $thumbprint];
+    }
+
+    /** @return array{crt:string,prv:string} */
+    private function certificateMaterial(string $reference): array
+    {
         $certificate = $this->certificate($reference);
         if (!is_array($certificate) || !is_string($certificate['crt'] ?? null)
             || !is_string($certificate['prv'] ?? null)
             || $certificate['crt'] === '' || $certificate['prv'] === '') {
             throw new ProtocolException('The client signing certificate or its private key is unavailable');
         }
-
-        $key = $this->loadPrivateKey($certificate['prv']);
-        $algorithm = $this->selectAlgorithm($key, $advertisedAlgorithms);
-        $thumbprint = $this->certificateThumbprint($certificate['crt']);
-        return [$key, $algorithm, $thumbprint];
+        return ['crt' => $certificate['crt'], 'prv' => $certificate['prv']];
     }
 
     /** @return array<string,mixed>|false */
@@ -105,9 +138,25 @@ class ClientAssertion
     /** @param string[] $advertisedAlgorithms */
     protected function selectAlgorithm(object $key, array $advertisedAlgorithms): string
     {
-        $advertised = array_values(array_intersect(self::ALGORITHMS, $advertisedAlgorithms));
         if ($key instanceof \phpseclib3\Crypt\RSA\PrivateKey) {
-            if ($key->getLength() < 2048) {
+            return $this->selectAlgorithmDetails(OPENSSL_KEYTYPE_RSA, $key->getLength(), '', $advertisedAlgorithms);
+        } elseif ($key instanceof \phpseclib3\Crypt\EC\PrivateKey) {
+            return $this->selectAlgorithmDetails(
+                OPENSSL_KEYTYPE_EC,
+                $key->getLength(),
+                $key->getCurve(),
+                $advertisedAlgorithms
+            );
+        }
+        throw new ProtocolException('The client signing key type is unsupported');
+    }
+
+    /** @param string[] $advertisedAlgorithms */
+    private function selectAlgorithmDetails($type, int $bits, string $curve, array $advertisedAlgorithms): string
+    {
+        $advertised = array_values(array_intersect(self::ALGORITHMS, $advertisedAlgorithms));
+        if ($type === OPENSSL_KEYTYPE_RSA) {
+            if ($bits < 2048) {
                 throw new ProtocolException('The client RSA signing key is shorter than 2048 bits');
             }
             $usable = array_values(array_filter(
@@ -115,8 +164,7 @@ class ClientAssertion
                 static fn(string $algorithm): bool => str_starts_with($algorithm, 'RS')
                     || str_starts_with($algorithm, 'PS')
             ));
-        } elseif ($key instanceof \phpseclib3\Crypt\EC\PrivateKey) {
-            $curve = $key->getCurve();
+        } elseif ($type === OPENSSL_KEYTYPE_EC) {
             $needed = [
                 'secp256r1' => 'ES256',
                 'prime256v1' => 'ES256',

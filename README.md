@@ -72,9 +72,10 @@ need to go deeper.
 The plugin uses the Authorization Code flow, PKCE, exact issuer validation,
 asymmetric token signatures and one-time login transactions. A selected
 OPNsense certificate can replace a static client secret where the provider
-supports `private_key_jwt`. Optional features such as signed JARM authorization
-responses, PAR, provider-initiated logout, MFA evidence and Shared Signals
-remain subject to provider support.
+supports `private_key_jwt`. Optional features such as signed JWT-secured
+authorization requests (JAR), signed JARM authorization responses, PAR,
+provider-initiated logout, MFA evidence and Shared Signals remain subject to
+provider support.
 
 The generated
 [security and conformance report](docs/reference/security-and-conformance.md)

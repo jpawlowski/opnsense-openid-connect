@@ -39,6 +39,7 @@ class RelyingParty
     private HttpClient $http;
     private JwtVerifier $verifier;
     private ClientAuthenticator $clientAuthenticator;
+    private RequestObjectSigner $requestObjectSigner;
     private string $redirectUri;
     private ?ProviderMetadata $metadata = null;
     private ?string $tokenAuthMethod = null;
@@ -52,6 +53,7 @@ class RelyingParty
         Controller $controller,
         ?HttpClient $http = null,
         ?JwtVerifier $verifier = null,
+        ?RequestObjectSigner $requestObjectSigner = null,
         ?ClientAuthenticator $clientAuthenticator = null
     )
     {
@@ -62,6 +64,7 @@ class RelyingParty
         $this->http = $http ?? new HttpClient();
         $this->verifier = $verifier ?? new JwtVerifier($this->http);
         $this->clientAuthenticator = $clientAuthenticator ?? new ClientAuthenticator($settings);
+        $this->requestObjectSigner = $requestObjectSigner ?? new RequestObjectSigner();
 
         $redirect = static::acceptedRedirectUri($settings, $controller->request);
         if ($redirect === null) {
@@ -182,6 +185,19 @@ class RelyingParty
             $parameters['prompt'] = 'select_account';
         }
 
+        $usedRequestObject = false;
+        $requestObjectKey = $this->settings->requestObjectSigningKey();
+        if ($metadata->requiresSignedRequestObject() && $requestObjectKey === '') {
+            throw new ProtocolException('Discovery requires signed Request Objects but no signing key is selected');
+        }
+        if ($requestObjectKey !== '') {
+            $parameters = [
+                'client_id' => $this->settings->clientId(),
+                'request' => $this->requestObjectSigner->sign($this->settings, $metadata, $parameters),
+            ];
+            $usedRequestObject = true;
+        }
+
         $parEndpoint = $metadata->pushedAuthorizationRequestEndpoint();
         $parRequired = $metadata->requiresPushedAuthorizationRequests();
         $parMode = $this->settings->parMode();
@@ -223,10 +239,11 @@ class RelyingParty
         }
 
         $this->settings->trace(sprintf(
-            'exchange prepared for exact issuer %s, callback %s, PKCE S256, response mode %s%s',
+            'exchange prepared for exact issuer %s, callback %s, PKCE S256, response mode %s%s%s',
             $metadata->issuer(),
             $this->redirectUri,
             $responseMode,
+            $usedRequestObject ? ', signed Request Object' : '',
             $usedPar ? ', pushed authorization request' : ''
         ));
         return $authorizationUrl;
@@ -238,7 +255,12 @@ class RelyingParty
         string $endpoint,
         array $parameters
     ): string {
-        $requestUri = (new ParClient($this->settings, $this->http, $this->clientAuthenticator))->push(
+        $requestUri = (new ParClient(
+            $this->settings,
+            $this->http,
+            $this->clientAuthenticator,
+            $this->requestObjectSigner
+        ))->push(
             $metadata,
             $endpoint,
             $parameters

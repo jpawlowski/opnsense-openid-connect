@@ -25,6 +25,10 @@ confidential web client.
   uses PAR according to **Pushed authorization requests**. Automatic mode
   bypasses only a temporarily unavailable optional endpoint and restores it in
   the background; choose Required when browser parameters are unacceptable.
+- For signed RFC 9101 requests, publish
+  `request_object_signing_alg_values_supported`, register a dedicated OPNsense
+  certificate public key under the `kid` shown in the firewall, and set
+  `require_signed_request_object=true` only after that registration is active.
 - Optionally register the displayed front/back-channel logout URLs and the
   WebGUI origin as post-logout redirect.
 - For provider-managed pairwise subjects, choose **Pairwise subject sector** and
@@ -45,6 +49,7 @@ confidential web client.
 | Scopes | `openid,email,profile` |
 | Authentication method | Follow the provider |
 | Pushed authorization requests | Automatic with availability fallback |
+| Request Object signing key | Disabled until its public key and `kid` are registered |
 
 Run discovery. If it does not advertise an asymmetric ID Token algorithm and a
 client authentication method with the metadata needed by that method, this
@@ -71,6 +76,7 @@ References: [OIDC Core](https://openid.net/specs/openid-connect-core-1_0.html),
 [OIDC Discovery](https://openid.net/specs/openid-connect-discovery-1_0.html),
 [OAuth Security BCP](https://www.rfc-editor.org/rfc/rfc9700.html),
 [PAR](https://www.rfc-editor.org/rfc/rfc9126.html),
+[JAR](https://www.rfc-editor.org/rfc/rfc9101.html),
 [authorization issuer](https://www.rfc-editor.org/rfc/rfc9207.html),
 [token revocation](https://www.rfc-editor.org/rfc/rfc7009.html),
 [RP-initiated logout](https://openid.net/specs/openid-connect-rpinitiated-1_0.html),

@@ -173,15 +173,22 @@ namespace OPNsense\Core {
             return $server;
         }
 
-        public function addCertificate(array $certificate): object
+        public function addCertificate($certificate, string $description = '', bool $privateKey = true): object
         {
+            if (is_string($certificate)) {
+                $certificate = [
+                    'refid' => $certificate,
+                    'descr' => $description,
+                    'prv' => $privateKey ? base64_encode('private key') : '',
+                    'crt' => base64_encode('certificate'),
+                ];
+            }
             $certificate = (object)($certificate + [
                 'refid' => uniqid(), 'descr' => 'Test certificate', 'crt' => '', 'prv' => '',
             ]);
             $this->root->cert[] = $certificate;
             return $certificate;
         }
-
         public function lock(): void
         {
         }

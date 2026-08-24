@@ -7,6 +7,29 @@
 
 use OPNsense\Auth\OpenIDConnect;
 
+/** @return array{refid:string,descr:string,crt:string,prv:string} */
+function signingCertificateFixture(string $reference, string $description, array $keyOptions): array
+{
+    $key = openssl_pkey_new($keyOptions);
+    if ($key === false) {
+        throw new RuntimeException('Could not create a settings-test private key');
+    }
+    $request = openssl_csr_new(['commonName' => 'OIDC settings test'], $key, ['digest_alg' => 'sha256']);
+    $certificate = $request === false ? false
+        : openssl_csr_sign($request, null, $key, 1, ['digest_alg' => 'sha256']);
+    if ($certificate === false
+        || !openssl_pkey_export($key, $privateKey)
+        || !openssl_x509_export($certificate, $publicCertificate)) {
+        throw new RuntimeException('Could not create a settings-test certificate');
+    }
+    return [
+        'refid' => $reference,
+        'descr' => $description,
+        'crt' => base64_encode($publicCertificate),
+        'prv' => base64_encode($privateKey),
+    ];
+}
+
 Checks::group('Reading a list out of a settings field');
 Checks::that('comma separated', OpenIDConnect::splitList('a,b,c'), ['a', 'b', 'c']);
 Checks::that('one per line', OpenIDConnect::splitList("a\nb\r\nc"), ['a', 'b', 'c']);
@@ -187,6 +210,22 @@ Checks::that('PAR can be required', connector(['openidconnect_par_mode' => 'requ
 Checks::that('an unknown PAR mode falls back to automatic', connector([
     'openidconnect_par_mode' => 'sometimes',
 ])->parMode(), 'auto');
+Checks::that('Request Object signing is off unless a key is selected',
+    connector([])->requestObjectSigningKey(), '');
+\OPNsense\Core\Config::getInstance()->addCertificate('jar-current', 'JAR current');
+\OPNsense\Core\Config::getInstance()->addCertificate('public-only', 'Public only', false);
+$jarSettings = connector(['openidconnect_request_object_key' => 'jar-current']);
+Checks::that('the selected Request Object signing key is retained as its kid',
+    $jarSettings->requestObjectSigningKey(), 'jar-current');
+Checks::that('private-key certificates are offered with their kid',
+    $jarSettings->requestObjectSigningKeyOptions()['jar-current'], 'JAR current (kid: jar-current)');
+Checks::that('a certificate without a private key is not offered',
+    isset($jarSettings->requestObjectSigningKeyOptions()['public-only']), false);
+Checks::that('the form refuses an unknown Request Object signing key', count(
+    connector([])->getConfigurationOptions()['openidconnect_request_object_key']['validate']('missing')
+), 1);
+Checks::that('a deleted Request Object key remains visible to runtime fail-closed handling',
+    connector(['openidconnect_request_object_key' => 'missing'])->requestObjectSigningKey(), 'missing');
 Checks::that('both provider logout notification channels are accepted by default', [
     connector([])->acceptsBackchannelLogout(),
     connector([])->acceptsFrontchannelLogout(),
@@ -560,12 +599,21 @@ Checks::that('a discovery URL carrying a query is still refused', count($issuer(
 
 $_POST['type'] = 'openidconnect';
 $_POST['openidconnect_enabled'] = 'yes';
-\OPNsense\Core\Config::getInstance()->addCertificate([
-    'refid' => '0123456789abc',
-    'descr' => 'OIDC signing key',
-    'crt' => base64_encode('certificate'),
-    'prv' => base64_encode('private-key'),
-]);
+\OPNsense\Core\Config::getInstance()->addCertificate(signingCertificateFixture(
+    '0123456789abc',
+    'OIDC signing key',
+    ['private_key_type' => OPENSSL_KEYTYPE_RSA, 'private_key_bits' => 2048]
+));
+\OPNsense\Core\Config::getInstance()->addCertificate(signingCertificateFixture(
+    '111111111111a',
+    'Weak RSA key',
+    ['private_key_type' => OPENSSL_KEYTYPE_RSA, 'private_key_bits' => 1024]
+));
+\OPNsense\Core\Config::getInstance()->addCertificate(signingCertificateFixture(
+    '222222222222b',
+    'Unsupported EC key',
+    ['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'secp224r1']
+));
 \OPNsense\Core\Config::getInstance()->addCertificate([
     'refid' => 'abcdef0123456',
     'descr' => 'Public certificate only',
@@ -582,13 +630,21 @@ Checks::that('an enabled server requires a client secret', count(
     $enabledOptions['openidconnect_client_secret']['validate']('')
 ), 1);
 Checks::that('only certificates with a private key are offered for client assertions',
-    array_keys($enabledOptions['openidconnect_signing_certificate']['options']), ['', '0123456789abc']);
+    array_keys($enabledOptions['openidconnect_signing_certificate']['options']), [
+        '', '0123456789abc', '222222222222b', '111111111111a',
+    ]);
 $_POST['openidconnect_token_auth'] = 'private_key_jwt';
 $_POST['openidconnect_signing_certificate'] = '0123456789abc';
 Checks::that('private-key JWT does not also require a client secret',
     $enabledOptions['openidconnect_client_secret']['validate'](''), []);
 Checks::that('an available signing certificate is accepted',
     $enabledOptions['openidconnect_signing_certificate']['validate']('0123456789abc'), []);
+Checks::that('a client signing certificate with a short RSA key is refused', count(
+    $enabledOptions['openidconnect_signing_certificate']['validate']('111111111111a')
+), 1);
+Checks::that('a client signing certificate with an unsupported EC curve is refused', count(
+    $enabledOptions['openidconnect_signing_certificate']['validate']('222222222222b')
+), 1);
 Checks::that('a certificate without its private key is refused', count(
     $enabledOptions['openidconnect_signing_certificate']['validate']('abcdef0123456')
 ), 1);

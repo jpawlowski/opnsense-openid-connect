@@ -549,6 +549,11 @@ class JwtVerifier
     /** Register the phpseclib runtime shipped by OPNsense for verification and signing. */
     public static function prepareRuntimeCryptography(): void
     {
+        self::prepareAutoloader();
+    }
+
+    public static function prepareAutoloader(): void
+    {
         if (self::$autoloaderReady) {
             return;
         }
