@@ -90,8 +90,9 @@ once at a safe checkpoint. A replacement is also mirrored to PRs present only
 in the superseded order, preventing them from retaining obsolete coordination.
 Its marker retains that complete target set for retry and fulfillment even when
 one of those PRs closes. Active orders sharing any participant form one
-transitive group and must be replaced by a single order covering the whole group;
-a predecessor closing unmerged invalidates that order immediately. Only
+transitive group and must be replaced by a single order covering all of its open
+PRs; former participants remain mirroring targets but never re-enter the order.
+A predecessor closing unmerged invalidates that order immediately. Only
 repository-associated publishers are trusted;
 an interrupted mirroring resumes under its printed identifier without duplicate
 comments. No agent merges, enables auto-merge or queues a

@@ -610,6 +610,16 @@ def main():
               "tool_name": "Bash",
               "tool_input": {"command": "python3 .agents/pr-coordination.py status --pr 42"},
           }), False)
+    check("coordination publication needs a topic branch before creating durable comments",
+          guard_module.requires_topic_branch({
+              "tool_name": "Bash",
+              "tool_input": {"command": "python3 .agents/pr-coordination.py fulfill --id 42-57-order"},
+          }), True)
+    check("coordination status remains valid in a detached inspection worktree",
+          guard_module.requires_topic_branch({
+              "tool_name": "Bash",
+              "tool_input": {"command": "python3 .agents/pr-coordination.py status --pr 42"},
+          }), False)
     check("a detached worktree needs a branch before commit", guard_module.requires_topic_branch({
         "tool_name": "Bash", "tool_input": {"command": "git commit -m 'test: durable work'"},
     }), True)
@@ -1466,6 +1476,10 @@ module.update_registry(repository, update)
     check("shared participants pull every connected active order into one replacement",
           ([record["id"] for record in related], sorted(participants)),
           (["first", "second"], [42, 57, 63, 71]))
+    check("closed former participants stay out of a replacement order",
+          publisher.missing_order_participants({42, 57, 63}, [57, 63], {57, 63}), [])
+    check("an omitted open participant still blocks an incomplete replacement order",
+          publisher.missing_order_participants({42, 57, 63}, [57], {57, 63}), [63])
     replacement = {
         "id": "57-63-order", "order": [57, 63], "state": "final", "supersedes": ["42-57-order"],
         "targets": [42, 57, 63],

@@ -224,11 +224,14 @@ record it supersedes and is mirrored to every PR in both the new and superseded
 sets. The machine marker retains that complete target set so a retry or later
 fulfillment also reads and updates old-only or already closed PRs. The helper
 requires every active record sharing a participant to be superseded by one order
-covering the complete transitive group. It refuses an order that would create a cycle and
+covering every open PR in the complete transitive group. Closed or merged former
+participants remain publication targets only. It refuses an order that would create a cycle and
 accepts machine markers only from GitHub authors associated as owner, member or
 collaborator. It prints the coordination identifier before its first public
 write. If one mirrored write fails, rerun the same command with `--id ID`; the
 helper verifies and skips matching copies instead of duplicating them.
+Recommendation and fulfillment are public mutations: the guard requires a topic
+branch as well as an uncached remote observation before either command runs.
 
 The recommendation is active immediately and controls merge order, not current
 execution. The later steward may finish a coherent or protected phase, but does

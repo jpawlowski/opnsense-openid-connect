@@ -155,8 +155,9 @@ every superseded record's PR set, so no former participant retains obsolete
 coordination. The marker retains that complete publication target set for
 idempotent retries and later fulfillment, including PRs that have since closed.
 Any active record sharing even one participant joins the same transitive
-coordination group; its replacement must supersede the record and give every PR
-in that connected group one complete order.
+coordination group; its replacement must supersede the record and give every open
+PR in that connected group one complete order. Closed or merged former
+participants remain publication targets but never re-enter the new merge order.
 Only markers whose GitHub author association is
 owner, member or collaborator are authoritative. The helper prints its identifier
 before the first comment; if mirroring is interrupted, rerun the same command with

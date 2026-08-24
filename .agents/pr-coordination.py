@@ -131,6 +131,10 @@ def coordination_component(records, prs):
     return related, participants
 
 
+def missing_order_participants(participants, prs, open_numbers):
+    return sorted((participants & open_numbers) - set(prs))
+
+
 def publish_mirrored(numbers, body, identifier, token, values_by_pull):
     urls = []
     desired = pr_coordination.parse_marker(body)
@@ -192,10 +196,10 @@ def recommend(arguments):
             "an active recommendation already covers this pull-request set; supersede it explicitly: "
             + ", ".join(unaddressed)
         )
-    missing = sorted(participants - set(prs))
+    missing = missing_order_participants(participants, prs, open_numbers)
     if missing:
         raise RuntimeError(
-            "the replacement must include every transitively coordinated pull request: "
+            "the replacement must include every open transitively coordinated pull request: "
             + ", ".join(map(str, missing))
         )
 
