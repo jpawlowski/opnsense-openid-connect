@@ -97,7 +97,7 @@ final class DpopProof
     {
         HttpClient::assertHttpsUrl($url);
         $parts = parse_url($url);
-        $path = (string)($parts['path'] ?? '');
+        $path = (string)($parts['path'] ?? '/');
         return 'https://' . $parts['host'] . (isset($parts['port']) ? ':' . $parts['port'] : '') . $path;
     }
 

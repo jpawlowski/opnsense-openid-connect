@@ -105,11 +105,17 @@ $secondProof = decodedDpop($dpopProof->proof(
     null,
     1700000000
 ));
+$rootProof = decodedDpop($dpopProof->proof('POST', 'https://dpop.example.net?tenant=one', null, null, 1700000000));
 Checks::that('a proof is explicitly typed', $firstProof['header']['typ'], 'dpop+jwt');
 Checks::that('only the supported asymmetric algorithm is used', $firstProof['header']['alg'], 'ES256');
 Checks::that('the public proof key is embedded without private material', $firstProof['header']['jwk'], $dpopJwk);
 Checks::that('the proof binds the actual HTTP method', $firstProof['claims']['htm'], 'POST');
 Checks::that('the proof URI omits query data', $firstProof['claims']['htu'], 'https://dpop.example.net/token');
+Checks::that(
+    'the proof URI includes the effective root path',
+    $rootProof['claims']['htu'],
+    'https://dpop.example.net/'
+);
 Checks::that(
     'the proof binds the presented access token',
     $firstProof['claims']['ath'],
