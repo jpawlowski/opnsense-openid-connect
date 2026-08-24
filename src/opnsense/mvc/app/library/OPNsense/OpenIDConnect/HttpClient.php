@@ -64,6 +64,7 @@ class HttpClient
 
     public function postForm(string $url, array $fields, int $maxBytes, array $headers = []): HttpResponse
     {
+        self::assertQueryParametersAbsent($url, $fields);
         $headers[] = 'Content-Type: application/x-www-form-urlencoded';
 
         return $this->request(
@@ -73,6 +74,14 @@ class HttpClient
             $headers,
             $maxBytes
         );
+    }
+
+    /** @param array<string,string> $parameters */
+    public static function appendQueryParameters(string $url, array $parameters): string
+    {
+        self::assertQueryParametersAbsent($url, $parameters);
+        $separator = str_contains($url, '?') ? '&' : '?';
+        return $url . $separator . http_build_query($parameters, '', '&', PHP_QUERY_RFC3986);
     }
 
     public function request(
@@ -158,15 +167,11 @@ class HttpClient
         $location = '';
         $responseHeaders = [];
         $handle = curl_init($url);
-        curl_setopt_array($handle, [
+        curl_setopt_array($handle, self::transportSecurityOptions() + [
             CURLOPT_CUSTOMREQUEST => $method,
             CURLOPT_FOLLOWLOCATION => false,
-            CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
-            CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,
             CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
             CURLOPT_TIMEOUT => self::TOTAL_TIMEOUT,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_USERAGENT => 'OPNsense-OpenID-Connect/1.0',
             CURLOPT_HTTPHEADER => array_merge(['Accept: application/json'], $headers),
             CURLOPT_HEADERFUNCTION => static function ($handle, string $line) use (&$location, &$responseHeaders): int {
@@ -232,6 +237,17 @@ class HttpClient
         ];
     }
 
+    /** Keep the certificate and protocol requirements directly testable without a network peer. */
+    private static function transportSecurityOptions(): array
+    {
+        return [
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+            CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+        ];
+    }
+
     public static function assertHttpsUrl(string $url): void
     {
         if ($url === '' || preg_match('/[\x00-\x20\x7f]/', $url) || !filter_var($url, FILTER_VALIDATE_URL)) {
@@ -254,6 +270,20 @@ class HttpClient
             }
         }
         return false;
+    }
+
+    private static function assertQueryParametersAbsent(string $url, array $parameters): void
+    {
+        $query = parse_url($url, PHP_URL_QUERY);
+        if (!is_string($query) || $query === '') {
+            return;
+        }
+        foreach (preg_split('/[&;]/', $query) ?: [] as $part) {
+            $name = rawurldecode((string)strtok($part, '='));
+            if ($name !== '' && array_key_exists($name, $parameters)) {
+                throw new ProtocolException('The provider endpoint would duplicate a protocol parameter');
+            }
+        }
     }
 
     private static function resolve(string $base, string $location): string

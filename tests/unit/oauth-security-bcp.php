@@ -90,7 +90,11 @@ $transactionParty = new RelyingParty(
             return securityBcpJson(securityBcpMetadata());
         }
         $tokenRequest = compact('url', 'body', 'headers');
-        return securityBcpJson(['id_token' => 'signed-id-token']);
+        return securityBcpJson([
+            'access_token' => 'bcp-access-token',
+            'token_type' => 'Bearer',
+            'id_token' => 'signed-id-token',
+        ]);
     })
 );
 $authorizationUrl = $transactionParty->authorizationUrl('Security BCP', '/ui/dashboard');
