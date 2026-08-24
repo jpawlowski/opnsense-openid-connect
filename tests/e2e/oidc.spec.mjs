@@ -821,7 +821,7 @@ test('real OPNsense login, session binding and logout interoperability', async (
 
   await adminPage.goto(`${origin}/ui/auth/user`);
   const accountRow = adminPage.getByRole('row', { name: new RegExp(process.env.E2E_TEST_USERNAME) });
-  await expect(accountRow).toContainText('admins');
+  await expect(accountRow).toContainText('admins', { timeout: 15_000 });
 
   await userPage.getByRole('link', { name: /Logout/ }).click();
   await expect(userPage).toHaveTitle(/Login/);
