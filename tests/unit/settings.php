@@ -115,7 +115,10 @@ Checks::that('Generic MFA uses the REFEDS essential claim preset', $genericMfa->
     'tier' => 'multi-factor',
     'request_mode' => 'essential_claim',
     'contexts' => ['https://refeds.org/profile/mfa'],
-    'methods' => ['mfa'],
+    'methods' => [
+        'mfa', 'pwd', 'pin', 'kba', 'otp', 'hwk', 'sc', 'sms', 'swk', 'tel', 'pop',
+        'face', 'fpt', 'iris', 'retina', 'vbm',
+    ],
 ]);
 $oktaMfa = connector([
     'openidconnect_provider_profile' => 'okta',

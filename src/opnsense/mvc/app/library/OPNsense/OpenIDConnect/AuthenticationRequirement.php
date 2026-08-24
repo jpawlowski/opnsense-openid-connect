@@ -24,9 +24,63 @@ final class AuthenticationRequirement
     private const MAX_METHODS = 16;
     private const MAX_METHOD_BYTES = 64;
 
+    private const KNOWLEDGE_FACTOR = 'knowledge';
+    private const POSSESSION_FACTOR = 'possession';
+    private const INHERENCE_FACTOR = 'inherence';
+    private const DIRECT_MULTI_FACTOR = 'multi-factor';
+
+    /**
+     * Every IANA-registered RFC 8176/EAP value is classified here. Null means that the value describes context,
+     * channel or presence but does not unambiguously establish an authentication factor.
+     *
+     * @var array<string,string|null>
+     */
+    private const STANDARD_METHOD_EVIDENCE = [
+        'face' => self::INHERENCE_FACTOR,
+        'fpt' => self::INHERENCE_FACTOR,
+        'geo' => null,
+        'hwk' => self::POSSESSION_FACTOR,
+        'iris' => self::INHERENCE_FACTOR,
+        'kba' => self::KNOWLEDGE_FACTOR,
+        'mca' => null,
+        'mfa' => self::DIRECT_MULTI_FACTOR,
+        'otp' => self::POSSESSION_FACTOR,
+        'pin' => self::KNOWLEDGE_FACTOR,
+        'pop' => self::POSSESSION_FACTOR,
+        'pwd' => self::KNOWLEDGE_FACTOR,
+        'rba' => null,
+        'retina' => self::INHERENCE_FACTOR,
+        'sc' => self::POSSESSION_FACTOR,
+        'sms' => self::POSSESSION_FACTOR,
+        'swk' => self::POSSESSION_FACTOR,
+        'tel' => self::POSSESSION_FACTOR,
+        'user' => null,
+        'vbm' => self::INHERENCE_FACTOR,
+        'wia' => null,
+    ];
+
+    /**
+     * Microsoft documents these additional OIDC AMR values. The factor classifications distinguish concrete methods
+     * from ambiguous signals; an Entra assurance result still has to carry its separate documented mfa value.
+     *
+     * @var array<string,string|null>
+     */
+    private const ENTRA_METHOD_EVIDENCE = [
+        'emailotp' => null,
+        'fido' => self::POSSESSION_FACTOR,
+        'hotp' => self::POSSESSION_FACTOR,
+        'ngcmfa' => null,
+        'rsa' => null,
+        'totp' => self::POSSESSION_FACTOR,
+        'x509' => self::POSSESSION_FACTOR,
+    ];
+
+    private const EAP_KEY_METHODS = ['pop', 'hwk', 'swk'];
+    private const ENTRA_PHISHING_RESISTANT_METHODS = ['fido', 'hwk', 'x509'];
+
     /**
      * @param string[] $contexts exact acceptable acr values, or one Entra acrs context
-     * @param string[] $methods any one of these amr values has to be present
+     * @param string[] $methods exact accepted amr values from which sufficient tier evidence must be present
      */
     public function __construct(
         private readonly string $tier,
@@ -102,25 +156,118 @@ final class AuthenticationRequirement
     /** @param array<string,mixed> $claims claims from an already verified ID token */
     public function assertSatisfied(array $claims): void
     {
+        $matchedContext = null;
         if ($this->requestMode === self::ENTRA_CONTEXT) {
             $reported = $claims['acrs'] ?? null;
             self::assertReportedList($reported, self::MAX_CONTEXTS, self::MAX_CONTEXT_BYTES, 'authentication contexts');
-            if (!self::hasExactValue($reported, $this->contexts)) {
-                throw new ProtocolException('The ID token does not satisfy the required Microsoft authentication context');
+            $matchedContext = self::matchingExactValue($reported, $this->contexts);
+            if ($matchedContext === null) {
+                throw new ProtocolException(
+                    'The ID token does not satisfy the required Microsoft authentication context'
+                );
             }
         } else {
             $reported = $claims['acr'] ?? null;
-            if (!is_string($reported) || !self::usableValue($reported, self::MAX_CONTEXT_BYTES)
-                || !self::hasExactValue([$reported], $this->contexts)) {
+            if (!is_string($reported) || !self::usableValue($reported, self::MAX_CONTEXT_BYTES)) {
+                throw new ProtocolException('The ID token does not satisfy the required authentication context');
+            }
+            $matchedContext = self::matchingExactValue([$reported], $this->contexts);
+            if ($matchedContext === null) {
                 throw new ProtocolException('The ID token does not satisfy the required authentication context');
             }
         }
 
         $methods = $claims['amr'] ?? null;
         self::assertReportedList($methods, self::MAX_METHODS, self::MAX_METHOD_BYTES, 'authentication methods');
-        if (!self::hasExactValue($methods, $this->methods)) {
+        if (!$this->hasRequiredMethodEvidence($methods, $matchedContext)) {
             throw new ProtocolException('The ID token does not report a required authentication method');
         }
+    }
+
+    /** @param string[] $reported */
+    private function hasRequiredMethodEvidence(array $reported, string $matchedContext): bool
+    {
+        if ($this->requestMode === self::ENTRA_CONTEXT) {
+            if (!self::hasExactValue($reported, ['mfa'])) {
+                return false;
+            }
+            return $this->tier === self::MULTI_FACTOR
+                || $this->hasEntraPhishingResistantMethod($reported);
+        }
+
+        if ($this->tier === self::MULTI_FACTOR) {
+            return $this->hasMultiFactorEvidence($reported);
+        }
+
+        if (in_array($matchedContext, ['phr', 'phrh'], true)) {
+            return $this->hasEapPhishingResistantMethod($reported, $matchedContext);
+        }
+
+        return $this->hasEapPhishingResistantMethod($reported, 'phr');
+    }
+
+    /** @param string[] $reported */
+    private function hasMultiFactorEvidence(array $reported): bool
+    {
+        $factors = [];
+        foreach ($reported as $method) {
+            if (!self::hasExactValue([$method], $this->methods)) {
+                continue;
+            }
+            if (!array_key_exists($method, self::STANDARD_METHOD_EVIDENCE)) {
+                // An exact administrator-supplied provider value is the local mapping for an otherwise unknown AMR.
+                return true;
+            }
+            $evidence = self::STANDARD_METHOD_EVIDENCE[$method];
+            if ($evidence === self::DIRECT_MULTI_FACTOR) {
+                return true;
+            }
+            if ($evidence !== null) {
+                $factors[$evidence] = true;
+            }
+        }
+        return count($factors) >= 2;
+    }
+
+    /** @param string[] $reported */
+    private function hasEapPhishingResistantMethod(array $reported, string $matchedContext): bool
+    {
+        foreach ($reported as $method) {
+            if (!self::hasExactValue([$method], $this->methods)) {
+                continue;
+            }
+            if ($matchedContext === 'phrh') {
+                if ($method === 'hwk' || !self::knownMethod($method)) {
+                    return true;
+                }
+                continue;
+            }
+            if (in_array($method, self::EAP_KEY_METHODS, true) || !self::knownMethod($method)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param string[] $reported */
+    private function hasEntraPhishingResistantMethod(array $reported): bool
+    {
+        foreach ($reported as $method) {
+            if (!self::hasExactValue([$method], $this->methods)) {
+                continue;
+            }
+            if (in_array($method, self::ENTRA_PHISHING_RESISTANT_METHODS, true)
+                || !self::knownMethod($method, true)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function knownMethod(string $method, bool $includeEntra = false): bool
+    {
+        return array_key_exists($method, self::STANDARD_METHOD_EVIDENCE)
+            || ($includeEntra && array_key_exists($method, self::ENTRA_METHOD_EVIDENCE));
     }
 
     /** @param mixed $reported */
@@ -158,13 +305,19 @@ final class AuthenticationRequirement
     /** @param string[] $reported @param string[] $accepted */
     private static function hasExactValue(array $reported, array $accepted): bool
     {
+        return self::matchingExactValue($reported, $accepted) !== null;
+    }
+
+    /** @param string[] $reported @param string[] $accepted */
+    private static function matchingExactValue(array $reported, array $accepted): ?string
+    {
         foreach ($reported as $actual) {
             foreach ($accepted as $expected) {
                 if (hash_equals($expected, $actual)) {
-                    return true;
+                    return $actual;
                 }
             }
         }
-        return false;
+        return null;
     }
 }
