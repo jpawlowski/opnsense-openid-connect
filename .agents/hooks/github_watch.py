@@ -7,16 +7,21 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+import pr_coordination
+
 
 GITHUB_TIMEOUT = 5
 PR_REFRESH_TTL = 10 * 60
 USER_AGENT = "opnsense-openid-connect-agent-watch"
+CODEX_REVIEWERS = {"chatgpt-codex-connector", "chatgpt-codex-connector[bot]"}
+REVIEWED_COMMIT = re.compile(r"\*\*Reviewed commit:\*\*\s*`([0-9a-f]{7,40})`", re.I)
 
 
 def git(repository, *arguments, check=True):
@@ -65,33 +70,44 @@ def github_graphql(owner, name, number, token):
         return None
     api = os.environ.get("GITHUB_GRAPHQL_URL", "https://api.github.com/graphql")
     query = """
-      query($owner: String!, $name: String!, $number: Int!) {
+      query($owner: String!, $name: String!, $number: Int!, $after: String) {
         repository(owner: $owner, name: $name) {
           pullRequest(number: $number) {
-            reviewThreads(first: 100) { nodes { isResolved } }
+            reviewThreads(first: 100, after: $after) {
+              nodes { isResolved }
+              pageInfo { hasNextPage endCursor }
+            }
           }
         }
       }
     """
-    body = json.dumps({
-        "query": query,
-        "variables": {"owner": owner, "name": name, "number": number},
-    }).encode()
-    request = Request(api, data=body, method="POST")
-    request.add_header("Accept", "application/vnd.github+json")
-    request.add_header("Authorization", f"Bearer {token}")
-    request.add_header("Content-Type", "application/json")
-    request.add_header("User-Agent", USER_AGENT)
-    try:
-        with urlopen(request, timeout=GITHUB_TIMEOUT) as response:
-            value = json.load(response)
-    except (HTTPError, URLError):
-        return None
-    try:
-        nodes = value["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
-    except (KeyError, TypeError):
-        return None
-    return sum(not bool(node.get("isResolved")) for node in nodes)
+    unresolved = 0
+    after = None
+    for _page in range(10):
+        body = json.dumps({
+            "query": query,
+            "variables": {"owner": owner, "name": name, "number": number, "after": after},
+        }).encode()
+        request = Request(api, data=body, method="POST")
+        request.add_header("Accept", "application/vnd.github+json")
+        request.add_header("Authorization", f"Bearer {token}")
+        request.add_header("Content-Type", "application/json")
+        request.add_header("User-Agent", USER_AGENT)
+        try:
+            with urlopen(request, timeout=GITHUB_TIMEOUT) as response:
+                value = json.load(response)
+            threads = value["data"]["repository"]["pullRequest"]["reviewThreads"]
+            nodes = threads["nodes"]
+            page = threads["pageInfo"]
+        except (HTTPError, URLError, KeyError, TypeError):
+            return None
+        unresolved += sum(not bool(node.get("isResolved")) for node in nodes)
+        if not page.get("hasNextPage"):
+            return unresolved
+        after = page.get("endCursor")
+        if not after:
+            return None
+    return None
 
 
 def cache_path(common_directory):
@@ -123,21 +139,76 @@ def _pull_files(repository, number, token, reader):
     return sorted(files), True
 
 
-def _review_decision(reviews, head_sha):
-    latest = {}
+def _paged(repository, path, token, reader):
+    values = []
+    for page in range(1, 11):
+        separator = "&" if "?" in path else "?"
+        page_path = f"{path}{separator}{urlencode({'per_page': 100, 'page': page})}"
+        batch = reader(repository, page_path, token)
+        values.extend(batch)
+        if len(batch) < 100:
+            return values
+    raise ValueError(f"GitHub response for {path} exceeded the supported pagination bound")
+
+
+def _commented_codex_reviews(comments):
+    values = []
+    for comment in comments:
+        login = str((comment.get("user") or {}).get("login") or "").lower()
+        match = REVIEWED_COMMIT.search(str(comment.get("body") or ""))
+        if login not in CODEX_REVIEWERS or not match:
+            continue
+        values.append((
+            str(comment.get("created_at") or ""),
+            int(comment.get("id") or 0),
+            match.group(1).lower(),
+        ))
+    return values
+
+
+def _review_decision(reviews, head_sha, comments=None, author=""):
+    decisions = {}
+    submissions = []
     for review in reviews:
         user = str((review.get("user") or {}).get("login") or "")
         state = str(review.get("state") or "").upper()
-        if user and state in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
-            latest[user] = (state, str(review.get("commit_id") or ""))
-    states = {state for state, _commit in latest.values()}
-    if "CHANGES_REQUESTED" in states:
-        return "changes requested"
-    if any(state == "APPROVED" and commit == head_sha for state, commit in latest.values()):
-        return "approved"
-    if "APPROVED" in states:
-        return "stale approval"
-    return "pending"
+        if user and user.lower() != author.lower() \
+                and state in ("APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED"):
+            value = (
+                state,
+                str(review.get("commit_id") or ""),
+                int(review.get("id") or 0),
+                str(review.get("submitted_at") or ""),
+            )
+            submissions.append(value)
+            if state != "COMMENTED":
+                previous = decisions.get(user)
+                if previous is None or (value[3], value[2]) >= (previous[3], previous[2]):
+                    decisions[user] = value
+    current_decisions = [value for value in decisions.values() if value[1] == head_sha]
+    states = {state for state, _commit, _identifier, _submitted in decisions.values()}
+    current_states = {state for state, _commit, _identifier, _submitted in current_decisions}
+    comment_reviews = _commented_codex_reviews(comments or [])
+    current_submission = (
+        any(commit == head_sha for _state, commit, _identifier, _submitted in submissions)
+        or any(head_sha.startswith(commit) for _submitted, _identifier, commit in comment_reviews)
+    )
+    marker = max(
+        ((submitted, identifier, commit) for _state, commit, identifier, submitted in submissions),
+        default=("", 0, ""),
+    )
+    marker = max(marker, *comment_reviews) if comment_reviews else marker
+    if "CHANGES_REQUESTED" in current_states or "CHANGES_REQUESTED" in states:
+        decision = "changes requested"
+    elif "APPROVED" in current_states:
+        decision = "approved"
+    elif current_submission:
+        decision = "review submitted"
+    elif submissions or comment_reviews:
+        decision = "stale review"
+    else:
+        decision = "pending"
+    return decision, marker
 
 
 def _check_state(checks, status):
@@ -157,19 +228,60 @@ def _check_state(checks, status):
     return "pending"
 
 
-def _current_pull(repository, pulls):
+def _current_pull(repository, pulls, cached=None):
     branch = git_value(repository, "symbolic-ref", "--short", "HEAD")
     origin = git_value(repository, "remote", "get-url", "origin")
     if not branch or not origin:
         return None
 
     identity = repository_identity(origin)
+    cached_number = int(((cached or {}).get("current") or {}).get("number") or 0)
+    if cached_number:
+        for pull in pulls:
+            head = pull.get("head") or {}
+            head_repository = str((head.get("repo") or {}).get("full_name") or "").lower()
+            if int(pull.get("number") or 0) == cached_number and head.get("ref") == branch \
+                    and head_repository == identity:
+                return pull
     for pull in pulls:
         head = pull.get("head") or {}
         head_repository = str((head.get("repo") or {}).get("full_name") or "").lower()
         if head.get("ref") == branch and head_repository == identity:
             return pull
     return None
+
+
+def _coherent_current(repository, canonical_repository, number, token, reader):
+    """Read one head-consistent PR snapshot, retrying if the head moves mid-read."""
+    owner, name = canonical_repository.split("/", 1)
+    for _attempt in range(2):
+        before = reader(canonical_repository, f"pulls/{number}", token)
+        head_sha = str((before.get("head") or {}).get("sha") or "")
+        reviews = _paged(canonical_repository, f"pulls/{number}/reviews", token, reader)
+        comments = _paged(canonical_repository, f"issues/{number}/comments", token, reader)
+        checks = reader(canonical_repository, f"commits/{head_sha}/check-runs?per_page=100", token)
+        status = reader(canonical_repository, f"commits/{head_sha}/status", token)
+        unresolved = github_graphql(owner, name, number, token)
+        after = reader(canonical_repository, f"pulls/{number}", token)
+        after_head = str((after.get("head") or {}).get("sha") or "")
+        if head_sha != after_head:
+            continue
+        author = str((after.get("user") or {}).get("login") or "")
+        review_decision, review_marker = _review_decision(reviews, head_sha, comments, author)
+        return {
+            "number": number,
+            "url": after.get("html_url"),
+            "head_sha": head_sha,
+            "mergeable": after.get("mergeable"),
+            "merge_state": after.get("mergeable_state") or "unknown",
+            "draft": bool(after.get("draft")),
+            "review_decision": review_decision,
+            "review_marker": list(review_marker),
+            "checks": _check_state(checks, status),
+            "unresolved_threads": unresolved,
+            "coordination": pr_coordination.records_from_comments(comments),
+        }
+    raise ValueError(f"pull request #{number} changed head while its state was being observed")
 
 
 def repository_identity(remote_url):
@@ -279,28 +391,24 @@ def refresh(repository, common_directory, canonical_repository, max_age=PR_REFRE
                 "files_truncated": truncated,
             })
 
-        current_pull = _current_pull(repository, pulls)
+        current_pull = _current_pull(repository, pulls, cached)
         current = None
         if current_pull is not None:
             number = int(current_pull["number"])
-            detail = reader(canonical_repository, f"pulls/{number}", token)
-            head_sha = str((detail.get("head") or {}).get("sha") or "")
-            reviews = reader(canonical_repository, f"pulls/{number}/reviews?per_page=100", token)
-            checks = reader(canonical_repository, f"commits/{head_sha}/check-runs?per_page=100", token)
-            status = reader(canonical_repository, f"commits/{head_sha}/status", token)
-            owner, name = canonical_repository.split("/", 1)
-            current = {
-                "number": number,
-                "url": detail.get("html_url"),
-                "head_sha": head_sha,
-                "mergeable": detail.get("mergeable"),
-                "merge_state": detail.get("mergeable_state") or "unknown",
-                "draft": bool(detail.get("draft")),
-                "review_decision": _review_decision(reviews, head_sha),
-                "checks": _check_state(checks, status),
-                "unresolved_threads": github_graphql(owner, name, number, token),
-            }
-        snapshot = {"refreshed_at": now, "pulls": summaries, "current": current}
+            current = _coherent_current(repository, canonical_repository, number, token, reader)
+        pull_states = {int(pull["number"]): "open" for pull in pulls}
+        for record in (current or {}).get("coordination", []):
+            for number in record["order"]:
+                if number in pull_states:
+                    continue
+                detail = reader(canonical_repository, f"pulls/{number}", token)
+                pull_states[number] = "merged" if detail.get("merged_at") else str(detail.get("state") or "unknown")
+        snapshot = {
+            "refreshed_at": now,
+            "pulls": summaries,
+            "current": current,
+            "pull_states": pull_states,
+        }
         worktrees = dict(cache.get("worktrees") or {})
         worktrees[key] = snapshot
         save_cache(common_directory, {"worktrees": worktrees})
@@ -308,7 +416,7 @@ def refresh(repository, common_directory, canonical_repository, max_age=PR_REFRE
     except (KeyError, TypeError, ValueError) as error:
         if cached:
             return cached, str(error)
-        return {"refreshed_at": now, "pulls": [], "current": None}, str(error)
+        return {"refreshed_at": now, "pulls": [], "current": None, "pull_states": {}}, str(error)
 
 
 def remote_head_refusal(repository, snapshot):
@@ -335,11 +443,11 @@ def state_notice(previous, current):
         return ""
     label = (
         current.get("head_sha"), current.get("checks"), current.get("review_decision"),
-        current.get("merge_state"), current.get("unresolved_threads"),
+        current.get("review_marker"), current.get("merge_state"), current.get("unresolved_threads"),
     )
     previous_label = () if not previous else (
         previous.get("head_sha"), previous.get("checks"), previous.get("review_decision"),
-        previous.get("merge_state"), previous.get("unresolved_threads"),
+        previous.get("review_marker"), previous.get("merge_state"), previous.get("unresolved_threads"),
     )
     if label == previous_label:
         return ""
@@ -357,6 +465,8 @@ def overlap_notice(snapshot, changed_paths):
     if not changed_paths:
         return ""
     current_number = (snapshot.get("current") or {}).get("number")
+    records = (snapshot.get("current") or {}).get("coordination", [])
+    coordinated = pr_coordination.coordinated_pairs(records)
     overlaps = []
     truncated = []
     for pull in snapshot.get("pulls", []):
@@ -365,7 +475,7 @@ def overlap_notice(snapshot, changed_paths):
         if pull.get("files_truncated"):
             truncated.append(f"#{pull.get('number')}")
         shared = sorted(changed_paths & set(pull.get("files", [])))
-        if shared:
+        if shared and frozenset((current_number, pull.get("number"))) not in coordinated:
             preview = ", ".join(shared[:5])
             suffix = ", …" if len(shared) > 5 else ""
             overlaps.append(f"#{pull.get('number')} ({preview}{suffix})")
@@ -378,4 +488,14 @@ def overlap_notice(snapshot, changed_paths):
         )
     if not notices:
         return ""
-    return " ".join(notices) + " Coordinate before they merge."
+    return " ".join(notices) + (
+        " Publish one final, mirrored merge order with `.agents/pr-coordination.py recommend`; the order guides "
+        "humans and agents but never authorizes an agent to merge."
+    )
+
+
+def coordination_notice(snapshot):
+    current = snapshot.get("current") or {}
+    return pr_coordination.status_notice(
+        current.get("coordination", []), current.get("number"), snapshot.get("pull_states", {}),
+    )

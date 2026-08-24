@@ -37,7 +37,10 @@ separation is not decoration — keep it.
     python3 packaging/release-notes.py --tag vX.Y.Z   what a release would say
     python3 packaging/commit-lint.py --range main..HEAD
     python3 .agents/hooks/fast_gate.py refresh        refresh remote main before publishing
+    python3 .agents/hooks/fast_gate.py defer-main --reason WHY --checkpoint WHEN
+    python3 .agents/hooks/fast_gate.py checkpoint-main
     python3 .agents/hooks/fast_gate.py reconcile-pr --sha SHA --strategy merge
+    python3 .agents/pr-coordination.py status --pr PR
     python3 packaging/contribution-lint.py --help     what an issue or PR may contain
 
 Installed integration and destructive browser E2E are deliberate manual runs;
@@ -93,25 +96,72 @@ In the read-only control checkout, prefix Git inspection with
 It serializes fetches, keeps clean local `main` as a fast-forward mirror, and
 checks the canonical ref at session start, at most every five minutes before a
 write, at turn stop, and unconditionally before publication. It reports lag and
-path overlap without changing the topic branch. Overlap with new canonical work
-blocks another write until the agent integrates it or records a reasoned
-deferral with the command reported by the hook. Before any push, pull-request
-update, review request or handoff, run the explicit refresh command above. Start
-from the reported canonical ref, rebase an unpublished branch, do not routinely
-rewrite a published branch, and request a new review after a head change. Never
-push an automatic `main` synchronization to a contributor fork.
+path overlap without changing the topic branch. Freshness is an observation
+obligation, not an immediate synchronization obligation. Commit count, branch
+distance and elapsed time are informational only; none requires an in-progress
+operation to restart.
 
-For a published branch the same event-driven check watches the pull request's
-remote head, checks, review decision, merge state and, when GitHub exposes them,
-unresolved review threads. It also reports open pull requests whose changed
-paths overlap the local work. A remote head not contained locally blocks
-further writing or publication until it is reconciled. The refusal reports the
-exact SHA; invoke the explicit `reconcile-pr` helper above with that full SHA to
-fetch and merge only the freshly verified head. When all local work is
-done and only CI, review, approval or merge remains, offer — but never create
-without explicit user consent — a read-only ten-minute monitor using
-`python3 .agents/hooks/fast_gate.py watch`. Report only state changes or action
-needed; the monitor never comments, requests review, pushes or merges.
+When interruption would discard expensive setup, transient state or useful
+evidence, start a continuity deferral with the command above. Give the concrete
+reason and the earliest observable checkpoint at which work becomes cheaply
+resumable. Any number of canonical commits and local path changes may accumulate
+while the hook keeps observing them as one pending drift set. Finish the protected
+operation against its pinned source revision and label its evidence with that
+revision. Interrupt only for a concrete safety, destructive-action, exclusive-
+ownership or revision-identification risk; possible future conflict is not one.
+At the safe checkpoint, run `checkpoint-main`, compare the complete drift once and
+integrate only what invalidates the next phase or its evidence. Before every push,
+pull-request update, review request or handoff the deferral must be closed and the
+explicit refresh command above must run. Never push an automatic `main`
+synchronization to a contributor fork.
+
+The integrating agent remains steward of every pull request it creates or adopts
+until merge, closure or explicit handoff. The read-only observer identifies it by
+repository and pull-request number, never by a commit SHA. Each fresh snapshot
+reads the current head, reviews including `COMMENTED` submissions, all review
+threads, checks and merge state, then verifies the head again; a mixed-head
+snapshot is discarded. Reviews from older heads and their unresolved threads
+remain visible, but only review of the current head satisfies the merge gate. A
+remote head not contained locally remains an immediate coordination block and is
+reconciled only through the exact-SHA helper above.
+
+Wait for a review submission to finish before repairing its first comment.
+Inventory every thread, apply one coherent batch, synchronize canonical changes
+at the same checkpoint, validate once, push once and then request one current-head
+review. Branch lag is not conflict. While review of the current head is pending,
+record an actual conflict but do not rewrite the head merely to remove it. Restore
+mergeability before the first review, after a completed review batch, or during
+finalization. If `main` advances again during review, accumulate it until the next
+checkpoint instead of starting a live conflict-resolution loop.
+
+For a published PR, keep a read-only monitor active until an actionable event or
+terminal state. It reports only changed state or action needed and never comments,
+pushes, requests review or merges. A review, failing check, foreign head, confirmed
+conflict, predecessor transition, approval, merge or closure returns ownership to
+the steward. If the platform cannot retain a monitor, hand off the exact pending
+conditions and the PR number; never describe waiting work as complete.
+
+Every steward also observes exact changed-path overlap, shared interfaces and
+semantic dependencies with other open PRs. A material overlap needs one final,
+machine-readable recommendation mirrored in every involved PR through
+`.agents/pr-coordination.py recommend`. It names every PR, one complete order,
+the overlap, why that order minimizes repeated work and when to reconsider it.
+Agents resolve uncertainty themselves: prerequisite first, then a current-head
+reviewed or more merge-ready PR, then least total rework, then lower PR number as
+the deterministic tie-breaker. Never give the human alternatives. For three or
+more PRs, publish one complete acyclic sequence. A replacement explicitly
+supersedes the earlier record.
+
+The order controls merging, not current execution. A later PR may finish its
+implementation, review or protected operation but does not merge first or chase
+anticipated conflicts. Once its predecessor merges, it integrates that result
+once at its next checkpoint, validates and obtains any newly required review.
+Other agents must notice and obey a mirrored recommendation; an uncoordinated
+overlap or an open predecessor blocks finalization, not ordinary local work.
+Mark the record fulfilled after the sequence has been absorbed. No agent ever
+merges, enables auto-merge or queues a merge without an explicit human instruction
+naming the pull request. Monitoring, review, repair, coordination and a request to
+make a PR ready never imply merge permission.
 
 Worktree cleanup is a separate, conservative lifecycle. SessionEnd retains a
 dirty worktree or one waiting on an open pull request, and queues a clean

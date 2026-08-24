@@ -357,7 +357,7 @@ def main():
         check("the same canonical head is re-evaluated when local paths later overlap",
               "remote.txt" in late_notice and late_overlap.get("pending_main") == remote_head, True)
         check("an acknowledgement for the earlier path set cannot excuse a later overlap",
-              "acknowledge-main" in hook.pending_main_refusal(
+              "defer-main" in hook.pending_main_refusal(
                   worktree, late_overlap, remote_head, "origin/main",
               ), True)
         (worktree / "remote.txt").unlink()
@@ -381,7 +381,7 @@ def main():
         check("overlapping canonical progress becomes pending",
               drift_state["pending_main"], refused["base_main"])
         check("pending overlap blocks another write",
-              "acknowledge-main" in hook.pending_main_refusal(
+              "defer-main" in hook.pending_main_refusal(
                   worktree, drift_state, refused["base_main"], refused["base_name"],
               ), True)
         drift_state["acknowledged_main"] = refused["base_main"]
@@ -742,6 +742,37 @@ def main():
         acknowledged = json.loads(acknowledgement_state.read_text(encoding="utf-8"))
         check("the trusted helper records a deliberate main-drift acknowledgement",
               (emitted[0], acknowledged.get("acknowledged_main")), ({}, "abcdef1234567890"))
+        acknowledgement_state.write_text(json.dumps({
+            "base_main": "base", "seen_main": "abcdef1234567890", "pending_main": "abcdef1234567890",
+            "main_paths_fingerprint": "paths",
+        }), encoding="utf-8")
+        emitted.clear()
+        hook.guard({
+            "session_id": "primary", "tool_name": "Bash",
+            "tool_input": {"command": (
+                "python3 .agents/hooks/fast_gate.py defer-main "
+                "--reason 'preserve a running VM test' --checkpoint 'the current E2E run completes'"
+            )},
+        })
+        deferred = json.loads(acknowledgement_state.read_text(encoding="utf-8"))
+        check("a protected continuity phase records reason and observable checkpoint",
+              (emitted[0], deferred["continuity_deferral"]["checkpoint"]),
+              ({}, "the current E2E run completes"))
+        deferred.update({"pending_main": "fedcba9876543210", "main_paths_fingerprint": "more-paths"})
+        check("later canonical heads and local paths do not reopen the same continuity decision",
+              hook.pending_main_refusal(control, deferred, "fedcba9876543210", "origin/main"), "")
+        acknowledgement_state.write_text(json.dumps(deferred), encoding="utf-8")
+        emitted.clear()
+        hook.guard({
+            "session_id": "primary", "tool_name": "Bash",
+            "tool_input": {"command": "python3 .agents/hooks/fast_gate.py checkpoint-main"},
+        })
+        checkpointed = json.loads(acknowledgement_state.read_text(encoding="utf-8"))
+        check("the safe checkpoint ends the phase without excusing accumulated drift",
+              (emitted[0], "continuity_deferral" in checkpointed,
+               "defer-main" in hook.pending_main_refusal(
+                   control, checkpointed, "fedcba9876543210", "origin/main",
+               )), ({}, False, True))
         emitted.clear()
         hook.guard({
             "session_id": "primary", "tool_name": "Bash",
@@ -1196,6 +1227,8 @@ module.update_registry(repository, update)
                         "mergeable_state": "clean", "head": {"sha": head}}
             if path.startswith("pulls/1/reviews"):
                 return [{"user": {"login": "reviewer"}, "state": "APPROVED", "commit_id": head}]
+            if path.startswith("issues/1/comments"):
+                return []
             if path.startswith(f"commits/{head}/check-runs"):
                 return {"check_runs": [{"status": "completed", "conclusion": "success"}]}
             if path == f"commits/{head}/status":
@@ -1224,7 +1257,28 @@ module.update_registry(repository, update)
         ), "passing")
         check("an approval on an older head is stale", watch._review_decision([
             {"user": {"login": "reviewer"}, "state": "APPROVED", "commit_id": "older"},
-        ], head), "stale approval")
+        ], head)[0], "stale review")
+        check("a commented review on the current head is a completed submission", watch._review_decision([
+            {"id": 7, "user": {"login": "reviewer"}, "state": "COMMENTED", "commit_id": head},
+        ], head)[0], "review submitted")
+        check("a later comment cannot hide the reviewer's outstanding change request", watch._review_decision([
+            {"id": 7, "user": {"login": "reviewer"}, "state": "CHANGES_REQUESTED", "commit_id": "older"},
+            {"id": 8, "user": {"login": "reviewer"}, "state": "COMMENTED", "commit_id": head},
+        ], head)[0], "changes requested")
+        check("the pull-request author's own submitted review is not mistaken for external review",
+              watch._review_decision([
+                  {"id": 9, "user": {"login": "author"}, "state": "COMMENTED", "commit_id": head},
+              ], head, author="author")[0], "pending")
+        clean_comment = {
+            "id": 10,
+            "created_at": "2026-08-24T12:00:00Z",
+            "user": {"login": "chatgpt-codex-connector[bot]"},
+            "body": f"Codex Review: no major issues.\n\n**Reviewed commit:** `{head[:10]}`",
+        }
+        check("a clean Codex issue comment closes review for its exact current head",
+              watch._review_decision([], head, [clean_comment], "author")[0], "review submitted")
+        check("a clean Codex issue comment for an older head remains stale",
+              watch._review_decision([], "different-head", [clean_comment], "author")[0], "stale review")
         check("unavailable review threads remain explicitly unknown",
               snapshot["current"]["unresolved_threads"], None)
         check("a pull request leaving the open set ends the waiting phase",
@@ -1253,6 +1307,29 @@ module.update_registry(repository, update)
         )
         check("a fresh task-local PR snapshot is reused", len(calls), first_calls)
         check("the cached snapshot keeps its current pull request", cached["current"]["number"], 1)
+        moving_heads = iter(("old-head", "new-head", "new-head", "new-head"))
+        observed_checks = []
+
+        def moving_reader(_repository, path, _token):
+            if path == "pulls/1":
+                value = next(moving_heads)
+                return {"html_url": "https://example.invalid/1", "draft": False, "mergeable": True,
+                        "mergeable_state": "clean", "head": {"sha": value}}
+            if path.startswith("pulls/1/reviews") or path.startswith("issues/1/comments"):
+                return []
+            if "/check-runs" in path:
+                observed_checks.append(path)
+                return {"check_runs": [{"status": "completed", "conclusion": "success"}]}
+            if path.endswith("/status"):
+                return {"state": "success"}
+            raise AssertionError(f"unexpected moving-head path {path}")
+
+        coherent = watch._coherent_current(
+            repository, "jpawlowski/opnsense-openid-connect", 1, "", moving_reader,
+        )
+        check("a head change during observation discards the mixed snapshot and follows the PR number",
+              (coherent["head_sha"], any("old-head" in path for path in observed_checks),
+               any("new-head" in path for path in observed_checks)), ("new-head", True, True))
         def failed_reader(_repository, _path, _token):
             raise ValueError("temporary GitHub failure")
 
@@ -1284,6 +1361,45 @@ module.update_registry(repository, update)
         snapshot["current"]["head_sha"] = foreign
         check("a foreign remote head blocks more local writing",
               "not contained" in watch.remote_head_refusal(repository, snapshot), True)
+
+    group("Cross-PR coordination gives agents and humans one durable order")
+    coordination = load_agent_module(
+        "pr_coordination_test", ROOT / ".agents" / "hooks" / "pr_coordination.py",
+    )
+    record = {"id": "42-57-order", "order": [42, 57], "state": "final", "supersedes": []}
+    body = coordination.render_final(
+        record,
+        "both change the authentication hook",
+        "#42 already has a current-head review",
+        "#42 closes or changes the shared contract",
+    )
+    check("the public record gives one exact human-facing order",
+          all(value in body for value in ("#42 → #57", "Merge #42 first", "Do not merge", "explicit human")),
+          True)
+    check("the public record carries the required agent notice",
+          body.rstrip().endswith(coordination.NOTICE["en"]), True)
+    mirrored = [
+        {"id": 1, "created_at": "2026-08-24T10:00:00Z", "body": body},
+        {"id": 2, "created_at": "2026-08-24T10:00:01Z", "body": body},
+    ]
+    active = coordination.records_from_comments(mirrored)
+    check("mirrored comments become one active machine record",
+          [(value["id"], value["order"]) for value in active], [("42-57-order", [42, 57])])
+    check("a later steward is told to wait without stopping ordinary work",
+          "must not merge before #42" in coordination.status_notice(active, 57, {42: "open", 57: "open"}),
+          True)
+    check("a merged predecessor creates one checkpoint action",
+          "integrate the merged predecessor" in coordination.status_notice(
+              active, 57, {42: "merged", 57: "open"},
+          ), True)
+    reverse = {"id": "57-42-order", "order": [57, 42], "state": "final", "supersedes": []}
+    check("contradictory recommendations are detected as a cycle",
+          coordination.has_cycle([record, reverse]), True)
+    fulfilled = coordination.render_fulfilled(record)
+    check("a fulfilled event retires the active recommendation", coordination.records_from_comments([
+        *mirrored,
+        {"id": 3, "created_at": "2026-08-24T11:00:00Z", "body": fulfilled},
+    ]), [])
 
     group("Finished worktrees retire before local branches and never delete remote branches")
     cleanup = load_agent_module(

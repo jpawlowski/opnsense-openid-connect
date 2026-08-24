@@ -320,7 +320,8 @@ def _worktree_helper(arguments):
 
 def _hook_control(arguments):
     return _repository_helper(
-        arguments, ".agents/hooks/fast_gate.py", ("acknowledge-main", "refresh", "watch"),
+        arguments, ".agents/hooks/fast_gate.py",
+        ("acknowledge-main", "checkpoint-main", "defer-main", "refresh", "watch"),
     )
 
 
@@ -484,6 +485,18 @@ def is_main_acknowledgement(event):
         program in ("python", "python3")
         and _repository_helper(arguments, ".agents/hooks/fast_gate.py", ("acknowledge-main",))
         and arguments[1] == "acknowledge-main"
+    )
+
+
+def is_continuity_control(event):
+    """Recognize only the repository-owned helper that starts or ends one protected phase."""
+    if str(event.get("tool_name") or "") != "Bash":
+        return False
+    program, arguments = _shell_invocation(event_command(event))
+    return bool(
+        program in ("python", "python3")
+        and _repository_helper(arguments, ".agents/hooks/fast_gate.py", ("checkpoint-main", "defer-main"))
+        and arguments[1] in ("checkpoint-main", "defer-main")
     )
 
 

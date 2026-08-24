@@ -436,8 +436,8 @@ def main_progress(repository, state, base_main, base_name):
         suffix = ", …" if len(overlap) > 8 else ""
         return (
             f"{base_name} advanced by {count} commit(s) since this task began and overlaps this work in: "
-            f"{preview}{suffix}. Compare it now, then integrate it or record a deliberate deferral; no merge or "
-            "rebase was run."
+            f"{preview}{suffix}. Observe it now, then integrate at a safe checkpoint or start one protected "
+            "continuity phase; no merge or rebase was run."
         )
     state.pop("pending_main", None)
     if previously_seen:
@@ -464,13 +464,27 @@ def pending_main_refusal(repository, state, base_main, base_name):
         state["acknowledged_main"] = base_main
         state.pop("pending_main", None)
         return ""
+    if state.get("continuity_deferral"):
+        return ""
     if (state.get("acknowledged_main") == base_main
             and state.get("acknowledged_main_paths") == state.get("main_paths_fingerprint")):
         return ""
     return (
         f"{base_name} at {base_main[:12]} overlaps this task. Compare the changed paths, then integrate that head "
-        "or run `python3 .agents/hooks/fast_gate.py acknowledge-main --sha "
-        f"{base_main} --reason \"why deferral is safe\"` before another write."
+        "or begin a protected continuity phase with `python3 .agents/hooks/fast_gate.py defer-main --reason "
+        "\"why interruption is costly\" --checkpoint \"observable safe checkpoint\"`."
+    )
+
+
+def continuity_notice(state):
+    value = state.get("continuity_deferral") or {}
+    if not value:
+        return ""
+    return (
+        "A continuity deferral is active while canonical progress continues to be observed: "
+        f"{value.get('reason')}. Checkpoint: {value.get('checkpoint')}. Any number of canonical commits may "
+        "accumulate; count, distance and elapsed time do not require a restart. End it with "
+        "`python3 .agents/hooks/fast_gate.py checkpoint-main` before publication or handoff."
     )
 
 
@@ -509,6 +523,11 @@ def observe_remote(
     current = snapshot.get("current")
     pr_notice = github_watch.state_notice(state.get("pr_state"), current)
     state["pr_state"] = current
+    coordination = github_watch.coordination_notice(snapshot)
+    if coordination == state.get("pr_coordination"):
+        coordination = ""
+    else:
+        state["pr_coordination"] = coordination
     overlap = github_watch.overlap_notice(
         snapshot, work_paths(REPOSITORY, synchronization["base_main"]),
     )
@@ -528,7 +547,7 @@ def observe_remote(
             f"{github_warning}. Retry the refresh before publishing or handing off."
         )
     return (
-        messages(progress, github_warning, pr_notice, overlap),
+        messages(progress, continuity_notice(state), github_warning, pr_notice, coordination, overlap),
         messages(main_refusal, pr_refusal, freshness_refusal),
     )
 
@@ -630,6 +649,51 @@ def acknowledge_event(event):
     state["acknowledged_main"] = pending
     state["acknowledged_main_paths"] = state.get("main_paths_fingerprint")
     state["main_acknowledgement_reason"] = reason
+    save_state(state_path, state)
+    return ""
+
+
+def continuity_event(event):
+    if not agent_guard.is_continuity_control(event):
+        return None
+    try:
+        arguments = shlex.split(agent_guard.event_command(event))
+    except ValueError:
+        return "the continuity control command could not be parsed"
+    action = arguments[2] if len(arguments) >= 3 else ""
+    state_path, _ = state_paths(event)
+    state = load_state(state_path)
+    if state is None:
+        return "a task state must exist before controlling a continuity phase"
+    if action == "checkpoint-main":
+        if len(arguments) != 3 or not state.get("continuity_deferral"):
+            return "checkpoint-main needs one active continuity deferral and no additional arguments"
+        completed = state.pop("continuity_deferral")
+        state["continuity_checkpoint"] = {
+            "completed_reason": completed.get("reason"),
+            "observed_main": state.get("pending_main") or state.get("seen_main") or state.get("base_main"),
+        }
+        save_state(state_path, state)
+        return ""
+    if action != "defer-main":
+        return "unknown continuity control action"
+    try:
+        reason = arguments[arguments.index("--reason") + 1].strip()
+        checkpoint = arguments[arguments.index("--checkpoint") + 1].strip()
+    except (ValueError, IndexError):
+        return "defer-main needs both --reason and --checkpoint"
+    allowed = {"--reason", "--checkpoint"}
+    options = {value for value in arguments[3:] if value.startswith("--")}
+    if len(arguments) != 7 or options != allowed or not reason or not checkpoint:
+        return "defer-main accepts one non-empty --reason and one non-empty --checkpoint"
+    if state.get("continuity_deferral"):
+        return "a continuity deferral is already active; reach or replace it only after its checkpoint"
+    state["continuity_deferral"] = {
+        "reason": reason,
+        "checkpoint": checkpoint,
+        "started_main": state.get("seen_main") or state.get("base_main"),
+        "started_head": git_value(REPOSITORY, "rev-parse", "HEAD"),
+    }
     save_state(state_path, state)
     return ""
 
@@ -777,6 +841,10 @@ def guard(event):
             emit({})
         return
 
+    continuity = continuity_event(event) if tool == "Bash" else None
+    if continuity is not None:
+        emit(agent_guard.blocked(continuity) if continuity else {})
+        return
     acknowledgement = acknowledge_event(event) if tool == "Bash" else None
     if acknowledgement is not None:
         emit(agent_guard.blocked(acknowledgement) if acknowledgement else {})
@@ -837,6 +905,13 @@ def guard(event):
         "base_main": synchronization["base_main"],
         "seen_main": synchronization["old_base"] or synchronization["base_main"],
     }
+    if uncached_remote and state.get("continuity_deferral"):
+        emit(agent_guard.blocked(
+            "A protected continuity phase is still active. Reach its declared checkpoint and run "
+            "`python3 .agents/hooks/fast_gate.py checkpoint-main` before publishing, requesting review or handing "
+            "off; accumulated canonical drift will then be assessed once."
+        ))
+        return
     notice, refusal = observe_remote(
         state, synchronization, pr_max_age=0 if uncached_remote else github_watch.PR_REFRESH_TTL,
         require_pr_fresh=uncached_remote,
@@ -953,11 +1028,11 @@ def refresh(event):
     emit(informational(messages(status, remote_notice, remote_refusal)))
 
 
-def acknowledge_main_cli():
+def control_cli():
     # A synchronous PreToolUse hook records the session-scoped acknowledgement
     # before this harmless command runs. Without that hook, pretending it was
     # recorded would turn an enforcement failure into silent permission.
-    print("main-drift acknowledgement command completed; enforcement requires the trusted PreToolUse hook")
+    print("agent workflow control completed; enforcement requires the trusted PreToolUse hook")
 
 
 def watch(event):
@@ -993,8 +1068,8 @@ def main():
         refresh(event)
     elif action == "watch":
         watch(event)
-    elif action == "acknowledge-main":
-        acknowledge_main_cli()
+    elif action in ("acknowledge-main", "checkpoint-main", "defer-main"):
+        control_cli()
     elif action == "reconcile-pr":
         reconcile_pull_request_cli()
     else:

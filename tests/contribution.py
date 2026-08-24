@@ -297,10 +297,16 @@ def main():
           all("remote head" in text.lower() and "overlap" in text.lower()
               and "never" in text.lower() and "merge" in text.lower()
               for text in (contribution_skill, agents, contributing)), True)
-    check("waiting monitors need consent and remain read-only",
-          all("ten-minute" in text.lower() and "explicit" in text.lower()
-              and "monitor" in text.lower() and "never" in text.lower()
+    check("waiting monitors retain the PR identity and remain read-only",
+          all("read-only" in text.lower() and "monitor" in text.lower() and "never" in text.lower()
+              and re.search(r"(?:pr|pull-request) number", text, re.I)
               for text in (contribution_skill, agents, contributing)), True)
+    workflow_rules = [re.sub(r"\s+", " ", text.lower()) for text in (contribution_skill, agents, contributing)]
+    check("costly work may batch any amount of canonical drift until a safe checkpoint",
+          all("safe checkpoint" in text and "any number" in text for text in workflow_rules), True)
+    check("overlapping pull requests give humans one order without agent merge authority",
+          all("merge" in text and "order" in text and "explicit human" in text and "alternatives" in text
+              for text in workflow_rules), True)
     check("finished agent work has a conservative event-driven cleanup lifecycle",
           all("24-hour" in text and "seven-day" in text
               and "ignored" in text and "remote branch" in text
