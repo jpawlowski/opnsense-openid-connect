@@ -68,7 +68,7 @@ final class ClientAuthentication
         $method = $frozenMethod ?? self::selectedMethod($settings, $metadata, $authenticator);
         $bound = $restorePolicy && $frozen !== null
             ? $frozen['certificate_bound_access_tokens'] : $settings->certificateBoundAccessTokens();
-        if ($bound && !$metadata->supportsCertificateBoundAccessTokens()) {
+        if (!$restorePolicy && $bound && !$metadata->supportsCertificateBoundAccessTokens()) {
             throw new ProtocolException('The provider does not advertise certificate-bound access tokens');
         }
 

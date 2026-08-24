@@ -863,6 +863,46 @@ Checks::that(
     ]),
     ['certificate_bound_access_tokens' => true, 'certificate_ref' => 'mtls-old']
 );
+$changedBindingMetadata = ProviderMetadata::fromArray(metadata([
+    'token_endpoint_auth_methods_supported' => ['tls_client_auth'],
+    'revocation_endpoint_auth_methods_supported' => ['tls_client_auth'],
+    'revocation_endpoint' => 'https://id.example.net/revoke',
+    'mtls_endpoint_aliases' => [
+        'revocation_endpoint' => 'https://mtls.example.net/revoke',
+    ],
+]));
+$restoredRevocationRequest = [];
+$restoredRevocation = new RelyingParty(
+    $logoutSettings,
+    new Controller(new Request('https', 'firewall.example.net'), new Session()),
+    new HttpClient(function (
+        string $method,
+        string $url,
+        ?string $body,
+        array $headers,
+        int $maxBytes,
+        ?ClientCertificate $certificate
+    ) use (&$restoredRevocationRequest): array {
+        $restoredRevocationRequest = [
+            'method' => $method,
+            'url' => $url,
+            'certificate' => $certificate?->reference(),
+        ];
+        return jsonAnswer([], 204);
+    }),
+    null,
+    null,
+    null,
+    $mtlsSnapshot
+);
+$mtlsMetadataProperty->setValue($restoredRevocation, $changedBindingMetadata);
+$restoredRevocation->revokeToken('bound-access-token', 'access_token');
+Checks::that('logout still revokes a bound token when current Discovery omits issuance support',
+    $restoredRevocationRequest, [
+        'method' => 'POST',
+        'url' => 'https://mtls.example.net/revoke',
+        'certificate' => 'mtls-old',
+    ]);
 Checks::throws(
     'a pending login still refuses a changed certificate-bound token policy',
     fn() => ClientAuthentication::negotiate($logoutSettings, $mtlsMetadata, $mtlsSnapshot),
