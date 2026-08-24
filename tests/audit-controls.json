@@ -12,6 +12,7 @@
         "jarm-response-policy",
         "jwt-claim-policy",
         "provider-http-policy",
+        "dpop-sender-constraint",
         "userinfo-subject-binding",
         "issuer-bound-logout-grants",
         "stable-subject-binding",
@@ -32,6 +33,7 @@
       "description": "Installed OPNsense runtime, phpseclib, filesystem and core integration",
       "capabilities": [
         "runtime-jws-crypto",
+        "runtime-dpop",
         "runtime-shared-signals",
         "runtime-state-registries",
         "runtime-core-acl",
@@ -45,6 +47,7 @@
       "description": "Disposable OPNsense and Keycloak browser interoperability with passive ZAP",
       "capabilities": [
         "browser-authorization-code-flow",
+        "browser-dpop",
         "browser-session-rotation",
         "browser-local-group-assignment",
         "browser-local-password-fallback",
@@ -232,6 +235,34 @@
                 "tier": "host-independent",
                 "capabilities": ["provider-http-policy"],
                 "validation": ["tests/unit/exchange.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "dpop-sender-constraint",
+          "claim": "When Discovery advertises ES256 DPoP, the RP binds the authorization code and issued tokens to one rotatable per-provider proof key, sends fresh method-, URI- and token-bound proofs, persists server nonces, retries one nonce challenge and refuses bearer downgrade.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/DpopProof.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/DpopKeyStore.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RelyingParty.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["dpop-sender-constraint"],
+                "validation": ["tests/unit/dpop.php"]
+              },
+              {
+                "tier": "installed-integration",
+                "capabilities": ["runtime-dpop"],
+                "validation": ["tests/integration/opnsense.php"]
+              },
+              {
+                "tier": "browser-e2e",
+                "capabilities": ["browser-dpop"],
+                "validation": ["tests/e2e/oidc.spec.mjs", "tests/e2e/run-keycloak.sh"]
               }
             ]
           }

@@ -9,6 +9,7 @@
 use OPNsense\Auth\OpenIDConnect;
 use OPNsense\Core\Config;
 use OPNsense\OpenIDConnect\HttpClient;
+use OPNsense\OpenIDConnect\DpopKeyStore;
 use OPNsense\OpenIDConnect\JwtVerifier;
 use OPNsense\OpenIDConnect\ParClient;
 use OPNsense\OpenIDConnect\ProviderCache;
@@ -40,12 +41,14 @@ function oidcRefreshDue(string $namespace, string $url): bool
 }
 
 $http = new HttpClient();
+$dpopBindings = [];
 foreach (Config::getInstance()->object()->system->authserver ?? [] as $server) {
     if ((string)($server->type ?? '') !== OpenIDConnect::TYPE) {
         continue;
     }
     $settings = new OpenIDConnect();
     $settings->setProperties(oidcSettings($server));
+    $dpopBindings[] = DpopKeyStore::forSettings($settings)->bindingId();
     if ($settings->issuerUrl() === '') {
         continue;
     }
@@ -144,3 +147,4 @@ foreach (Config::getInstance()->object()->system->authserver ?? [] as $server) {
         syslog(LOG_NOTICE, 'OIDC: background Shared Signals metadata refresh could not complete');
     }
 }
+DpopKeyStore::pruneUnused($dpopBindings);

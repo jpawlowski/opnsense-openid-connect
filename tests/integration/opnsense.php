@@ -10,6 +10,8 @@
  */
 
 use OPNsense\OpenIDConnect\HttpClient;
+use OPNsense\OpenIDConnect\DpopKeyStore;
+use OPNsense\OpenIDConnect\DpopProof;
 use OPNsense\OpenIDConnect\JwtVerifier;
 use OPNsense\OpenIDConnect\PendingIdentityRegistry;
 use OPNsense\OpenIDConnect\ProviderMetadata;
@@ -58,7 +60,8 @@ $library = '/usr/local/opnsense/mvc/app/library/OPNsense/OpenIDConnect/';
 foreach ([
     'ProtocolException', 'ProviderUnavailableException', 'SecurityEventException', 'HttpResponse', 'HttpClient',
     'ProviderCache', 'ProviderMetadata', 'ProviderRuntimeState',
-    'SharedSignalsMetadata', 'SharedSignalsClient', 'JwtVerifier', 'RequestObjectSigner', 'SecurityEventVerifier',
+    'SharedSignalsMetadata', 'SharedSignalsClient', 'JwtVerifier', 'RequestObjectSigner', 'DpopProof', 'DpopKeyStore',
+    'SecurityEventVerifier',
     'SharedSignalsEventProcessor', 'SharedSignalsPoller', 'PendingIdentityRegistry',
     'SessionRegistry', 'TransactionRegistry', 'WebGuiAccess', 'ParClient', 'ProviderProbe',
 ] as $class) {
@@ -279,6 +282,58 @@ $check(
     'RFC 9101 Request Object signing through OPNsense phpseclib'
 );
 $validated('runtime-jws-crypto');
+
+$dpopDirectory = sys_get_temp_dir() . '/openidconnect-dpop-integration-' . getmypid();
+$dpopStore = DpopKeyStore::forBinding('installed-integration', $dpopDirectory);
+$dpop = $dpopStore->active(1700000000);
+$dpopJwt = $dpop->proof(
+    'POST',
+    'https://provider.runtime.example.com/token?ignored=true',
+    null,
+    null,
+    1700000000
+);
+[$dpopHeaderPart, $dpopClaimsPart, $dpopSignaturePart] = explode('.', $dpopJwt);
+$dpopHeader = json_decode(JwtVerifier::base64UrlDecode($dpopHeaderPart), true, 16, JSON_THROW_ON_ERROR);
+$dpopClaims = json_decode(JwtVerifier::base64UrlDecode($dpopClaimsPart), true, 16, JSON_THROW_ON_ERROR);
+$check(
+    $dpopHeader['typ'] === 'dpop+jwt'
+        && $dpopHeader['alg'] === 'ES256'
+        && $dpopClaims['htm'] === 'POST'
+        && $dpopClaims['htu'] === 'https://provider.runtime.example.com/token'
+        && $verifier->signature(
+            'ES256',
+            $dpopHeader['jwk'],
+            $dpopHeaderPart . '.' . $dpopClaimsPart,
+            JwtVerifier::base64UrlDecode($dpopSignaturePart)
+        ),
+    'a stored DPoP key signs a request-bound ES256 proof through OPNsense phpseclib'
+);
+$dpopPath = $dpopStore->statePath();
+$check(is_file($dpopPath) && (fileperms($dpopPath) & 0777) === 0600, 'the DPoP private-key store has mode 0600');
+$rotatedDpop = $dpopStore->rotate(1700000000 + DpopKeyStore::ROTATE_AFTER);
+$check(!hash_equals($dpop->keyId(), $rotatedDpop->keyId()), 'DPoP rotation creates a distinct active key');
+$check(
+    hash_equals($dpopStore->find($dpop->keyId())->keyId(), $dpop->keyId()),
+    'the bounded retired generation remains available for an existing grant'
+);
+$nonceResponse = new OPNsense\OpenIDConnect\HttpResponse(
+    200,
+    'application/json',
+    '{}',
+    'https://provider.runtime.example.com/token',
+    ['dpop-nonce' => 'runtime-nonce']
+);
+$dpopStore->acceptNonce('https://provider.runtime.example.com/token', $nonceResponse);
+$check(
+    $dpopStore->nonce('https://provider.runtime.example.com/token') === 'runtime-nonce',
+    'a provider nonce survives across DPoP requests without downgrade'
+);
+foreach (glob($dpopDirectory . '/*') ?: [] as $dpopFile) {
+    @unlink($dpopFile);
+}
+@rmdir($dpopDirectory);
+$validated('runtime-dpop');
 
 $ssfIssuer = 'https://signals.runtime.example.com';
 $ssfAudience = 'runtime-receiver';
