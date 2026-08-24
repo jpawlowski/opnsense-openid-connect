@@ -19,8 +19,9 @@ confidential web client.
 - Publish OIDC Discovery at the standard location. Its `issuer` must exactly
   equal the configured issuer, including trailing slash.
 - When Discovery publishes `pushed_authorization_request_endpoint`, OPNsense
-  automatically uses PAR with the same confidential-client authentication and
-  does not fall back if the push fails.
+  uses PAR according to **Pushed authorization requests**. Automatic mode
+  bypasses only a temporarily unavailable optional endpoint and restores it in
+  the background; choose Required when browser parameters are unacceptable.
 - Optionally register the displayed front/back-channel logout URLs and the
   WebGUI origin as post-logout redirect.
 - For provider-managed pairwise subjects, choose **Pairwise subject sector** and
@@ -40,6 +41,7 @@ confidential web client.
 | Authorization response mode | Query |
 | Scopes | `openid,email,profile` |
 | Authentication method | Follow the provider |
+| Pushed authorization requests | Automatic with availability fallback |
 
 Run discovery. If it does not advertise an asymmetric signing algorithm or a
 supported secret method, this confidential-client profile is not compatible.
@@ -50,8 +52,9 @@ weaken protocol checks anyway.
 
 For the first login, keep **Match by e-mail address** at **Only a verified
 address**, **Maximum authentication age** at **14400 seconds (four hours)**, account creation off, root
-access off, **Group claim** empty, tracing off, and both optional logout switches
-off. The table above contains the provider profile values to enter or verify.
+access off, **Group claim** empty, tracing off, provider logout notifications set
+to **Both**, and both optional outbound logout switches off. The table above
+contains the provider profile values to enter or verify.
 Change another setting only for the documented reason in the [complete settings
 reference](../setup/settings-reference.md).
 

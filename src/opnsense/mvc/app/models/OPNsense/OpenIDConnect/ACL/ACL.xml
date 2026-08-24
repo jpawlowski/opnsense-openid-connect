@@ -11,7 +11,9 @@
     being typed. It makes this firewall fetch an address somebody chose, which is why it
     is a privilege of its own. Provider setup is separate too: it performs no network
     request, but only a delegated server administrator should generate security
-    configuration intended for another system. The sign-in test starts the same
+    configuration intended for another system. The read-only health endpoint
+    extends the existing authentication-server privilege and reveals only cache
+    states and timestamps. The sign-in test starts the same
     provider redirect as a login, but only after an authenticated, CSRF-protected
     request and without granting a local session at its callback.
 
@@ -46,6 +48,7 @@
         <name>System: Authentication Servers</name>
         <patterns>
             <pattern>api/openidconnect/approval/*</pattern>
+            <pattern>api/openidconnect/health/*</pattern>
         </patterns>
     </page-system-authservers>
 </acl>

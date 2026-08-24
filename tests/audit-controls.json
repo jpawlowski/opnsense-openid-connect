@@ -81,6 +81,24 @@
           }
         },
         {
+          "slug": "provider-availability-cache-and-par",
+          "claim": "Only validated public Discovery and JWKS responses enter bounded HTTP-aware caches; automatic PAR bypass is limited to temporary availability failures while provider-required PAR and every TLS, authentication or protocol error fail closed.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderCache.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RelyingParty.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ParClient.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["discovery-exact-issuer"],
+                "validation": ["tests/unit/exchange.php", "tests/unit/settings.php"]
+              }
+            ]
+          }
+        },
+        {
           "slug": "authorization-code-pkce",
           "claim": "Every login uses the Authorization Code flow with random server-side state, nonce and PKCE S256, and binds the response to the intended provider callback.",
           "implementation": [

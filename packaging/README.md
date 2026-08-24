@@ -189,6 +189,12 @@ fault — and it is the same page that now shows the package exists at all.
 
 ## The watchdog
 
+The same cron file runs `/usr/local/sbin/openid-connect-refresh` every minute.
+That silent, locked job refreshes due OIDC/SSF metadata and signing keys and
+retests a bypassed optional PAR endpoint. It never holds up a browser login and
+stores no token or client secret. The separate watchdog remains the nightly
+core/login-page compatibility check.
+
 `/usr/local/sbin/openid-connect-watch`, nightly at 03:01 through
 `/usr/local/etc/cron.d/openid-connect.cron`. That is the way the OPNsense
 plugins which schedule anything schedule it, and `cron(8)` reads the directory

@@ -227,11 +227,12 @@ The exact endpoint matrix and the reasons for the two exceptions are recorded in
   validation path, marked server-side as test-only. Its callback reports the
   verified identity but does not resolve or mutate a local account and does not
   elevate or replace the initiating WebGUI session.
-- Discovery is performed when login begins; the exact validated metadata is
-  frozen into that transaction so endpoints cannot change halfway through it.
-  When it advertises PAR, the complete authorization request is authenticated
-  and pushed before the transaction is stored; a failed push leaves no pending
-  state and never falls back to exposing the parameters through the browser.
+- Validated Discovery and JWKS responses are shared through bounded, HTTP-aware
+  mode-`0600` caches and refreshed outside the login path. The exact metadata
+  snapshot used at login is still frozen into the transaction so endpoints
+  cannot change halfway through it. Automatic PAR may bypass only a temporarily
+  unavailable optional endpoint; the provider requirement and every TLS,
+  authentication or protocol failure remain fail-closed.
 - Identity bindings live in the normal `<system><authserver>` OPNsense
   configuration and bind an issuer/subject pair to a numeric local UID. Their
   opaque storage field is administered only through the combined identity

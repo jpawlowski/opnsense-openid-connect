@@ -22,7 +22,6 @@ class RelyingParty
 
     private const TRANSACTIONS = 'openidconnect_transactions_v2';
     private const TOKEN_MAX_BYTES = 1048576;
-    private const PAR_MAX_BYTES = 262144;
     private const USERINFO_MAX_BYTES = 1048576;
     private const PROTOCOL_CLAIMS = [
         'iss', 'aud', 'exp', 'iat', 'nbf', 'jti', 'nonce', 'at_hash', 'c_hash',
@@ -173,12 +172,36 @@ class RelyingParty
         }
 
         $parEndpoint = $metadata->pushedAuthorizationRequestEndpoint();
-        if ($parEndpoint === null) {
-            $separator = str_contains($metadata->authorizationEndpoint(), '?') ? '&' : '?';
-            $authorizationUrl = $metadata->authorizationEndpoint() . $separator
-                . http_build_query($parameters, '', '&', PHP_QUERY_RFC3986);
+        $parRequired = $metadata->requiresPushedAuthorizationRequests();
+        $parMode = $this->settings->parMode();
+        if ($parMode === 'disabled' && $parRequired) {
+            throw new ProtocolException('Discovery requires pushed authorization requests but PAR is disabled');
+        }
+        if ($parMode === 'required' && $parEndpoint === null) {
+            throw new ProtocolException('Pushed authorization requests are required but Discovery offers no endpoint');
+        }
+
+        $usedPar = false;
+        $parKey = $parEndpoint === null ? null : ProviderRuntimeState::parKey($this->settings, $metadata);
+        $bypass = $parMode === 'auto' && !$parRequired && $parKey !== null
+            && ProviderRuntimeState::parIsBypassed($parKey);
+        if ($parEndpoint !== null && $parMode !== 'disabled' && !$bypass) {
+            try {
+                $authorizationUrl = $this->pushedAuthorizationUrl($metadata, $parEndpoint, $parameters);
+                $usedPar = true;
+                if ($parKey !== null) {
+                    ProviderRuntimeState::parAvailable($parKey);
+                }
+            } catch (ProviderUnavailableException $e) {
+                if ($parMode !== 'auto' || $parRequired || $parKey === null) {
+                    throw $e;
+                }
+                ProviderRuntimeState::parUnavailable($parKey, $e->retryAfter());
+                $authorizationUrl = $this->directAuthorizationUrl($metadata, $parameters);
+                $this->settings->trace('temporarily bypassing optional PAR while background recovery is pending');
+            }
         } else {
-            $authorizationUrl = $this->pushedAuthorizationUrl($metadata, $parEndpoint, $parameters);
+            $authorizationUrl = $this->directAuthorizationUrl($metadata, $parameters);
         }
 
         /* A failed PAR must leave no state that could later be mistaken for a pending login. */
@@ -193,7 +216,7 @@ class RelyingParty
             $metadata->issuer(),
             $this->redirectUri,
             $this->settings->responseMode(),
-            $parEndpoint === null ? '' : ', pushed authorization request'
+            $usedPar ? ', pushed authorization request' : ''
         ));
         return $authorizationUrl;
     }
@@ -204,27 +227,11 @@ class RelyingParty
         string $endpoint,
         array $parameters
     ): string {
-        $headers = ['Accept: application/json'];
-        $this->authenticateClient($parameters, $headers);
-        $response = $this->http->postForm($endpoint, $parameters, self::PAR_MAX_BYTES, $headers);
-        if ($response->status !== 201) {
-            throw new ProtocolException(sprintf(
-                'The pushed authorization request endpoint returned HTTP %d',
-                $response->status
-            ));
-        }
-        if ($response->contentType !== 'application/json') {
-            throw new ProtocolException('The pushed authorization request endpoint did not return application/json');
-        }
-        $answer = $response->jsonObject();
-        $requestUri = $answer['request_uri'] ?? null;
-        if (!is_string($requestUri) || $requestUri === '' || strlen($requestUri) > 4096
-            || preg_match('/[\x00-\x1f\x7f]/', $requestUri)) {
-            throw new ProtocolException('The pushed authorization request endpoint returned no usable request URI');
-        }
-        if (!is_int($answer['expires_in'] ?? null) || $answer['expires_in'] <= 0) {
-            throw new ProtocolException('The pushed authorization request endpoint returned no valid expiry');
-        }
+        $requestUri = (new ParClient($this->settings, $this->http))->push(
+            $metadata,
+            $endpoint,
+            $parameters
+        );
         $browserParameters = [
             'client_id' => $this->settings->clientId(),
             'request_uri' => $requestUri,
@@ -232,6 +239,14 @@ class RelyingParty
         $separator = str_contains($metadata->authorizationEndpoint(), '?') ? '&' : '?';
         return $metadata->authorizationEndpoint() . $separator
             . http_build_query($browserParameters, '', '&', PHP_QUERY_RFC3986);
+    }
+
+    /** @param array<string,string> $parameters */
+    private function directAuthorizationUrl(ProviderMetadata $metadata, array $parameters): string
+    {
+        $separator = str_contains($metadata->authorizationEndpoint(), '?') ? '&' : '?';
+        return $metadata->authorizationEndpoint() . $separator
+            . http_build_query($parameters, '', '&', PHP_QUERY_RFC3986);
     }
 
     /** @param array<string,mixed> $parameters @return array<string,mixed> */
