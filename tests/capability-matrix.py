@@ -217,8 +217,15 @@ def main():
         lambda: matrix.validate_providers(malformed_orphan, standard_ids)
     ), True)
 
+    unrelated_documentation = copy.deepcopy(providers)
+    unrelated_documentation["providers"][1]["capabilities"]["back_logout"] = "documented"
+    check("an unrelated guide URL cannot support another provider feature", refused(
+        lambda: matrix.validate_providers(unrelated_documentation, standard_ids)
+    ), True)
+
     unsupported = copy.deepcopy(providers)
     unsupported["providers"][0]["capabilities"]["login"] = "live"
+    unsupported["documentation"]["general"].pop("login")
     check(
         "a live green cell requires a retained dated artifact",
         refused(lambda: matrix.validate_providers(unsupported, standard_ids)),
@@ -227,6 +234,7 @@ def main():
 
     adapted = copy.deepcopy(providers)
     adapted["providers"][0]["capabilities"]["login"] = "adapter"
+    adapted["documentation"]["general"].pop("login")
     check("an adapter cell also needs retained live evidence", refused(
         lambda: matrix.validate_providers(adapted, standard_ids)
     ), True)
@@ -268,6 +276,18 @@ def main():
         lambda: matrix.validate_live_evidence_record(
             provider, "login", "live", impossible_service_revision
         )
+    ), True)
+
+    future_test = copy.deepcopy(dated_record)
+    future_test["tested_on"] = "2999-01-01"
+    check("a live record rejects a future test date", refused(
+        lambda: matrix.validate_live_evidence_record(provider, "login", "live", future_test)
+    ), True)
+
+    service_after_test = copy.deepcopy(dated_record)
+    service_after_test["provider_revision"] = "service:2026-08-25"
+    check("a live record rejects a service revision later than its test", refused(
+        lambda: matrix.validate_live_evidence_record(provider, "login", "live", service_after_test)
     ), True)
 
     arbitrary_artifact = copy.deepcopy(dated_record)

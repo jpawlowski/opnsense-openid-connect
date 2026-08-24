@@ -60,4 +60,13 @@ reference](../setup/settings-reference.md).
 
 References: [OIDC Core](https://openid.net/specs/openid-connect-core-1_0.html),
 [OIDC Discovery](https://openid.net/specs/openid-connect-discovery-1_0.html),
-[OAuth Security BCP](https://www.rfc-editor.org/rfc/rfc9700.html).
+[OAuth Security BCP](https://www.rfc-editor.org/rfc/rfc9700.html),
+[PAR](https://www.rfc-editor.org/rfc/rfc9126.html),
+[authorization issuer](https://www.rfc-editor.org/rfc/rfc9207.html),
+[token revocation](https://www.rfc-editor.org/rfc/rfc7009.html),
+[RP-initiated logout](https://openid.net/specs/openid-connect-rpinitiated-1_0.html),
+[front-channel logout](https://openid.net/specs/openid-connect-frontchannel-1_0.html),
+[back-channel logout](https://openid.net/specs/openid-connect-backchannel-1_0.html),
+[Shared Signals](https://openid.net/specs/openid-sharedsignals-framework-1_0-final.html),
+[REFEDS MFA](https://refeds.org/profile/mfa), and
+[EAP ACR values](https://openid.net/specs/openid-connect-eap-acr-values-1_0.html).

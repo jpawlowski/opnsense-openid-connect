@@ -94,32 +94,32 @@ A provider guide alone is never rendered green.
 
 | Provider | OIDC code login | PKCE S256 | PAR | Authorization issuer | Token revocation | RP-initiated logout | Front-channel logout | Back-channel logout | Shared Signals | MFA evidence | Phishing-resistant evidence |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| [Generic OpenID Connect](../providers/general.md) | ◇ | ◇ | ◇ | ◇ | ◇ | ◇ | ◇ | ◇ | ◇ | ◇ | ◇ |
-| [Auth0](../providers/auth0.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Authelia](../providers/authelia.md) | 📘 | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [authentik](../providers/authentik.md) | 📘 | ? | ? | ? | ? | 📘 | ◇ | ◇ | ? | ? | ? |
-| [AWS Cognito](../providers/cognito.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Cisco Duo Single Sign-On](../providers/duo.md) | 📘 | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Dex](../providers/dex.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [FusionAuth](../providers/fusionauth.md) | 📘 | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [GitLab](../providers/gitlab.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Google / Workspace](../providers/google.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [IBM Security Verify](../providers/ibm-verify.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [JumpCloud](../providers/jumpcloud.md) | 📘 | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Keycloak](../providers/keycloak.md) | 📘 | 📘 | ? | ? | ? | 📘 | 📘 | 📘 | ? | ? | ? |
-| [Microsoft Entra ID](../providers/entra-id.md) | 📘 | ? | ? | ? | ? | ? | ◇ | ◇ | ? | 📘 | 📘 |
-| [Okta](../providers/okta.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ◇ | 📘 | 📘 |
-| [OneLogin](../providers/onelogin.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Oracle Identity Cloud / OCI IAM](../providers/oracle-idcs.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Ping Identity](../providers/ping.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Pocket ID](../providers/pocketid.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Apple](../providers/apple.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [WSO2 Identity Server](../providers/wso2.md) | 📘 | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [ZITADEL](../providers/zitadel.md) | 📘 | 📘 | ? | ? | ? | 📘 | ? | ? | ? | ? | ? |
-| [LinkedIn](../providers/linkedin.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Slack](../providers/slack.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Yahoo](../providers/yahoo.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [ORCID](../providers/orcid.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Generic OpenID Connect](../providers/general.md) | [◇](https://openid.net/specs/openid-connect-core-1_0.html) | [◇](https://www.rfc-editor.org/rfc/rfc9700.html) | [◇](https://www.rfc-editor.org/rfc/rfc9126.html) | [◇](https://www.rfc-editor.org/rfc/rfc9207.html) | [◇](https://www.rfc-editor.org/rfc/rfc7009.html) | [◇](https://openid.net/specs/openid-connect-rpinitiated-1_0.html) | [◇](https://openid.net/specs/openid-connect-frontchannel-1_0.html) | [◇](https://openid.net/specs/openid-connect-backchannel-1_0.html) | [◇](https://openid.net/specs/openid-sharedsignals-framework-1_0-final.html) | [◇](https://refeds.org/profile/mfa) | [◇](https://openid.net/specs/openid-connect-eap-acr-values-1_0.html) |
+| [Auth0](../providers/auth0.md) | [📘](https://auth0.com/docs/get-started/authentication-and-authorization-flow/authorization-code-flow) | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Authelia](../providers/authelia.md) | [📘](https://www.authelia.com/integration/openid-connect/introduction/) | [📘](https://www.authelia.com/configuration/identity-providers/openid-connect/clients/) | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [authentik](../providers/authentik.md) | [📘](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/) | ? | ? | ? | ? | [📘](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/frontchannel_and_backchannel_logout/) | [◇](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/frontchannel_and_backchannel_logout/) | [◇](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/frontchannel_and_backchannel_logout/) | ? | ? | ? |
+| [AWS Cognito](../providers/cognito.md) | [📘](https://docs.aws.amazon.com/cognito/latest/developerguide/authorization-endpoint.html) | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Cisco Duo Single Sign-On](../providers/duo.md) | [📘](https://duo.com/docs/sso-oauth-server) | [📘](https://duo.com/docs/sso-oauth-server) | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Dex](../providers/dex.md) | [📘](https://dexidp.io/docs/configuration/custom-scopes-claims-clients/) | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [FusionAuth](../providers/fusionauth.md) | [📘](https://fusionauth.io/docs/lifecycle/authenticate-users/oauth/) | [📘](https://fusionauth.io/docs/lifecycle/authenticate-users/oauth/) | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [GitLab](../providers/gitlab.md) | [📘](https://docs.gitlab.com/integration/openid_connect_provider/) | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Google / Workspace](../providers/google.md) | [📘](https://developers.google.com/identity/openid-connect/openid-connect) | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [IBM Security Verify](../providers/ibm-verify.md) | [📘](https://docs.verify.ibm.com/gateway/docs/tasks-oidc-rp-verify) | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [JumpCloud](../providers/jumpcloud.md) | [📘](https://jumpcloud.com/support/sso-with-oidc) | [📘](https://jumpcloud.com/support/sso-with-oidc) | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Keycloak](../providers/keycloak.md) | [📘](https://www.keycloak.org/docs/latest/server_admin/) | [📘](https://www.keycloak.org/docs/latest/server_admin/) | ? | ? | ? | [📘](https://www.keycloak.org/docs/latest/server_admin/) | [📘](https://www.keycloak.org/docs/latest/server_admin/) | [📘](https://www.keycloak.org/docs/latest/server_admin/) | ? | ? | ? |
+| [Microsoft Entra ID](../providers/entra-id.md) | [📘](https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols-oidc) | ? | ? | ? | ? | ? | [◇](https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols-oidc) | [◇](https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols-oidc) | ? | [📘](https://learn.microsoft.com/en-us/entra/identity-platform/developer-guide-conditional-access-authentication-context) | [📘](https://learn.microsoft.com/en-us/entra/identity-platform/developer-guide-conditional-access-authentication-context) |
+| [Okta](../providers/okta.md) | [📘](https://developer.okta.com/docs/guides/sign-into-web-app-redirect/main/) | ? | ? | ? | ? | ? | ? | ? | [◇](https://developer.okta.com/docs/reference/ssf-transmitter-sets/) | [📘](https://developer.okta.com/docs/guides/step-up-authentication/main/) | [📘](https://developer.okta.com/docs/guides/step-up-authentication/main/) |
+| [OneLogin](../providers/onelogin.md) | [📘](https://developers.onelogin.com/openid-connect/api/authorization-code) | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Oracle Identity Cloud / OCI IAM](../providers/oracle-idcs.md) | [📘](https://docs.oracle.com/en/cloud/paas/identity-cloud/idcsa/AuthCodeGT.html) | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Ping Identity](../providers/ping.md) | [📘](https://docs.pingidentity.com/pingone/pingone_tutorials/p1_tutorial_integrate_nodejs_express_app.html) | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Pocket ID](../providers/pocketid.md) | [📘](https://pocket-id.org/docs/guides/client-id-metadata-documents) | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Apple](../providers/apple.md) | [📘](https://developer.apple.com/help/account/capabilities/configure-sign-in-with-apple-for-the-web/) | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [WSO2 Identity Server](../providers/wso2.md) | [📘](https://is.docs.wso2.com/en/latest/guides/authentication/oidc/) | [📘](https://is.docs.wso2.com/en/latest/guides/authentication/oidc/) | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [ZITADEL](../providers/zitadel.md) | [📘](https://zitadel.com/docs/guides/integrate/login/login-users) | [📘](https://zitadel.com/docs/guides/integrate/login/login-users) | ? | ? | ? | [📘](https://zitadel.com/docs/guides/integrate/login/login-users) | ? | ? | ? | ? | ? |
+| [LinkedIn](../providers/linkedin.md) | [📘](https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/sign-in-with-linkedin-v2) | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Slack](../providers/slack.md) | [📘](https://api.slack.com/authentication/sign-in-with-slack) | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Yahoo](../providers/yahoo.md) | [📘](https://developer.yahoo.com/oauth2/guide/openid_connect/) | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [ORCID](../providers/orcid.md) | [📘](https://github.com/ORCID/ORCID-Source/blob/main/orcid-web/ORCID_AUTH_WITH_OPENID_CONNECT.md) | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
 
 ### Verified security comparison
 

@@ -293,10 +293,13 @@ def validate_live_evidence_record(provider, feature_id, status, record, root=ROO
         raise CatalogError(f"{label}: live evidence record names another feature")
     tested_on = validate_record_text(record, "tested_on", label)
     try:
-        if datetime.date.fromisoformat(tested_on).isoformat() != tested_on:
+        tested_date = datetime.date.fromisoformat(tested_on)
+        if tested_date.isoformat() != tested_on:
             raise ValueError
     except ValueError as error:
         raise CatalogError(f"{label}: tested_on must use YYYY-MM-DD") from error
+    if tested_date > datetime.date.today():
+        raise CatalogError(f"{label}: tested_on cannot be in the future")
     provider_revision = validate_record_text(record, "provider_revision", label)
     if not PROVIDER_REVISION.fullmatch(provider_revision):
         raise CatalogError(
@@ -305,10 +308,13 @@ def validate_live_evidence_record(provider, feature_id, status, record, root=ROO
     if provider_revision.startswith("service:"):
         service_date = provider_revision.removeprefix("service:")
         try:
-            if datetime.date.fromisoformat(service_date).isoformat() != service_date:
+            service_revision_date = datetime.date.fromisoformat(service_date)
+            if service_revision_date.isoformat() != service_date:
                 raise ValueError
         except ValueError as error:
             raise CatalogError(f"{label}: service revision must contain a real YYYY-MM-DD date") from error
+        if service_revision_date > tested_date:
+            raise CatalogError(f"{label}: service revision cannot be later than tested_on")
     relative, artifact_path = repository_file(record.get("artifact"), label, root)
     if relative.parent != PROVIDER_EVIDENCE_DIRECTORY or relative.suffix != ".json":
         raise CatalogError(f"{label}: live evidence artifact must be a JSON file in tests/evidence/providers")
@@ -364,13 +370,31 @@ def validate_providers(data, standard_ids):
         missing = configured_profiles() - provider_ids
         extra = provider_ids - configured_profiles()
         raise CatalogError(f"provider catalog differs from code; missing={sorted(missing)}, extra={sorted(extra)}")
+    documentation = data.get("documentation")
+    if not isinstance(documentation, dict) or set(documentation) != provider_ids:
+        raise CatalogError("provider documentation must name every provider exactly once")
     for provider in data["providers"]:
         guide_path = ROOT / provider["guide"]
         if not guide_path.is_file():
             raise CatalogError(f"{provider['id']}: guide does not exist")
+        guide_text = guide_path.read_text(encoding="utf-8")
         unknown = set(provider["capabilities"]) - feature_ids
         if unknown:
             raise CatalogError(f"{provider['id']}: unknown capabilities {sorted(unknown)}")
+        documented_features = {
+            feature_id for feature_id, status in provider["capabilities"].items()
+            if status in {"documented", "conditional"}
+        }
+        sources = documentation[provider["id"]]
+        if not isinstance(sources, dict) or set(sources) != documented_features:
+            raise CatalogError(f"{provider['id']}: documentation must name every documented feature exactly once")
+        for feature_id, source in sources.items():
+            if (
+                not isinstance(source, str)
+                or not re.fullmatch(r"https://[^\s<>\"]{1,2040}", source)
+                or f"]({source})" not in guide_text
+            ):
+                raise CatalogError(f"{provider['id']}/{feature_id}: documentation source is not cited in its guide")
         all_records = provider.get("live_evidence", [])
         if not isinstance(all_records, list):
             raise CatalogError(f"{provider['id']}: live_evidence must be a list")
@@ -389,16 +413,15 @@ def validate_providers(data, standard_ids):
         for feature_id, status in provider["capabilities"].items():
             if status not in EVIDENCE:
                 raise CatalogError(f"{provider['id']}/{feature_id}: invalid evidence status {status}")
-            if status in {"documented", "conditional"} and "http" not in guide_path.read_text(encoding="utf-8"):
-                raise CatalogError(
-                    f"{provider['id']}/{feature_id}: documented status needs an external source in its guide"
-                )
             if status in {"live", "adapter"} and feature_id not in evidenced_features:
                 raise CatalogError(f"{provider['id']}/{feature_id}: live status needs a retained evidence record")
 
 
-def cell(defaults, provider, feature_id):
-    return EVIDENCE_SYMBOL[provider["capabilities"].get(feature_id, defaults[feature_id])]
+def cell(defaults, documentation, provider, feature_id):
+    status = provider["capabilities"].get(feature_id, defaults[feature_id])
+    symbol = EVIDENCE_SYMBOL[status]
+    source = documentation[provider["id"]].get(feature_id)
+    return f"[{symbol}]({source})" if source else symbol
 
 
 def resolved_status(providers, provider, feature_id):
@@ -479,7 +502,10 @@ def render(standards, providers):
         guide = "../" + str(pathlib.PurePosixPath(provider["guide"]).relative_to("docs"))
         lines.append(
             f"| [{provider['title']}]({guide}) | "
-            + " | ".join(cell(providers["capability_defaults"], provider, feature["id"]) for feature in features)
+            + " | ".join(
+                cell(providers["capability_defaults"], providers["documentation"], provider, feature["id"])
+                for feature in features
+            )
             + " |"
         )
 

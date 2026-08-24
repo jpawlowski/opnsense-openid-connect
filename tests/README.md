@@ -33,6 +33,11 @@ revision, profile and section inventory. The validator also requires every
 provider profile and matrix dimension to be represented. Run the complete gate,
 not only the standalone generator, when validating a verified claim.
 
+Every `documented` or `conditional` provider cell names one feature-specific
+HTTPS source that is also cited in that provider's guide. The generated matrix
+links the cell directly to that source; an unrelated URL elsewhere in the guide
+cannot support another feature.
+
 Installed and browser evidence is optional but required for statements that
 cannot be proven on the host alone. Keep a sanitized result under
 `tests/evidence/*.json`, or pass it explicitly with a repeatable
