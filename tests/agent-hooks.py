@@ -5,6 +5,7 @@
 """Checks the shared setup performed when a Codex or Claude task starts."""
 
 import importlib.util
+import io
 import json
 import os
 import pathlib
@@ -1443,6 +1444,38 @@ module.update_registry(repository, update)
     publisher = load_agent_module(
         "pr_coordination_publisher_test", ROOT / ".agents" / "pr-coordination.py",
     )
+    label_state = {}
+    label_state_lock = threading.Lock()
+    original_urlopen = publisher.urlopen
+
+    def atomic_label_api(request, timeout):
+        del timeout
+        with label_state_lock:
+            if label_state:
+                raise publisher.HTTPError(request.full_url, 422, "already exists", None, None)
+            label = json.loads(request.data)
+            label_state.update(label)
+            return io.BytesIO(json.dumps(label).encode())
+
+    publisher.urlopen = atomic_label_api
+    lock_results = []
+
+    def contend_for_lock(owner):
+        try:
+            publisher.acquire_coordination_lock("token", owner=owner)
+            lock_results.append((owner, "acquired"))
+        except RuntimeError:
+            lock_results.append((owner, "refused"))
+
+    contenders = [threading.Thread(target=contend_for_lock, args=(owner,)) for owner in ("first", "second")]
+    for contender in contenders:
+        contender.start()
+    for contender in contenders:
+        contender.join()
+    publisher.urlopen = original_urlopen
+    check("an atomic repository mutex admits only one concurrent coordination publisher",
+          sorted(result for _owner, result in lock_results), ["acquired", "refused"])
+
     resumable_record = {
         "id": "42-57-1787590800-a1b2c3", "order": [42, 57], "state": "final", "supersedes": [],
     }
@@ -1506,6 +1539,8 @@ module.update_registry(repository, update)
         "author_association": "OWNER",
     }
     publisher.require_token = lambda: "token"
+    publisher.acquire_coordination_lock = lambda _token: "test-owner"
+    publisher.release_coordination_lock = lambda _token, _owner: None
     publisher.open_pulls = lambda _token: [{"number": 57}, {"number": 63}]
     fulfillment_reads = []
     publisher.comments = lambda number, _token: fulfillment_reads.append(number) or [final_comment]

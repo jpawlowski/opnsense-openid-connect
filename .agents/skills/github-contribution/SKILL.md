@@ -230,6 +230,11 @@ accepts machine markers only from GitHub authors associated as owner, member or
 collaborator. It prints the coordination identifier before its first public
 write. If one mirrored write fails, rerun the same command with `--id ID`; the
 helper verifies and skips matching copies instead of duplicating them.
+Recommendation and fulfillment each acquire one atomic repository-label mutex
+before reading the remote coordination snapshot and retain it through all
+mirrored comments. A competing publisher stands down until release. If a failed
+process leaves the label behind, inspect its owner and remove it deliberately;
+never steal it automatically.
 Recommendation and fulfillment are public mutations: the guard requires a topic
 branch as well as an uncached remote observation before either command runs.
 

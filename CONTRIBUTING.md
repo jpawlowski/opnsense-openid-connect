@@ -95,7 +95,9 @@ PRs; former participants remain mirroring targets but never re-enter the order.
 A predecessor closing unmerged invalidates that order immediately. Only
 repository-associated publishers are trusted;
 an interrupted mirroring resumes under its printed identifier without duplicate
-comments. No agent merges, enables auto-merge or queues a
+comments. Recommendation and fulfillment hold an atomic repository mutex across
+their remote snapshot and all mirrored writes; a concurrent publisher waits, and
+a lock left by a failed process is inspected rather than stolen. No agent merges, enables auto-merge or queues a
 merge without an explicit human instruction naming that PR. Review,
 coordination and making a PR ready do not imply merge permission.
 

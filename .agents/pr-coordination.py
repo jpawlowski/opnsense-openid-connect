@@ -5,6 +5,7 @@
 """Publish one durable, human-readable merge order across overlapping pull requests."""
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -13,7 +14,7 @@ import secrets
 import sys
 import time
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 
@@ -26,6 +27,8 @@ import pr_coordination  # noqa: E402
 CANONICAL_REPOSITORY = "jpawlowski/opnsense-openid-connect"
 GITHUB_TIMEOUT = 10
 IDENTIFIER = re.compile(r"[0-9]+(?:-[0-9]+)+-[0-9]+-[0-9a-f]{6}")
+LOCK_LABEL = "agent:pr-coordination-publication"
+LOCK_COLOR = "ededed"
 
 
 def github_write(path, body, token):
@@ -46,6 +49,86 @@ def github_write(path, body, token):
         raise RuntimeError(f"GitHub coordination comment failed (HTTP {error.code})") from error
     except URLError as error:
         raise RuntimeError(f"GitHub coordination comment failed ({error.reason})") from error
+
+
+def github_delete(path, token):
+    api = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+    request = Request(
+        f"{api}/repos/{CANONICAL_REPOSITORY}/{path.lstrip('/')}",
+        method="DELETE",
+    )
+    request.add_header("Accept", "application/vnd.github+json")
+    request.add_header("Authorization", f"Bearer {token}")
+    request.add_header("User-Agent", github_watch.USER_AGENT)
+    try:
+        with urlopen(request, timeout=GITHUB_TIMEOUT):
+            return
+    except HTTPError as error:
+        raise RuntimeError(f"GitHub coordination lock release failed (HTTP {error.code})") from error
+    except URLError as error:
+        raise RuntimeError(f"GitHub coordination lock release failed ({error.reason})") from error
+
+
+def lock_description(owner):
+    return f"Temporary PR coordination publication lock owned by {owner}"
+
+
+def acquire_coordination_lock(token, owner=None):
+    owner = owner or f"{int(time.time())}-{secrets.token_hex(8)}"
+    api = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+    request = Request(
+        f"{api}/repos/{CANONICAL_REPOSITORY}/labels",
+        data=json.dumps({
+            "name": LOCK_LABEL,
+            "color": LOCK_COLOR,
+            "description": lock_description(owner),
+        }).encode(),
+        method="POST",
+    )
+    request.add_header("Accept", "application/vnd.github+json")
+    request.add_header("Authorization", f"Bearer {token}")
+    request.add_header("Content-Type", "application/json")
+    request.add_header("User-Agent", github_watch.USER_AGENT)
+    try:
+        with urlopen(request, timeout=GITHUB_TIMEOUT) as response:
+            json.load(response)
+    except HTTPError as error:
+        if error.code == 422:
+            raise RuntimeError(
+                f"another coordination publication owns repository lock {LOCK_LABEL}; retry after it releases"
+            ) from error
+        raise RuntimeError(f"GitHub coordination lock acquisition failed (HTTP {error.code})") from error
+    except URLError as error:
+        raise RuntimeError(f"GitHub coordination lock acquisition failed ({error.reason})") from error
+    return owner
+
+
+def release_coordination_lock(token, owner):
+    label_path = f"labels/{quote(LOCK_LABEL, safe='')}"
+    label = github_watch.github_request(CANONICAL_REPOSITORY, label_path, token)
+    if str(label.get("description") or "") != lock_description(owner):
+        raise RuntimeError(
+            f"repository lock {LOCK_LABEL} changed ownership; inspect it and do not remove it automatically"
+        )
+    github_delete(label_path, token)
+
+
+@contextmanager
+def coordination_publication_lock(token):
+    owner = acquire_coordination_lock(token)
+    active_error = None
+    try:
+        yield
+    except BaseException as error:
+        active_error = error
+        raise
+    finally:
+        try:
+            release_coordination_lock(token, owner)
+        except RuntimeError as error:
+            if active_error is None:
+                raise
+            print(f"coordination publication failed and its lock needs inspection: {error}", file=sys.stderr)
 
 
 def paged(path, token):
@@ -171,6 +254,11 @@ def require_token():
 
 def recommend(arguments):
     token = require_token()
+    with coordination_publication_lock(token):
+        recommend_locked(arguments, token)
+
+
+def recommend_locked(arguments, token):
     prs, order = pr_coordination.validate_order(arguments.prs, arguments.order)
     pulls = open_pulls(token)
     values_by_pull = comment_sets(pulls, token)
@@ -226,6 +314,11 @@ def recommend(arguments):
 
 def fulfill(arguments):
     token = require_token()
+    with coordination_publication_lock(token):
+        fulfill_locked(arguments, token)
+
+
+def fulfill_locked(arguments, token):
     pulls = open_pulls(token)
     values_by_pull = comment_sets(pulls, token)
     records = [

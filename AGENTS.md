@@ -162,6 +162,10 @@ Only markers whose GitHub author association is
 owner, member or collaborator are authoritative. The helper prints its identifier
 before the first comment; if mirroring is interrupted, rerun the same command with
 `--id ID` so already published copies are verified and skipped.
+Recommendation and fulfillment each hold one atomic repository-label mutex from
+before their remote snapshot until every mirrored comment is complete. A
+concurrent publisher stands down and retries after release. Inspect and remove a
+lock left by a failed process deliberately; never steal it automatically.
 
 The order controls merging, not current execution. A later PR may finish its
 implementation, review or protected operation but does not merge first or chase
