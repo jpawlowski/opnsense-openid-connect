@@ -489,9 +489,9 @@ async function configureServer(page) {
   dialog = page.getByRole('dialog');
   await expect(dialog.locator('.oidc-discovery-result .alert-success')).toBeVisible();
   await expect(dialog.locator('.oidc-discovery-results')).toBeVisible();
-  await expect(dialog.locator('.oidc-discovery-results tbody tr')).toHaveCount(17);
-  await expect(dialog.locator('.oidc-check-flow')).toHaveCount(17);
-  await expect(dialog.locator('.oidc-check-flow[aria-label]')).toHaveCount(17);
+  await expect(dialog.locator('.oidc-discovery-results tbody tr')).toHaveCount(18);
+  await expect(dialog.locator('.oidc-check-flow')).toHaveCount(18);
+  await expect(dialog.locator('.oidc-check-flow[aria-label]')).toHaveCount(18);
   await expect(dialog.locator('.oidc-check-actor')).not.toHaveCount(0);
   await expect(dialog.locator('.oidc-check-actor i[aria-hidden="true"]')).not.toHaveCount(0);
   await expect(dialog.locator('th > div').filter({ hasText: /\(.*(?:OPNsense|Browser|IdP).*\)/ }))
@@ -519,6 +519,7 @@ async function configureServer(page) {
     'Provider sign-out': ['browser,idp', 'not-tested'],
     'Token revocation': ['opnsense,idp', 'not-tested'],
     'Signing keys': ['opnsense,idp', 'live'],
+    'JWT-secured authorization request': ['opnsense', 'configuration'],
     'PAR endpoint': ['opnsense,idp', 'live'],
   });
   await expect(dialog.locator('.oidc-discovery-results tr[data-status="success"]').first()).toBeVisible();
