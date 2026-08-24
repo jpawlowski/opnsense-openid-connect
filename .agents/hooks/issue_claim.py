@@ -14,6 +14,7 @@ import time
 
 CANONICAL_REPOSITORY = "jpawlowski/opnsense-openid-connect"
 CLAIM_PREFIX = "wip:"
+LOCK_PREFIX = "wip-lock:issue-"
 CLAIM_COLOR = "5319e7"
 CLAIM_PATTERN = re.compile(r"<!-- contribution-work-claim:([a-z0-9-]+) -->")
 LEGACY_MARKER = "<!-- contribution-work-claim -->"
@@ -92,7 +93,19 @@ def current_claim(repository):
         token = marker_path(repository).read_text(encoding="utf-8")
     except FileNotFoundError:
         return None
-    return record if token == str(record.get("token") or "") else None
+    if token != str(record.get("token") or ""):
+        return None
+    if record.get("status") == "pr-linked":
+        branch = git_value(repository, "symbolic-ref", "--short", "HEAD")
+        bound_head = str(record.get("head") or "")
+        if branch != record.get("branch") or not bound_head:
+            return None
+        if subprocess.run(
+            ("git", "merge-base", "--is-ancestor", bound_head, "HEAD"), cwd=repository,
+            check=False, capture_output=True, text=True,
+        ).returncode != 0:
+            return None
+    return record
 
 
 def _gh(arguments, json_output=False):
@@ -110,7 +123,7 @@ def _gh(arguments, json_output=False):
 def _issue(number):
     return _gh((
         "issue", "view", str(number), "--repo", CANONICAL_REPOSITORY,
-        "--json", "number,state,labels,comments,assignees,url",
+        "--json", "number,state,labels,comments,assignees,closedByPullRequestsReferences,url",
     ), json_output=True)
 
 
@@ -132,11 +145,15 @@ def _markers(issue):
 def _delete_comment(comment_id):
     if not comment_id:
         return
-    _gh((
-        "api", "graphql", "-f",
-        "query=mutation($id:ID!){deleteIssueComment(input:{id:$id}){clientMutationId}}",
-        "-f", f"id={comment_id}",
-    ))
+    try:
+        _gh((
+            "api", "graphql", "-f",
+            "query=mutation($id:ID!){deleteIssueComment(input:{id:$id}){clientMutationId}}",
+            "-f", f"id={comment_id}",
+        ))
+    except RuntimeError as error:
+        if "could not resolve to a node" not in str(error).lower():
+            raise
 
 
 def _claim_labels(issue):
@@ -147,34 +164,85 @@ def _claim_labels(issue):
     )
 
 
+def _linked_open_pull(issue):
+    for reference in issue.get("closedByPullRequestsReferences") or []:
+        number = reference.get("number")
+        if not number:
+            continue
+        try:
+            pull = _gh((
+                "pr", "view", str(number), "--repo", CANONICAL_REPOSITORY,
+                "--json", "number,state,url",
+            ), json_output=True)
+        except RuntimeError:
+            return {"number": number, "state": "UNKNOWN"}
+        if str(pull.get("state") or "").upper() == "OPEN":
+            return pull
+    return None
+
+
+def _lock_label(number):
+    return f"{LOCK_PREFIX}{int(number)}"
+
+
+def _acquire_lock(number, token):
+    label = _lock_label(number)
+    try:
+        _gh((
+            "api", f"repos/{CANONICAL_REPOSITORY}/labels",
+            "-f", f"name={label}", "-f", f"color={CLAIM_COLOR}",
+            "-f", f"description=Exclusive agent claim {token}",
+        ), json_output=True)
+    except RuntimeError as error:
+        raise RuntimeError(
+            f"issue #{number} already has an atomic work lock ({label}); inspect it before takeover"
+        ) from error
+    return label
+
+
 def _delete_label(label):
     if not label:
         return
     try:
         _gh(("label", "delete", label, "--repo", CANONICAL_REPOSITORY, "--yes"))
-    except RuntimeError:
-        # A contributor may own the comment but lack permission to manage the
-        # repository label. The marker remains sufficient for coordination.
-        pass
+    except RuntimeError as error:
+        if "not found" not in str(error).lower() and "could not resolve" not in str(error).lower():
+            raise
 
 
-def _remove_claim_label(number, label):
-    if not label:
-        return
-    try:
-        issue = _issue(number)
-        if label in _claim_labels(issue):
-            try:
-                _gh(("issue", "edit", str(number), "--repo", CANONICAL_REPOSITORY,
-                     "--remove-label", label))
-            except RuntimeError:
-                pass
-    finally:
-        _delete_label(label)
+def _remove_claim_labels(label, lock_label):
+    errors = []
+    for value in (label, lock_label):
+        if not value:
+            continue
+        try:
+            _delete_label(value)
+        except RuntimeError as error:
+            errors.append(str(error))
+    if errors:
+        raise RuntimeError("claim label cleanup failed: " + "; ".join(errors))
+
+
+def _available_issue(issue):
+    number = issue.get("number")
+    if str(issue.get("state") or "").upper() != "OPEN":
+        raise RuntimeError(f"issue #{number} is not open")
+    markers = _markers(issue)
+    labels = _claim_labels(issue)
+    pull = _linked_open_pull(issue)
+    if markers:
+        raise RuntimeError(f"issue #{number} already has an active agent claim: {markers[0].get('url')}")
+    if labels:
+        raise RuntimeError(f"issue #{number} already has an agent claim ({labels[0]}); inspect it manually")
+    if pull:
+        raise RuntimeError(
+            f"issue #{number} has linked pull request #{pull.get('number')} in state {pull.get('state')}; "
+            "inspect it before claiming"
+        )
 
 
 def claim(repository, number, now=None, language="en"):
-    """Claim one open issue, resolving a simultaneous race by the unique WIP id."""
+    """Claim one open issue through an atomic label-definition lock."""
     existing = current_claim(repository)
     if existing and int(existing.get("issue", 0)) == int(number) and existing.get("status") == "active":
         return existing
@@ -182,61 +250,54 @@ def claim(repository, number, now=None, language="en"):
         raise RuntimeError(
             f"this worktree already owns issue #{existing.get('issue')}; link or release that claim first"
         )
-    issue = _issue(number)
-    if str(issue.get("state") or "").upper() != "OPEN":
-        raise RuntimeError(f"issue #{number} is not open")
-    markers = _markers(issue)
-    labels = _claim_labels(issue)
-    if markers:
-        raise RuntimeError(f"issue #{number} already has an active agent claim: {markers[0].get('url')}")
-    if labels:
-        raise RuntimeError(f"issue #{number} already has an agent claim ({labels[0]}); inspect it manually")
+    _available_issue(_issue(number))
 
     login = _gh(("api", "user", "--jq", ".login"))
     claimed_at = time.time() if now is None else now
     token = f"{int(claimed_at)}-{secrets.token_hex(4)}"
     label = f"{CLAIM_PREFIX}{token}"
+    lock_label = _acquire_lock(number, token)
+    label_created = False
+    comment_id = ""
     try:
+        # A contender may have paused before acquiring the atomic label. Check
+        # the issue again only after this task owns that cross-clone mutex.
+        _available_issue(_issue(number))
         _gh(("label", "create", label, "--repo", CANONICAL_REPOSITORY,
-             "--color", CLAIM_COLOR, "--description", "Temporary exclusive agent work claim", "--force"))
+             "--color", CLAIM_COLOR, "--description", "Temporary exclusive agent work claim"))
+        label_created = True
         _gh(("issue", "edit", str(number), "--repo", CANONICAL_REPOSITORY,
              "--add-label", label, "--add-assignee", login))
-    except RuntimeError:
-        # Fork contributors may lack triage permission; the unique comment is
-        # still a visible, machine-readable lock that every agent must honor.
-        pass
-    work_note, notice = CLAIM_TEXT[language]
-    body = (
-        f"<!-- contribution-work-claim:{token} -->\n"
-        f"{work_note}\n\n"
-        f"{notice}"
-    )
-    try:
+        work_note, notice = CLAIM_TEXT[language]
+        body = (
+            f"<!-- contribution-work-claim:{token} -->\n"
+            f"{work_note}\n\n"
+            f"{notice}"
+        )
         _gh(("issue", "comment", str(number), "--repo", CANONICAL_REPOSITORY, "--body", body))
+        markers = _markers(_issue(number))
+        ours = next((value for value in markers if value["token"] == token), None)
+        if ours is None:
+            raise RuntimeError("the issue claim comment could not be verified")
+        comment_id = ours["id"]
+        issue = _issue(number)
+        foreign = [value for value in _markers(issue) if value["token"] != token]
+        labels = [value for value in _claim_labels(issue) if value != label]
+        if foreign or labels or _linked_open_pull(issue):
+            raise RuntimeError("the issue changed while its public claim was being published; inspect it manually")
     except RuntimeError:
-        _remove_claim_label(number, label)
-        raise
-    markers = _markers(_issue(number))
-    ours = next((value for value in markers if value["token"] == token), None)
-    if ours is None:
-        _remove_claim_label(number, label)
-        raise RuntimeError("the issue claim comment could not be verified")
-    issue = _issue(number)
-    contenders = sorted({value["token"] for value in markers} | {
-        value.removeprefix(CLAIM_PREFIX) for value in _claim_labels(issue)
-    })
-    if contenders[0] != token:
         try:
-            _delete_comment(ours["id"])
+            if comment_id:
+                _delete_comment(comment_id)
         finally:
-            _remove_claim_label(number, label)
-        winner = next((value for value in markers if value["token"] == contenders[0]), None)
-        raise RuntimeError(f"another agent won the issue claim race: {(winner or {}).get('url') or contenders[0]}")
+            _remove_claim_labels(label if label_created else "", lock_label)
+        raise
 
     registry = load_registry(repository)
     record = {
         "issue": int(number), "token": token, "comment_id": ours["id"], "comment_url": ours["url"],
-        "label": label, "login": login, "status": "active", "claimed_at": claimed_at,
+        "label": label, "lock_label": lock_label, "login": login,
+        "status": "active", "claimed_at": claimed_at,
         "worktree_marker": True,
     }
     write_marker(repository, token)
@@ -269,9 +330,12 @@ def linked(repository, pull_number):
     try:
         _delete_comment(record.get("comment_id"))
     finally:
-        _remove_claim_label(record["issue"], record.get("label"))
+        _remove_claim_labels(record.get("label"), record.get("lock_label"))
     registry = load_registry(repository)
-    record.update({"status": "pr-linked", "pull_request": int(pull_number), "comment_id": ""})
+    record.update({
+        "status": "pr-linked", "pull_request": int(pull_number), "comment_id": "",
+        "branch": branch, "head": head,
+    })
     registry["claims"][worktree_key(repository)] = record
     save_registry(repository, registry)
     return record
@@ -291,7 +355,8 @@ def adopt_pull_request(repository, pull_number):
     registry = load_registry(repository)
     record = {
         "issue": issue, "token": f"pr-{secrets.token_hex(6)}", "status": "pr-linked",
-        "pull_request": int(pull_number), "adopted_at": time.time(), "worktree_marker": True,
+        "pull_request": int(pull_number), "branch": branch, "head": head,
+        "adopted_at": time.time(), "worktree_marker": True,
     }
     write_marker(repository, record["token"])
     registry["claims"][worktree_key(repository)] = record
@@ -307,7 +372,7 @@ def release(repository, remove_assignee=True):
         if record.get("comment_id"):
             _delete_comment(record["comment_id"])
     finally:
-        _remove_claim_label(record["issue"], record.get("label"))
+        _remove_claim_labels(record.get("label"), record.get("lock_label"))
     if remove_assignee and record.get("login"):
         try:
             _gh(("issue", "edit", str(record["issue"]), "--repo", CANONICAL_REPOSITORY,

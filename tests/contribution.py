@@ -349,9 +349,10 @@ def main():
     check("only the author's own obsolete claim is deleted",
           all("delete" in text and "own" in text and "another" in text
               for text in work_claim_rules), True)
-    check("the agent work claim uses one timestamped race-safe identifier",
+    check("the agent work claim combines a timestamped signal with an atomic mutex",
           "<!-- contribution-work-claim:<epoch>-<random> -->" in contribution_skill
-          and "lexicographically smallest" in contribution_skill, True)
+          and "fixed per-issue label definition" in contribution_skill
+          and "atomic" in contribution_skill, True)
     check("the issue claim is cleaned completely rather than copied to the pull request",
           all("label definition" in text and "pull request" in text and "do not" in text
               for text in work_claim_rules), True)

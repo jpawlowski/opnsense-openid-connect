@@ -15,6 +15,7 @@ import time
 import worktree_cleanup
 
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 LEASE_TTL = 30 * 60
 READ_ONLY_PROGRAMS = {
     "cat", "file", "head", "ls", "pwd", "stat", "tail", "true", "wc", "which",
@@ -222,30 +223,29 @@ def _read_only_rg(arguments):
     )
 
 
-def _worktree_helper(arguments):
+def _repository_helper(arguments, relative_path, commands):
     if len(arguments) < 2:
         return False
-    script = arguments[0].replace("\\", "/")
-    return script.endswith(".agents/worktrees.py") and arguments[1] in (
-        "audit", "create", "list", "retire", "sweep",
+    script = Path(arguments[0])
+    resolved = script.resolve() if script.is_absolute() else (Path.cwd() / script).resolve()
+    return resolved == (REPOSITORY_ROOT / relative_path).resolve() and arguments[1] in commands
+
+
+def _worktree_helper(arguments):
+    return _repository_helper(
+        arguments, ".agents/worktrees.py", ("audit", "create", "list", "retire", "sweep"),
     )
 
 
 def _hook_control(arguments):
-    if len(arguments) < 2:
-        return False
-    script = arguments[0].replace("\\", "/")
-    return script.endswith(".agents/hooks/fast_gate.py") and arguments[1] in (
-        "acknowledge-main", "refresh", "watch",
+    return _repository_helper(
+        arguments, ".agents/hooks/fast_gate.py", ("acknowledge-main", "refresh", "watch"),
     )
 
 
 def _issue_helper(arguments):
-    if len(arguments) < 2:
-        return False
-    script = arguments[0].replace("\\", "/")
-    return script.endswith(".agents/issues.py") and arguments[1] in (
-        "adopt-pr", "claim", "linked", "release",
+    return _repository_helper(
+        arguments, ".agents/issues.py", ("adopt-pr", "claim", "linked", "release"),
     )
 
 

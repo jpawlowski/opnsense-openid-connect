@@ -72,15 +72,17 @@ issue when none exists, then acquire its exclusive public work claim:
 
     python3 .agents/issues.py claim 123
 
-The claim uses one temporary `wip:<epoch>-<random>` issue label and a matching
-machine-readable comment. A racing agent must stand down. When `Fixes #123`
-links the pull request, run `python3 .agents/issues.py linked 456`; this removes
-the comment, the issue label and its repository label definition. The pull
-request and its head then carry ownership, so no WIP label belongs on the pull
-request. Run `python3 .agents/issues.py release` when work stops before a pull
-request. Use `adopt-pr` only when the user explicitly asks to continue an
-existing pull request. The guard blocks implementation writes without one of
-these verified states.
+The claim first acquires a fixed per-issue label definition as an atomic
+cross-clone mutex, then publishes one temporary `wip:<epoch>-<random>` issue
+label and a matching machine-readable comment. A racing agent must stand down.
+When `Fixes #123` links the pull request, run
+`python3 .agents/issues.py linked 456`; this removes the comment and both label
+definitions. The pull request, branch and linked head ancestry then carry
+ownership, so no WIP label belongs on the pull request. Run
+`python3 .agents/issues.py release` when work stops before a pull request. Use
+`adopt-pr` only when the user explicitly asks to continue an existing pull
+request. The guard blocks implementation writes without one of these verified
+states.
 
 The shared startup hook identifies the canonical base from the `origin` fetch
 URL. A direct clone uses `origin/main`; a GitHub fork keeps `origin` for

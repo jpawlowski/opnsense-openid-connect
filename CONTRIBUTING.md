@@ -119,14 +119,15 @@ before splitting an ambiguous continuous request.
 
 When work begins now rather than at some later date, first check assignees,
 Development links, recent comments and temporary `wip:*` labels. The repository
-helper assigns the publishing account when permitted, creates a unique
+helper requires label-management permission, atomically creates one fixed
+per-issue lock definition, assigns the publishing account, creates a unique
 `wip:<epoch>-<random>` label on the issue, and leaves a matching hidden-marker
-comment. Contributors without label permission still publish the comment, which
-is the portable lock. After setting a claim, agents re-read the issue; only the
-smallest competing identifier may proceed.
+comment. The fixed definition serializes cross-clone claimants even when one is
+paused mid-operation; a contributor without that permission coordinates with a
+maintainer instead of starting an unguarded agent implementation.
 
 Use `python3 .agents/issues.py claim N` before implementation. Delete only that
-task's own temporary comment, issue label and label definition as soon as the
+task's own temporary comment, issue label and both label definitions as soon as the
 pull request appears through `Fixes #N`, using
 `python3 .agents/issues.py linked PR`. The pull request and its head branch then
 become the work signal; do not copy a WIP label to the pull request. If work
@@ -160,8 +161,9 @@ relevant, but workflow labels such as `needs decision` are not copied.
 and `good first issue` are deliberate invitations. `accessibility` records an
 impact, while `duplicate` and `not planned` record a reasoned close. There are no
 priority or permanent agent-authorship labels. Temporary `wip:<epoch>-<random>`
-labels are exclusive issue locks and their definitions are deleted when released;
-they are never classification labels or pull-request labels. Contributors
+labels expose exclusive issue locks; their dynamic definition and the fixed
+per-issue mutex definition are deleted when released. They are never
+classification labels or pull-request labels. Contributors
 without triage access make their classification through the forms rather than
 applying labels directly.
 

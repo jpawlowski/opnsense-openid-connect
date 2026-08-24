@@ -409,6 +409,8 @@ def main():
           guard_module.is_read_only_shell(
               "python3 .agents/worktrees.py create example --client codex",
           ), True)
+    check("a look-alike helper outside the repository is not trusted",
+          guard_module.is_read_only_shell("python3 /tmp/.agents/worktrees.py list"), False)
     check("the issue claim helper is an allowed coordination operation",
           guard_module.is_read_only_shell("python3 .agents/issues.py claim 42"), True)
     check("issue creation may bootstrap public coordination before a claim",
@@ -566,7 +568,7 @@ def main():
         subprocess.run(("git", "commit", "-q", "-m", "test: seed"), cwd=repository, check=True)
         issue = {
             "number": 36, "state": "OPEN", "labels": [], "comments": [], "assignees": [],
-            "url": "https://example.invalid/issues/36",
+            "closedByPullRequestsReferences": [], "url": "https://example.invalid/issues/36",
         }
         label_definitions = set()
 
@@ -577,11 +579,18 @@ def main():
             arguments = tuple(arguments)
             if arguments[:2] == ("api", "user"):
                 return "publisher"
+            if arguments[:2] == ("api", "repos/jpawlowski/opnsense-openid-connect/labels"):
+                label = next(value.removeprefix("name=") for value in arguments if value.startswith("name="))
+                if label in label_definitions:
+                    raise RuntimeError("label already exists")
+                label_definitions.add(label)
+                return {"name": label}
             if arguments[:2] == ("label", "create"):
                 label_definitions.add(arguments[2])
                 return ""
             if arguments[:2] == ("label", "delete"):
                 label_definitions.discard(arguments[2])
+                issue["labels"] = [value for value in issue["labels"] if value["name"] != arguments[2]]
                 return ""
             if arguments[:2] == ("issue", "edit"):
                 if "--add-label" in arguments:
@@ -623,6 +632,12 @@ def main():
         check("the marker and issue label carry the same unique id",
               claimed["token"] in issue["comments"][0]["body"]
               and issue["labels"] == [{"name": claimed["label"]}], True)
+        try:
+            claim_module._acquire_lock(36, "competing-token")
+            lock_was_exclusive = False
+        except RuntimeError:
+            lock_was_exclusive = True
+        check("the fixed per-issue label definition is an atomic cross-clone lock", lock_was_exclusive, True)
         claim_module.marker_path(repository).unlink()
         check("a reused worktree path cannot trust a claim without its private marker",
               claim_module.current_claim(repository), None)
@@ -631,6 +646,12 @@ def main():
         check("the linked pull request replaces the issue lock", linked_claim["status"], "pr-linked")
         check("linking deletes the comment, issue label and repository label definition",
               (issue["comments"], issue["labels"], label_definitions), ([], [], set()))
+        subprocess.run(("git", "switch", "-q", "-c", "codex/unrelated"), cwd=repository, check=True)
+        check("a PR-linked claim cannot authorize a different branch",
+              claim_module.current_claim(repository), None)
+        subprocess.run(("git", "switch", "-q", "codex/claimed"), cwd=repository, check=True)
+        check("the linked claim remains valid on its bound branch and descendants",
+              claim_module.current_claim(repository)["pull_request"], 41)
         try:
             claim_module.claim(repository, 37, now=1_777_000_001)
             replaced = True
@@ -699,6 +720,10 @@ def main():
         check("checks and reviews are summarized",
               (snapshot["current"]["checks"], snapshot["current"]["review_decision"]),
               ("passing", "approved"))
+        check("a pending legacy status keeps completed check runs pending", watch._check_state(
+            {"check_runs": [{"status": "completed", "conclusion": "success"}]},
+            {"state": "pending"},
+        ), "pending")
         check("an approval on an older head is stale", watch._review_decision([
             {"user": {"login": "reviewer"}, "state": "APPROVED", "commit_id": "older"},
         ], head), "stale approval")

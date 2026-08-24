@@ -150,6 +150,8 @@ def _check_state(checks, status):
     combined = str(status.get("state") or "")
     if combined in ("error", "failure"):
         return "failing"
+    if combined == "pending":
+        return "pending"
     if runs or combined == "success":
         return "passing"
     return "pending"

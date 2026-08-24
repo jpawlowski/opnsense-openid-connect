@@ -61,23 +61,27 @@ somebody is already working on it. Claim work only when implementation begins
 now, not when it is merely planned for later. The write guard requires a local
 record of the public claim before it permits source, build or Git mutations.
 
-Run `python3 .agents/issues.py claim N`. With triage access it assigns the
-publishing account and creates a unique issue label
-`wip:<epoch>-<random>`; without that permission the comment remains the portable
-lock. Add `--language de` when the issue conversation is German. Its hidden
-marker uses the same identifier:
+Run `python3 .agents/issues.py claim N`. It requires label-management permission
+and first creates a fixed per-issue label definition through GitHub's atomic
+create operation. Only its owner proceeds to assign the publishing account,
+create the visible `wip:<epoch>-<random>` issue label, and publish the comment.
+This serializes claimants across clones even when one pauses mid-operation. An
+agent without that permission coordinates with a maintainer instead of starting
+unguarded work. Add `--language de` when the issue conversation is German. The
+hidden marker uses the same dynamic identifier:
 
     <!-- contribution-work-claim:<epoch>-<random> -->
 
 The helper includes the issue-language work note and required authorship notice,
-then re-reads all labels and markers. The lexicographically smallest identifier
-wins a simultaneous race; every loser removes only its own artifacts and stops.
+then re-reads the issue under the atomic lock. A claimant that cannot acquire
+the fixed definition stops before it publishes anything.
 
 As soon as a pull request with `Fixes #N` is linked, run
 `python3 .agents/issues.py linked PR`. It deletes only this task's comment,
-removes its issue label, deletes the now-unused repository label definition and
-retains the local PR-linked state. Never delete another author's marker. The
-pull request and exact head branch are the exclusive work signal from then on;
+removes its issue label, deletes both now-unused repository label definitions and
+retains a local state bound to the pull-request branch and linked head ancestry.
+Never delete another author's marker. The pull request and bound branch are the
+exclusive work signal from then on;
 do not put the WIP label on the pull request. If work stops before a pull request
 exists, run `python3 .agents/issues.py release` to remove the comment, label,
 label definition and, when permitted, self-assignment. Inspect and deliberately
