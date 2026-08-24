@@ -14,9 +14,14 @@ final class ParClient
 {
     public const MAX_BYTES = 262144;
     private bool $credentialsExercised = false;
+    private RequestObjectSigner $requestObjectSigner;
 
-    public function __construct(private readonly OpenIDConnect $settings, private readonly HttpClient $http)
-    {
+    public function __construct(
+        private readonly OpenIDConnect $settings,
+        private readonly HttpClient $http,
+        ?RequestObjectSigner $requestObjectSigner = null
+    ) {
+        $this->requestObjectSigner = $requestObjectSigner ?? new RequestObjectSigner();
     }
 
     /** @param array<string,string> $parameters */
@@ -97,6 +102,16 @@ final class ParClient
         }
         if ($this->settings->selectAccount()) {
             $parameters['prompt'] = 'select_account';
+        }
+        $key = $this->settings->requestObjectSigningKey();
+        if ($metadata->requiresSignedRequestObject() && $key === '') {
+            throw new ProtocolException('Discovery requires signed Request Objects but no signing key is selected');
+        }
+        if ($key !== '') {
+            $parameters = [
+                'client_id' => $this->settings->clientId(),
+                'request' => $this->requestObjectSigner->sign($this->settings, $metadata, $parameters),
+            ];
         }
         $this->push($metadata, $endpoint, $parameters);
     }

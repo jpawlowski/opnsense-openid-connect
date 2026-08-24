@@ -15,7 +15,8 @@ final class ProviderProbe
     public const FORM_FIELDS = [
         'openidconnect_provider_url', 'openidconnect_app_code', 'openidconnect_provider_profile',
         'openidconnect_microsoft_audience', 'openidconnect_client_id', 'openidconnect_client_secret',
-        'openidconnect_token_auth', 'openidconnect_par_mode', 'openidconnect_scopes',
+        'openidconnect_token_auth', 'openidconnect_par_mode', 'openidconnect_request_object_key',
+        'openidconnect_scopes',
         'openidconnect_response_mode', 'openidconnect_claims_source', 'openidconnect_max_age',
         'openidconnect_select_account', 'openidconnect_required_authentication', 'openidconnect_acr_request',
         'openidconnect_acr_values', 'openidconnect_amr_values', 'openidconnect_entra_auth_context',
@@ -69,6 +70,7 @@ final class ProviderProbe
                 'live'
             );
         }
+        $checks[] = $this->requestObjectCheck($settings, $metadata);
         $checks[] = $this->parCheck($settings, $metadata, $redirectUri);
         return $checks;
     }
@@ -103,10 +105,11 @@ final class ProviderProbe
     }
 
     /** @return array<int,array<string,mixed>> */
-    public static function healthReadiness(OpenIDConnect $settings): array
+    public static function healthReadiness(OpenIDConnect $settings, ?string $redirectUri): array
     {
         $complete = $settings->issuerUrl() !== '' && $settings->clientId() !== '' && $settings->clientSecret() !== '';
-        $transport = $settings->isWebGuiTransportReady();
+        $transportReady = $settings->isWebGuiTransportReady();
+        $transport = $transportReady && $redirectUri !== null;
         return [
             self::check(
                 gettext('Client configuration'),
@@ -124,11 +127,51 @@ final class ProviderProbe
                 $transport ? 'success' : 'error',
                 $transport
                     ? gettext('The current form provides an accepted HTTPS WebGUI origin.')
-                    : $settings->webGuiTransportProblem(),
+                    : ($transportReady
+                        ? gettext('The current WebGUI origin is not accepted by these form values.')
+                        : $settings->webGuiTransportProblem()),
                 ['browser', 'opnsense'],
                 'configuration'
             ),
         ];
+    }
+
+    /** @return array<string,mixed> */
+    private function requestObjectCheck(OpenIDConnect $settings, ProviderMetadata $metadata): array
+    {
+        $key = $settings->requestObjectSigningKey();
+        if ($key === '') {
+            return self::check(
+                gettext('JWT-secured authorization request'),
+                $metadata->requiresSignedRequestObject() ? gettext('Required by provider') : gettext('Disabled'),
+                $metadata->requiresSignedRequestObject() ? 'error' : 'info',
+                $metadata->requiresSignedRequestObject()
+                    ? gettext('Select and register a Request Object signing key before sign-in.')
+                    : gettext('Select a registered OPNsense certificate to sign RFC 9101 Request Objects.'),
+                ['opnsense'],
+                'configuration'
+            );
+        }
+        try {
+            $algorithm = (new RequestObjectSigner())->selectedAlgorithm($settings, $metadata);
+            return self::check(
+                gettext('JWT-secured authorization request'),
+                $algorithm,
+                'success',
+                sprintf(gettext('Request Objects use the selected certificate with kid %s.'), $key),
+                ['opnsense'],
+                'configuration'
+            );
+        } catch (\Throwable $error) {
+            return self::check(
+                gettext('JWT-secured authorization request'),
+                gettext('No compatible signing key'),
+                'error',
+                $error->getMessage(),
+                ['opnsense'],
+                'configuration'
+            );
+        }
     }
 
     /** @return array<string,mixed> */

@@ -127,9 +127,24 @@ Checks::that('revocation is an unexecuted server path', $draftSemantics['Token r
 Checks::that('signing keys name their live firewall request', $draftSemantics['Signing keys'], [
     'opnsense,idp', 'live',
 ]);
+Checks::that(
+    'the Request Object key is evaluated from the current form',
+    $draftSemantics['JWT-secured authorization request'],
+    ['opnsense', 'configuration']
+);
 Checks::that('draft PAR names the path it did not execute', $draftSemantics['PAR endpoint'], [
     'opnsense,idp', 'not-tested',
 ]);
+
+$requestObjectDraft = ProviderProbe::settings([
+    'openidconnect_provider_url' => $issuer,
+    'openidconnect_request_object_key' => 'unsaved-request-key',
+]);
+Checks::that(
+    'the provider probe preserves the unsaved Request Object key',
+    $requestObjectDraft->requestObjectSigningKey(),
+    'unsaved-request-key'
+);
 
 $requests = [];
 $secret = 'diagnostic-secret-value';
@@ -157,8 +172,21 @@ Checks::that('the secret is never returned in diagnostic results', str_contains(
     $secret
 ), false);
 
-$readiness = ProviderProbe::healthReadiness($complete);
+$readiness = ProviderProbe::healthReadiness(
+    $complete,
+    'https://firewall.example.net/api/openidconnect/auth/callback/main'
+);
 Checks::that('health checks current client completeness', $readiness[0]['status'], 'success');
+Checks::that('health accepts the current configured WebGUI origin', $readiness[1]['status'], 'success');
+$rejectedReadiness = ProviderProbe::healthReadiness($complete, null);
+Checks::that('health rejects a current WebGUI origin outside the effective origins', $rejectedReadiness[1], [
+    'label' => 'WebGUI transport',
+    'value' => 'Blocked',
+    'status' => 'error',
+    'note' => 'The current WebGUI origin is not accepted by these form values.',
+    'actors' => ['browser', 'opnsense'],
+    'verification' => 'configuration',
+]);
 $credentials = ProviderProbe::credentialsCheck($par);
 Checks::that('health says when PAR exercised client credentials', $credentials['verification'], 'live');
 $unsupportedProvider = array_replace($provider, [

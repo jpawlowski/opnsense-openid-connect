@@ -316,7 +316,8 @@
         var names = [
             'openidconnect_provider_url', 'openidconnect_app_code', 'openidconnect_provider_profile',
             'openidconnect_microsoft_audience', 'openidconnect_client_id', 'openidconnect_client_secret',
-            'openidconnect_token_auth', 'openidconnect_par_mode', 'openidconnect_scopes',
+            'openidconnect_token_auth', 'openidconnect_par_mode', 'openidconnect_request_object_key',
+            'openidconnect_scopes',
             'openidconnect_response_mode', 'openidconnect_claims_source', 'openidconnect_max_age',
             'openidconnect_select_account', 'openidconnect_required_authentication', 'openidconnect_acr_request',
             'openidconnect_acr_values', 'openidconnect_amr_values', 'openidconnect_entra_auth_context',

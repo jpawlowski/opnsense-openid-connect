@@ -29,7 +29,8 @@ class HealthController extends PrivateApiControllerBase
         $checks = [];
         try {
             $settings = ProviderProbe::settings($this->formValues());
-            $checks = ProviderProbe::healthReadiness($settings);
+            $redirectUri = RelyingParty::acceptedRedirectUri($settings, $this->request);
+            $checks = ProviderProbe::healthReadiness($settings, $redirectUri);
             if ($settings->issuerUrl() === '' || $settings->clientId() === '' || $settings->clientSecret() === '') {
                 return ProviderProbe::answer(
                     $checks,
@@ -38,7 +39,6 @@ class HealthController extends PrivateApiControllerBase
                     gettext('Connection health has %d failure(s)')
                 );
             }
-            $redirectUri = RelyingParty::acceptedRedirectUri($settings, $this->request);
             $providerChecks = (new ProviderProbe(new HttpClient()))->checks($settings, $redirectUri);
             $checks = array_merge($checks, $providerChecks);
             $par = end($providerChecks);

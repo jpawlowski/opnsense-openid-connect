@@ -285,6 +285,23 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'validate' => fn($value) => in_array($value ?: 'auto', self::PAR_MODES, true)
                     ? [] : [gettext('Unknown pushed authorization request mode.')],
             ],
+            'openidconnect_request_object_key' => [
+                'name' => gettext('Request Object signing key'),
+                'help' => gettext(
+                    'Advanced. Select a dedicated OPNsense certificate whose public key and displayed kid are ' .
+                    'registered for this client at the provider. Authorization parameters are then sent in a ' .
+                    'short-lived signed RFC 9101 Request Object, including through PAR. For rotation, register ' .
+                    'the replacement certificate first, select it here, test sign-in, and only then remove the old key.'
+                ),
+                'type' => 'dropdown',
+                'default' => '',
+                'options' => $this->requestObjectSigningKeyOptions(),
+                'validate' => function ($value): array {
+                    $value = trim((string)$value);
+                    return $value === '' || array_key_exists($value, $this->requestObjectSigningKeyOptions())
+                        ? [] : [gettext('Select an OPNsense certificate with a private key.')];
+                },
+            ],
             'openidconnect_username_claim' => [
                 'name' => gettext('Username claim'),
                 'help' => gettext(
@@ -2860,6 +2877,32 @@ class OpenIDConnect extends Base implements IAuthConnector
     public function clientSecret(): string
     {
         return $this->text('openidconnect_client_secret');
+    }
+
+    public function requestObjectSigningKey(): string
+    {
+        $reference = $this->text('openidconnect_request_object_key');
+        return strlen($reference) <= 128 && !preg_match('/[\x00-\x1f\x7f]/', $reference) ? $reference : '';
+    }
+
+    /** @return array<string,string> private-key certificates keyed by the RFC 9101 kid sent to the provider */
+    public function requestObjectSigningKeyOptions(): array
+    {
+        $options = ['' => gettext('Disabled')];
+        foreach (Config::getInstance()->object()->cert ?? [] as $certificate) {
+            $reference = trim((string)($certificate->refid ?? ''));
+            $description = trim((string)($certificate->descr ?? ''));
+            if ($reference === '' || strlen($reference) > 128 || preg_match('/[\x00-\x1f\x7f]/', $reference)
+                || trim((string)($certificate->prv ?? '')) === '') {
+                continue;
+            }
+            $options[$reference] = sprintf(
+                '%s (kid: %s)',
+                $description === '' ? gettext('Unnamed certificate') : $description,
+                $reference
+            );
+        }
+        return $options;
     }
 
     /** A browser sign-in test always uses the saved confidential-client configuration. */
