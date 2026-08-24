@@ -52,6 +52,7 @@ require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/HttpClient
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderCache.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderMetadata.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SharedSignalsMetadata.php';
+require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SharedSignalsClient.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderSetup.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/JwtVerifier.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientCertificate.php';
@@ -61,6 +62,8 @@ require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SecurityEv
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SecurityEventVerifier.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/PendingIdentityRegistry.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SessionRegistry.php';
+require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SharedSignalsEventProcessor.php';
+require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SharedSignalsPoller.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SessionGrant.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/TransactionRegistry.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/WebGuiAccess.php';

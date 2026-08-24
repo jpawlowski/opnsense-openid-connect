@@ -34,6 +34,8 @@ use OPNsense\OpenIDConnect\AuthenticationRequirement;
 use OPNsense\OpenIDConnect\ClientCertificate;
 use OPNsense\OpenIDConnect\PendingIdentityRegistry;
 use OPNsense\OpenIDConnect\ProviderMetadata;
+use OPNsense\OpenIDConnect\SharedSignalsClient;
+use OPNsense\OpenIDConnect\SharedSignalsMetadata;
 
 /**
  * An authentication server of type "oidc": everything the browser flow needs to know,
@@ -66,6 +68,7 @@ class OpenIDConnect extends Base implements IAuthConnector
     ];
     public const PAR_MODES = ['auto', 'required', 'disabled'];
     public const LOGOUT_NOTIFICATION_MODES = ['both', 'backchannel', 'frontchannel', 'off'];
+    public const SSF_DELIVERY_METHODS = ['push', 'poll'];
 
     /** when an e-mail address may stand in for the username claim */
     public const EMAIL_MATCHING = ['verified', 'always', 'off'];
@@ -763,18 +766,103 @@ class OpenIDConnect extends Base implements IAuthConnector
                         ? [] : [gettext('A bounded Shared Signals audience without control characters is required.')];
                 },
             ],
+            'openidconnect_ssf_delivery_method' => [
+                'name' => gettext('Shared Signals delivery method'),
+                'help' => gettext(
+                    'Push lets the transmitter call this firewall. Poll makes the firewall retrieve events once ' .
+                    'per minute from the exact endpoint assigned by a managed stream. Polling is never selected ' .
+                    'automatically after a failed push.'
+                ),
+                'type' => 'dropdown',
+                'default' => 'push',
+                'options' => [
+                    'push' => gettext('Push to this firewall'),
+                    'poll' => gettext('Poll from the transmitter'),
+                ],
+                'validate' => fn($value) => in_array($value ?: 'push', self::SSF_DELIVERY_METHODS, true)
+                    ? [] : [gettext('Unknown Shared Signals delivery method.')],
+            ],
+            'openidconnect_ssf_management_authorization' => [
+                'name' => gettext('Shared Signals management authorization'),
+                'help' => gettext(
+                    'The complete Bearer or Basic authorization value issued for this receiver. It authorizes ' .
+                    'stream lifecycle and poll requests and is sent only to discovered management or assigned ' .
+                    'poll endpoints. It is required for polling; leave it empty for a manually managed push stream.'
+                ),
+                'type' => 'text',
+                'validate' => function ($value): array {
+                    $value = trim((string)$value);
+                    if (!$this->submittedSsfEnabled() || ($value === '' && $this->submittedSsfDelivery() === 'push')) {
+                        return [];
+                    }
+                    try {
+                        SharedSignalsClient::validatedAuthorization($value);
+                        return [];
+                    } catch (\Throwable $e) {
+                        return [gettext(
+                            'Enter the complete bounded Bearer or Basic Shared Signals authorization value.'
+                        )];
+                    }
+                },
+            ],
+            'openidconnect_ssf_stream_id' => [
+                'name' => gettext('Shared Signals stream ID'),
+                'help' => gettext(
+                    'The immutable identifier returned when the transmitter creates this receiver stream. Use ' .
+                    'Manage stream to create or read it. Polling requires a managed stream ID.'
+                ),
+                'type' => 'text',
+                'validate' => function ($value): array {
+                    $value = trim((string)$value);
+                    return !$this->submittedSsfEnabled()
+                        || ($value === '' && $this->submittedSsfDelivery() === 'push')
+                        || preg_match('/^[A-Za-z0-9._~-]{1,255}$/D', $value)
+                        ? [] : [gettext('A URL-safe Shared Signals stream ID is required for polling.')];
+                },
+            ],
+            'openidconnect_ssf_poll_endpoint' => [
+                'name' => gettext('Shared Signals poll endpoint'),
+                'help' => gettext(
+                    'The exact HTTPS delivery endpoint returned by the transmitter for this poll stream. Manage ' .
+                    'stream fills it from a validated stream response; it is never inferred from failed push delivery.'
+                ),
+                'type' => 'text',
+                'validate' => function ($value): array {
+                    $value = trim((string)$value);
+                    return !$this->submittedSsfEnabled() || $this->submittedSsfDelivery() !== 'poll'
+                        || static::isFetchableUrl($value)
+                        ? [] : [gettext('A validated HTTPS Shared Signals poll endpoint is required for polling.')];
+                },
+            ],
             'openidconnect_ssf_push_secret' => [
                 'name' => gettext('Shared Signals delivery secret'),
                 'help' => gettext(
                     'A 256-bit bearer secret authenticates the transmitter before the firewall fetches keys or ' .
                     'performs signature work. Generate it here and copy the complete Authorization value into ' .
-                    'the transmitter stream. Rotating it immediately invalidates the old value.'
+                    'the transmitter stream. It is required only for push delivery.'
                 ),
                 'type' => 'text',
                 'validate' => function ($value): array {
                     $value = trim((string)$value);
-                    return !$this->submittedSsfEnabled() || preg_match('/^[A-Za-z0-9_-]{43}$/D', $value)
+                    return !$this->submittedSsfEnabled() || $this->submittedSsfDelivery() !== 'push'
+                        || preg_match('/^[A-Za-z0-9_-]{43}$/D', $value)
                         ? [] : [gettext('Generate a 256-bit Shared Signals delivery secret before enabling it.')];
+                },
+            ],
+            'openidconnect_ssf_previous_push_secret' => [
+                'name' => gettext('Previous Shared Signals delivery secret'),
+                'help' => gettext(
+                    'Optional overlap credential for safe push-secret rotation. First move the old value here and ' .
+                    'save the new value above, then update the transmitter stream. Clear this field after the new ' .
+                    'credential has delivered successfully.'
+                ),
+                'type' => 'text',
+                'validate' => function ($value): array {
+                    $value = trim((string)$value);
+                    return $value === '' || preg_match('/^[A-Za-z0-9_-]{43}$/D', $value)
+                        ? [] : [gettext(
+                            'The previous Shared Signals delivery secret must be a 256-bit generated value.'
+                        )];
                 },
             ],
             'openidconnect_button_style' => [
@@ -1565,9 +1653,25 @@ class OpenIDConnect extends Base implements IAuthConnector
             'sectorEndpointLabel' => gettext('Pairwise sector identifier URI'),
             'ssfEndpointLabel' => gettext('Shared Signals push URI'),
             'ssfGenerateSecretLabel' => gettext('Generate secret'),
+            'ssfRotateSecretLabel' => gettext('Prepare rotation'),
+            'ssfRotationPrepared' => gettext(
+                'Save both credentials before updating the transmitter stream. After successful delivery with ' .
+                'the new credential, clear the previous one.'
+            ),
             'ssfTestLabel' => gettext('Test Shared Signals'),
             'ssfDiscoveryAccepted' => gettext('Shared Signals discovery accepted.'),
             'ssfAuthorizationLabel' => gettext('Authorization header'),
+            'ssfCreateStreamLabel' => gettext('Create stream'),
+            'ssfReadStreamLabel' => gettext('Read stream'),
+            'ssfUpdateStreamLabel' => gettext('Update stream'),
+            'ssfReadStatusLabel' => gettext('Read status'),
+            'ssfEnableStreamLabel' => gettext('Enable'),
+            'ssfPauseStreamLabel' => gettext('Pause'),
+            'ssfDeleteStreamLabel' => gettext('Delete stream'),
+            'ssfDeleteStreamConfirm' => gettext('Delete this stream at the transmitter? This cannot be undone.'),
+            'ssfStreamStatusLabel' => gettext('Stream status'),
+            'ssfStreamDeleted' => gettext('Stream deleted; save this server to clear its local values.'),
+            'ssfStreamApplied' => gettext('Stream response accepted; save this server to retain its values.'),
             'endpointHelp' => gettext(
                 'Do not register logout addresses as authorization redirect URIs. Provider terminology differs; ' .
                 'the provider guide explains which field receives which address.'
@@ -2628,6 +2732,11 @@ class OpenIDConnect extends Base implements IAuthConnector
         return in_array(strtolower(trim($value)), ['1', 'yes', 'true', 'on'], true);
     }
 
+    private function submittedSsfDelivery(): string
+    {
+        return $this->submittedChoice('openidconnect_ssf_delivery_method', self::SSF_DELIVERY_METHODS, 'push');
+    }
+
     /** @return array<int,array{position:int,code:string,name:string,refid:string}> */
     private static function configuredApplicationCodes(): array
     {
@@ -2939,9 +3048,35 @@ class OpenIDConnect extends Base implements IAuthConnector
         return $this->text('openidconnect_ssf_audience');
     }
 
+    public function sharedSignalsDeliveryMethod(): string
+    {
+        return $this->choice('openidconnect_ssf_delivery_method', self::SSF_DELIVERY_METHODS, 'push') === 'poll'
+            ? SharedSignalsMetadata::POLL_METHOD : SharedSignalsMetadata::PUSH_METHOD;
+    }
+
+    public function sharedSignalsManagementAuthorization(): string
+    {
+        return $this->text('openidconnect_ssf_management_authorization');
+    }
+
+    public function sharedSignalsStreamId(): string
+    {
+        return $this->text('openidconnect_ssf_stream_id');
+    }
+
+    public function sharedSignalsPollEndpoint(): string
+    {
+        return $this->text('openidconnect_ssf_poll_endpoint');
+    }
+
     public function sharedSignalsPushSecret(): string
     {
         return $this->text('openidconnect_ssf_push_secret');
+    }
+
+    public function sharedSignalsPreviousPushSecret(): string
+    {
+        return $this->text('openidconnect_ssf_previous_push_secret');
     }
 
     public function providerProfile(): string

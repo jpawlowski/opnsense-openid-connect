@@ -44,7 +44,7 @@ flowchart TD
         PhpSession["Rotated OPNsense PHP session"]
         SessionRegistry["SessionRegistry"]
         Logout["Front/back-channel logout"]
-        SharedSignals["SSF push receiver"]
+        SharedSignals["SSF push/poll receiver"]
     end
 
     LoginPage -->|"Provider selection + optional local target"| AuthController
@@ -176,6 +176,7 @@ flowchart TD
 | `WebGuiAccess` | apply OPNsense's effective user/group/source-network ACL and choose a navigable landing page | grant privileges or treat logout/API routes as human access |
 | `SessionRegistry` | minimal session lookup and logout replay protection | store ID/access/refresh tokens or client secrets |
 | `SsfController` / `SecurityEventVerifier` | authenticate RFC 8935 delivery, validate SSF metadata and signed SETs, end matching pre-event sessions | change accounts, bindings, groups or privileges |
+| `SharedSignalsClient` / `SharedSignalsPoller` | bind stream lifecycle and explicit RFC 8936 short polling to discovered endpoints, authorization metadata and validated stream configuration | invent endpoints, fall back from push, retain SETs or expose management credentials |
 | `TransactionRegistry` | one-time `form_post` transactions when SameSite=Lax suppresses the original session cookie | store grants, secrets or long-lived state |
 | `PendingIdentityRegistry` | bounded seven-day holding area for exact unknown identities and short display hints | grant access or let unauthenticated requests write `config.xml` |
 | `OpenIDConnectContainer` | safe login-page button descriptors, fixed public labels and reuse of core's localized login sentence | inject administrator-authored raw HTML or confuse the server lookup name with its visible label |
@@ -208,6 +209,9 @@ The exact endpoint matrix and the reasons for the two exceptions are recorded in
 - An enabled Shared Signals transmitter is separately trusted to report the
   configured CAEP/RISC events for its exact issuer and audience. Its bearer
   delivery secret is checked before outbound discovery or signature work.
+  Stream-management and poll authorization is sent only to validated discovered
+  management endpoints or the exact HTTPS poll endpoint returned by the bound
+  stream; credential-bearing redirects are refused.
 - A configured provider is an administrator-approved network peer. Private
   provider addresses are intentionally supported for self-hosted IdPs; therefore
   provider URL configuration is privileged and effectively grants bounded
@@ -223,6 +227,34 @@ The exact endpoint matrix and the reasons for the two exceptions are recorded in
   for its older grants.
 - phpseclib is an OPNsense runtime component. The plugin owns algorithm policy
   and claim validation; it does not implement RSA or elliptic-curve arithmetic.
+
+## Asymmetric JWS verification profile
+
+`JwtVerifier` accepts only the following public-key verification profile. The
+algorithm must be on this fixed list and, for ID Tokens or another response
+whose Discovery metadata advertises algorithms, in the issuer's list as well.
+The protected header cannot supply a key URL or embedded key.
+
+| JWS `alg` | Public JWK | Exact verification parameters |
+|---|---|---|
+| `RS256`, `RS384`, `RS512` | `RSA`, 2048–8192-bit `n`, safe odd `e` | PKCS#1 v1.5 and the named SHA-2 digest |
+| `PS256`, `PS384`, `PS512` | `RSA`, 2048–8192-bit `n`, safe odd `e` | PSS with the named SHA-2 digest for both the message and MGF1, and salt length equal to the digest length |
+| `ES256` | `EC`, `P-256`, 32-byte `x` and `y` | SHA-256 and a 64-byte IEEE P1363 `R || S` signature |
+| `ES384` | `EC`, `P-384`, 48-byte `x` and `y` | SHA-384 and a 96-byte IEEE P1363 `R || S` signature |
+| `ES512` | `EC`, `P-521`, 66-byte `x` and `y` | SHA-512 and a 132-byte IEEE P1363 `R || S` signature |
+| `EdDSA` | `OKP`, `Ed25519`, 32-byte `x` | RFC 8037 Ed25519 and a 64-byte signature; SHA-512 for OIDC `at_hash` |
+
+Every JWK is public-only. If present, `alg` must exactly match the protected
+header, `use` must be `sig`, and `key_ops` must contain `verify`, contain no
+duplicate, and name no unrelated operation. `kid` selects one exact key; a
+header without `kid` is accepted only when these filters leave exactly one
+key. The authenticated setup probe applies the same structural policy before
+reporting a usable key.
+
+Symmetric `HS*`, unsecured `none`, Ed448, other curves and signature families,
+private JWK material, JWE key management and content encryption are outside
+this profile. RFC 7518 conformance is claimed only for the named RS/PS/ES
+verification subset; Ed25519 is the separately audited RFC 8037 subset.
 
 ## State and persistence
 
@@ -272,7 +304,8 @@ The exact endpoint matrix and the reasons for the two exceptions are recorded in
 - The logout index contains PHP session ID, issuer, subject, provider `sid` and
   creation time and expiry. The logout replay index contains only a hash of
   issuer plus logout `jti`; the SSF replay index likewise stores only a bounded
-  digest and expiry.
+  digest and expiry. SSF poll health stores timestamps, status categories and
+  counts only, never the authorization value, SET or subject.
 
 ## Failure model
 
@@ -285,4 +318,8 @@ destroys the local session before attempting best-effort remote revocation or
 provider redirect, so a provider outage cannot strand a locally valid session.
 Shared Signals failures never change local identity state. Invalid deliveries
 receive the RFC 8935 error class without revealing whether a subject or session
-exists; a valid event with no matching session is still accepted.
+exists; a valid event with no matching session is still accepted. Polling is
+activated only by its saved delivery choice and complete managed-stream values;
+push failure cannot activate it. Valid polled SETs are acknowledged after local
+processing, invalid SETs receive bounded RFC 8936 error acknowledgements, and a
+failed local action remains available for retry.

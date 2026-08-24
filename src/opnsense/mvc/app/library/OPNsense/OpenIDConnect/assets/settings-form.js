@@ -1216,11 +1216,18 @@
 
     function withSharedSignalsSetup() {
         var secret = field('openidconnect_ssf_push_secret');
+        var previousSecret = field('openidconnect_ssf_previous_push_secret');
         var issuer = field('openidconnect_ssf_issuer');
-        if (!secret || !issuer) {
+        var authorizationField = field('openidconnect_ssf_management_authorization');
+        var methodField = field('openidconnect_ssf_delivery_method');
+        var streamField = field('openidconnect_ssf_stream_id');
+        var audienceField = field('openidconnect_ssf_audience');
+        var pollEndpointField = field('openidconnect_ssf_poll_endpoint');
+        if (!secret || !previousSecret || !issuer || !authorizationField || !methodField
+            || !streamField || !audienceField || !pollEndpointField) {
             return;
         }
-        $(secret).attr({
+        $(secret).add(previousSecret).add(authorizationField).attr({
             type: 'password', autocomplete: 'new-password', autocapitalize: 'none', spellcheck: 'false'
         });
         var generate = $('<button class="btn btn-default btn-sm" type="button">')
@@ -1238,6 +1245,28 @@
             });
         $(secret).after(generate);
 
+        var rotate = $('<button class="btn btn-default btn-sm" type="button">')
+            .css({ marginLeft: '6px' })
+            .text(options.ssfRotateSecretLabel || 'Prepare rotation')
+            .on('click', function () {
+                if (!/^[A-Za-z0-9_-]{43}$/.test(secret.value || '')) {
+                    $(secret).focus();
+                    return;
+                }
+                rotate.prop('disabled', true);
+                $.ajax({ type: 'POST', url: '/api/openidconnect/ssfsetup/secret' })
+                    .done(function (answer) {
+                        if (answer && answer.status === 'ok' && /^[A-Za-z0-9_-]{43}$/.test(answer.secret || '')) {
+                            $(previousSecret).val(secret.value).trigger('input');
+                            $(secret).val(answer.secret).trigger('input');
+                            BootstrapDialog.alert(options.ssfRotationPrepared ||
+                                'Save both credentials before updating the transmitter stream.');
+                        }
+                    })
+                    .always(function () { rotate.prop('disabled', false); });
+            });
+        $(secret).after(rotate);
+
         var probe = $('<button class="btn btn-default btn-sm" type="button">')
             .css({ marginLeft: '6px' })
             .text(options.ssfTestLabel || 'Test Shared Signals')
@@ -1246,7 +1275,7 @@
                 $.ajax({
                     type: 'POST',
                     url: '/api/openidconnect/ssfsetup/probe',
-                    data: { issuer: issuer.value }
+                    data: { issuer: issuer.value, delivery_method: methodField.value }
                 }).done(function (answer) {
                     BootstrapDialog.show({
                         title: options.ssfTestLabel || 'Test Shared Signals',
@@ -1278,6 +1307,97 @@
         }
         $(secret).on('input change', updateAuthorization);
         updateAuthorization();
+
+        function managementData() {
+            var origins = effectiveOrigins();
+            return {
+                issuer: issuer.value,
+                authorization: authorizationField.value,
+                delivery_method: methodField.value,
+                stream_id: streamField.value,
+                audience: audienceField.value,
+                poll_endpoint: pollEndpointField.value,
+                push_secret: secret.value,
+                receiver_origin: origins.length ? origins[0] : '',
+                application_code: field('openidconnect_app_code').value || 'main',
+                description: field('name') ? field('name').value : 'OPNsense OpenID Connect'
+            };
+        }
+
+        var managementResult = $('<span class="help-block oidc-ssf-management-result">');
+        function showManagement(answer) {
+            if (!answer || answer.status !== 'ok') {
+                managementResult.removeClass('text-success').addClass('text-danger')
+                    .text((answer && answer.message) || 'Shared Signals operation failed.');
+                return false;
+            }
+            if (answer.stream_id) {
+                $(streamField).val(answer.stream_id).trigger('input');
+            }
+            if (answer.audience) {
+                $(audienceField).val(answer.audience).trigger('input');
+            }
+            if (typeof answer.poll_endpoint === 'string') {
+                $(pollEndpointField).val(answer.poll_endpoint).trigger('input');
+            }
+            var streamStatus = answer.stream_status || {};
+            var message = streamStatus.status
+                ? (options.ssfStreamStatusLabel || 'Stream status') + ': ' + streamStatus.status
+                : (answer.deleted
+                    ? (options.ssfStreamDeleted || 'Stream deleted; save this server to clear its local values.')
+                    : (options.ssfStreamApplied || 'Stream response accepted; save this server to retain its values.'));
+            managementResult.removeClass('text-danger').addClass('text-success').text(message);
+            return true;
+        }
+
+        function managementButton(label, action, extra) {
+            return $('<button class="btn btn-default btn-sm" type="button">').text(label).on('click', function () {
+                var button = $(this);
+                function execute() {
+                    button.prop('disabled', true);
+                    $.ajax({
+                        type: 'POST',
+                        url: '/api/openidconnect/ssfsetup/' + action,
+                        data: $.extend(managementData(), extra || {})
+                    }).done(function (answer) {
+                        if (showManagement(answer) && action === 'delete') {
+                            $(streamField).val('').trigger('input');
+                            $(audienceField).val('').trigger('input');
+                            $(pollEndpointField).val('').trigger('input');
+                        }
+                    }).fail(function (xhr) {
+                        showManagement({ status: 'error', message: xhr.responseText || 'request failed' });
+                    }).always(function () { button.prop('disabled', false); });
+                }
+                if (action === 'delete') {
+                    BootstrapDialog.confirm({
+                        title: options.ssfDeleteStreamLabel || 'Delete stream',
+                        message: options.ssfDeleteStreamConfirm ||
+                            'Delete this stream at the transmitter? This cannot be undone.',
+                        type: BootstrapDialog.TYPE_DANGER,
+                        callback: function (confirmed) { if (confirmed) { execute(); } }
+                    });
+                } else {
+                    execute();
+                }
+            });
+        }
+
+        var management = $('<div class="oidc-ssf-management">').css({ marginTop: '8px' })
+            .append(managementButton(options.ssfCreateStreamLabel || 'Create stream', 'create'), ' ')
+            .append(managementButton(options.ssfReadStreamLabel || 'Read stream', 'read'), ' ')
+            .append(managementButton(options.ssfUpdateStreamLabel || 'Update stream', 'update'), ' ')
+            .append(managementButton(options.ssfReadStatusLabel || 'Read status', 'status'), ' ')
+            .append(managementButton(options.ssfEnableStreamLabel || 'Enable', 'setstatus', {
+                status_value: 'enabled'
+            }), ' ')
+            .append(managementButton(options.ssfPauseStreamLabel || 'Pause', 'setstatus', {
+                status_value: 'paused', reason: 'Paused by OPNsense administrator'
+            }), ' ');
+        var remove = managementButton(options.ssfDeleteStreamLabel || 'Delete stream', 'delete')
+            .removeClass('btn-default').addClass('btn-danger');
+        management.append(remove, managementResult);
+        row('openidconnect_ssf_stream_id').find('td').last().append(management);
     }
 
     function providerSetupResult(provider, answer, includeDownload) {
@@ -1459,7 +1579,8 @@
                 [options.backchannelEndpointLabel || 'Back-channel logout URI', base + 'backchannel/' + encodeURIComponent(code)],
                 [options.frontchannelEndpointLabel || 'Front-channel logout URI', base + 'frontchannel/' + encodeURIComponent(code)]
             ];
-            if ($(field('openidconnect_ssf_enabled')).is(':checked')) {
+            if ($(field('openidconnect_ssf_enabled')).is(':checked')
+                && field('openidconnect_ssf_delivery_method').value !== 'poll') {
                 destinations.push([
                     options.ssfEndpointLabel || 'Shared Signals push URI',
                     origin + '/api/openidconnect/ssf/push/' + encodeURIComponent(code)
@@ -1483,6 +1604,7 @@
         $(field('openidconnect_origin_policy')).on('change', update);
         $(field('openidconnect_sector_origin')).on('change', update);
         $(field('openidconnect_ssf_enabled')).on('change', update);
+        $(field('openidconnect_ssf_delivery_method')).on('change', update);
         update();
     }
 
@@ -1509,9 +1631,15 @@
             row('openidconnect_allow_all_groups').toggle(groupClaim);
             row('openidconnect_logout_redirect').toggle($(field('openidconnect_logout_menu')).is(':checked'));
             var sharedSignals = $(field('openidconnect_ssf_enabled')).is(':checked');
+            var sharedSignalsPoll = field('openidconnect_ssf_delivery_method').value === 'poll';
             row('openidconnect_ssf_issuer').toggle(sharedSignals);
             row('openidconnect_ssf_audience').toggle(sharedSignals);
-            row('openidconnect_ssf_push_secret').toggle(sharedSignals);
+            row('openidconnect_ssf_delivery_method').toggle(sharedSignals);
+            row('openidconnect_ssf_management_authorization').toggle(sharedSignals);
+            row('openidconnect_ssf_stream_id').toggle(sharedSignals);
+            row('openidconnect_ssf_poll_endpoint').toggle(sharedSignals && sharedSignalsPoll);
+            row('openidconnect_ssf_push_secret').toggle(sharedSignals && !sharedSignalsPoll);
+            row('openidconnect_ssf_previous_push_secret').toggle(sharedSignals && !sharedSignalsPoll);
             row('openidconnect_button_text_mode').toggle(buttonTextCustomizable);
             row('openidconnect_button_provider_label').toggle(
                 buttonTextCustomizable && buttonTextMode !== 'custom'
@@ -1524,6 +1652,7 @@
         $(field('openidconnect_group_claim')).on('input change', update);
         $(field('openidconnect_logout_menu')).on('change', update);
         $(field('openidconnect_ssf_enabled')).on('change', update);
+        $(field('openidconnect_ssf_delivery_method')).on('change', update);
         $(field('openidconnect_origin_policy')).on('change', update);
         $(field('openidconnect_bootstrap_mode')).on('change', update);
         $(field('openidconnect_provider_profile')).on('change', update);

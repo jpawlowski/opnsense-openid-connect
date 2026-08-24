@@ -1298,11 +1298,11 @@
       "id": "shared-signals",
       "title": "OpenID Shared Signals Framework 1.0",
       "reference": "https://openid.net/specs/openid-sharedsignals-framework-1_0-final.html",
-      "scope": "Push-based stream receiver",
+      "scope": "Managed push and poll stream receiver",
       "implementation": "partial",
       "claim": "unverified",
       "audit_complete": false,
-      "note": "A bounded push receiver is implemented; stream management and polling are outside the current profile."
+      "note": "Discovery-driven configuration and status lifecycle, bounded push and explicit poll delivery are implemented; subject and verification management remain outside the current profile."
     },
     {
       "id": "caep",
@@ -1558,17 +1558,253 @@
       "implementation": "implemented",
       "claim": "unverified",
       "audit_complete": false,
-      "note": "Provider JWKS consumption is implemented; the normative evidence inventory is incomplete."
+      "note": "The asymmetric verification profile enforces public key type, curve, size, use, operations and algorithm binding; the full JWK normative inventory remains incomplete."
     },
     {
       "id": "jwa",
       "title": "JSON Web Algorithms (RFC 7518)",
       "reference": "https://www.rfc-editor.org/rfc/rfc7518.html",
-      "scope": "Allow-listed asymmetric algorithms used for JWS verification",
-      "implementation": "partial",
+      "scope": "RS256/384/512, PS256/384/512 and ES256/384/512 JWS verification with public RSA and EC JWKs",
+      "implementation": "implemented",
       "claim": "unverified",
       "audit_complete": false,
-      "note": "RS, PS and ES verification are supported; symmetric signing and unused algorithm families are deliberately excluded."
+      "note": "The named asymmetric JWS verification subset is implemented and structurally tested, but the normative digest, padding and successful cryptographic verification evidence is not complete for every 384/512 variant. HMAC, unsecured JWS, JWE and all other algorithm families remain outside the profile.",
+      "source_review": {
+        "specification_revision": "RFC 7518, May 2015",
+        "reviewed_on": "2026-08-24",
+        "profile": "Verification of RS256/384/512, PS256/384/512 and ES256/384/512 JWS values with public RSA and EC JWKs; signing, MAC and JWE roles are excluded.",
+        "sections": [
+          "2 Terminology — Base64urlUInt",
+          "3.3 Digital Signature with RSASSA-PKCS1-v1_5",
+          "3.4 Digital Signature with ECDSA",
+          "3.5 Digital Signature with RSASSA-PSS",
+          "6.1-6.3 Cryptographic Algorithms for Keys",
+          "8.6 Denial-of-Service Attacks"
+        ]
+      },
+      "requirements": [
+        {
+          "id": "jwa-base64url-uint",
+          "section": "2 — Base64urlUInt uses the minimum octet representation of an unsigned integer",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{"path": "tests/unit/exchange.php", "test": "jwa-base64url-uint positive: an unsigned integer uses its minimum octet representation"}],
+            "negative": [{"path": "tests/unit/exchange.php", "test": "jwa-base64url-uint negative: a leading zero octet in an unsigned integer is refused"}]
+          }
+        },
+        {
+          "id": "jwa-rsa-minimum-size",
+          "section": "3.3 and 3.5 — RSA keys are at least 2048 bits",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{"path": "tests/unit/exchange.php", "test": "jwa-rsa-minimum-size positive: a 2048-bit RSA key is accepted"}],
+            "negative": [{"path": "tests/unit/exchange.php", "test": "jwa-rsa-minimum-size negative: a shorter RSA key is refused"}]
+          }
+        },
+        {
+          "id": "jwa-ecdsa-signature-size",
+          "section": "3.4 — ECDSA JWS signatures use the exact raw R || S width for the algorithm",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{"path": "tests/unit/exchange.php", "test": "jwa-ecdsa-signature-size positive: ES256 accepts its 64-octet raw signature"}],
+            "negative": [{"path": "tests/unit/exchange.php", "test": "jwa-ecdsa-signature-size negative: ES256 refuses a shortened raw signature"}]
+          }
+        },
+        {
+          "id": "jwa-ecdsa-generation-width",
+          "section": "3.4 — ECDSA producers do not shorten leading-zero R or S octets",
+          "strength": "must_not",
+          "applicable": false,
+          "evidence": {},
+          "rationale": "This relying-party profile verifies provider signatures and never produces an ECDSA JWS."
+        },
+        {
+          "id": "jwa-ec-curve-member",
+          "section": "6.2.1 — an EC public key carries its curve member",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{"path": "tests/unit/exchange.php", "test": "jwa-ec-curve-member positive: a supported EC curve member is accepted"}],
+            "negative": [{"path": "tests/unit/exchange.php", "test": "jwa-ec-curve-member negative: a missing EC curve member is refused"}]
+          }
+        },
+        {
+          "id": "jwa-ec-x-coordinate-size",
+          "section": "6.2.1 and 6.2.1.2 — an EC public key carries a full-size x coordinate",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{"path": "tests/unit/exchange.php", "test": "jwa-ec-x-coordinate-size positive: a full-size EC x coordinate is accepted"}],
+            "negative": [{"path": "tests/unit/exchange.php", "test": "jwa-ec-x-coordinate-size negative: a shortened EC x coordinate is refused"}]
+          }
+        },
+        {
+          "id": "jwa-ec-y-coordinate-size",
+          "section": "6.2.1 and 6.2.1.3 — a supported NIST EC public key carries a full-size y coordinate",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{"path": "tests/unit/exchange.php", "test": "jwa-ec-y-coordinate-size positive: a full-size EC y coordinate is accepted"}],
+            "negative": [{"path": "tests/unit/exchange.php", "test": "jwa-ec-y-coordinate-size negative: a shortened EC y coordinate is refused"}]
+          }
+        },
+        {
+          "id": "jwa-ec-private-key",
+          "section": "6.2.2 — an EC private JWK carries d",
+          "strength": "must",
+          "applicable": false,
+          "evidence": {},
+          "rationale": "Provider JWKS is accepted as public verification material only; private EC JWK processing is outside this profile."
+        },
+        {
+          "id": "jwa-rsa-modulus",
+          "section": "6.3.1 and 6.3.1.1 — an RSA public key carries a Base64urlUInt modulus",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{"path": "tests/unit/exchange.php", "test": "jwa-rsa-modulus positive: a canonical RSA modulus is accepted"}],
+            "negative": [{"path": "tests/unit/exchange.php", "test": "jwa-rsa-modulus negative: a missing RSA modulus is refused"}]
+          }
+        },
+        {
+          "id": "jwa-rsa-exponent",
+          "section": "6.3.1 and 6.3.1.2 — an RSA public key carries a Base64urlUInt exponent",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{"path": "tests/unit/exchange.php", "test": "jwa-rsa-exponent positive: a canonical RSA exponent is accepted"}],
+            "negative": [{"path": "tests/unit/exchange.php", "test": "jwa-rsa-exponent negative: a missing RSA exponent is refused"}]
+          }
+        },
+        {
+          "id": "jwa-rsa-exponent-encoding",
+          "section": "6.3.1.2 — exponent 65537 is encoded as the three octets 1, 0, 1",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{"path": "tests/unit/exchange.php", "test": "jwa-rsa-exponent-encoding positive: 65537 uses its canonical three-octet encoding"}],
+            "negative": [{"path": "tests/unit/exchange.php", "test": "jwa-rsa-exponent-encoding negative: a leading zero in the exponent is refused"}]
+          }
+        },
+        {
+          "id": "jwa-rsa-private-key",
+          "section": "6.3.2 — RSA private JWK parameters form a complete private key",
+          "strength": "must",
+          "applicable": false,
+          "evidence": {},
+          "rationale": "Provider JWKS is accepted as public verification material only; private RSA JWK processing is outside this profile."
+        }
+      ]
+    },
+    {
+      "id": "eddsa-jose",
+      "title": "CFRG EdDSA Signatures in JOSE (RFC 8037)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc8037.html",
+      "scope": "EdDSA JWS verification with public Ed25519 OKP JWKs",
+      "implementation": "implemented",
+      "claim": "verified",
+      "audit_complete": true,
+      "note": "Verified only for public Ed25519 signature verification; Ed448, X25519/X448 key agreement and all signing roles are outside this claim.",
+      "source_review": {
+        "specification_revision": "RFC 8037, January 2017",
+        "reviewed_on": "2026-08-24",
+        "profile": "Verification of EdDSA JWS values using public Ed25519 OKP JWKs; Ed448, ECDH-ES and signature production are excluded.",
+        "sections": [
+          "2 Key Type OKP",
+          "3.1 Signatures",
+          "3.2 ECDH-ES subtype separation",
+          "4 Security Considerations"
+        ]
+      },
+      "requirements": [
+        {
+          "id": "eddsa-okp-kty",
+          "section": "2 — the key type is OKP",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{"path": "tests/unit/exchange.php", "test": "eddsa-okp-kty positive: an OKP signing key is accepted"}],
+            "negative": [{"path": "tests/unit/exchange.php", "test": "eddsa-okp-kty negative: another key type is refused for EdDSA"}]
+          }
+        },
+        {
+          "id": "eddsa-okp-curve",
+          "section": "2 — an OKP key carries its curve subtype",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{"path": "tests/unit/exchange.php", "test": "eddsa-okp-curve positive: the Ed25519 subtype is accepted"}],
+            "negative": [{"path": "tests/unit/exchange.php", "test": "eddsa-okp-curve negative: a missing OKP curve is refused"}]
+          }
+        },
+        {
+          "id": "eddsa-okp-x",
+          "section": "2 — an OKP public key carries its base64url public key value",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{"path": "tests/unit/exchange.php", "test": "eddsa-okp-x positive: a 32-octet Ed25519 public key is accepted"}],
+            "negative": [{"path": "tests/unit/exchange.php", "test": "eddsa-okp-x negative: a shortened Ed25519 public key is refused"}]
+          }
+        },
+        {
+          "id": "eddsa-okp-public-only",
+          "section": "2 — d is absent from a public OKP key",
+          "strength": "must_not",
+          "applicable": true,
+          "evidence": {
+            "positive": [{"path": "tests/unit/exchange.php", "test": "eddsa-okp-public-only positive: a public-only Ed25519 JWK is accepted"}],
+            "negative": [{"path": "tests/unit/exchange.php", "test": "eddsa-okp-public-only negative: private Ed25519 material in provider JWKS is refused"}]
+          }
+        },
+        {
+          "id": "eddsa-okp-private-d",
+          "section": "2 — d is present when an OKP private key is represented",
+          "strength": "must",
+          "applicable": false,
+          "evidence": {},
+          "rationale": "Provider JWKS is accepted as public verification material only; private OKP JWK processing is outside this profile."
+        },
+        {
+          "id": "eddsa-signing-curve",
+          "section": "3.2 — X25519 and X448 key-agreement subtypes are not used for signing",
+          "strength": "must_not",
+          "applicable": true,
+          "evidence": {
+            "positive": [{"path": "tests/unit/exchange.php", "test": "eddsa-signing-curve positive: Ed25519 remains a signing subtype"}],
+            "negative": [{"path": "tests/unit/exchange.php", "test": "eddsa-signing-curve negative: an X25519 key-agreement subtype cannot verify EdDSA"}]
+          }
+        },
+        {
+          "id": "eddsa-no-key-agreement",
+          "section": "3.1 — Ed25519 and Ed448 signing subtypes are not used for ECDH-ES",
+          "strength": "must_not",
+          "applicable": false,
+          "evidence": {},
+          "rationale": "The relying party performs no ECDH-ES or other JWE key agreement."
+        },
+        {
+          "id": "eddsa-randomness",
+          "section": "4 — key generation and batch verification use a well-seeded cryptographic random number generator",
+          "strength": "must",
+          "applicable": false,
+          "evidence": {},
+          "rationale": "The relying party neither generates EdDSA keys nor performs batch signature verification."
+        },
+        {
+          "id": "eddsa-ed25519-verification",
+          "section": "3.1 and 3.1.2 — EdDSA verification applies Ed25519 to the JWS signing input and signature",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{"path": "tests/unit/exchange.php", "test": "eddsa-ed25519-verification positive: a valid Ed25519 signature reaches verification"}],
+            "negative": [{"path": "tests/unit/exchange.php", "test": "eddsa-ed25519-verification negative: an invalid Ed25519 signature is refused"}]
+          }
+        }
+      ]
     },
     {
       "id": "jwt",
@@ -1690,6 +1926,16 @@
       "claim": "unverified",
       "audit_complete": false,
       "note": "Authenticated push delivery and explicit response handling are implemented; normative evidence is incomplete."
+    },
+    {
+      "id": "set-poll",
+      "title": "Poll-Based Security Event Token Delivery (RFC 8936)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc8936.html",
+      "scope": "Explicit short-poll delivery to the RP Shared Signals receiver",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Bounded polling, validation-aware acknowledgement and error reporting are implemented; normative evidence is incomplete."
     },
     {
       "id": "oauth-browser-apps",
