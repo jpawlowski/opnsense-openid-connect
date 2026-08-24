@@ -86,6 +86,7 @@ TOUCHPOINTS="
 /usr/local/etc/inc/script/load_phalcon.php
 /usr/local/opnsense/scripts/auth/add_user.php
 /usr/local/opnsense/service/conf/actions.d/actions_auth.conf
+/usr/local/sbin/pluginctl
 "
 
 digest() {
