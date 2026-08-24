@@ -420,6 +420,8 @@ def main():
           guard_module.is_read_only_shell("RIPGREP_CONFIG_PATH=config rg worktree AGENTS.md"), False)
     check("Git status is read-only with external pagers disabled",
           guard_module.is_read_only_shell("git --no-pager status --short"), True)
+    check("a later paginate flag cannot re-enable a configured Git pager",
+          guard_module.is_read_only_shell("git --no-pager --paginate log -1"), False)
     check("command-line Git configuration cannot install a read helper",
           guard_module.is_read_only_shell(
               "git --no-pager -c core.fsmonitor=/tmp/helper status --short",
@@ -438,6 +440,8 @@ def main():
           guard_module.is_read_only_shell("gh pr view 42 --json headRefOid"), True)
     check("GitHub inspection cannot launch a configured browser helper",
           guard_module.is_read_only_shell("gh pr view 42 --web"), False)
+    check("assigned GitHub browser flags are also rejected",
+          guard_module.is_read_only_shell("gh pr view 42 --web=true"), False)
     check("GitHub API GET inspection is read-only",
           guard_module.is_read_only_shell("gh api repos/example/project/pulls/42"), True)
     check("the worktree bootstrap is an allowed control operation",
@@ -455,6 +459,10 @@ def main():
     check("issue bootstrap cannot launch a configured browser helper",
           guard_module.is_issue_bootstrap({
               "tool_name": "Bash", "tool_input": {"command": "gh issue create --web"},
+          }), False)
+    check("assigned issue-bootstrap browser flags are also rejected",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash", "tool_input": {"command": "gh issue create --web=true"},
           }), False)
     check("issue bootstrap cannot launch a configured editor helper",
           guard_module.is_issue_bootstrap({
@@ -734,6 +742,15 @@ def main():
                 if "--remove-label" in arguments:
                     label = arguments[arguments.index("--remove-label") + 1]
                     issue["labels"] = [value for value in issue["labels"] if value["name"] != label]
+                if "--add-assignee" in arguments:
+                    login = arguments[arguments.index("--add-assignee") + 1]
+                    if not any(value.get("login") == login for value in issue["assignees"]):
+                        issue["assignees"].append({"login": login})
+                if "--remove-assignee" in arguments:
+                    login = arguments[arguments.index("--remove-assignee") + 1]
+                    issue["assignees"] = [
+                        value for value in issue["assignees"] if value.get("login") != login
+                    ]
                 return ""
             if arguments[:2] == ("issue", "comment"):
                 body = arguments[arguments.index("--body") + 1]
@@ -778,8 +795,17 @@ def main():
         except RuntimeError:
             verification_failed = True
         check("a failed verification removes its already-published claim comment",
-              (verification_failed, issue["comments"], issue["labels"], label_definitions),
-              (True, [], [], set()))
+              (verification_failed, issue["comments"], issue["labels"], issue["assignees"], label_definitions),
+              (True, [], [], [], set()))
+        issue["assignees"] = [{"login": "publisher"}]
+        issue_state.update({"fail_after_comment": True, "comment_published": False})
+        try:
+            claim_module.claim(repository, 36, now=1_776_999_999)
+        except RuntimeError:
+            pass
+        check("failed verification preserves a pre-existing assignee",
+              issue["assignees"], [{"login": "publisher"}])
+        issue["assignees"] = []
         claimed = claim_module.claim(repository, 36, now=1_777_000_000)
         check("the WIP label embeds the claim timestamp",
               claimed["label"].startswith("wip:1777000000-"), True)

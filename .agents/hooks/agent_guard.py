@@ -176,7 +176,13 @@ def _configured_git_helper(command, arguments):
     if any(value.strip().lower() not in disabled for value in fsmonitor):
         return True
 
-    no_pager = "--no-pager" in arguments
+    no_pager_index = max(
+        (index for index, value in enumerate(arguments) if value in ("--no-pager", "-P")), default=-1,
+    )
+    pager_index = max(
+        (index for index, value in enumerate(arguments) if value in ("--paginate", "-p")), default=-1,
+    )
+    no_pager = no_pager_index > pager_index
     pagers = _git_config("--get-all", f"pager.{command}") or _git_config("--get-all", "core.pager")
     if not no_pager and any(value.strip().lower() not in disabled for value in pagers):
         return True
@@ -289,7 +295,7 @@ def _issue_helper(arguments):
 
 
 def _read_only_gh(arguments):
-    if any(value in ("--web", "-w") for value in arguments):
+    if any(value.split("=", 1)[0] in ("--web", "-w") for value in arguments):
         return False
     if len(arguments) >= 2 and arguments[0] in ("issue", "pr", "repo", "run"):
         read_actions = {
@@ -418,7 +424,10 @@ def is_issue_bootstrap(event):
     program, arguments = _shell_invocation(event_command(event))
     return bool(program == "gh" and len(arguments) >= 2
                 and arguments[0] == "issue" and arguments[1] == "create"
-                and not any(value in ("--editor", "--web", "-e", "-w") for value in arguments[2:]))
+                and not any(
+                    value.split("=", 1)[0] in ("--editor", "--web", "-e", "-w")
+                    for value in arguments[2:]
+                ))
 
 
 def is_main_acknowledgement(event):

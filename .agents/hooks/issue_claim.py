@@ -263,15 +263,21 @@ def claim(repository, number, now=None, language="en"):
     lock_label = _acquire_lock(number, token)
     label_created = False
     comment_id = ""
+    assignee_added = False
     try:
         # A contender may have paused before acquiring the atomic label. Check
         # the issue again only after this task owns that cross-clone mutex.
-        _available_issue(_issue(number))
+        locked_issue = _issue(number)
+        _available_issue(locked_issue)
+        already_assigned = any(
+            str(value.get("login") or value) == login for value in locked_issue.get("assignees") or []
+        )
         _gh(("label", "create", label, "--repo", CANONICAL_REPOSITORY,
              "--color", CLAIM_COLOR, "--description", "Temporary exclusive agent work claim"))
         label_created = True
         _gh(("issue", "edit", str(number), "--repo", CANONICAL_REPOSITORY,
              "--add-label", label, "--add-assignee", login))
+        assignee_added = not already_assigned
         work_note, notice = CLAIM_TEXT[language]
         body = (
             f"<!-- contribution-work-claim:{token} -->\n"
@@ -298,7 +304,14 @@ def claim(repository, number, now=None, language="en"):
             if comment_id:
                 _delete_comment(comment_id)
         finally:
-            _remove_claim_labels(label if label_created else "", lock_label)
+            try:
+                _remove_claim_labels(label if label_created else "", lock_label)
+            finally:
+                if assignee_added:
+                    _gh((
+                        "issue", "edit", str(number), "--repo", CANONICAL_REPOSITORY,
+                        "--remove-assignee", login,
+                    ))
         raise
 
     registry = load_registry(repository)
