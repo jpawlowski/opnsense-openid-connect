@@ -190,9 +190,12 @@ fault — and it is the same page that now shows the package exists at all.
 ## The watchdog
 
 The same cron file runs `/usr/local/sbin/openid-connect-refresh` every minute.
-That silent, locked job refreshes due OIDC/SSF metadata and signing keys and
-retests a bypassed optional PAR endpoint. It never holds up a browser login and
-stores no token or client secret. The separate watchdog remains the nightly
+That silent, locked job refreshes due OIDC/SSF metadata and signing keys,
+retests a bypassed optional PAR endpoint and performs bounded short polling only
+for explicitly configured SSF poll streams. It also prunes DPoP key and nonce
+state for provider configurations absent longer than the 370-day retired-key
+window. It never holds up a browser login; its runtime health state stores no
+token, credential, SET or subject. The separate watchdog remains the nightly
 core/login-page compatibility check.
 
 `/usr/local/sbin/openid-connect-watch`, nightly at 03:01 through
@@ -209,7 +212,7 @@ It checks two things, and the order is deliberate:
 1. **Live probe** — the login page is actually fetched and checked for the
    form, the SSO button, a clean closing tag and PHP errors. This is the check
    that matters.
-2. **Fingerprint** — a `sha256` over the 36 platform files this module hangs
+2. **Fingerprint** — a `sha256` over the 37 platform files this module hangs
    off. If it differs, the ground has moved.
 
 A mere version change deliberately triggers nothing: OPNsense moves often

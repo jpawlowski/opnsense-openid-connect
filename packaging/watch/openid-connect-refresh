@@ -9,6 +9,7 @@
 use OPNsense\Auth\OpenIDConnect;
 use OPNsense\Core\Config;
 use OPNsense\OpenIDConnect\HttpClient;
+use OPNsense\OpenIDConnect\DpopKeyStore;
 use OPNsense\OpenIDConnect\JwtVerifier;
 use OPNsense\OpenIDConnect\ParClient;
 use OPNsense\OpenIDConnect\ProviderCache;
@@ -16,7 +17,10 @@ use OPNsense\OpenIDConnect\ProviderMetadata;
 use OPNsense\OpenIDConnect\ProviderRuntimeState;
 use OPNsense\OpenIDConnect\ProviderUnavailableException;
 use OPNsense\OpenIDConnect\RelyingParty;
+use OPNsense\OpenIDConnect\SharedSignalsClient;
+use OPNsense\OpenIDConnect\SharedSignalsEventProcessor;
 use OPNsense\OpenIDConnect\SharedSignalsMetadata;
+use OPNsense\OpenIDConnect\SharedSignalsPoller;
 
 require_once('script/load_phalcon.php');
 
@@ -37,12 +41,14 @@ function oidcRefreshDue(string $namespace, string $url): bool
 }
 
 $http = new HttpClient();
+$dpopBindings = [];
 foreach (Config::getInstance()->object()->system->authserver ?? [] as $server) {
     if ((string)($server->type ?? '') !== OpenIDConnect::TYPE) {
         continue;
     }
     $settings = new OpenIDConnect();
     $settings->setProperties(oidcSettings($server));
+    $dpopBindings[] = DpopKeyStore::forSettings($settings)->bindingId();
     if ($settings->issuerUrl() === '') {
         continue;
     }
@@ -112,7 +118,33 @@ foreach (Config::getInstance()->object()->system->authserver ?? [] as $server) {
                 syslog(LOG_NOTICE, 'OIDC: background Shared Signals signing-key refresh could not complete');
             }
         }
+        if ($settings->sharedSignalsDeliveryMethod() === SharedSignalsMetadata::POLL_METHOD) {
+            $ssfKey = ProviderRuntimeState::ssfKey($settings, $ssf);
+            try {
+                $result = (new SharedSignalsPoller(
+                    new SharedSignalsClient($http),
+                    new SharedSignalsEventProcessor($http)
+                ))->run((string)($server->name ?? ''), $settings, $ssf);
+                ProviderRuntimeState::ssfPollSuccess($ssfKey, $result['deliveries']);
+                if ($result['deliveries'] > 0 || $result['errors'] > 0) {
+                    syslog(LOG_NOTICE, sprintf(
+                        'OIDC: Shared Signals poll processed %d delivery item(s), ended %d session(s), refused %d',
+                        $result['deliveries'],
+                        $result['sessions'],
+                        $result['errors']
+                    ));
+                }
+            } catch (Throwable $error) {
+                ProviderRuntimeState::ssfPollFailure(
+                    $ssfKey,
+                    $error instanceof ProviderUnavailableException
+                        ? 'temporarily_unavailable' : 'configuration_or_protocol'
+                );
+                syslog(LOG_NOTICE, 'OIDC: Shared Signals poll could not complete');
+            }
+        }
     } catch (Throwable $error) {
         syslog(LOG_NOTICE, 'OIDC: background Shared Signals metadata refresh could not complete');
     }
 }
+DpopKeyStore::pruneUnused($dpopBindings);

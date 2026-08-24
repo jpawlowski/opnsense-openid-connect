@@ -39,7 +39,8 @@ and the provider containers.
 
 The default `core` suite runs the two high-value implementations:
 
-- **Keycloak** is the deep interoperability suite. It covers Discovery, PKCE, state/nonce, JIT and approval workflows,
+- **Keycloak** is the deep interoperability suite. It covers Discovery, PKCE, enforced DPoP-bound tokens, state/nonce,
+  JIT and approval workflows,
   stable subject binding, local fallback, session rotation, callback replay, `form_post`, both client-secret transport
   methods, RP/front-channel/back-channel logout and passive response-header checks with ZAP.
 - **authentik** exercises the second primary deployment target and imports the exact Blueprint downloaded from the

@@ -52,7 +52,7 @@ class JwtVerifier
         private readonly string $cacheNamespace = 'oidc-jwks'
     )
     {
-        self::prepareRuntimeCryptography();
+        self::prepareRuntime();
     }
 
     /**
@@ -710,13 +710,8 @@ class JwtVerifier
         return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
     }
 
-    /** Register the phpseclib runtime shipped by OPNsense for verification and signing. */
-    public static function prepareRuntimeCryptography(): void
-    {
-        self::prepareAutoloader();
-    }
-
-    public static function prepareAutoloader(): void
+    /** Make OPNsense's bundled phpseclib runtime available to focused protocol components. */
+    public static function prepareRuntime(): void
     {
         if (self::$autoloaderReady) {
             return;

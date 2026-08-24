@@ -258,6 +258,8 @@ def main():
           "/var/db/openid-connect" in deinstall)
     check("uninstalling takes provider cache and circuit state with it",
           "/var/db/openid-connect/cache /var/db/openid-connect/runtime" in deinstall)
+    check("uninstalling takes DPoP private keys and nonces with it",
+          "/var/db/openid-connect/dpop" in deinstall)
     check("uninstalling takes the OIDC session index with it",
           "/var/lib/php/sessions/.openidconnect-sessions" in deinstall)
     check("uninstalling takes the logout replay index with it",

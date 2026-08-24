@@ -78,7 +78,7 @@ POST_DEINSTALL = """\
 rm -f /var/lib/php/tmp/opnsense_acl_cache.json /tmp/opnsense_acl_cache.json
 [ "${PKG_UPGRADE:-false}" = "true" ] && exit 0
 rm -f /var/db/openid-connect/core.digest /var/db/openid-connect/core.version
-rm -rf /var/db/openid-connect/cache /var/db/openid-connect/runtime
+rm -rf /var/db/openid-connect/cache /var/db/openid-connect/runtime /var/db/openid-connect/dpop
 rm -f /var/lib/php/sessions/.openidconnect-sessions
 rm -f /var/lib/php/sessions/.openidconnect-logout-tokens
 rm -f /var/lib/php/sessions/.openidconnect-security-events

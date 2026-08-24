@@ -21,7 +21,7 @@ class ClientAssertion
 
     public function __construct(private readonly OpenIDConnect $settings)
     {
-        JwtVerifier::prepareRuntimeCryptography();
+        JwtVerifier::prepareRuntime();
     }
 
     /**

@@ -44,7 +44,7 @@ flowchart TD
         PhpSession["Rotated OPNsense PHP session"]
         SessionRegistry["SessionRegistry"]
         Logout["Front/back-channel logout"]
-        SharedSignals["SSF push receiver"]
+        SharedSignals["SSF push/poll receiver"]
     end
 
     LoginPage -->|"Provider selection + optional local target"| AuthController
@@ -161,7 +161,7 @@ flowchart TD
 | Component | Responsibility | Must not do |
 |---|---|---|
 | `AuthController` | public protocol endpoints including the exact-origin pairwise-sector document, package-owned and safely proxied login icons, generic browser errors, audit records, session elevation/logout | decide JWT validity or account policy |
-| `RelyingParty` | authorization transaction, optional signed JAR and PAR, code exchange, claim-source composition, logout/revocation requests | perform cryptography or grant privileges |
+| `RelyingParty` | authorization transaction, optional signed JAR, PAR and DPoP negotiation, code exchange, claim-source composition, logout/revocation requests | perform cryptography or grant privileges |
 | `ClientAuthenticator` | negotiate endpoint-specific Basic, POST or `private_key_jwt` authentication for direct provider requests | invent a provider algorithm or send more than one client credential |
 | `ClientAssertion` | load the selected OPNsense certificate and sign one short-lived, single-use assertion | retain private keys, reuse assertions or implement cryptographic primitives |
 | `RequestObjectSigner` | bounded RFC 9101 claims, provider/key algorithm selection and phpseclib signature | choose authorization policy, expose a private key or encrypt Request Objects |
@@ -172,11 +172,13 @@ flowchart TD
 | `SetupController` / `ProviderSetup` | authenticated, no-secret provider import generation from an unfinished form | contact the provider, persist credentials or mutate either system |
 | `HttpClient` | the only provider network transport; HTTPS, TLS, limits and redirect policy | follow credentials through redirects |
 | `JwtVerifier` | JWS and OIDC/logout claim validation using OPNsense phpseclib | accept token-selected keys or symmetric ID Token signatures |
+| `DpopProof` / `DpopKeyStore` | fresh RFC 9449 proofs plus mode-`0600` per-provider key rotation, retired generations and endpoint nonces | choose provider trust, send a bound token as Bearer or log proof/key material |
 | `AuthenticationRequirement` | freeze one requested MFA/phishing-resistant policy and validate its verified `acr`/`acrs` plus `amr` evidence | infer provider semantics or inspect an unverified token |
 | `OpenIDConnect` | settings, stable identity binding, local account and group policy | establish browser sessions |
 | `WebGuiAccess` | apply OPNsense's effective user/group/source-network ACL and choose a navigable landing page | grant privileges or treat logout/API routes as human access |
 | `SessionRegistry` | minimal session lookup and logout replay protection | store ID/access/refresh tokens or client secrets |
 | `SsfController` / `SecurityEventVerifier` | authenticate RFC 8935 delivery, validate SSF metadata and signed SETs, end matching pre-event sessions | change accounts, bindings, groups or privileges |
+| `SharedSignalsClient` / `SharedSignalsPoller` | bind stream lifecycle and explicit RFC 8936 short polling to discovered endpoints, authorization metadata and validated stream configuration | invent endpoints, fall back from push, retain SETs or expose management credentials |
 | `TransactionRegistry` | one-time `form_post` transactions when SameSite=Lax suppresses the original session cookie | store grants, secrets or long-lived state |
 | `PendingIdentityRegistry` | bounded seven-day holding area for exact unknown identities and short display hints | grant access or let unauthenticated requests write `config.xml` |
 | `OpenIDConnectContainer` | safe login-page button descriptors, fixed public labels and reuse of core's localized login sentence | inject administrator-authored raw HTML or confuse the server lookup name with its visible label |
@@ -209,6 +211,9 @@ The exact endpoint matrix and the reasons for the two exceptions are recorded in
 - An enabled Shared Signals transmitter is separately trusted to report the
   configured CAEP/RISC events for its exact issuer and audience. Its bearer
   delivery secret is checked before outbound discovery or signature work.
+  Stream-management and poll authorization is sent only to validated discovered
+  management endpoints or the exact HTTPS poll endpoint returned by the bound
+  stream; credential-bearing redirects are refused.
 - A configured provider is an administrator-approved network peer. Private
   provider addresses are intentionally supported for self-hosted IdPs; therefore
   provider URL configuration is privileged and effectively grants bounded
@@ -265,6 +270,15 @@ verification subset; Ed25519 is the separately audited RFC 8037 subset.
   cannot change halfway through it. Automatic PAR may bypass only a temporarily
   unavailable optional endpoint; the provider requirement and every TLS,
   authentication or protocol failure remain fail-closed.
+- A provider that advertises ES256 DPoP receives `dpop_jkt` in the authorization
+  request and a fresh proof at the token endpoint. The private P-256 key lives in
+  a per-provider mode-`0600` store, rotates every 90 days and retains at most five
+  retired generations for 370 days so an existing grant keeps its exact key.
+  The server-side login session freezes the opaque store binding as well as the
+  key identifier, so later client-ID edits cannot detach logout from its key.
+  Server nonces are persisted per exact endpoint and, once supplied, are never
+  omitted. State for removed providers is pruned only after the same retention
+  window.
 - A selected dedicated OPNsense certificate signs all authorization parameters
   into a 60-second RFC 9101 Request Object with exact issuer/audience binding
   and a fresh `jti`. Its certificate reference is the registered `kid`; PAR
@@ -283,8 +297,10 @@ verification subset; Ed25519 is the separately audited RFC 8037 subset.
   one-time state; the transport must match and direct parameters cannot
   downgrade it. Encrypted JARM is deliberately unsupported.
 - ID, access and refresh tokens live only in the authenticated PHP session for
-  optional provider logout/revocation. They are never logged or placed in the
-  logout index.
+  optional provider logout/revocation. A DPoP session also retains only its
+  proof-key thumbprint so logout can reopen the exact stored generation. Tokens,
+  proofs, private keys and server nonces are never logged or placed in the logout
+  index.
 - An optional authentication requirement is frozen into the same one-time login
   transaction as issuer, nonce, PKCE and metadata. The callback refuses a
   configuration mismatch and validates only the signed ID Token before local
@@ -292,7 +308,8 @@ verification subset; Ed25519 is the separately audited RFC 8037 subset.
 - The logout index contains PHP session ID, issuer, subject, provider `sid` and
   creation time and expiry. The logout replay index contains only a hash of
   issuer plus logout `jti`; the SSF replay index likewise stores only a bounded
-  digest and expiry.
+  digest and expiry. SSF poll health stores timestamps, status categories and
+  counts only, never the authorization value, SET or subject.
 
 ## Failure model
 
@@ -305,4 +322,8 @@ destroys the local session before attempting best-effort remote revocation or
 provider redirect, so a provider outage cannot strand a locally valid session.
 Shared Signals failures never change local identity state. Invalid deliveries
 receive the RFC 8935 error class without revealing whether a subject or session
-exists; a valid event with no matching session is still accepted.
+exists; a valid event with no matching session is still accepted. Polling is
+activated only by its saved delivery choice and complete managed-stream values;
+push failure cannot activate it. Valid polled SETs are acknowledged after local
+processing, invalid SETs receive bounded RFC 8936 error acknowledgements, and a
+failed local action remains available for retry.

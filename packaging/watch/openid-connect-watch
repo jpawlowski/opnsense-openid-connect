@@ -90,6 +90,7 @@ TOUCHPOINTS="
 /usr/local/opnsense/scripts/auth/add_user.php
 /usr/local/opnsense/service/conf/actions.d/actions_auth.conf
 /usr/local/sbin/pluginctl
+/usr/local/share/phpseclib/Crypt/EC.php
 /usr/local/share/phpseclib/Crypt/Common/AsymmetricKey.php
 /usr/local/share/phpseclib/Crypt/EC/BaseCurves/TwistedEdwards.php
 /usr/local/share/phpseclib/Crypt/EC/Curves/Ed25519.php
@@ -338,7 +339,7 @@ identity provider is missing."
     fi
 
     note "OPNsense changed files that single sign-on hangs off (now $have_version, anchored at $want_version). The login page is in order, but the code wants reading through"
-    send "openid-connect-watch: the core moved underneath the module" \
+    send "openid-connect-watch: the OPNsense runtime moved underneath the module" \
 "OPNsense changed files that the single sign-on module hangs off. The login page
 has been checked and is in order, so there is no hurry. The code does want
 reading through before the next upgrade.

@@ -47,6 +47,8 @@ class RelyingParty
     private HttpClient $http;
     private JwtVerifier $verifier;
     private ClientAuthenticator $clientAuthenticator;
+    private DpopKeyStore $dpopStore;
+    private ?DpopProof $dpop;
     private RequestObjectSigner $requestObjectSigner;
     private string $redirectUri;
     private ?ProviderMetadata $metadata = null;
@@ -62,6 +64,7 @@ class RelyingParty
         ?HttpClient $http = null,
         ?JwtVerifier $verifier = null,
         ?RequestObjectSigner $requestObjectSigner = null,
+        ?DpopProof $dpop = null,
         ?ClientAuthenticator $clientAuthenticator = null
     )
     {
@@ -72,6 +75,8 @@ class RelyingParty
         $this->http = $http ?? new HttpClient();
         $this->verifier = $verifier ?? new JwtVerifier($this->http);
         $this->clientAuthenticator = $clientAuthenticator ?? new ClientAuthenticator($settings);
+        $this->dpopStore = DpopKeyStore::forSettings($settings);
+        $this->dpop = $dpop;
         $this->requestObjectSigner = $requestObjectSigner ?? new RequestObjectSigner();
 
         $redirect = static::acceptedRedirectUri($settings, $controller->request);
@@ -152,6 +157,9 @@ class RelyingParty
         $verifier = self::randomValue(64);
         $challenge = JwtVerifier::base64UrlEncode(hash('sha256', $verifier, true));
         $authenticationRequirement = $this->settings->authenticationRequirement();
+        if ($metadata->supportsDpop()) {
+            $this->dpop ??= $this->dpopStore->active();
+        }
 
         $transaction = [
             'created' => time(),
@@ -168,6 +176,9 @@ class RelyingParty
             'token_auth_method' => $this->tokenAuthMethod,
             'metadata' => $metadata->toArray(),
         ];
+        if ($this->dpop !== null) {
+            $transaction['dpop_key'] = $this->dpop->keyId();
+        }
         if ($authenticationRequirement !== null) {
             $transaction['authentication_requirement'] = $authenticationRequirement->toArray();
         }
@@ -185,6 +196,9 @@ class RelyingParty
             'code_challenge' => $challenge,
             'code_challenge_method' => 'S256',
         ];
+        if ($this->dpop !== null) {
+            $parameters['dpop_jkt'] = $this->dpop->keyId();
+        }
         /* max_age=0 is meaningful: OIDC Core defines it as active re-authentication. */
         $parameters['max_age'] = (string)$this->settings->maximumAuthenticationAge();
         if ($responseMode !== 'query') {
@@ -251,10 +265,11 @@ class RelyingParty
         }
 
         $this->settings->trace(sprintf(
-            'exchange prepared for exact issuer %s, callback %s, PKCE S256, response mode %s%s%s',
+            'exchange prepared for exact issuer %s, callback %s, PKCE S256, response mode %s%s%s%s',
             $metadata->issuer(),
             $this->redirectUri,
             $responseMode,
+            $this->dpop !== null ? ', DPoP-bound authorization code' : '',
             $usedRequestObject ? ', signed Request Object' : '',
             $usedPar ? ', pushed authorization request' : ''
         ));
@@ -331,6 +346,19 @@ class RelyingParty
             ClientAuthenticator::TOKEN,
             $frozenAuthMethod
         );
+        $dpopKey = $transaction['dpop_key'] ?? null;
+        if ($this->metadata->supportsDpop()) {
+            if (!is_string($dpopKey) || !preg_match('/^[A-Za-z0-9_-]{43}$/D', $dpopKey)) {
+                throw new ProtocolException('The login transaction carries no usable DPoP proof key');
+            }
+            if ($this->dpop === null) {
+                $this->dpop = $this->dpopStore->find($dpopKey);
+            } elseif (!hash_equals($this->dpop->keyId(), $dpopKey)) {
+                throw new ProtocolException('The login transaction DPoP proof key changed');
+            }
+        } elseif ($dpopKey !== null) {
+            throw new ProtocolException('The login transaction unexpectedly requires DPoP');
+        }
         $frozenRequirement = null;
         if (array_key_exists('authentication_requirement', $transaction)) {
             if (!is_array($transaction['authentication_requirement'])) {
@@ -427,7 +455,10 @@ class RelyingParty
             $this->tokenAuthMethod
         );
 
-        $response = $this->http->postForm($this->metadata->tokenEndpoint(), $fields, self::TOKEN_MAX_BYTES, $headers);
+        $endpoint = $this->metadata->tokenEndpoint();
+        $response = $this->dpop === null
+            ? $this->http->postForm($endpoint, $fields, self::TOKEN_MAX_BYTES, $headers)
+            : $this->dpopRequest('POST', $endpoint, $fields, $headers, self::TOKEN_MAX_BYTES);
         if ($response->status !== 200) {
             throw new ProtocolException($this->tokenEndpointError($response));
         }
@@ -452,10 +483,19 @@ class RelyingParty
         if (!isset($tokens['token_type'])) {
             throw new ProtocolException('The token endpoint omitted the access token type');
         }
-        if (!is_string($tokens['token_type']) || strcasecmp($tokens['token_type'], 'Bearer') !== 0) {
+        $expectedType = $this->dpop === null ? 'Bearer' : 'DPoP';
+        if (!is_string($tokens['token_type']) || strcasecmp($tokens['token_type'], $expectedType) !== 0) {
+            if ($this->dpop !== null && is_string($tokens['token_type'])
+                && strcasecmp($tokens['token_type'], 'Bearer') === 0) {
+                throw new ProtocolException('The token endpoint downgraded a DPoP request to a bearer token');
+            }
             throw new ProtocolException('The token endpoint returned an unsupported token type');
         }
-        self::bearerAuthorization($tokens['access_token']);
+        if ($this->dpop === null) {
+            self::bearerAuthorization($tokens['access_token']);
+        } else {
+            self::dpopAuthorization($tokens['access_token']);
+        }
         if (array_key_exists('expires_in', $tokens)) {
             $lifetime = $tokens['expires_in'];
             if ((!is_int($lifetime) && !is_float($lifetime)) || !is_finite((float)$lifetime) || $lifetime < 0) {
@@ -539,11 +579,18 @@ class RelyingParty
     /** @return array<string,mixed> */
     private function requestUserInfo(string $endpoint, string $accessToken): array
     {
-        $response = $this->http->get(
-            $endpoint,
-            self::USERINFO_MAX_BYTES,
-            [self::bearerAuthorization($accessToken), 'Accept: application/json, application/jwt']
-        );
+        $dpop = is_string($this->tokens['token_type'] ?? null)
+            && strcasecmp($this->tokens['token_type'], 'DPoP') === 0;
+        if ($dpop && $this->dpop === null) {
+            throw new ProtocolException('A DPoP-bound access token has no proof key');
+        }
+        $headers = [
+            $dpop ? self::dpopAuthorization($accessToken) : self::bearerAuthorization($accessToken),
+            'Accept: application/json, application/jwt',
+        ];
+        $response = $dpop
+            ? $this->dpopRequest('GET', $endpoint, null, $headers, self::USERINFO_MAX_BYTES, $accessToken, true)
+            : $this->http->get($endpoint, self::USERINFO_MAX_BYTES, $headers);
         if ($response->status !== 200) {
             throw new ProtocolException(sprintf('UserInfo returned HTTP %d', $response->status));
         }
@@ -570,6 +617,14 @@ class RelyingParty
             throw new ProtocolException('The provider returned an access token that cannot be used as a bearer token');
         }
         return 'Authorization: Bearer ' . $accessToken;
+    }
+
+    private static function dpopAuthorization(string $accessToken): string
+    {
+        if (!preg_match('/^[A-Za-z0-9._~+\/-]+=*$/D', $accessToken)) {
+            throw new ProtocolException('The provider returned an access token that cannot be used as a DPoP token');
+        }
+        return 'Authorization: DPoP ' . $accessToken;
     }
 
     /** @param array<string,mixed> $claims @return array<string,mixed> */
@@ -605,7 +660,9 @@ class RelyingParty
             $fields,
             $headers
         );
-        $response = $this->http->postForm($endpoint, $fields, 262144, $headers);
+        $response = $this->dpop === null
+            ? $this->http->postForm($endpoint, $fields, 262144, $headers)
+            : $this->dpopRequest('POST', $endpoint, $fields, $headers, 262144);
         if (!in_array($response->status, [200, 204], true)) {
             throw new ProtocolException(sprintf('Token revocation returned HTTP %d', $response->status));
         }
@@ -625,6 +682,22 @@ class RelyingParty
             throw new ProtocolException('The configured issuer changed since this session was created');
         }
         $this->metadata = $metadata;
+    }
+
+    /** Restore the exact proof key and store namespace that sender-constrained grants in a session used. */
+    public function useDpopKey(string $keyId, string $bindingId = ''): void
+    {
+        if (!preg_match('/^[A-Za-z0-9_-]{43}$/D', $keyId)) {
+            throw new ProtocolException('The stored session carries an invalid DPoP proof-key identifier');
+        }
+        if ($bindingId !== '') {
+            try {
+                $this->dpopStore = DpopKeyStore::fromBindingId($bindingId);
+            } catch (\InvalidArgumentException $e) {
+                throw new ProtocolException('The stored session carries an invalid DPoP provider binding', 0, $e);
+            }
+        }
+        $this->dpop = $this->dpopStore->find($keyId);
     }
 
     public function signOut(string $idToken, ?string $returnTo): void
@@ -673,6 +746,69 @@ class RelyingParty
     public function getRefreshToken(): string
     {
         return is_string($this->tokens['refresh_token'] ?? null) ? $this->tokens['refresh_token'] : '';
+    }
+    public function getDpopKeyId(): string
+    {
+        return $this->dpop?->keyId() ?? '';
+    }
+
+    public function getDpopBindingId(): string
+    {
+        return $this->dpop === null ? '' : $this->dpopStore->bindingId();
+    }
+
+    /**
+     * Send one proof per attempt and remember endpoint-bound nonces before deciding
+     * whether the RFC's single nonce retry is warranted.
+     *
+     * @param array<string,string>|null $fields @param string[] $headers
+     */
+    private function dpopRequest(
+        string $method,
+        string $endpoint,
+        ?array $fields,
+        array $headers,
+        int $maxBytes,
+        ?string $accessToken = null,
+        bool $resource = false
+    ): HttpResponse {
+        if ($this->dpop === null) {
+            throw new \LogicException('A DPoP request requires a proof key');
+        }
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $attemptHeaders = $headers;
+            $attemptHeaders[] = 'DPoP: ' . $this->dpop->proof(
+                $method,
+                $endpoint,
+                $accessToken,
+                $this->dpopStore->nonce($endpoint)
+            );
+            $response = $fields === null
+                ? $this->http->get($endpoint, $maxBytes, $attemptHeaders)
+                : $this->http->postForm($endpoint, $fields, $maxBytes, $attemptHeaders);
+            $receivedNonce = $this->dpopStore->acceptNonce($endpoint, $response);
+            if (!$this->isDpopNonceChallenge($response, $resource)) {
+                return $response;
+            }
+            if (!$receivedNonce) {
+                throw new ProtocolException('The provider requested a DPoP nonce without supplying one');
+            }
+        }
+        throw new ProtocolException('The provider repeated its DPoP nonce challenge');
+    }
+
+    private function isDpopNonceChallenge(HttpResponse $response, bool $resource): bool
+    {
+        if ($resource) {
+            $challenge = $response->headers['www-authenticate'] ?? '';
+            return $response->status === 401 && is_string($challenge)
+                && preg_match('/(?:^|,)\s*DPoP(?:\s|,|$)/i', $challenge)
+                && preg_match('/error\s*=\s*"use_dpop_nonce"/i', $challenge);
+        }
+        if ($response->status !== 400 || $response->contentType !== 'application/json') {
+            return false;
+        }
+        return ($response->jsonObject()['error'] ?? null) === 'use_dpop_nonce';
     }
 
     public static function issuedForThisFirewall(object $claims, string $clientId): bool
