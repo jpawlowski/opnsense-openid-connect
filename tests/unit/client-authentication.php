@@ -136,8 +136,11 @@ $followingHeaders = [];
     $followingFields,
     $followingHeaders
 );
-Checks::that('Follow the provider prefers an available private-key credential over a static secret',
-    isset($followingFields['client_assertion']), true);
+Checks::that(
+    'RFC9700-2.5-ASYMMETRIC-CLIENT-AUTH positive: Follow the provider prefers an available private-key credential',
+    isset($followingFields['client_assertion']),
+    true
+);
 
 $secretFallbackSettings = connector([
     'openidconnect_client_id' => 'fallback-client',
@@ -155,11 +158,15 @@ $secretFallbackHeaders = [];
     $secretFallbackFields,
     $secretFallbackHeaders
 );
-Checks::that('Follow the provider retains secret authentication when private-key JWT is not offered', [
-    isset($secretFallbackFields['client_assertion']),
-    count(array_filter($secretFallbackHeaders, static fn(string $header): bool =>
-        str_starts_with($header, 'Authorization: Basic '))),
-], [false, 1]);
+Checks::that(
+    'RFC9700-2.5-ASYMMETRIC-CLIENT-AUTH negative: static-secret fallback requires provider incompatibility',
+    [
+        isset($secretFallbackFields['client_assertion']),
+        count(array_filter($secretFallbackHeaders, static fn(string $header): bool =>
+            str_starts_with($header, 'Authorization: Basic '))),
+    ],
+    [false, 1]
+);
 
 Checks::throws(
     'an explicit private-key method must still be advertised',

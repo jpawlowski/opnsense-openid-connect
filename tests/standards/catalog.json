@@ -1135,10 +1135,19 @@
           "section": "Section 2.5",
           "strength": "should",
           "applicable": true,
-          "evidence": {},
-          "deviation": {
-            "reviewed_on": "2026-08-24",
-            "rationale": "The current profile authenticates its confidential client with a bounded static secret. Asymmetric client authentication remains deferred until OPNsense can provide reviewed per-provider private-key or certificate custody, rotation and deletion without weakening the local recovery path."
+          "evidence": {
+            "positive": [
+              {
+                "path": "tests/unit/client-authentication.php",
+                "test": "RFC9700-2.5-ASYMMETRIC-CLIENT-AUTH positive: Follow the provider prefers an available private-key credential"
+              }
+            ],
+            "negative": [
+              {
+                "path": "tests/unit/client-authentication.php",
+                "test": "RFC9700-2.5-ASYMMETRIC-CLIENT-AUTH negative: static-secret fallback requires provider incompatibility"
+              }
+            ]
           }
         },
         {

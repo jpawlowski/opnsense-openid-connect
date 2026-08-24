@@ -445,20 +445,31 @@ class RelyingParty
             'code_verifier' => $verifier,
         ];
         $headers = ['Accept: application/json'];
-        $this->clientAuthenticator->authenticate(
-            $this->metadata,
-            $this->metadata->tokenEndpoint(),
-            ClientAuthenticator::TOKEN,
-            $fields,
-            $headers,
-            null,
-            $this->tokenAuthMethod
-        );
-
         $endpoint = $this->metadata->tokenEndpoint();
-        $response = $this->dpop === null
-            ? $this->http->postForm($endpoint, $fields, self::TOKEN_MAX_BYTES, $headers)
-            : $this->dpopRequest('POST', $endpoint, $fields, $headers, self::TOKEN_MAX_BYTES);
+        $authenticate = function (array &$attemptFields, array &$attemptHeaders) use ($endpoint): void {
+            $this->clientAuthenticator->authenticate(
+                $this->metadata,
+                $endpoint,
+                ClientAuthenticator::TOKEN,
+                $attemptFields,
+                $attemptHeaders,
+                null,
+                $this->tokenAuthMethod
+            );
+        };
+        if ($this->dpop === null) {
+            $authenticate($fields, $headers);
+            $response = $this->http->postForm($endpoint, $fields, self::TOKEN_MAX_BYTES, $headers);
+        } else {
+            $response = $this->dpopRequest(
+                'POST',
+                $endpoint,
+                $fields,
+                $headers,
+                self::TOKEN_MAX_BYTES,
+                prepareRequest: $authenticate
+            );
+        }
         if ($response->status !== 200) {
             throw new ProtocolException($this->tokenEndpointError($response));
         }
@@ -653,16 +664,28 @@ class RelyingParty
             $fields['token_type_hint'] = $hint;
         }
         $headers = [];
-        $this->clientAuthenticator->authenticate(
-            $this->metadata,
-            $endpoint,
-            ClientAuthenticator::REVOCATION,
-            $fields,
-            $headers
-        );
-        $response = $this->dpop === null
-            ? $this->http->postForm($endpoint, $fields, 262144, $headers)
-            : $this->dpopRequest('POST', $endpoint, $fields, $headers, 262144);
+        $authenticate = function (array &$attemptFields, array &$attemptHeaders) use ($endpoint): void {
+            $this->clientAuthenticator->authenticate(
+                $this->metadata,
+                $endpoint,
+                ClientAuthenticator::REVOCATION,
+                $attemptFields,
+                $attemptHeaders
+            );
+        };
+        if ($this->dpop === null) {
+            $authenticate($fields, $headers);
+            $response = $this->http->postForm($endpoint, $fields, 262144, $headers);
+        } else {
+            $response = $this->dpopRequest(
+                'POST',
+                $endpoint,
+                $fields,
+                $headers,
+                262144,
+                prepareRequest: $authenticate
+            );
+        }
         if (!in_array($response->status, [200, 204], true)) {
             throw new ProtocolException(sprintf('Token revocation returned HTTP %d', $response->status));
         }
@@ -762,6 +785,7 @@ class RelyingParty
      * whether the RFC's single nonce retry is warranted.
      *
      * @param array<string,string>|null $fields @param string[] $headers
+     * @param callable(array<string,string>&,string[]&):void|null $prepareRequest
      */
     private function dpopRequest(
         string $method,
@@ -770,22 +794,30 @@ class RelyingParty
         array $headers,
         int $maxBytes,
         ?string $accessToken = null,
-        bool $resource = false
+        bool $resource = false,
+        ?callable $prepareRequest = null
     ): HttpResponse {
         if ($this->dpop === null) {
             throw new \LogicException('A DPoP request requires a proof key');
         }
         for ($attempt = 0; $attempt < 2; $attempt++) {
+            $attemptFields = $fields;
             $attemptHeaders = $headers;
+            if ($prepareRequest !== null) {
+                if ($attemptFields === null) {
+                    throw new \LogicException('A prepared DPoP request requires form fields');
+                }
+                $prepareRequest($attemptFields, $attemptHeaders);
+            }
             $attemptHeaders[] = 'DPoP: ' . $this->dpop->proof(
                 $method,
                 $endpoint,
                 $accessToken,
                 $this->dpopStore->nonce($endpoint)
             );
-            $response = $fields === null
+            $response = $attemptFields === null
                 ? $this->http->get($endpoint, $maxBytes, $attemptHeaders)
-                : $this->http->postForm($endpoint, $fields, $maxBytes, $attemptHeaders);
+                : $this->http->postForm($endpoint, $attemptFields, $maxBytes, $attemptHeaders);
             $receivedNonce = $this->dpopStore->acceptNonce($endpoint, $response);
             if (!$this->isDpopNonceChallenge($response, $resource)) {
                 return $response;
