@@ -13,14 +13,17 @@ use OPNsense\Auth\OpenIDConnect;
 final class ParClient
 {
     public const MAX_BYTES = 262144;
+    private ClientAuthenticator $clientAuthenticator;
     private bool $credentialsExercised = false;
     private RequestObjectSigner $requestObjectSigner;
 
     public function __construct(
         private readonly OpenIDConnect $settings,
         private readonly HttpClient $http,
+        ?ClientAuthenticator $clientAuthenticator = null,
         ?RequestObjectSigner $requestObjectSigner = null
     ) {
+        $this->clientAuthenticator = $clientAuthenticator ?? new ClientAuthenticator($settings);
         $this->requestObjectSigner = $requestObjectSigner ?? new RequestObjectSigner();
     }
 
@@ -29,7 +32,14 @@ final class ParClient
     {
         $this->credentialsExercised = false;
         $headers = ['Accept: application/json'];
-        $this->authenticate($metadata, $parameters, $headers);
+        $this->clientAuthenticator->authenticate(
+            $metadata,
+            $endpoint,
+            ClientAuthenticator::TOKEN,
+            $parameters,
+            $headers,
+            $metadata->issuer()
+        );
         // A metadata refusal above never exposed the credentials to transport; from this point the authenticated
         // request is attempted even when the provider or network rejects it.
         $this->credentialsExercised = true;
@@ -116,19 +126,4 @@ final class ParClient
         $this->push($metadata, $endpoint, $parameters);
     }
 
-    /** @param array<string,string> $fields @param string[] $headers */
-    private function authenticate(ProviderMetadata $metadata, array &$fields, array &$headers): void
-    {
-        $method = $metadata->tokenEndpointAuthMethod($this->settings->tokenAuthMethod());
-        if ($method === 'client_secret_basic') {
-            $credentials = urlencode($this->settings->clientId()) . ':' . urlencode($this->settings->clientSecret());
-            $headers[] = 'Authorization: Basic ' . base64_encode($credentials);
-            return;
-        }
-        if ($method === 'client_secret_post') {
-            $fields['client_secret'] = $this->settings->clientSecret();
-            return;
-        }
-        throw new ProtocolException('No supported token endpoint authentication method is available');
-    }
 }

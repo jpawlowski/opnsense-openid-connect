@@ -13,6 +13,7 @@ use OPNsense\OpenIDConnect\HttpClient;
 use OPNsense\OpenIDConnect\DpopKeyStore;
 use OPNsense\OpenIDConnect\DpopProof;
 use OPNsense\OpenIDConnect\JwtVerifier;
+use OPNsense\OpenIDConnect\ClientAssertion;
 use OPNsense\OpenIDConnect\PendingIdentityRegistry;
 use OPNsense\OpenIDConnect\ProviderMetadata;
 use OPNsense\OpenIDConnect\RequestObjectSigner;
@@ -60,7 +61,8 @@ $library = '/usr/local/opnsense/mvc/app/library/OPNsense/OpenIDConnect/';
 foreach ([
     'ProtocolException', 'ProviderUnavailableException', 'SecurityEventException', 'HttpResponse', 'HttpClient',
     'ProviderCache', 'ProviderMetadata', 'ProviderRuntimeState',
-    'SharedSignalsMetadata', 'SharedSignalsClient', 'JwtVerifier', 'RequestObjectSigner', 'DpopProof', 'DpopKeyStore',
+    'SharedSignalsMetadata', 'SharedSignalsClient', 'JwtVerifier', 'ClientAssertion', 'ClientAuthenticator',
+    'RequestObjectSigner', 'DpopProof', 'DpopKeyStore',
     'SecurityEventVerifier',
     'SharedSignalsEventProcessor', 'SharedSignalsPoller', 'PendingIdentityRegistry',
     'SessionRegistry', 'TransactionRegistry', 'WebGuiAccess', 'ParClient', 'ProviderProbe',
@@ -242,6 +244,54 @@ $ecJwk = is_array($ecJwkExport['keys'][0] ?? null) ? $ecJwkExport['keys'][0] : $
 $ecJwk = $canonicalPublicJwk($ecJwk);
 $ecSignature = $ec->withHash('sha256')->withSignatureFormat('IEEE')->sign($payload);
 $check($verifier->signature('ES256', $ecJwk, $payload, $ecSignature), 'ES256 IEEE signature through OPNsense phpseclib');
+
+$assertionSettings = new OpenIDConnect();
+$assertionSettings->setProperties([
+    'openidconnect_client_id' => 'runtime-client',
+    'openidconnect_signing_certificate' => 'runtime-test-only',
+]);
+$assertionSigner = new class($assertionSettings) extends ClientAssertion {
+    /** @param string[] $advertisedAlgorithms @return array{string,string} */
+    public function signature(string $privateKey, array $advertisedAlgorithms, string $input): array
+    {
+        $key = $this->loadPrivateKey($privateKey);
+        $algorithm = $this->selectAlgorithm($key, $advertisedAlgorithms);
+        return [$algorithm, $this->sign($key, $algorithm, $input)];
+    }
+};
+[$assertionRsaAlgorithm, $assertionRsaSignature] = $assertionSigner->signature(
+    $rsa->toString('PKCS8'),
+    ['ES256', 'RS256'],
+    $payload
+);
+$check(
+    $assertionRsaAlgorithm === 'RS256'
+        && $rsa->getPublicKey()->withHash('sha256')->withPadding(RSA::SIGNATURE_PKCS1)
+            ->verify($payload, $assertionRsaSignature),
+    'private-key JWT negotiates and signs RS256 through OPNsense phpseclib'
+);
+[$assertionPssAlgorithm, $assertionPssSignature] = $assertionSigner->signature(
+    $rsa->toString('PKCS8'),
+    ['PS256'],
+    $payload
+);
+$check(
+    $assertionPssAlgorithm === 'PS256'
+        && $rsa->getPublicKey()->withHash('sha256')->withMGFHash('sha256')->withSaltLength(32)
+            ->withPadding(RSA::SIGNATURE_PSS)->verify($payload, $assertionPssSignature),
+    'private-key JWT signs the Entra PS256 profile through OPNsense phpseclib'
+);
+[$assertionEcAlgorithm, $assertionEcSignature] = $assertionSigner->signature(
+    $ec->toString('PKCS8'),
+    ['RS256', 'ES256'],
+    $payload
+);
+$check(
+    $assertionEcAlgorithm === 'ES256'
+        && $ec->getPublicKey()->withHash('sha256')->withSignatureFormat('IEEE')
+            ->verify($payload, $assertionEcSignature),
+    'private-key JWT negotiates and signs ES256 through OPNsense phpseclib'
+);
 $ed25519 = EC::createKey('Ed25519');
 $ed25519JwkExport = json_decode($ed25519->getPublicKey()->toString('JWK'), true, 16, JSON_THROW_ON_ERROR);
 $ed25519Jwk = is_array($ed25519JwkExport['keys'][0] ?? null) ? $ed25519JwkExport['keys'][0] : $ed25519JwkExport;
@@ -257,7 +307,6 @@ $check(
     !$verifier->signature('EdDSA', $ed25519Jwk, $payload, $tamperedEd25519Signature),
     'Ed25519 refuses a changed signature through OPNsense phpseclib'
 );
-
 $requestSettings = new OpenIDConnect();
 $requestSettings->setProperties([
     'openidconnect_client_id' => 'runtime-request-client',

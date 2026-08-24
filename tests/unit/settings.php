@@ -7,6 +7,29 @@
 
 use OPNsense\Auth\OpenIDConnect;
 
+/** @return array{refid:string,descr:string,crt:string,prv:string} */
+function signingCertificateFixture(string $reference, string $description, array $keyOptions): array
+{
+    $key = openssl_pkey_new($keyOptions);
+    if ($key === false) {
+        throw new RuntimeException('Could not create a settings-test private key');
+    }
+    $request = openssl_csr_new(['commonName' => 'OIDC settings test'], $key, ['digest_alg' => 'sha256']);
+    $certificate = $request === false ? false
+        : openssl_csr_sign($request, null, $key, 1, ['digest_alg' => 'sha256']);
+    if ($certificate === false
+        || !openssl_pkey_export($key, $privateKey)
+        || !openssl_x509_export($certificate, $publicCertificate)) {
+        throw new RuntimeException('Could not create a settings-test certificate');
+    }
+    return [
+        'refid' => $reference,
+        'descr' => $description,
+        'crt' => base64_encode($publicCertificate),
+        'prv' => base64_encode($privateKey),
+    ];
+}
+
 Checks::group('Reading a list out of a settings field');
 Checks::that('comma separated', OpenIDConnect::splitList('a,b,c'), ['a', 'b', 'c']);
 Checks::that('one per line', OpenIDConnect::splitList("a\nb\r\nc"), ['a', 'b', 'c']);
@@ -225,6 +248,17 @@ Checks::that(
     connector(['openidconnect_token_auth' => 'client_secret_post'])->tokenAuthMethod(),
     'client_secret_post'
 );
+Checks::that(
+    'private-key JWT client authentication can be selected',
+    connector(['openidconnect_token_auth' => 'private_key_jwt'])->tokenAuthMethod(),
+    'private_key_jwt'
+);
+Checks::that('the client signing certificate is empty by default', connector([])->signingCertificate(), '');
+Checks::that('Generic invents no assertion algorithm when Discovery omits it',
+    connector([])->clientAssertionAlgorithms('token_endpoint_auth_signing_alg_values_supported', []), []);
+Checks::that('Entra applies its documented PS256 certificate-credential profile', connector([
+    'openidconnect_provider_profile' => 'entra',
+])->clientAssertionAlgorithms('token_endpoint_auth_signing_alg_values_supported', []), ['PS256']);
 Checks::that('token auth, nonsense value', connector(['openidconnect_token_auth' => 'wobble'])->tokenAuthMethod(), null);
 Checks::that('PAR uses availability-aware automatic mode by default', connector([])->parMode(), 'auto');
 Checks::that('PAR can be required', connector(['openidconnect_par_mode' => 'required'])->parMode(), 'required');
@@ -389,6 +423,7 @@ $installationSpecificFields = [
     'openidconnect_provider_profile',
     'openidconnect_client_id',
     'openidconnect_client_secret',
+    'openidconnect_signing_certificate',
     'openidconnect_request_object_key',
     'openidconnect_origin_policy',
     'openidconnect_tls_offloading',
@@ -871,6 +906,26 @@ unset(
 
 $_POST['type'] = 'openidconnect';
 $_POST['openidconnect_enabled'] = 'yes';
+\OPNsense\Core\Config::getInstance()->addCertificate(signingCertificateFixture(
+    '0123456789abc',
+    'OIDC signing key',
+    ['private_key_type' => OPENSSL_KEYTYPE_RSA, 'private_key_bits' => 2048]
+));
+\OPNsense\Core\Config::getInstance()->addCertificate(signingCertificateFixture(
+    '111111111111a',
+    'Weak RSA key',
+    ['private_key_type' => OPENSSL_KEYTYPE_RSA, 'private_key_bits' => 1024]
+));
+\OPNsense\Core\Config::getInstance()->addCertificate(signingCertificateFixture(
+    '222222222222b',
+    'Unsupported EC key',
+    ['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'secp224r1']
+));
+\OPNsense\Core\Config::getInstance()->addCertificate([
+    'refid' => 'abcdef0123456',
+    'descr' => 'Public certificate only',
+    'crt' => base64_encode('certificate'),
+]);
 $enabledOptions = (new OpenIDConnect())->getConfigurationOptions();
 Checks::that('an enabled server requires an issuer', count(
     $enabledOptions['openidconnect_provider_url']['validate']('')
@@ -881,6 +936,30 @@ Checks::that('an enabled server requires a client ID', count(
 Checks::that('an enabled server requires a client secret', count(
     $enabledOptions['openidconnect_client_secret']['validate']('')
 ), 1);
+Checks::that('only certificates with a private key are offered for client assertions',
+    array_keys($enabledOptions['openidconnect_signing_certificate']['options']), [
+        '', '0123456789abc', '222222222222b', '111111111111a',
+    ]);
+$_POST['openidconnect_token_auth'] = 'private_key_jwt';
+$_POST['openidconnect_signing_certificate'] = '0123456789abc';
+Checks::that('private-key JWT does not also require a client secret',
+    $enabledOptions['openidconnect_client_secret']['validate'](''), []);
+Checks::that('an available signing certificate is accepted',
+    $enabledOptions['openidconnect_signing_certificate']['validate']('0123456789abc'), []);
+Checks::that('a client signing certificate with a short RSA key is refused', count(
+    $enabledOptions['openidconnect_signing_certificate']['validate']('111111111111a')
+), 1);
+Checks::that('a client signing certificate with an unsupported EC curve is refused', count(
+    $enabledOptions['openidconnect_signing_certificate']['validate']('222222222222b')
+), 1);
+Checks::that('a certificate without its private key is refused', count(
+    $enabledOptions['openidconnect_signing_certificate']['validate']('abcdef0123456')
+), 1);
+$_POST['openidconnect_signing_certificate'] = '';
+Checks::that('an enabled private-key JWT client requires a signing certificate', count(
+    $enabledOptions['openidconnect_signing_certificate']['validate']('')
+), 1);
+unset($_POST['openidconnect_token_auth'], $_POST['openidconnect_signing_certificate']);
 Checks::that('an enabled server following OPNsense needs no duplicate address',
     $enabledOptions['openidconnect_redirect_urls']['validate'](''), []);
 $_POST['openidconnect_origin_policy'] = 'custom';
@@ -931,6 +1010,13 @@ Checks::that('a complete confidential client can start a sign-in test', connecto
     'openidconnect_provider_url' => 'https://id.example.net',
     'openidconnect_client_id' => 'client-id',
     'openidconnect_client_secret' => 'secret',
+])->isSignInTestReady(), true);
+Checks::that('a private-key JWT client can start a sign-in test without a static secret', connector([
+    'openidconnect_provider_url' => 'https://id.example.net',
+    'openidconnect_client_id' => 'client-id',
+    'openidconnect_client_secret' => '',
+    'openidconnect_signing_certificate' => '0123456789abc',
+    'openidconnect_token_auth' => 'private_key_jwt',
 ])->isSignInTestReady(), true);
 Checks::that('a new server follows OPNsense WebGUI names',
     $draftOptions['openidconnect_origin_policy']['default'], 'opnsense');

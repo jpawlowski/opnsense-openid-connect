@@ -2,7 +2,8 @@
 
 Complete the [common setup](../setup/README.md) first. Besides the
 provider-specific values below, every connection needs a unique **Application
-code** and confidential **Client ID** and **Client Secret**. By default, the
+code**, confidential **Client ID** and either a **Client Secret** or registered
+client signing certificate. By default, the
 callback address follows the WebGUI name already accepted by OPNsense; a custom
 origin list is needed only for an intentional restriction or unusual proxy.
 
@@ -15,7 +16,9 @@ confidential web client.
 - Enable Authorization Code and disable implicit/password grants.
 - Register the exact callback displayed by OPNsense.
 - Enable PKCE `S256`, `openid` scope, asymmetric ID Token signing and either
-  `client_secret_basic` or `client_secret_post`.
+  `client_secret_basic`, `client_secret_post` or `private_key_jwt`. For
+  `private_key_jwt`, publish a supported signing algorithm in Discovery and
+  register the public OPNsense certificate at the client.
 - Publish OIDC Discovery at the standard location. Its `issuer` must exactly
   equal the configured issuer, including trailing slash.
 - When Discovery publishes `pushed_authorization_request_endpoint`, OPNsense
@@ -48,8 +51,9 @@ confidential web client.
 | Pushed authorization requests | Automatic with availability fallback |
 | Request Object signing key | Disabled until its public key and `kid` are registered |
 
-Run discovery. If it does not advertise an asymmetric signing algorithm or a
-supported secret method, this confidential-client profile is not compatible.
+Run discovery. If it does not advertise an asymmetric ID Token algorithm and a
+client authentication method with the metadata needed by that method, this
+confidential-client profile is not compatible.
 Do not choose a named provider merely to bypass a warning; named profiles never
 weaken protocol checks anyway.
 

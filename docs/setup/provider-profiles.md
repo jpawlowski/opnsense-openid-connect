@@ -29,7 +29,7 @@ short name as **Application code**. This keeps callback addresses readable. The
 code remains editable and must be unique when several connections use the same
 provider.
 
-Client ID and Client Secret are always specific to an application registration
+Client ID and its secret or signing certificate are always specific to an application registration
 and are therefore never invented. WebGUI addresses, group delegation, root access,
 debugging and outbound logout remain installation policy. Button wording is also
 installation policy for Generic, self-hosted and tenant-specific providers. The

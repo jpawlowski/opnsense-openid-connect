@@ -60,6 +60,10 @@ HOST_CAPABILITIES = {
         "Whom a token was issued for",
     ),
     "provider-http-policy": ("Bounded HTTPS transport",),
+    "private-key-jwt-client-auth": (
+        "Private-key JWT client assertions",
+        "Endpoint client authentication",
+    ),
     "dpop-sender-constraint": (
         "RFC 9449 DPoP proofs",
         "DPoP discovery and authorization-code binding",

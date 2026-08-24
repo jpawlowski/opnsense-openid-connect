@@ -13,7 +13,7 @@ final class ProviderMetadata
     public const MAX_BYTES = 262144;
     public const DISCOVERY_SUFFIX = '/.well-known/openid-configuration';
 
-    private const CLIENT_AUTH_METHODS = ['client_secret_basic', 'client_secret_post'];
+    private const CLIENT_AUTH_METHODS = ['client_secret_basic', 'client_secret_post', 'private_key_jwt'];
 
     private function __construct(private readonly array $values)
     {
@@ -66,7 +66,7 @@ final class ProviderMetadata
             HttpClient::assertHttpsUrl($values[$required]);
         }
         foreach ([
-            'userinfo_endpoint', 'end_session_endpoint', 'revocation_endpoint',
+            'userinfo_endpoint', 'end_session_endpoint', 'revocation_endpoint', 'introspection_endpoint',
             'pushed_authorization_request_endpoint',
         ] as $optional) {
             if (array_key_exists($optional, $values)) {
@@ -94,14 +94,26 @@ final class ProviderMetadata
             'authorization_signing_alg_values_supported',
             'authorization_encryption_alg_values_supported', 'authorization_encryption_enc_values_supported',
             'token_endpoint_auth_methods_supported', 'response_modes_supported',
+            'token_endpoint_auth_signing_alg_values_supported',
+            'revocation_endpoint_auth_methods_supported',
+            'revocation_endpoint_auth_signing_alg_values_supported',
+            'introspection_endpoint_auth_methods_supported',
+            'introspection_endpoint_auth_signing_alg_values_supported',
             'code_challenge_methods_supported', 'grant_types_supported', 'scopes_supported',
-            'revocation_endpoint_auth_methods_supported', 'dpop_signing_alg_values_supported',
+            'dpop_signing_alg_values_supported',
         ] as $list) {
             if (array_key_exists($list, $values)
                 && (!is_array($values[$list]) || !array_is_list($values[$list]) || $values[$list] === []
                     || count($values[$list]) > 128
                     || array_filter($values[$list], 'is_string') !== $values[$list])) {
                 throw new ProtocolException(sprintf('Discovery carries an invalid %s', $list));
+            }
+        }
+        foreach (['token', 'revocation', 'introspection'] as $endpoint) {
+            $algorithmsField = $endpoint . '_endpoint_auth_signing_alg_values_supported';
+            $algorithms = $values[$algorithmsField] ?? [];
+            if (is_array($algorithms) && in_array('none', $algorithms, true)) {
+                throw new ProtocolException(sprintf('Discovery permits none in %s', $algorithmsField));
             }
         }
         if (array_key_exists('grant_types_supported', $values)
@@ -211,6 +223,12 @@ final class ProviderMetadata
     public function revocationEndpoint(): ?string
     {
         return isset($this->values['revocation_endpoint']) ? (string)$this->values['revocation_endpoint'] : null;
+    }
+
+    public function introspectionEndpoint(): ?string
+    {
+        return isset($this->values['introspection_endpoint'])
+            ? (string)$this->values['introspection_endpoint'] : null;
     }
 
     public function pushedAuthorizationRequestEndpoint(): ?string

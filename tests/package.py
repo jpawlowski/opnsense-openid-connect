@@ -239,6 +239,10 @@ def main():
     check("provider recovery runs every minute outside the browser path",
           "*\t*\t*\t*\t*\troot\t/usr/bin/lockf -t 0 /var/run/openid-connect-refresh.lock "
           "/usr/local/sbin/openid-connect-refresh >/dev/null 2>&1" in cron)
+    refresh = contents.get("/usr/local/sbin/openid-connect-refresh", b"").decode()
+    check("background PAR recovery accepts every supported client credential",
+          "hasClientAuthenticationCredential()" in refresh
+          and "$settings->clientSecret() === ''" not in refresh)
     check("it does not rely on periodic, which nothing in OPNsense uses",
           [n for n in contents if "/periodic/" in n], [])
     # pkg removes what it installed; the anchor is written at runtime under /var/db

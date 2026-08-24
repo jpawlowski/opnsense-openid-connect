@@ -63,6 +63,8 @@ require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SharedSign
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SharedSignalsClient.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderSetup.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/JwtVerifier.php';
+require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientAssertion.php';
+require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientAuthenticator.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RequestObjectSigner.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/DpopProof.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/DpopKeyStore.php';
@@ -81,6 +83,8 @@ require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/Authorizat
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderProbe.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RelyingParty.php';
 require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/PrivateApiControllerBase.php';
+require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/DiscoveryController.php';
+require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/HealthController.php';
 require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/TestController.php';
 require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/AuthController.php';
 require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/SsfController.php';
