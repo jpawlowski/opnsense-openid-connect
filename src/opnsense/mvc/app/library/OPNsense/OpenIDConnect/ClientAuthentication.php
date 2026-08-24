@@ -63,7 +63,11 @@ final class ClientAuthentication
              * previously selected method remains the only one known to match the issued grant,
              * so verify its continued support instead of silently negotiating a new preference.
              */
-            $frozenMethod = $metadata->tokenEndpointAuthMethod($frozen['method']);
+            if (!in_array($frozen['method'], OpenIDConnect::TOKEN_AUTH_METHODS, true)) {
+                throw new ProtocolException('The pending login carries invalid client authentication state');
+            }
+            $frozenMethod = $restorePolicy
+                ? $frozen['method'] : $metadata->tokenEndpointAuthMethod($frozen['method']);
         }
         $method = $frozenMethod ?? self::selectedMethod($settings, $metadata, $authenticator);
         $bound = $restorePolicy && $frozen !== null

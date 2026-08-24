@@ -864,7 +864,7 @@ Checks::that(
     ['certificate_bound_access_tokens' => true, 'certificate_ref' => 'mtls-old']
 );
 $changedBindingMetadata = ProviderMetadata::fromArray(metadata([
-    'token_endpoint_auth_methods_supported' => ['tls_client_auth'],
+    'token_endpoint_auth_methods_supported' => ['client_secret_basic'],
     'revocation_endpoint_auth_methods_supported' => ['tls_client_auth'],
     'revocation_endpoint' => 'https://id.example.net/revoke',
     'mtls_endpoint_aliases' => [
@@ -897,7 +897,7 @@ $restoredRevocation = new RelyingParty(
 );
 $mtlsMetadataProperty->setValue($restoredRevocation, $changedBindingMetadata);
 $restoredRevocation->revokeToken('bound-access-token', 'access_token');
-Checks::that('logout still revokes a bound token when current Discovery omits issuance support',
+Checks::that('logout still revokes a bound token after current issuance metadata changes',
     $restoredRevocationRequest, [
         'method' => 'POST',
         'url' => 'https://mtls.example.net/revoke',
