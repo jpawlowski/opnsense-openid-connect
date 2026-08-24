@@ -5,6 +5,7 @@
 """Checks the shared setup performed when a Codex or Claude task starts."""
 
 import importlib.util
+import io
 import json
 import os
 import pathlib
@@ -357,7 +358,7 @@ def main():
         check("the same canonical head is re-evaluated when local paths later overlap",
               "remote.txt" in late_notice and late_overlap.get("pending_main") == remote_head, True)
         check("an acknowledgement for the earlier path set cannot excuse a later overlap",
-              "acknowledge-main" in hook.pending_main_refusal(
+              "defer-main" in hook.pending_main_refusal(
                   worktree, late_overlap, remote_head, "origin/main",
               ), True)
         (worktree / "remote.txt").unlink()
@@ -381,7 +382,7 @@ def main():
         check("overlapping canonical progress becomes pending",
               drift_state["pending_main"], refused["base_main"])
         check("pending overlap blocks another write",
-              "acknowledge-main" in hook.pending_main_refusal(
+              "defer-main" in hook.pending_main_refusal(
                   worktree, drift_state, refused["base_main"], refused["base_name"],
               ), True)
         drift_state["acknowledged_main"] = refused["base_main"]
@@ -595,6 +596,31 @@ def main():
     check("GitHub API mutation forces an uncached remote observation", guard_module.requires_uncached_remote({
         "tool_name": "Bash", "tool_input": {"command": "gh api --method PATCH repos/example/project/pulls/42"},
     }), True)
+    check("the coordination helper forces an uncached observation before publishing",
+          guard_module.requires_uncached_remote({
+              "tool_name": "Bash",
+              "tool_input": {"command": "python3 .agents/pr-coordination.py recommend --prs 42 57"},
+          }), True)
+    check("direct coordination helper execution is also a publication boundary",
+          guard_module.requires_uncached_remote({
+              "tool_name": "Bash",
+              "tool_input": {"command": ".agents/pr-coordination.py fulfill --id 42-57-order"},
+          }), True)
+    check("read-only coordination status does not become a publication boundary",
+          guard_module.requires_uncached_remote({
+              "tool_name": "Bash",
+              "tool_input": {"command": "python3 .agents/pr-coordination.py status --pr 42"},
+          }), False)
+    check("coordination publication needs a topic branch before creating durable comments",
+          guard_module.requires_topic_branch({
+              "tool_name": "Bash",
+              "tool_input": {"command": "python3 .agents/pr-coordination.py fulfill --id 42-57-order"},
+          }), True)
+    check("coordination status remains valid in a detached inspection worktree",
+          guard_module.requires_topic_branch({
+              "tool_name": "Bash",
+              "tool_input": {"command": "python3 .agents/pr-coordination.py status --pr 42"},
+          }), False)
     check("a detached worktree needs a branch before commit", guard_module.requires_topic_branch({
         "tool_name": "Bash", "tool_input": {"command": "git commit -m 'test: durable work'"},
     }), True)
@@ -742,6 +768,37 @@ def main():
         acknowledged = json.loads(acknowledgement_state.read_text(encoding="utf-8"))
         check("the trusted helper records a deliberate main-drift acknowledgement",
               (emitted[0], acknowledged.get("acknowledged_main")), ({}, "abcdef1234567890"))
+        acknowledgement_state.write_text(json.dumps({
+            "base_main": "base", "seen_main": "abcdef1234567890", "pending_main": "abcdef1234567890",
+            "main_paths_fingerprint": "paths",
+        }), encoding="utf-8")
+        emitted.clear()
+        hook.guard({
+            "session_id": "primary", "tool_name": "Bash",
+            "tool_input": {"command": (
+                "python3 .agents/hooks/fast_gate.py defer-main "
+                "--reason 'preserve a running VM test' --checkpoint 'the current E2E run completes'"
+            )},
+        })
+        deferred = json.loads(acknowledgement_state.read_text(encoding="utf-8"))
+        check("a protected continuity phase records reason and observable checkpoint",
+              (emitted[0], deferred["continuity_deferral"]["checkpoint"]),
+              ({}, "the current E2E run completes"))
+        deferred.update({"pending_main": "fedcba9876543210", "main_paths_fingerprint": "more-paths"})
+        check("later canonical heads and local paths do not reopen the same continuity decision",
+              hook.pending_main_refusal(control, deferred, "fedcba9876543210", "origin/main"), "")
+        acknowledgement_state.write_text(json.dumps(deferred), encoding="utf-8")
+        emitted.clear()
+        hook.guard({
+            "session_id": "primary", "tool_name": "Bash",
+            "tool_input": {"command": "python3 .agents/hooks/fast_gate.py checkpoint-main"},
+        })
+        checkpointed = json.loads(acknowledgement_state.read_text(encoding="utf-8"))
+        check("the safe checkpoint ends the phase without excusing accumulated drift",
+              (emitted[0], "continuity_deferral" in checkpointed,
+               "defer-main" in hook.pending_main_refusal(
+                   control, checkpointed, "fedcba9876543210", "origin/main",
+               )), ({}, False, True))
         emitted.clear()
         hook.guard({
             "session_id": "primary", "tool_name": "Bash",
@@ -1192,10 +1249,13 @@ module.update_registry(repository, update)
             if path.startswith("pulls/1/files") or path.startswith("pulls/2/files"):
                 return [{"filename": "shared.txt"}]
             if path == "pulls/1":
-                return {"html_url": "https://example.invalid/1", "draft": True, "mergeable": True,
+                return {"html_url": "https://example.invalid/1", "state": "open", "draft": True,
+                        "mergeable": True,
                         "mergeable_state": "clean", "head": {"sha": head}}
             if path.startswith("pulls/1/reviews"):
                 return [{"user": {"login": "reviewer"}, "state": "APPROVED", "commit_id": head}]
+            if path.startswith("issues/1/comments"):
+                return []
             if path.startswith(f"commits/{head}/check-runs"):
                 return {"check_runs": [{"status": "completed", "conclusion": "success"}]}
             if path == f"commits/{head}/status":
@@ -1224,7 +1284,28 @@ module.update_registry(repository, update)
         ), "passing")
         check("an approval on an older head is stale", watch._review_decision([
             {"user": {"login": "reviewer"}, "state": "APPROVED", "commit_id": "older"},
-        ], head), "stale approval")
+        ], head)[0], "stale review")
+        check("a commented review on the current head is a completed submission", watch._review_decision([
+            {"id": 7, "user": {"login": "reviewer"}, "state": "COMMENTED", "commit_id": head},
+        ], head)[0], "review submitted")
+        check("a later comment cannot hide the reviewer's outstanding change request", watch._review_decision([
+            {"id": 7, "user": {"login": "reviewer"}, "state": "CHANGES_REQUESTED", "commit_id": "older"},
+            {"id": 8, "user": {"login": "reviewer"}, "state": "COMMENTED", "commit_id": head},
+        ], head)[0], "changes requested")
+        check("the pull-request author's own submitted review is not mistaken for external review",
+              watch._review_decision([
+                  {"id": 9, "user": {"login": "author"}, "state": "COMMENTED", "commit_id": head},
+              ], head, author="author")[0], "pending")
+        clean_comment = {
+            "id": 10,
+            "created_at": "2026-08-24T12:00:00Z",
+            "user": {"login": "chatgpt-codex-connector[bot]"},
+            "body": f"Codex Review: no major issues.\n\n**Reviewed commit:** `{head[:10]}`",
+        }
+        check("a clean Codex issue comment closes review for its exact current head",
+              watch._review_decision([], head, [clean_comment], "author")[0], "review submitted")
+        check("a clean Codex issue comment for an older head remains stale",
+              watch._review_decision([], "different-head", [clean_comment], "author")[0], "stale review")
         check("unavailable review threads remain explicitly unknown",
               snapshot["current"]["unresolved_threads"], None)
         check("a pull request leaving the open set ends the waiting phase",
@@ -1253,6 +1334,50 @@ module.update_registry(repository, update)
         )
         check("a fresh task-local PR snapshot is reused", len(calls), first_calls)
         check("the cached snapshot keeps its current pull request", cached["current"]["number"], 1)
+        moving_heads = iter(("old-head", "new-head", "new-head", "new-head"))
+        observed_checks = []
+
+        def moving_reader(_repository, path, _token):
+            if path == "pulls/1":
+                value = next(moving_heads)
+                return {"html_url": "https://example.invalid/1", "state": "open", "draft": False,
+                        "mergeable": True,
+                        "mergeable_state": "clean", "head": {"sha": value}}
+            if path.startswith("pulls/1/reviews") or path.startswith("issues/1/comments"):
+                return []
+            if "/check-runs" in path:
+                observed_checks.append(path)
+                return {"check_runs": [{"status": "completed", "conclusion": "success"}]}
+            if path.endswith("/status"):
+                return {"state": "success"}
+            raise AssertionError(f"unexpected moving-head path {path}")
+
+        coherent = watch._coherent_current(
+            repository, "jpawlowski/opnsense-openid-connect", 1, "", moving_reader,
+        )
+        check("a head change during observation discards the mixed snapshot and follows the PR number",
+              (coherent["head_sha"], any("old-head" in path for path in observed_checks),
+               any("new-head" in path for path in observed_checks)), ("new-head", True, True))
+        closing_details = iter(("open", "closed"))
+
+        def closing_reader(_repository, path, _token):
+            if path == "pulls/1":
+                return {"html_url": "https://example.invalid/1", "state": next(closing_details),
+                        "merged_at": None, "draft": False, "mergeable": True,
+                        "mergeable_state": "clean", "head": {"sha": head}}
+            if path.startswith("pulls/1/reviews") or path.startswith("issues/1/comments"):
+                return []
+            if "/check-runs" in path:
+                return {"check_runs": [{"status": "completed", "conclusion": "success"}]}
+            if path.endswith("/status"):
+                return {"state": "success"}
+            raise AssertionError(f"unexpected closing-PR path {path}")
+
+        check("a PR closing during observation is not retained as the current open pull request",
+              watch._coherent_current(
+                  repository, "jpawlowski/opnsense-openid-connect", 1, "", closing_reader,
+              ), None)
+
         def failed_reader(_repository, _path, _token):
             raise ValueError("temporary GitHub failure")
 
@@ -1284,6 +1409,287 @@ module.update_registry(repository, update)
         snapshot["current"]["head_sha"] = foreign
         check("a foreign remote head blocks more local writing",
               "not contained" in watch.remote_head_refusal(repository, snapshot), True)
+
+    group("Cross-PR coordination gives agents and humans one durable order")
+    coordination = load_agent_module(
+        "pr_coordination_test", ROOT / ".agents" / "hooks" / "pr_coordination.py",
+    )
+    record = {"id": "42-57-order", "order": [42, 57], "state": "final", "supersedes": []}
+    body = coordination.render_final(
+        record,
+        "both change the authentication hook",
+        "#42 already has a current-head review",
+        "#42 closes or changes the shared contract",
+    )
+    check("the public record gives one exact human-facing order",
+          all(value in body for value in ("#42 → #57", "Merge #42 first", "Do not merge", "explicit human")),
+          True)
+    check("the public record carries the required agent notice",
+          body.rstrip().endswith(coordination.NOTICE["en"]), True)
+    mirrored = [
+        {"id": 1, "created_at": "2026-08-24T10:00:00Z", "body": body, "author_association": "OWNER"},
+        {"id": 2, "created_at": "2026-08-24T10:00:01Z", "body": body, "author_association": "OWNER"},
+    ]
+    active = coordination.records_from_comments(mirrored)
+    check("mirrored comments become one active machine record",
+          [(value["id"], value["order"]) for value in active], [("42-57-order", [42, 57])])
+    check("a public commenter cannot forge a coordination marker",
+          coordination.records_from_comments([
+              {"id": 3, "created_at": "2026-08-24T10:00:02Z", "body": body,
+               "author_association": "CONTRIBUTOR"},
+          ]), [])
+    check("a later steward is told to wait without stopping ordinary work",
+          "must not merge before #42" in coordination.status_notice(active, 57, {42: "open", 57: "open"}),
+          True)
+    check("a merged predecessor creates one checkpoint action",
+          "integrate the merged predecessor" in coordination.status_notice(
+              active, 57, {42: "merged", 57: "open"},
+          ), True)
+    mixed_predecessors = {
+        "id": "42-57-63-order", "order": [42, 57, 63], "state": "final", "supersedes": [],
+    }
+    mixed_notice = coordination.status_notice(
+        [mixed_predecessors], 63, {42: "closed", 57: "open", 63: "open"},
+    )
+    check("one closed-unmerged predecessor invalidates an order despite another open predecessor",
+          ("needs replacement" in mixed_notice, "is active" in mixed_notice), (True, False))
+    reverse = {"id": "57-42-order", "order": [57, 42], "state": "final", "supersedes": []}
+    check("contradictory recommendations are detected as a cycle",
+          coordination.has_cycle([record, reverse]), True)
+    fulfilled = coordination.render_fulfilled(record)
+    check("a fulfilled event retires the active recommendation", coordination.records_from_comments([
+        *mirrored,
+        {"id": 4, "created_at": "2026-08-24T11:00:00Z", "body": fulfilled,
+         "author_association": "COLLABORATOR"},
+    ]), [])
+
+    publisher = load_agent_module(
+        "pr_coordination_publisher_test", ROOT / ".agents" / "pr-coordination.py",
+    )
+    label_state = {}
+    label_state_lock = threading.Lock()
+    original_urlopen = publisher.urlopen
+
+    def atomic_label_api(request, timeout):
+        del timeout
+        with label_state_lock:
+            if label_state:
+                raise publisher.HTTPError(request.full_url, 422, "already exists", None, None)
+            label = json.loads(request.data)
+            label_state.update(label)
+            return io.BytesIO(json.dumps(label).encode())
+
+    publisher.urlopen = atomic_label_api
+    lock_results = []
+
+    def contend_for_lock(owner):
+        try:
+            publisher.acquire_coordination_lock("token", owner=owner)
+            lock_results.append((owner, "acquired"))
+        except RuntimeError:
+            lock_results.append((owner, "refused"))
+
+    contenders = [threading.Thread(target=contend_for_lock, args=(owner,)) for owner in ("first", "second")]
+    for contender in contenders:
+        contender.start()
+    for contender in contenders:
+        contender.join()
+    publisher.urlopen = original_urlopen
+    check("an atomic repository mutex admits only one concurrent coordination publisher",
+          sorted(result for _owner, result in lock_results), ["acquired", "refused"])
+
+    original_acquire = publisher.acquire_coordination_lock
+    original_request = publisher.github_watch.github_request
+    publisher.acquire_coordination_lock = lambda _token: "test-owner"
+    publisher.github_watch.github_request = lambda *_arguments: (_ for _ in ()).throw(
+        ValueError("temporary ownership read failure")
+    )
+    release_warning = io.StringIO()
+    original_stderr = sys.stderr
+    retained_error = ""
+    try:
+        sys.stderr = release_warning
+        try:
+            with publisher.coordination_publication_lock("token"):
+                raise RuntimeError("partial publication failed")
+        except RuntimeError as error:
+            retained_error = str(error)
+    finally:
+        sys.stderr = original_stderr
+        publisher.acquire_coordination_lock = original_acquire
+        publisher.github_watch.github_request = original_request
+    check("a lock ownership read failure preserves the original publication error and warns about cleanup",
+          (retained_error, "lock needs inspection" in release_warning.getvalue()),
+          ("partial publication failed", True))
+
+    resumable_record = {
+        "id": "42-57-1787590800-a1b2c3", "order": [42, 57], "state": "final", "supersedes": [],
+    }
+    resumable_body = coordination.render_final(resumable_record, "same file", "review state", "contract changes")
+    published_paths = []
+    publisher.github_write = lambda path, _body, _token: (
+        published_paths.append(path) or {"html_url": f"https://example.invalid/{path}"}
+    )
+    existing = {
+        42: [{
+            "id": 5, "created_at": "2026-08-24T12:00:00Z", "body": resumable_body,
+            "html_url": "https://example.invalid/existing", "author_association": "OWNER",
+        }],
+        57: [],
+    }
+    resumed_urls = publisher.publish_mirrored(
+        [42, 57], resumable_body, resumable_record["id"], "token", existing,
+    )
+    check("a partial mirrored recommendation resumes without duplicating its first comment",
+          (published_paths, resumed_urls[0]),
+          (["issues/57/comments"], "https://example.invalid/existing"))
+    check("a replacement is mirrored to old-only and new-only pull requests",
+          publisher.publication_targets(
+              [57, 63], [{"id": "old-order", "order": [42, 57]}], {"old-order"},
+          ), [57, 63, 42])
+    related, participants = publisher.coordination_component([
+        {"id": "first", "order": [42, 57]},
+        {"id": "second", "order": [42, 71]},
+        {"id": "disjoint", "order": [80, 81]},
+    ], [57, 63])
+    check("shared participants pull every connected active order into one replacement",
+          ([record["id"] for record in related], sorted(participants)),
+          (["first", "second"], [42, 57, 63, 71]))
+    check("closed former participants stay out of a replacement order",
+          publisher.missing_order_participants({42, 57, 63}, [57, 63], {57, 63}), [])
+    check("an omitted open participant still blocks an incomplete replacement order",
+          publisher.missing_order_participants({42, 57, 63}, [57], {57, 63}), [63])
+    replacement = {
+        "id": "57-63-order", "order": [57, 63], "state": "final", "supersedes": ["42-57-order"],
+        "targets": [42, 57, 63],
+    }
+    replacement_body = coordination.render_final(
+        replacement, "the shared path moved", "the replacement minimizes rework", "the contract changes",
+    )
+    retired_old_only = coordination.records_from_comments([
+        mirrored[0],
+        {"id": 6, "created_at": "2026-08-24T13:00:00Z", "body": replacement_body,
+         "author_association": "OWNER"},
+    ])
+    check("the old-only pull request observes the replacement and retires its obsolete order",
+          [(value["id"], value["order"]) for value in retired_old_only], [("57-63-order", [57, 63])])
+    loaded_targets = []
+    publisher.comments = lambda number, _token: loaded_targets.append(number) or []
+    target_comments = {57: []}
+    publisher.load_target_comments(target_comments, [42, 57, 63], "token")
+    check("a retry loads comments for closed targets absent from the open pull request inventory",
+          (loaded_targets, sorted(target_comments)), ([42, 63], [42, 57, 63]))
+
+    retry_record = {
+        "id": "57-63-1787590801-d4e5f6", "order": [57, 63], "state": "final",
+        "supersedes": ["42-57-order"], "targets": [42, 57, 63],
+    }
+    retry_body = coordination.render_final(
+        retry_record, "the shared path moved", "the replacement minimizes rework", "the contract changes",
+    )
+    retry_comment = {
+        "id": 7, "created_at": "2026-08-24T13:30:00Z", "body": retry_body,
+        "author_association": "OWNER",
+    }
+    publisher.open_pulls = lambda _token: [{"number": 57}, {"number": 63}]
+    publisher.comment_sets = lambda _pulls, _token: {57: [mirrored[1], retry_comment], 63: []}
+    publisher.comments = lambda number, _token: [retry_comment] if number == 42 else []
+    resumed_publications = []
+    publisher.publish_mirrored = lambda numbers, body, identifier, _token, _values: (
+        resumed_publications.append((numbers, coordination.parse_marker(body), identifier)) or []
+    )
+    publisher.recommend_locked(SimpleNamespace(
+        prs=[57, 63], order=[57, 63], id=retry_record["id"], supersedes=["42-57-order"],
+        overlap="the shared path moved", reason="the replacement minimizes rework",
+        reconsider="the contract changes", language="en",
+    ), "token")
+    check("a partially mirrored replacement recovers its hidden superseded ID and complete target set",
+          (resumed_publications[0][0], resumed_publications[0][1]["targets"]),
+          ([42, 57, 63], [42, 57, 63]))
+
+    closed_partial = {
+        "id": "57-63-1787590802-abcdef", "order": [57, 63], "state": "final",
+        "supersedes": ["42-57-order"], "targets": [57, 63, 42],
+    }
+    closed_partial_body = coordination.render_final(
+        closed_partial, "the shared path moved", "the replacement minimizes rework", "the contract changes",
+    )
+    closed_partial_comment = {
+        "id": 8, "created_at": "2026-08-24T13:45:00Z", "body": closed_partial_body,
+        "author_association": "OWNER",
+    }
+    publisher.open_pulls = lambda _token: [{"number": 63}, {"number": 71}]
+    publisher.comment_sets = lambda _pulls, _token: {63: [], 71: []}
+    closed_target_reads = []
+    publisher.comments = lambda number, _token: (
+        closed_target_reads.append(number) or ([closed_partial_comment] if number == 57 else [])
+    )
+    successor_publications = []
+    publisher.publish_mirrored = lambda numbers, body, identifier, _token, _values: (
+        successor_publications.append((numbers, coordination.parse_marker(body), identifier)) or []
+    )
+    publisher.recommend_locked(SimpleNamespace(
+        prs=[63, 71], order=[63, 71], id="63-71-1787590803-fedcba",
+        supersedes=[closed_partial["id"]], overlap="the remaining shared path moved",
+        reason="the closed participant cannot remain in the merge order", reconsider="the contract changes",
+        language="en",
+    ), "token")
+    check("a new open order discovers and supersedes a partial marker on its closed first target",
+          (closed_target_reads, successor_publications[0][0], successor_publications[0][1]["supersedes"]),
+          ([57, 42], [63, 71, 57, 42], [closed_partial["id"]]))
+
+    final_comment = {
+        "id": 9, "created_at": "2026-08-24T14:00:00Z", "body": replacement_body,
+        "author_association": "OWNER",
+    }
+    publisher.require_token = lambda: "token"
+    publisher.acquire_coordination_lock = lambda _token: "test-owner"
+    publisher.release_coordination_lock = lambda _token, _owner: None
+    publisher.open_pulls = lambda _token: [{"number": 57}, {"number": 63}]
+    fulfillment_reads = []
+    publisher.comments = lambda number, _token: fulfillment_reads.append(number) or [final_comment]
+    publisher.comment_sets = lambda pulls, token: {
+        int(pull["number"]): publisher.comments(int(pull["number"]), token) for pull in pulls
+    }
+    fulfillment_publication = []
+    publisher.publish_mirrored = lambda numbers, _body, identifier, _token, values: (
+        fulfillment_publication.append((numbers, identifier, sorted(values))) or []
+    )
+    publisher.fulfill(SimpleNamespace(id="57-63-order", language="en"))
+    check("fulfillment reaches and loads every recorded replacement target",
+          (fulfillment_reads, fulfillment_publication),
+          ([57, 63, 42], [([42, 57, 63], "57-63-order", [42, 57, 63])]))
+
+    closed_fulfillment = {
+        "id": "57-63-1787590804-123abc", "order": [57, 63], "state": "final",
+        "supersedes": ["42-57-order"], "targets": [57, 63, 42],
+    }
+    closed_final_body = coordination.render_final(
+        closed_fulfillment, "the shared path moved", "the replacement minimizes rework", "the contract changes",
+    )
+    closed_fulfilled_body = coordination.render_fulfilled(closed_fulfillment)
+    closed_fulfillment_comments = {
+        57: [{"id": 10, "created_at": "2026-08-24T14:10:00Z", "body": closed_fulfilled_body,
+              "author_association": "OWNER"}],
+        63: [{"id": 11, "created_at": "2026-08-24T14:10:01Z", "body": closed_fulfilled_body,
+              "author_association": "OWNER"}],
+        42: [{"id": 12, "created_at": "2026-08-24T14:10:02Z", "body": closed_final_body,
+              "author_association": "OWNER"}],
+    }
+    publisher.open_pulls = lambda _token: []
+    publisher.comment_sets = lambda _pulls, _token: {}
+    closed_fulfillment_reads = []
+    publisher.comments = lambda number, _token: (
+        closed_fulfillment_reads.append(number) or closed_fulfillment_comments[number]
+    )
+    closed_fulfillment_publications = []
+    publisher.publish_mirrored = lambda numbers, _body, identifier, _token, values: (
+        closed_fulfillment_publications.append((numbers, identifier, sorted(values))) or []
+    )
+    publisher.fulfill_locked(SimpleNamespace(id=closed_fulfillment["id"], language="en"), "token")
+    check("fulfillment resumes from closed fulfilled originals and reaches the remaining final target",
+          (closed_fulfillment_reads, closed_fulfillment_publications),
+          ([57, 63, 42], [([57, 63, 42], closed_fulfillment["id"], [42, 57, 63])]))
 
     group("Finished worktrees retire before local branches and never delete remote branches")
     cleanup = load_agent_module(
@@ -1491,6 +1897,12 @@ module.update_registry(repository, update)
           cleanup_hook.cleanup_pull_number(
               {"pr_state": None}, {"status": "pr-linked", "pull_request": 41},
           ), 41)
+    check("a disappearing coordination record emits an explicit cleared-block transition",
+          "merge-order block was fulfilled" in cleanup_hook.coordination_state_notice(
+              "Final coordination #42 -> #57 is active", "",
+          ), True)
+    check("an unchanged absent coordination record remains silent",
+          cleanup_hook.coordination_state_notice("", ""), "")
     with tempfile.TemporaryDirectory() as temporary:
         state = pathlib.Path(temporary) / "state.json"
         state.write_text(json.dumps({

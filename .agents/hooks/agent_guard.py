@@ -320,7 +320,8 @@ def _worktree_helper(arguments):
 
 def _hook_control(arguments):
     return _repository_helper(
-        arguments, ".agents/hooks/fast_gate.py", ("acknowledge-main", "refresh", "watch"),
+        arguments, ".agents/hooks/fast_gate.py",
+        ("acknowledge-main", "checkpoint-main", "defer-main", "refresh", "watch"),
     )
 
 
@@ -487,6 +488,18 @@ def is_main_acknowledgement(event):
     )
 
 
+def is_continuity_control(event):
+    """Recognize only the repository-owned helper that starts or ends one protected phase."""
+    if str(event.get("tool_name") or "") != "Bash":
+        return False
+    program, arguments = _shell_invocation(event_command(event))
+    return bool(
+        program in ("python", "python3")
+        and _repository_helper(arguments, ".agents/hooks/fast_gate.py", ("checkpoint-main", "defer-main"))
+        and arguments[1] in ("checkpoint-main", "defer-main")
+    )
+
+
 def pull_reconciliation_sha(event):
     """Return the exact foreign PR head named by the repository-owned reconciliation helper."""
     if str(event.get("tool_name") or "") != "Bash":
@@ -613,6 +626,17 @@ def _effective_invocation(command):
     return program, arguments, program in ("builtin", "command", "env", "exec")
 
 
+def _coordination_publication(program, arguments):
+    return (
+        Path(program).name == "pr-coordination.py"
+        and any(command in ("recommend", "fulfill") for command in arguments)
+    ) or any(
+        Path(value).name == "pr-coordination.py"
+        and any(command in ("recommend", "fulfill") for command in arguments[index + 1:])
+        for index, value in enumerate(arguments)
+    )
+
+
 def requires_uncached_remote(event):
     """Identify publication boundaries whose remote view must never come from the active-work cache."""
     tool = str(event.get("tool_name") or "")
@@ -633,6 +657,7 @@ def requires_uncached_remote(event):
         (program == "git" and git_command in ("push", "send-pack"))
         or (program == "git" and git_command not in KNOWN_GIT_SUBCOMMANDS)
         or (program == "gh" and not _read_only_gh(arguments))
+        or _coordination_publication(program, arguments)
         or (program not in ("git", "gh") and any(Path(value).name in ("git", "gh") for value in arguments))
     )
 
@@ -665,6 +690,7 @@ def requires_topic_branch(event):
         (program == "git" and git_command in ("commit", "push", "send-pack"))
         or (program == "git" and git_command not in KNOWN_GIT_SUBCOMMANDS)
         or (program == "gh" and not _read_only_gh(arguments))
+        or _coordination_publication(program, arguments)
         or nested_durable
     )
 

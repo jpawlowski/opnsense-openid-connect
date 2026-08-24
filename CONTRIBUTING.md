@@ -68,12 +68,38 @@ a replacement pull request for the same work.
 
 Agent hooks refresh the canonical branch throughout active work and report
 path overlap with new `main` commits or other open pull requests. They also
-observe a published pull request's remote head, checks, review and merge state.
-They never merge or rebase automatically. A foreign remote head must be
-reconciled before another write or publication, and a changed head needs a new
-review. A read-only ten-minute waiting monitor may be offered after local work
-finishes, but it is created only with explicit user consent and never comments,
-pushes, requests review or merges.
+observe a published pull request by number, verify one coherent current-head
+snapshot, and include checks, submitted reviews, threads and merge state. They
+never merge or rebase automatically. A foreign remote head must be reconciled
+before another write or publication, and a changed head needs a new review.
+
+Freshness does not require live synchronization. An agent may protect a costly
+or stateful operation until a named safe checkpoint while any number of `main`
+commits accumulate visibly. It then assesses the complete drift once. Branch
+lag alone is not a conflict, and a conflict found during review waits for the
+next review or finalization checkpoint rather than invalidating the running
+review immediately. A read-only monitor retains the PR number until review,
+failure, conflict, merge, closure or another actionable transition; it never
+comments, pushes, requests review or merges.
+
+Material overlap between open PRs gets one machine-readable recommendation
+mirrored in each PR. It gives the human one exact merge order, never
+alternatives. The later PR may keep working but does not merge first or chase
+the earlier PR's changing head; after its predecessor merges, it integrates
+once at a safe checkpoint. A replacement is also mirrored to PRs present only
+in the superseded order, preventing them from retaining obsolete coordination.
+Its marker retains that complete target set for retry and fulfillment even when
+one of those PRs closes. Active orders sharing any participant form one
+transitive group and must be replaced by a single order covering all of its open
+PRs; former participants remain mirroring targets but never re-enter the order.
+A predecessor closing unmerged invalidates that order immediately. Only
+repository-associated publishers are trusted;
+an interrupted mirroring resumes under its printed identifier without duplicate
+comments. Recommendation and fulfillment hold an atomic repository mutex across
+their remote snapshot and all mirrored writes; a concurrent publisher waits, and
+a lock left by a failed process is inspected rather than stolen. No agent merges, enables auto-merge or queues a
+merge without an explicit human instruction naming that PR. Review,
+coordination and making a PR ready do not imply merge permission.
 
 Agent worktrees have an event-driven cleanup queue rather than a background
 scheduler. SessionEnd retains dirty work and open pull requests, while a clean

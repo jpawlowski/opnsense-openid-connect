@@ -64,7 +64,7 @@ record of the public claim before it permits source, build or Git mutations.
 Run `python3 .agents/issues.py claim N`. It requires label-management permission
 and first creates a fixed per-issue label definition through GitHub's atomic
 create operation. Only its owner proceeds to assign the publishing account,
-create the visible `wip:<epoch>-<random>` issue label, and publish the comment.
+create the visible temporary `wip:<epoch>-<random>` issue label, and publish the comment.
 This serializes claimants across clones even when one pauses mid-operation. An
 agent without that permission coordinates with a maintainer instead of starting
 unguarded work. Add `--language de` when the issue conversation is German. The
@@ -124,17 +124,39 @@ write, at turn stop, and unconditionally before publication. It fast-forwards
 clean local `main` only. It never changes an agent's topic branch or pushes
 canonical main to a fork. GitHub's Sync fork button is not required. Start new
 work from the reported canonical ref, not from a possibly stale fork `main`.
-Canonical progress without path overlap is informational. An overlap blocks
-the next write until the integrating agent compares it and either integrates it
-or records a reasoned deferral with the command reported by the hook.
+Freshness is an observation obligation, not an immediate synchronization
+obligation. Commit count, branch distance and elapsed time are informational.
+Canonical overlap blocks another write only until the agent integrates it or
+starts a protected continuity phase:
 
-Once a branch has a pull request, the same event-driven observation follows its
-remote head, checks, review decision, merge state and, when GitHub exposes them,
-unresolved review threads. It also reports changed-path overlap with other open
-pull requests targeting `main`. A remote pull-request head not contained in the
-local branch blocks further writing or publication until reconciled. Never
-merge or rebase merely because the observer found drift; integrate deliberately
-when paths overlap, GitHub requires it, or a real conflict risk exists.
+    python3 .agents/hooks/fast_gate.py defer-main \
+        --reason "why interruption is materially costly" \
+        --checkpoint "the earliest observable safe checkpoint"
+
+Use this for a stateful or expensive operation whose interruption would discard
+setup, evidence or coherent progress. The observer continues to accumulate any
+number of later canonical heads without requiring another acknowledgement. The
+operation and its evidence remain pinned to their source revision. At the named
+checkpoint run `python3 .agents/hooks/fast_gate.py checkpoint-main`, review all
+accumulated drift once and integrate only what affects the next phase. Close the
+phase before any push, PR update, review request or handoff.
+
+Once a branch has a pull request, its integrating agent remains steward until
+merge, closure or explicit handoff. Observation is bound to repository and PR
+number, not a commit SHA. A snapshot reads the current head, submitted reviews
+including `COMMENTED`, review threads, checks and merge state, then verifies the
+head and open state again; discard and retry a mixed-head result, and report a
+terminal transition immediately. Old-head reviews do not satisfy the current-head
+gate, but every unresolved old thread still needs disposition.
+A remote head for that PR that is not contained locally remains an immediate
+block until reconciled.
+
+Wait for a review submission to finish, inventory every thread and address one
+coherent batch. Synchronize relevant canonical drift at that same checkpoint,
+validate and push once, then request one current-head review. `behind` is not a
+conflict. Do not change a head under active review merely to chase `main`; record
+a confirmed conflict and restore mergeability before initial review, after the
+review batch or at finalization.
 
 Claude Code cloud identifies itself with `CLAUDE_CODE_REMOTE=true`. In Codex
 cloud, set the repository-defined `AGENT_EXECUTION=codex-cloud` in the cloud
@@ -167,18 +189,82 @@ canonical ref only when its changes are relevant or GitHub requires an
 up-to-date branch. Either operation changes the head and invalidates an earlier
 review.
 
-When no local action remains and only CI, review, approval or merge is pending,
-offer a temporary ten-minute monitor. Create it only after the user explicitly
-accepts. Its observation command is:
+When no local action remains and CI, review, approval or merge is pending, retain
+a read-only monitor until an actionable event or terminal PR state. Its single
+observation command is:
 
     python3 .agents/hooks/fast_gate.py watch
 
-The monitor reports only a changed state or concrete action needed. It never
-writes code, comments, pushes, requests review or merges. A review finding, CI
-failure, conflict, foreign head, approval, merge or closed pull request ends the
-pure waiting phase and returns the task to the user or integrating agent. If the
-user does not accept monitoring, hand off the exact pending conditions and end
-the task.
+Use the platform's recurring monitor or wait facility around that observation;
+do not invent a repository scheduler. Report only changed state or concrete
+action needed. The monitor never writes code, comments, pushes, requests review
+or merges. A submitted review, new thread, CI failure, confirmed conflict,
+foreign head, coordination predecessor transition, approval, merge or closure
+ends pure waiting and returns the PR to its steward. If the platform cannot
+retain a monitor, hand off the PR number and exact pending conditions; waiting
+work is not complete.
+If a previously active coordination notice becomes empty because its record was
+fulfilled, superseded or cleared, report that cleared-block transition rather
+than treating the empty value as silence.
+
+### Coordinating overlapping pull requests
+
+Observe exact changed-path overlap, shared interfaces and semantic dependencies
+with other open PRs. At the next safe opportunity, turn a material overlap into
+one final recommendation mirrored in every involved PR:
+
+    python3 .agents/pr-coordination.py recommend \
+        --prs 42 57 --order 42 57 \
+        --overlap "the concrete shared paths or contract" \
+        --reason "why this exact order minimizes repeated work" \
+        --reconsider "the concrete condition that invalidates the order"
+
+Read the complete `github-contribution` skill before that public write. The
+helper supplies the machine marker, concise human explanation and authorship
+notice. It publishes one total order, never alternatives: prerequisite first,
+then the current-head reviewed or more merge-ready PR, then least total rework,
+then lower PR number as a deterministic tie-breaker. A replacement names every
+record it supersedes and is mirrored to every PR in both the new and superseded
+sets. The machine marker retains that complete target set so a retry or later
+fulfillment also reads and updates old-only or already closed PRs. The helper
+requires every active record sharing a participant to be superseded by one order
+covering every open PR in the complete transitive group. Closed or merged former
+participants remain publication targets only. It refuses an order that would create a cycle and
+accepts machine markers only from GitHub authors associated as owner, member or
+collaborator. It prints the coordination identifier before its first public
+write. If one mirrored write fails, rerun the same command with `--id ID`; the
+helper verifies and skips matching copies instead of duplicating them. It writes
+the current open PR set before old-only targets, and a retry recovers hidden
+superseded IDs plus the complete target set from its already-published marker.
+If that marker's first target has closed, publish a new remaining-open-PR order
+with the partial ID in `--supersedes`. The ID directs the helper to read the
+closed PR and mirror the successor there, so reopening cannot revive it.
+Fulfillment also derives the original PRs from its ID and uses consistent
+fulfilled copies as recovery metadata, allowing it to complete an old-only
+target after every original PR has closed or already received fulfillment.
+Recommendation and fulfillment each acquire one atomic repository-label mutex
+before reading the remote coordination snapshot and retain it through all
+mirrored comments. A competing publisher stands down until release. If a failed
+process leaves the label behind, inspect its owner and remove it deliberately;
+never steal it automatically. If ownership cannot be read during release,
+preserve the publication failure and report the retained lock for inspection.
+Recommendation and fulfillment are public mutations: the guard requires a topic
+branch as well as an uncached remote observation before either command runs.
+
+The recommendation is active immediately and controls merge order, not current
+execution. The later steward may finish a coherent or protected phase, but does
+not merge first or repeatedly chase anticipated conflicts. After its predecessor
+merges, it integrates the predecessor once at its next checkpoint, validates and
+obtains any newly required current-head review. Every steward must inspect and
+obey a mirrored record on its PR. A predecessor closing without merge invalidates
+the sequence immediately, regardless of other open predecessors. Mark a completed sequence with
+`.agents/pr-coordination.py fulfill --id ID`.
+
+The public recommendation tells the human exactly what to merge first and what
+must follow. It never grants merge authority. No agent merges, enables
+auto-merge or enters a merge queue without an explicit human instruction naming
+the PR. Monitoring, review, repair, coordination and a request to make the PR
+ready do not imply permission to merge.
 
 ### Worktree retirement
 
