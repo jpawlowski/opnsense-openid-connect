@@ -282,11 +282,50 @@ def _read_only_gh(arguments):
     return False
 
 
+def _shell_hazard(command):
+    """Return control or expansion for unquoted syntax that changes literal arguments."""
+    quote = ""
+    escaped = False
+    for value in command:
+        if escaped:
+            escaped = False
+            continue
+        if value == "\\" and quote != "'":
+            escaped = True
+            continue
+        if quote:
+            if value == quote:
+                quote = ""
+            elif quote == '"' and value in "$`":
+                return "expansion"
+            continue
+        if value in "'\"":
+            quote = value
+        elif value in "\r\n;&|<>":
+            return "control"
+        elif value in "`$*?[]{}~":
+            return "expansion"
+    return ""
+
+
+def _literal_shell_invocation(command):
+    """Split one simple command while retaining expansion markers as literal evidence."""
+    if not command.strip() or _shell_hazard(command) == "control":
+        return "", []
+    try:
+        arguments = shlex.split(command)
+    except ValueError:
+        return "", []
+    if not arguments:
+        return "", []
+    return arguments[0], arguments[1:]
+
+
 def _shell_invocation(command):
     # The allow-list classifies the literal arguments below. Parameter expansion
     # would let the shell turn an apparently harmless literal into an executable
     # option only after that classification has completed.
-    if not command.strip() or re.search(r"[\r\n;&|<>`$]", command):
+    if _shell_hazard(command):
         return "", []
     try:
         arguments = shlex.split(command)
@@ -338,6 +377,52 @@ def is_issue_bootstrap(event):
                 and arguments[0] == "issue" and arguments[1] == "create")
 
 
+def is_main_acknowledgement(event):
+    """Recognize only the repository-owned helper that records a drift decision."""
+    if str(event.get("tool_name") or "") != "Bash":
+        return False
+    program, arguments = _shell_invocation(event_command(event))
+    return bool(
+        program in ("python", "python3")
+        and _repository_helper(arguments, ".agents/hooks/fast_gate.py", ("acknowledge-main",))
+        and arguments[1] == "acknowledge-main"
+    )
+
+
+def _git_subcommand(arguments):
+    """Locate a Git subcommand behind the documented global option grammar."""
+    index = 0
+    with_value = {"-C", "-c", "--config-env", "--git-dir", "--namespace", "--work-tree"}
+    flags = {
+        "--bare", "--glob-pathspecs", "--help", "--html-path", "--icase-pathspecs", "--info-path",
+        "--literal-pathspecs", "--man-path", "--no-advice", "--no-lazy-fetch", "--no-optional-locks",
+        "--no-pager", "--no-replace-objects", "--noglob-pathspecs", "--paginate", "--version", "-P", "-p",
+    }
+    equals = {"--config-env", "--exec-path", "--git-dir", "--namespace", "--work-tree"}
+    while index < len(arguments):
+        value = arguments[index]
+        if value == "--":
+            index += 1
+            break
+        if value in with_value:
+            index += 2
+            if index > len(arguments):
+                return "", []
+            continue
+        if value in flags or any(value.startswith(f"{option}=") for option in equals):
+            index += 1
+            continue
+        if ((value.startswith("-C") or value.startswith("-c")) and len(value) > 2):
+            index += 1
+            continue
+        if value.startswith("-"):
+            return "", []
+        return value, arguments[index + 1:]
+    if index < len(arguments):
+        return arguments[index], arguments[index + 1:]
+    return "", []
+
+
 def requires_uncached_remote(event):
     """Identify publication boundaries whose remote view must never come from the active-work cache."""
     tool = str(event.get("tool_name") or "")
@@ -345,9 +430,13 @@ def requires_uncached_remote(event):
         return True
     if tool != "Bash":
         return False
-    program, arguments = _shell_invocation(event_command(event))
+    command = event_command(event)
+    program, arguments = _literal_shell_invocation(command)
+    if _shell_hazard(command) == "expansion" and (program == "git" or program == "gh" or not program.isidentifier()):
+        return True
+    git_command, _git_arguments = _git_subcommand(arguments) if program == "git" else ("", [])
     return bool(
-        (program == "git" and arguments and arguments[0] in ("push", "send-pack"))
+        (program == "git" and git_command in ("push", "send-pack"))
         or (program == "gh" and not _read_only_gh(arguments))
     )
 
@@ -356,9 +445,13 @@ def requires_topic_branch(event):
     """Keep a managed detached worktree valid until it creates durable Git or GitHub state."""
     if str(event.get("tool_name") or "") != "Bash":
         return False
-    program, arguments = _shell_invocation(event_command(event))
+    command = event_command(event)
+    program, arguments = _literal_shell_invocation(command)
+    if _shell_hazard(command) == "expansion" and (program == "git" or program == "gh" or not program.isidentifier()):
+        return True
+    git_command, _git_arguments = _git_subcommand(arguments) if program == "git" else ("", [])
     return bool(
-        (program == "git" and arguments and arguments[0] in ("commit", "push", "send-pack"))
+        (program == "git" and git_command in ("commit", "push", "send-pack"))
         or (program == "gh" and not _read_only_gh(arguments))
     )
 

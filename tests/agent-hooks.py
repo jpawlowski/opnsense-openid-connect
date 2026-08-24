@@ -394,6 +394,12 @@ def main():
           guard_module.is_read_only_shell("rg --pre=rm worktree tracked-file"), False)
     check("shell expansion cannot manufacture a ripgrep preprocessor option",
           guard_module.is_read_only_shell("rg ${UNSET:---pre=rm} worktree tracked-file"), False)
+    check("brace expansion cannot manufacture a ripgrep preprocessor option",
+          guard_module.is_read_only_shell("rg {--pre=rm,--hidden} worktree tracked-file"), False)
+    check("pathname expansion cannot manufacture an executable option",
+          guard_module.is_read_only_shell("rg --* worktree tracked-file"), False)
+    check("quoted search syntax remains literal and readable",
+          guard_module.is_read_only_shell("rg '[a-z]+\\?' AGENTS.md"), True)
     check("ripgrep hostname programs are not read-only",
           guard_module.is_read_only_shell("rg --hostname-bin sh worktree AGENTS.md"), False)
     check("environment overrides cannot alter an allow-listed program",
@@ -443,6 +449,9 @@ def main():
     check("Git push forces an uncached remote observation", guard_module.requires_uncached_remote({
         "tool_name": "Bash", "tool_input": {"command": "git push origin codex/topic"},
     }), True)
+    check("Git global options cannot hide a push boundary", guard_module.requires_uncached_remote({
+        "tool_name": "Bash", "tool_input": {"command": "git -C . push origin codex/topic"},
+    }), True)
     check("GitHub CLI publication forces an uncached remote observation", guard_module.requires_uncached_remote({
         "tool_name": "Bash", "tool_input": {"command": "gh pr ready"},
     }), True)
@@ -452,6 +461,16 @@ def main():
     check("a detached worktree needs a branch before commit", guard_module.requires_topic_branch({
         "tool_name": "Bash", "tool_input": {"command": "git commit -m 'test: durable work'"},
     }), True)
+    check("Git global options cannot hide a detached-worktree commit", guard_module.requires_topic_branch({
+        "tool_name": "Bash", "tool_input": {"command": "git -C . commit -m 'test: durable work'"},
+    }), True)
+    check("quoted commit punctuation cannot hide a detached-worktree commit", guard_module.requires_topic_branch({
+        "tool_name": "Bash", "tool_input": {"command": "git commit -m 'test: durable work?'"},
+    }), True)
+    check("an expanded Git subcommand fails closed at a publication boundary",
+          guard_module.requires_uncached_remote({
+              "tool_name": "Bash", "tool_input": {"command": "git ${ACTION}"},
+          }), True)
     check("ordinary detached worktree tests need no branch", guard_module.requires_topic_branch({
         "tool_name": "Bash", "tool_input": {"command": "./tests/run.sh"},
     }), False)
@@ -521,10 +540,33 @@ def main():
             "tool_input": {"command": "gh issue create --title coordination"},
         })
         check("the control checkout may create the issue needed before implementation", emitted[0], {})
+        acknowledgement_state = root / "acknowledgement-state.json"
+        acknowledgement_state.write_text(json.dumps({
+            "pending_main": "abcdef1234567890", "main_paths_fingerprint": "paths",
+        }), encoding="utf-8")
+        hook.state_paths = lambda event: (acknowledgement_state, acknowledgement_state.with_suffix(".log"))
+        emitted.clear()
+        hook.guard({
+            "session_id": "primary", "tool_name": "Bash",
+            "tool_input": {"command": (
+                "python3 .agents/hooks/fast_gate.py acknowledge-main "
+                "--sha abcdef123456 --reason 'reviewed overlap'"
+            )},
+        })
+        acknowledged = json.loads(acknowledgement_state.read_text(encoding="utf-8"))
+        check("the trusted helper records a deliberate main-drift acknowledgement",
+              (emitted[0], acknowledged.get("acknowledged_main")), ({}, "abcdef1234567890"))
+        emitted.clear()
+        hook.guard({
+            "session_id": "primary", "tool_name": "Bash",
+            "tool_input": {"command": "rm acknowledge-main --sha abcdef123456 --reason bypass"},
+        })
+        check("acknowledgement-looking operands cannot bypass the control checkout",
+              emitted[0]["hookSpecificOutput"]["permissionDecision"], "deny")
 
         hook = load_hook()
         hook.REPOSITORY = linked
-        hook.synchronize_repository = lambda repository, max_age: {
+        hook.synchronize_repository = lambda repository, max_age, required=False: {
             "base_main": "base", "old_base": "base", "base_name": "origin/main",
             "warning": "", "remote_available": True, "execution": "local",
         }
@@ -556,6 +598,20 @@ def main():
         hook.guard({"session_id": "writer-two", "tool_name": "apply_patch", "tool_input": {"command": "patch"}})
         check("a second worktree writer is blocked",
               emitted[1]["hookSpecificOutput"]["permissionDecision"], "deny")
+        subprocess.run(("git", "switch", "-q", "codex/test"), cwd=linked, check=True)
+        hook.synchronize_repository = lambda repository, max_age, required=False: (
+            (_ for _ in ()).throw(RuntimeError("canonical fetch failed")) if required else {
+                "base_main": "base", "old_base": "base", "base_name": "origin/main",
+                "warning": "", "remote_available": True, "execution": "local",
+            }
+        )
+        emitted.clear()
+        hook.guard({
+            "session_id": "writer-one", "tool_name": "Bash",
+            "tool_input": {"command": "git -C . push origin codex/test"},
+        })
+        check("a failed canonical fetch blocks publication",
+              "canonical fetch failed" in emitted[0]["hookSpecificOutput"]["permissionDecisionReason"], True)
         guard_module.release_lease(linked, "writer-one")
 
     group("Issue claims are unique, race-safe and completely temporary")

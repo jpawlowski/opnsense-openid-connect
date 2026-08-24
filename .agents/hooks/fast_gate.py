@@ -539,13 +539,13 @@ def pre_tool_context(message):
 
 
 def acknowledge_event(event):
+    if not agent_guard.is_main_acknowledgement(event):
+        return None
     command = agent_guard.event_command(event)
     try:
         arguments = shlex.split(command)
     except ValueError:
         return "the main-drift acknowledgement could not be parsed"
-    if "acknowledge-main" not in arguments:
-        return None
     try:
         sha = arguments[arguments.index("--sha") + 1]
         reason = arguments[arguments.index("--reason") + 1].strip()
@@ -719,7 +719,13 @@ def guard(event):
         return
 
     uncached_remote = agent_guard.requires_uncached_remote(event)
-    synchronization = synchronize_repository(REPOSITORY, 0 if uncached_remote else ACTIVE_FETCH_TTL)
+    try:
+        synchronization = synchronize_repository(
+            REPOSITORY, 0 if uncached_remote else ACTIVE_FETCH_TTL, required=uncached_remote,
+        )
+    except RuntimeError as error:
+        emit(agent_guard.blocked(str(error)))
+        return
     state_path, _ = state_paths(event)
     state = load_state(state_path) or {
         "passed": fingerprint(),
