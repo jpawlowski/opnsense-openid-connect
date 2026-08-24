@@ -202,9 +202,12 @@ class SsfSetupController extends PrivateApiControllerBase
         return 'Bearer ' . $secret;
     }
 
-    private function pollEndpoint(): string
+    private function pollEndpoint(): ?string
     {
         $value = trim((string)$this->request->getPost('poll_endpoint', null, ''));
+        if ($value === '') {
+            return null;
+        }
         HttpClient::assertHttpsUrl($value);
         return $value;
     }

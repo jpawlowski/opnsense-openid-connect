@@ -224,11 +224,46 @@
         });
     }
 
+    function checkFlow(check) {
+        var actors = options.actors || {};
+        var verifications = options.verification || {};
+        var actorIcons = { opnsense: 'fa-shield', browser: 'fa-desktop', idp: 'fa-cloud' };
+        var verificationIcons = {
+            live: 'fa-bolt', metadata: 'fa-file-text-o', configuration: 'fa-sliders',
+            'not-tested': 'fa-clock-o', skipped: 'fa-minus-circle'
+        };
+        var path = Array.isArray(check.actors) ? check.actors.filter(function (actor) {
+            return Object.prototype.hasOwnProperty.call(actorIcons, actor);
+        }) : [];
+        var verification = Object.prototype.hasOwnProperty.call(verificationIcons, check.verification)
+            ? check.verification : 'not-tested';
+        var flow = $('<div class="oidc-check-flow text-muted small">');
+        path.forEach(function (actor, index) {
+            if (index > 0) {
+                flow.append($('<span class="oidc-check-connector" aria-hidden="true">'));
+            }
+            flow.append($('<span class="oidc-check-actor">')
+                .append($('<i aria-hidden="true">').addClass('fa ' + actorIcons[actor]), ' ')
+                .append($('<span>').text(actors[actor] || actor)));
+        });
+        flow.append($('<span class="oidc-check-verification">')
+            .append($('<i aria-hidden="true">').addClass('fa ' + verificationIcons[verification]), ' ')
+            .append($('<span>').text(verifications[verification] || verification)));
+        var separator = options.actorFlowSeparator || 'to';
+        var actorText = path.map(function (actor) { return actors[actor] || actor; })
+            .join(' ' + separator + ' ');
+        flow.attr({
+            'aria-label': [actorText, verifications[verification] || verification].filter(Boolean).join('. '),
+            'data-actors': path.join(',')
+        });
+        return flow;
+    }
+
     function discoveryResult(answer) {
         var overall = ['success', 'warning', 'error'].indexOf(answer.overall) !== -1
             ? answer.overall : 'success';
         var meta = resultStatus(overall);
-        var panel = $('<div class="oidc-discovery-result">');
+        var panel = $('<div class="oidc-probe-result oidc-discovery-result">');
         var headline = $('<div>').addClass('alert alert-' + meta.style)
             .append(statusIcon(overall), ' ')
             .append($('<strong>').text(answer.headline || options.discoveryAccepted || 'Discovery document accepted'));
@@ -238,7 +273,7 @@
             return panel.append($('<pre>').text(answer.summary || ''));
         }
 
-        var table = $('<table class="table table-striped table-condensed oidc-discovery-results">');
+        var table = $('<table class="table table-striped table-condensed oidc-probe-results oidc-discovery-results">');
         table.append($('<thead>').append($('<tr>')
             .append($('<th>').text(options.checkLabel || 'Check'))
             .append($('<th>').text(options.resultLabel || 'Result'))
@@ -250,8 +285,14 @@
             if (check.note) {
                 value.append($('<div class="text-muted small">').text(check.note));
             }
-            body.append($('<tr>').attr('data-status', check.status || 'info')
-                .append($('<th scope="row">').text(check.label || ''))
+            body.append($('<tr>').attr({
+                'data-status': check.status || 'info',
+                'data-verification': check.verification || 'not-tested'
+            })
+                .append($('<th scope="row">').append(
+                    $('<div>').text(check.label || ''),
+                    checkFlow(check)
+                ))
                 .append(value)
                 .append($('<td class="text-right">').append(
                     $('<span>').addClass('label label-' + checkMeta.style)
@@ -271,6 +312,28 @@
             .append($('<span>').text(message || ''));
     }
 
+    function currentProbeData() {
+        var names = [
+            'openidconnect_provider_url', 'openidconnect_app_code', 'openidconnect_provider_profile',
+            'openidconnect_microsoft_audience', 'openidconnect_client_id', 'openidconnect_client_secret',
+            'openidconnect_token_auth', 'openidconnect_par_mode', 'openidconnect_request_object_key',
+            'openidconnect_scopes',
+            'openidconnect_response_mode', 'openidconnect_claims_source', 'openidconnect_max_age',
+            'openidconnect_select_account', 'openidconnect_required_authentication', 'openidconnect_acr_request',
+            'openidconnect_acr_values', 'openidconnect_amr_values', 'openidconnect_entra_auth_context',
+            'openidconnect_origin_policy', 'openidconnect_redirect_urls', 'openidconnect_tls_offloading'
+        ];
+        var data = {};
+        names.forEach(function (name) {
+            var input = field(name);
+            if (input) {
+                data[name] = input.type === 'checkbox' ? ($(input).is(':checked') ? '1' : '0') : $(input).val();
+            }
+        });
+        data.url = data.openidconnect_provider_url || '';
+        return data;
+    }
+
     function withDiscoveryTest() {
         var submit = $('#submit');
         if (submit.length === 0) {
@@ -281,31 +344,7 @@
             .text(options.testLabel || 'Test')
             .on('click', function () {
                 /* A network action by the firewall: POST lets core enforce its CSRF token. */
-                var data = {
-                    url: $(field('openidconnect_provider_url')).val(),
-                    profile: $(field('openidconnect_provider_profile')).val(),
-                    microsoft_audience: $(field('openidconnect_microsoft_audience')).val(),
-                    response_mode: $(field('openidconnect_response_mode')).val(),
-                    token_auth: $(field('openidconnect_token_auth')).val(),
-                    claims_source: $(field('openidconnect_claims_source')).val()
-                };
-                [
-                    'openidconnect_app_code', 'openidconnect_provider_profile',
-                    'openidconnect_microsoft_audience', 'openidconnect_client_id',
-                    'openidconnect_client_secret', 'openidconnect_token_auth',
-                    'openidconnect_par_mode', 'openidconnect_request_object_key',
-                    'openidconnect_scopes', 'openidconnect_response_mode',
-                    'openidconnect_max_age', 'openidconnect_select_account',
-                    'openidconnect_required_authentication', 'openidconnect_acr_request',
-                    'openidconnect_acr_values', 'openidconnect_amr_values',
-                    'openidconnect_entra_auth_context', 'openidconnect_origin_policy',
-                    'openidconnect_redirect_urls', 'openidconnect_tls_offloading'
-                ].forEach(function (name) {
-                    var input = field(name);
-                    if (input) {
-                        data[name] = input.type === 'checkbox' ? ($(input).is(':checked') ? '1' : '0') : $(input).val();
-                    }
-                });
+                var data = currentProbeData();
                 testButton.prop('disabled', true).empty()
                     .append($('<i class="fa fa-spinner fa-spin" aria-hidden="true">'), ' ')
                     .append(document.createTextNode(options.testingLabel || 'Testing...'));
@@ -346,40 +385,90 @@
             .insertAfter(testButton);
     }
 
-    function withHealthStatus() {
-        var address = new URL(window.location.href);
-        var name = field('name');
-        var saved = address.searchParams.get('act') === 'edit'
-            && /^\d+$/.test(address.searchParams.get('id') || '') && name && name.value.trim() !== '';
-        if (!saved) {
+    function withHealthTest() {
+        var submit = $('#submit');
+        if (submit.length === 0) {
             return;
         }
-        var panel = $('<div class="auth_options auth_openidconnect oidc-health-status help-block">')
-            .append($('<i class="fa fa-spinner fa-spin" aria-hidden="true">'), ' ')
-            .append(document.createTextNode(options.healthLoading || 'Loading connection health...'));
-        $('.oidc-discovery-help').last().after(panel);
-        $.get('/api/openidconnect/health/status', { provider: name.value.trim() })
-            .done(function (answer) {
-                panel.empty();
-                if (!answer || answer.status !== 'ok' || !Array.isArray(answer.items)) {
-                    panel.text((answer && answer.message) || options.healthUnavailable || 'Connection health unavailable.');
+        var requiredFields = [
+            'openidconnect_provider_url', 'openidconnect_client_id', 'openidconnect_client_secret'
+        ];
+        var running = false;
+        var button = $('<button>')
+            .attr({
+                type: 'button',
+                class: 'btn btn-default auth_options auth_openidconnect oidc-health-test',
+                style: 'margin-left: 10px'
+            })
+            .text(options.healthTestLabel || 'Connection health')
+            .on('click', function () {
+                if (button.prop('disabled')) {
                     return;
                 }
-                panel.append($('<strong>').text(options.healthLabel || 'Connection health'), ': ');
-                answer.items.forEach(function (item, index) {
-                    var state = resultStatus(item.status === 'fresh' ? 'success'
-                        : (item.status === 'bypassed' || item.status === 'stale' ? 'warning'
-                            : (item.status === 'error' ? 'error' : 'info')));
-                    if (index > 0) {
-                        panel.append(' · ');
-                    }
-                    panel.append($('<span>').addClass('label label-' + state.style)
-                        .attr('title', (item.direction || '') + (item.stored
-                            ? ' · ' + new Date(item.stored * 1000).toLocaleString() : ''))
-                        .text((item.label || '') + ': ' + (item.status || 'missing')));
-                });
-            })
-            .fail(function () { panel.text(options.healthUnavailable || 'Connection health unavailable.'); });
+                running = true;
+                updateAvailability();
+                button.empty()
+                    .append($('<i class="fa fa-spinner fa-spin" aria-hidden="true">'), ' ')
+                    .append(document.createTextNode(options.healthTestingLabel || 'Checking...'));
+                $.ajax({ type: 'POST', url: '/api/openidconnect/health/probe', data: currentProbeData() })
+                    .done(function (answer) {
+                        if (answer && answer.status === 'ok') {
+                            BootstrapDialog.show({
+                                title: options.healthTestLabel || 'Connection health',
+                                message: discoveryResult(answer),
+                                type: answer.overall === 'error'
+                                    ? BootstrapDialog.TYPE_DANGER
+                                    : (answer.overall === 'warning'
+                                        ? BootstrapDialog.TYPE_WARNING : BootstrapDialog.TYPE_SUCCESS),
+                                size: BootstrapDialog.SIZE_WIDE
+                            });
+                        } else {
+                            BootstrapDialog.show({
+                                title: options.healthTestLabel || 'Connection health',
+                                message: discoveryError((answer && answer.message) || 'unknown error'),
+                                type: BootstrapDialog.TYPE_DANGER
+                            });
+                        }
+                    })
+                    .fail(function (xhr) {
+                        BootstrapDialog.show({
+                            title: options.healthTestLabel || 'Connection health',
+                            message: discoveryError(xhr.responseText || 'request failed'),
+                            type: BootstrapDialog.TYPE_DANGER
+                        });
+                    })
+                    .always(function () {
+                        running = false;
+                        updateAvailability();
+                    });
+            });
+        var help = $('<span class="help-block auth_options auth_openidconnect oidc-health-help">');
+
+        function complete() {
+            return requiredFields.every(function (name) {
+                var input = field(name);
+                return input && input.value.trim() !== '';
+            });
+        }
+
+        function updateAvailability() {
+            button.prop('disabled', running || !complete());
+            if (!running) {
+                button.text(options.healthTestLabel || 'Connection health');
+            }
+            help.text(complete()
+                ? (options.healthTestHelp || 'Uses the current form values; saving is not required.')
+                : (options.healthTestIncompleteHelp
+                    || 'Enter Exact issuer URL, Client ID and Client Secret; saving is not required.'));
+        }
+
+        requiredFields.forEach(function (name) {
+            $(field(name)).on('input change', updateAvailability);
+        });
+        var anchor = $('.oidc-discovery-help');
+        button.insertAfter(anchor.length ? anchor : submit);
+        help.insertAfter(button);
+        updateAvailability();
     }
 
     function withSignInTest() {
@@ -395,11 +484,9 @@
         var requiredFields = [
             'openidconnect_provider_url', 'openidconnect_client_id', 'openidconnect_client_secret'
         ];
-        var savedReady = saved && options.webGuiTransportReady !== false
-            && requiredFields.every(function (name) {
-            var input = field(name);
-            return input && input.value.trim() !== '';
-        });
+        var savedReady = false;
+        var initialized = false;
+        var baseline = null;
         var running = false;
         var button = $('<button>')
             .attr({
@@ -415,7 +502,7 @@
                 running = true;
                 button.prop('disabled', true).empty()
                     .append($('<i class="fa fa-spinner fa-spin" aria-hidden="true">'), ' ')
-                    .append(document.createTextNode(options.setupGeneratingLabel || 'Generating setup file...'));
+                    .append(document.createTextNode(options.testingLabel || 'Testing...'));
                 $.ajax({
                     type: 'POST',
                     url: '/api/openidconnect/test/start',
@@ -458,8 +545,32 @@
             });
         }
 
+        function formState() {
+            var form = submit.closest('form').get(0);
+            var values = [];
+            if (!form) {
+                return '';
+            }
+            new FormData(form).forEach(function (value, name) {
+                if (name.indexOf('openidconnect_') === 0) {
+                    values.push([name, String(value)]);
+                }
+            });
+            values.sort(function (left, right) {
+                var leftValue = left[0] + '\u0000' + left[1];
+                var rightValue = right[0] + '\u0000' + right[1];
+                return leftValue < rightValue ? -1 : (leftValue > rightValue ? 1 : 0);
+            });
+            return JSON.stringify(values);
+        }
+
+        function formChanged() {
+            return saved && (baseline === null || formState() !== baseline);
+        }
+
         function updateAvailability() {
-            var ready = saved && savedReady && currentFieldsComplete() && currentTransportReady();
+            var changed = formChanged();
+            var ready = saved && initialized && !changed && savedReady;
             button.prop('disabled', running || !ready);
             if (!running) {
                 button.text(options.signInTestLabel || 'Test sign-in');
@@ -468,12 +579,18 @@
                 help.empty().append(inlineCode(
                     options.signInTestSaveHelp || 'Save this server before testing sign-in.'
                 ));
-            } else if (!currentTransportReady() || options.webGuiTransportReady === false) {
+            } else if (!initialized) {
+                help.text(options.formPreparing || 'Preparing form state...');
+            } else if (changed) {
+                help.empty().append(inlineCode(
+                    options.signInTestChangedHelp || 'Save or revert your changes before testing sign-in.'
+                ));
+            } else if (!currentTransportReady()) {
                 help.empty().append(inlineCode(
                     options.signInTestTransportHelp
                         || 'Save a complete secure WebGUI transport configuration before testing sign-in.'
                 ));
-            } else if (!ready) {
+            } else if (!currentFieldsComplete() || !savedReady) {
                 help.empty().append(inlineCode(
                     options.signInTestIncompleteHelp
                         || 'Complete and save `Exact issuer URL`, `Client ID` and `Client Secret` before testing sign-in.'
@@ -483,15 +600,21 @@
             }
         }
 
-        requiredFields.forEach(function (name) {
-            $(field(name)).on('input change', updateAvailability);
-        });
-        ['openidconnect_tls_offloading', 'openidconnect_origin_policy', 'openidconnect_redirect_urls']
-            .forEach(function (name) { $(field(name)).on('input change', updateAvailability); });
-        var anchor = $('.oidc-discovery-help');
+        function establishBaseline() {
+            initialized = true;
+            if (saved && options.formLoadedFromSavedState === true) {
+                baseline = formState();
+                savedReady = currentFieldsComplete() && currentTransportReady();
+            }
+            updateAvailability();
+        }
+
+        submit.closest('form').on('input change tokenize:tokens:change', updateAvailability);
+        var anchor = $('.oidc-health-help');
         button.insertAfter(anchor.length ? anchor : submit);
         help.insertAfter(button);
         updateAvailability();
+        return { establishBaseline: establishBaseline };
     }
 
     function withApprovalManager() {
@@ -1801,8 +1924,8 @@
         }
         sectorOriginOptions();
         withDiscoveryTest();
-        withHealthStatus();
-        withSignInTest();
+        withHealthTest();
+        var signInTest = withSignInTest();
         withApprovalManager();
         withProviderSetup();
         withSharedSignalsSetup();
@@ -1826,6 +1949,11 @@
                 input.value = listEntries(storedValue(input)).join(',');
             }
         });
+        if (signInTest) {
+            /* Everything that can alter submitted values during synchronous setup has
+             * run. Freeze that state before optional UI scripts yield to user input. */
+            signInTest.establishBaseline();
+        }
 
         if (options.tokenizerCss) {
             $('<link rel="stylesheet" type="text/css">').attr('href', options.tokenizerCss).appendTo('head');

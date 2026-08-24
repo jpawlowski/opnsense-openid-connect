@@ -291,6 +291,58 @@ $readPoll = $management->readStream(
 Checks::that('a poll endpoint is accepted only from the validated stream response',
     $readPoll['poll_endpoint'], 'https://signals.example.net/poll/stream-1');
 
+$recoveryCalls = [];
+$recoveryHttp = new HttpClient(static function (
+    string $method,
+    string $url,
+    ?string $body,
+    array $headers,
+    int $maximum
+) use (&$recoveryCalls, $pollConfiguration): array {
+    $recoveryCalls[] = compact('method', 'url', 'body', 'headers', 'maximum');
+    return [
+        'status' => 200,
+        'content_type' => 'application/json',
+        'body' => json_encode($pollConfiguration),
+        'location' => '',
+        'headers' => [],
+    ];
+});
+$recoveredPoll = (new SharedSignalsClient($recoveryHttp))->readStream(
+    $ssfMetadata,
+    'Bearer management-token',
+    'stream-1',
+    SharedSignalsMetadata::POLL_METHOD,
+    null,
+    'firewall-receiver'
+);
+Checks::that('a stream read can discover a missing local poll endpoint', [
+    $recoveredPoll['poll_endpoint'],
+    $recoveryCalls[0]['method'],
+], ['https://signals.example.net/poll/stream-1', 'GET']);
+
+$emptySelection = array_replace($pushConfiguration, ['events_delivered' => []]);
+$emptySelectionClient = new SharedSignalsClient(new HttpClient(static function () use ($emptySelection): array {
+    return [
+        'status' => 201,
+        'content_type' => 'application/json',
+        'body' => json_encode($emptySelection),
+        'location' => '',
+        'headers' => [],
+    ];
+}));
+Checks::throws(
+    'stream creation refuses an empty delivered event selection',
+    fn() => $emptySelectionClient->createStream(
+        $ssfMetadata,
+        'Bearer management-token',
+        SharedSignalsMetadata::PUSH_METHOD,
+        'https://firewall.example.net/api/openidconnect/ssf/push/main',
+        'Bearer ' . str_repeat('s', 43)
+    ),
+    'event selection'
+);
+
 $managementResponses[] = [
     'status' => 200,
     'content_type' => 'application/json',

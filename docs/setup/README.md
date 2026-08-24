@@ -224,19 +224,35 @@ Resolve a failed check at the provider or in the entered value. A named profile
 supplies compatible defaults and clearer diagnostics, but never turns off a
 protocol check.
 
-The status badges on a saved server distinguish fresh, bounded stale, missing,
-bypassed and failed paths. Discovery may remain usable for at most 24 hours and
-an already known signing key for at most one hour beyond freshness, unless the
-provider forbids stale use through its HTTP cache policy. This can bridge an
-outage but cannot replace the mandatory Token endpoint or admit an unknown key.
+Every result names the actors and method beneath the check name. The arrow path
+distinguishes requests made by OPNsense from browser paths and provider
+responses. The method distinguishes a live request, local evaluation of live
+Discovery metadata, current-form policy, an intentionally skipped path and a
+path that has not yet been exercised. Browser and token paths are never faked by
+the preflight: their advertised endpoints are shown, and **Test sign-in** is
+named as the action that really exercises them.
+
+Once Exact issuer URL, Client ID and Client Secret are present, **Connection
+health** runs the same fresh Discovery, JWKS and applicable PAR preflight with
+the current unsaved form values. It additionally checks form completeness and
+the current WebGUI transport. If PAR is not executed, the result says plainly
+that only Test sign-in can validate those client credentials during a code
+exchange.
+
+Validated runtime caches may still bridge provider outages for bounded periods,
+but they are not presented as a live health result. Discovery may remain usable
+for at most 24 hours and an already known signing key for at most one hour beyond
+freshness, unless the provider forbids stale use through its HTTP cache policy.
+This cannot replace the mandatory Token endpoint or admit an unknown key.
 
 After the server has been saved, **Test sign-in** performs the complete browser
 flow even while **Offer on the login page** remains disabled. It checks the
 authorization response (including JARM when selected), PKCE binding, code exchange, ID Token and configured
 claims source. The result shows the exact issuer, subject and configured
 username claim. It deliberately does not create a WebGUI login session or
-change a local account, subject binding or group membership. This makes it safe
-to run before deciding the admission policy. The identity provider may
+change a local account, subject binding or group membership. It is available
+only while the saved form is unchanged; save or exactly revert edits first.
+This makes it safe to run before deciding the admission policy. The identity provider may
 still retain its own SSO session, so use a private browser window when a later
 test must begin without that provider session.
 

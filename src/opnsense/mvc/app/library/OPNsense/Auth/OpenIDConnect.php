@@ -1291,14 +1291,34 @@ class OpenIDConnect extends Base implements IAuthConnector
             'statusWarning' => gettext('Warning'),
             'statusInformation' => gettext('Information'),
             'statusFailed' => gettext('Failed'),
+            'actors' => [
+                'opnsense' => gettext('OPNsense'),
+                'browser' => gettext('Browser'),
+                'idp' => gettext('IdP'),
+            ],
+            'actorFlowSeparator' => gettext('to'),
+            'verification' => [
+                'live' => gettext('Live request from OPNsense'),
+                'metadata' => gettext('Checked from live Discovery metadata'),
+                'configuration' => gettext('Checked against the current form'),
+                'not-tested' => gettext('Advertised; not exercised here'),
+                'skipped' => gettext('Skipped by configuration'),
+            ],
             'testHelp' => gettext(
                 'Live server-side preflight of Discovery, JWKS and, when configured, authenticated PAR. ' .
                 'The browser does not need the Discovery URL; Test sign-in checks its authorization path. ' .
                 'Saving remains independent of this test.'
             ),
-            'healthLabel' => gettext('Connection health'),
-            'healthLoading' => gettext('Loading connection health...'),
-            'healthUnavailable' => gettext('Connection health unavailable.'),
+            'healthTestLabel' => gettext('Connection health'),
+            'healthTestingLabel' => gettext('Checking...'),
+            'healthTestHelp' => gettext(
+                'Uses the current form values for live Discovery, JWKS and, when available, authenticated PAR. ' .
+                'Saving is not required; Test sign-in exercises the browser and token paths.'
+            ),
+            'healthTestIncompleteHelp' => gettext(
+                'Enter Exact issuer URL, Client ID and Client Secret to check connection health. ' .
+                'Saving is not required.'
+            ),
             'signInTestLabel' => gettext('Test sign-in'),
             'signInTestHelp' => gettext(
                 'Runs the real browser flow and validates PKCE, the code exchange, ID Token and configured ' .
@@ -1316,6 +1336,12 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'OpenID Connect sign-in is blocked until the WebGUI uses HTTPS or the saved trusted ' .
                 'reverse-proxy TLS-offloading exception is complete.'
             ),
+            'signInTestChangedHelp' => gettext('Save or revert your changes before testing sign-in.'),
+            'formPreparing' => gettext('Preparing form state...'),
+            'formLoadedFromSavedState' => ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET'
+                && is_string($_GET['act'] ?? null) && $_GET['act'] === 'edit'
+                && is_string($_GET['id'] ?? null)
+                && preg_match('/^(?:0|[1-9][0-9]*)$/D', $_GET['id']) === 1,
             'approvalLabel' => gettext('Manage identities'),
             'approvalHelp' => gettext(
                 'Review durable issuer/subject bindings, add a carefully verified identity manually, and ' .
@@ -1563,7 +1589,8 @@ class OpenIDConnect extends Base implements IAuthConnector
                 ? get_themed_filename('/css/tokenize2.css') : '/ui/css/tokenize2.css',
         ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 
-        return '<style>.auth_openidconnect:has(#help_for_field_openidconnect___openidconnect_form){display:none !important}</style>'
+        return '<style>.auth_openidconnect:has(#help_for_field_openidconnect___openidconnect_form){display:none !important}'
+            . @file_get_contents($assets . 'settings-form.css') . '</style>'
             . '<script>window.__oidcForm = ' . $options . ';</script>'
             . '<script>' . @file_get_contents($assets . 'settings-form.js') . '</script>';
     }

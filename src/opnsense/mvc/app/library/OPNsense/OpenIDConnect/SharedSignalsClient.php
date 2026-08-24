@@ -360,7 +360,7 @@ final class SharedSignalsClient
         $expectedEvents = SecurityEventVerifier::ACTIONABLE_EVENTS;
         sort($requested);
         sort($expectedEvents);
-        if ($requested !== $expectedEvents
+        if ($configuration['events_delivered'] === [] || $requested !== $expectedEvents
             || array_diff($configuration['events_delivered'], SecurityEventVerifier::ACTIONABLE_EVENTS) !== []) {
             throw new ProtocolException('The transmitter returned another Shared Signals event selection');
         }

@@ -9,14 +9,64 @@ namespace OPNsense\OpenIDConnect\Api;
 
 use OPNsense\Auth\AuthenticationFactory;
 use OPNsense\Auth\OpenIDConnect;
+use OPNsense\OpenIDConnect\HttpClient;
 use OPNsense\OpenIDConnect\ProviderCache;
 use OPNsense\OpenIDConnect\ProviderMetadata;
+use OPNsense\OpenIDConnect\ProviderProbe;
 use OPNsense\OpenIDConnect\ProviderRuntimeState;
+use OPNsense\OpenIDConnect\RelyingParty;
 use OPNsense\OpenIDConnect\SharedSignalsMetadata;
 
-/** Read-only, secret-free snapshot of cached provider connectivity. */
+/** Secret-free cached status and CSRF-protected live diagnostics for the current form. */
 class HealthController extends PrivateApiControllerBase
 {
+    public function probeAction(): array
+    {
+        $this->response->setContentType('application/json', 'UTF-8');
+        if (!$this->request->isPost()) {
+            return ['status' => 'error', 'message' => gettext('A protected POST request is required.')];
+        }
+        $checks = [];
+        try {
+            $settings = ProviderProbe::settings($this->formValues());
+            $redirectUri = RelyingParty::acceptedRedirectUri($settings, $this->request);
+            $checks = ProviderProbe::healthReadiness($settings, $redirectUri);
+            if ($settings->issuerUrl() === '' || $settings->clientId() === '' || $settings->clientSecret() === '') {
+                return ProviderProbe::answer(
+                    $checks,
+                    gettext('Connection health accepted'),
+                    gettext('Connection health accepted with %d warning(s)'),
+                    gettext('Connection health has %d failure(s)')
+                );
+            }
+            $providerChecks = (new ProviderProbe(new HttpClient()))->checks($settings, $redirectUri);
+            $checks = array_merge($checks, $providerChecks);
+            $par = end($providerChecks);
+            if (is_array($par)) {
+                $checks[] = ProviderProbe::credentialsCheck($par);
+            }
+            return ProviderProbe::answer(
+                $checks,
+                gettext('Connection health accepted'),
+                gettext('Connection health accepted with %d warning(s)'),
+                gettext('Connection health has %d failure(s)')
+            );
+        } catch (\Throwable $error) {
+            $checks[] = ProviderProbe::failureCheck(
+                gettext('Live provider preflight'),
+                $error->getMessage(),
+                ['opnsense', 'idp'],
+                'live'
+            );
+            return ProviderProbe::answer(
+                $checks,
+                gettext('Connection health accepted'),
+                gettext('Connection health accepted with %d warning(s)'),
+                gettext('Connection health has %d failure(s)')
+            );
+        }
+    }
+
     public function statusAction(): array
     {
         $this->response->setContentType('application/json', 'UTF-8');
@@ -86,5 +136,15 @@ class HealthController extends PrivateApiControllerBase
         } catch (\Throwable $e) {
             return ['status' => 'error', 'message' => gettext('Connectivity status is unavailable.')];
         }
+    }
+
+    /** @return array<string,string> */
+    private function formValues(): array
+    {
+        $values = [];
+        foreach (ProviderProbe::FORM_FIELDS as $field) {
+            $values[$field] = (string)$this->request->getPost($field, null, '');
+        }
+        return $values;
     }
 }
