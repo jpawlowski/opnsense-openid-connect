@@ -177,7 +177,7 @@ class OpenIDConnectContainer implements ISSOContainer
         } catch (\Throwable $e) {
             return $loginUri;
         }
-        if ($target === '') {
+        if (!is_string($target) || $target === '') {
             return $loginUri;
         }
         return $loginUri . (str_contains($loginUri, '?') ? '&' : '?') . 'redir=' . rawurlencode($target);

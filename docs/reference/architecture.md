@@ -164,6 +164,7 @@ flowchart TD
 | `RelyingParty` | authorization transaction, optional signed JAR, PAR and DPoP negotiation, code exchange, claim-source composition, logout/revocation requests | perform cryptography or grant privileges |
 | `RequestObjectSigner` | bounded RFC 9101 claims, provider/key algorithm selection and phpseclib signature | choose authorization policy, expose a private key or encrypt Request Objects |
 | `ProviderMetadata` | exact Discovery validation and immutable per-login metadata snapshot | guess provider endpoints |
+| `AuthorizationPreflight` | bounded, no-cookie `prompt=none` check of a public Client ID and exact callback before browser navigation | authenticate a user, send a client secret, follow a redirect or claim that the token path passed |
 | `DiscoveryController` / `HealthController` / `ProviderProbe` | authenticated, CSRF-protected diagnostics from current form values with explicit actor paths and verification methods | persist form values, return secrets or pretend an advertised browser/token path was exercised |
 | `TestController` | authenticated and CSRF-protected initiation of a saved provider's non-mutating browser test | accept an unsaved secret, grant a session or change local identity state |
 | `ApprovalController` | authenticated CRUD for durable bindings, explicit local-account creation and approval/denial of identities queued for one saved server; rechecks the core authentication-server, user-manager and read-only privileges | authenticate the identity, create a session, trust button visibility as authorization or choose a local account automatically |
@@ -259,17 +260,21 @@ verification subset; Ed25519 is the separately audited RFC 8037 subset.
   bounded mode-`0600` server-side index. They remain random-state-bound,
   single-use and expire after ten minutes without weakening the session cookie.
 - A sign-in test uses the same transaction, Discovery, PKCE, token and claim
-  validation path, marked server-side as test-only. Its callback reports the
-  verified identity but does not resolve or mutate a local account and does not
-  elevate or replace the initiating WebGUI session.
+  validation path, marked server-side as test-only. The form enables it only
+  while its saved connector and displayed values agree, and the transaction
+  retains that connector's exact edit target. Its callback reports the verified
+  identity but does not resolve or mutate a local account and does not elevate
+  or replace the initiating WebGUI session.
 - Validated Discovery and JWKS responses are shared through bounded, HTTP-aware
   mode-`0600` caches and refreshed outside the login path. The exact metadata
   snapshot used at login is still frozen into the transaction so endpoints
   cannot change halfway through it. Automatic PAR may bypass only a temporarily
   unavailable optional endpoint; the provider requirement and every TLS,
   authentication or protocol failure remain fail-closed.
-- A provider that advertises ES256 DPoP receives `dpop_jkt` in the authorization
-  request and a fresh proof at the token endpoint. The private P-256 key lives in
+- A compatible provider profile that advertises ES256 DPoP for sender-constrained
+  access tokens receives `dpop_jkt` in the authorization request and a fresh proof
+  at the token endpoint. authentik's separate key-bound ID Token extension is not
+  treated as that access-token profile. The private P-256 key lives in
   a per-provider mode-`0600` store, rotates every 90 days and retains at most five
   retired generations for 370 days so an existing grant keeps its exact key.
   The server-side login session freezes the opaque store binding as well as the

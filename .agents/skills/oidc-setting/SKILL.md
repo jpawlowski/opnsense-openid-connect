@@ -20,6 +20,16 @@ claim name, whether to trust something a particular provider does not send.
 If it widens what an identity provider can reach on the firewall, it is off by
 default and its help text says why.
 
+Provider profiles are documentation-driven defaults. Treat current official
+provider documentation as sufficient evidence for every preset value it
+supports; a separate local or end-to-end verification is useful evidence, but
+is not a prerequisite. Review the profile as a whole when settings evolve, so
+documented provider capabilities and recommendations are reflected instead of
+leaving every new field at the generic default. Keep a capability off only when
+the provider documentation is absent or unclear, or when the documented flow is
+not compatible with this plugin's implementation, and record such prerequisites
+or limitations in the provider guide.
+
 ## The field
 
 `OpenIDConnect::getConfigurationOptions()` in

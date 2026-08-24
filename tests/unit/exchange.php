@@ -8,6 +8,10 @@
 use OPNsense\Mvc\Controller;
 use OPNsense\Mvc\Request;
 use OPNsense\Mvc\Session;
+use OPNsense\Auth\Directory;
+use OPNsense\Core\Config;
+use OPNsense\OpenIDConnect\Api\TestController;
+use OPNsense\OpenIDConnect\Api\AuthController;
 use OPNsense\OpenIDConnect\HttpClient;
 use OPNsense\OpenIDConnect\JwtVerifier;
 use OPNsense\OpenIDConnect\ProviderMetadata;
@@ -453,6 +457,19 @@ $redirected = new HttpClient(function ($method, $url) use (&$redirects): array {
 });
 Checks::that('a relative HTTPS redirect is resolved manually', $redirected->get('https://id.example.net/start', 100)->url, 'https://id.example.net/finish');
 Checks::that('each redirect target is fetched separately', $redirects, 2);
+$firstRedirectCalls = 0;
+$firstRedirect = (new HttpClient(function () use (&$firstRedirectCalls): array {
+    $firstRedirectCalls++;
+    return [
+        'status' => 302,
+        'content_type' => 'text/html',
+        'body' => '',
+        'location' => 'https://id.example.net/callback?state=opaque',
+    ];
+}))->getFirstResponse('https://id.example.net/authorize', 100);
+Checks::that('a front-channel probe retains the first redirect location',
+    $firstRedirect->headers['location'], 'https://id.example.net/callback?state=opaque');
+Checks::that('a front-channel probe never follows the provider redirect', $firstRedirectCalls, 1);
 Checks::throws(
     'a redirect cannot downgrade transport security',
     fn() => (new HttpClient(fn() => [
@@ -506,6 +523,35 @@ Checks::throws(
     fn() => inspect($missingType, 'exchangeCode', 'code', 'verifier'),
     'omitted the access token type'
 );
+
+$invalidClient = new RelyingParty(
+    $endpointSettings,
+    $endpointController,
+    new HttpClient(fn() => jsonAnswer(['error' => 'invalid_client'], 401))
+);
+$metadataProperty->setValue($invalidClient, $endpointMetadata);
+$invalidClientClass = '';
+try {
+    inspect($invalidClient, 'exchangeCode', 'code', 'verifier');
+} catch (Throwable $error) {
+    $invalidClientClass = get_class($error);
+}
+Checks::that('an explicit token client rejection remains a typed credential failure',
+    $invalidClientClass, OPNsense\OpenIDConnect\ClientAuthenticationException::class);
+
+$testFailureController = new AuthController();
+$testFailureHtml = inspect(
+    $testFailureController,
+    'signInTestFailureResult',
+    'Office identity',
+    '/system_authservers.php?act=edit&id=3'
+);
+Checks::that('a credential failure has a dedicated sign-in test result',
+    str_contains($testFailureHtml, 'Sign-in test failed'), true);
+Checks::that('the failed test returns to the exact saved authentication-server row',
+    str_contains($testFailureHtml, 'href="/system_authservers.php?act=edit&amp;id=3"'), true);
+Checks::that('the failed diagnostic page does not trigger proxy interception with an HTTP error status',
+    $testFailureController->response->status, null);
 
 $wrongUserInfoType = new RelyingParty(
     $endpointSettings,
@@ -1127,7 +1173,8 @@ Checks::throws(
 $testSession = new Session();
 $testController = new Controller(new Request('https', 'firewall.example.net'), $testSession);
 $testParty = new RelyingParty($settings, $testController, new HttpClient(fn() => jsonAnswer(metadata())));
-$testAuthorization = $testParty->authorizationUrl('authentik', '/system_authservers.php', true);
+$testReturnTarget = '/system_authservers.php?act=edit&id=3';
+$testAuthorization = $testParty->authorizationUrl('authentik', $testReturnTarget, true);
 parse_str((string)parse_url($testAuthorization, PHP_URL_QUERY), $testParameters);
 Checks::that(
     'a sign-in test receives the same provider authorization endpoint',
@@ -1145,6 +1192,25 @@ $testTransaction = RelyingParty::consumeTransaction(
     'authentik-main'
 );
 Checks::that('a sign-in test is marked server-side and not by a browser parameter', $testTransaction['purpose'], 'test');
+Checks::that('a sign-in test retains the exact saved server edit target', $testTransaction['target'], $testReturnTarget);
+
+Directory::reset();
+Config::getInstance()->addAuthServer(['type' => 'ldap', 'name' => 'Local accounts']);
+Config::getInstance()->addAuthServer(['name' => 'Office identity']);
+$testControllerMethod = new ReflectionMethod(TestController::class, 'editTarget');
+$testController = new TestController();
+Checks::that(
+    'the sign-in tester returns to the exact saved authentication-server row',
+    $testControllerMethod->invoke($testController, 'Office identity'),
+    '/system_authservers.php?act=edit&id=1'
+);
+Config::getInstance()->addAuthServer(['name' => 'Office identity']);
+Checks::that(
+    'an ambiguous saved server name returns only to the authentication-server list',
+    $testControllerMethod->invoke($testController, 'Office identity'),
+    '/system_authservers.php'
+);
+Directory::reset();
 
 $strengthSession = new Session();
 $strengthController = new Controller(new Request('https', 'firewall.example.net'), $strengthSession);
@@ -1202,6 +1268,30 @@ Checks::that(
     'urn:okta:loa:2fa:any'
 );
 Checks::that('Okta is not also sent a conflicting essential acr request', isset($oktaStrengthParameters['claims']), false);
+
+$auth0StrengthController = new Controller(new Request('https', 'firewall.example.net'), new Session());
+$auth0StrengthSettings = connector([
+    'openidconnect_provider_profile' => 'auth0',
+    'openidconnect_provider_url' => 'https://tenant.example.net/',
+    'openidconnect_client_id' => 'client-id',
+    'openidconnect_client_secret' => 'secret',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_app_code' => 'auth0-strong',
+    'openidconnect_required_authentication' => 'multi-factor',
+]);
+$auth0StrengthUrl = (new RelyingParty(
+    $auth0StrengthSettings,
+    $auth0StrengthController,
+    new HttpClient(fn() => jsonAnswer(metadata(['issuer' => 'https://tenant.example.net/'])))
+))->authorizationUrl('auth0', '/');
+parse_str((string)parse_url($auth0StrengthUrl, PHP_URL_QUERY), $auth0StrengthParameters);
+Checks::that(
+    'Auth0 receives the documented MFA step-up acr_values parameter',
+    $auth0StrengthParameters['acr_values'],
+    'http://schemas.openid.net/pape/policies/2007/06/multi-factor'
+);
+Checks::that('Auth0 is not also sent a conflicting essential acr request',
+    isset($auth0StrengthParameters['claims']), false);
 
 $entraStrengthController = new Controller(new Request('https', 'firewall.example.net'), new Session());
 $entraStrengthSettings = connector([

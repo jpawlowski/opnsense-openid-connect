@@ -241,7 +241,7 @@
         },
         {
           "slug": "dpop-sender-constraint",
-          "claim": "When Discovery advertises ES256 DPoP, the RP binds the authorization code and issued tokens to one rotatable per-provider proof key, sends fresh method-, URI- and token-bound proofs, persists server nonces, retries one nonce challenge and refuses bearer downgrade.",
+          "claim": "When a compatible provider profile documents RFC 9449 access-token support and Discovery advertises ES256 DPoP, the RP binds the authorization code and issued tokens to one rotatable per-provider proof key, sends fresh method-, URI- and token-bound proofs, persists server nonces, retries one nonce challenge and refuses bearer downgrade.",
           "implementation": [
             "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/DpopProof.php",
             "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/DpopKeyStore.php",

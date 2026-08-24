@@ -29,6 +29,7 @@ OIDC Discovery and otherwise use the same confidential-client profile.
 | Authorization response mode | Query |
 | Scopes | `openid,email,profile` |
 | Authentication method | Insist on Basic when that method is selected in PingOne |
+| Redirect the Log Out menu entry | On |
 
 Do not copy endpoints from another region/environment. Discovery must return
 the same issuer configured here and its key set must belong to this environment.
@@ -37,10 +38,12 @@ the same issuer configured here and its key set must belong to this environment.
 
 For the first login, keep **Match by e-mail address** at **Only a verified
 address**, **Maximum authentication age** at **14400 seconds (four hours)**, account creation off, root
-access off, **Group claim** empty, tracing off, and both optional logout switches
+access off, **Group claim** empty, tracing off, **Redirect the Log Out menu
+entry** on, **Return here after logout** off, and provider logout notifications
 off. The table above contains the provider profile values to enter or verify.
 Change another setting only for the documented reason in the [complete settings
 reference](../setup/settings-reference.md).
 
 References: [PingOne web-app tutorial](https://docs.pingidentity.com/pingone/pingone_tutorials/p1_tutorial_integrate_nodejs_express_app.html),
-[token endpoint authentication methods](https://docs.pingidentity.com/pingone/applications/p1_token_endpoint_authentication_methods.html).
+[token endpoint authentication methods](https://docs.pingidentity.com/pingone/applications/p1_token_endpoint_authentication_methods.html),
+and [Discovery-published end session](https://docs.pingidentity.com/pingoneaic/am-oidc1/rest-api-oidc-endsession-endpoint.html).

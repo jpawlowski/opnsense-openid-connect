@@ -23,7 +23,8 @@ purely private homelab than Google, Microsoft, Slack, Yahoo or ORCID.
 LinkedIn publishes pairwise subjects. Bind the exact issuer/subject; do not
 assume that an e-mail address is permanent. A broader automatic admission
 policy could allow any LinkedIn account whose claim happens to match a local
-account.
+account. The profile therefore offers only Strict or Administrator approval;
+**Create an account on first login** is unavailable.
 
 References: [LinkedIn OpenID Connect setup](https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/sign-in-with-linkedin-v2)
 and [authorization-code exchange](https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow).

@@ -32,6 +32,7 @@ then `<issuer>/.well-known/openid-configuration`.
 | Authorization response mode | Query |
 | Scopes | `openid,email,profile` |
 | Authentication method | Follow the provider |
+| Redirect the Log Out menu entry | On |
 
 Older WSO2 releases expose metadata at a separately configured discovery path.
 This plugin intentionally follows the OIDC rule `<issuer>/.well-known/...` and
@@ -43,10 +44,12 @@ protection.
 
 For the first login, keep **Match by e-mail address** at **Only a verified
 address**, **Maximum authentication age** at **14400 seconds (four hours)**, account creation off, root
-access off, **Group claim** empty, tracing off, and both optional logout switches
+access off, **Group claim** empty, tracing off, **Redirect the Log Out menu
+entry** on, **Return here after logout** off, and provider logout notifications
 off. The table above contains the provider profile values to enter or verify.
 Change another setting only for the documented reason in the [complete settings
 reference](../setup/settings-reference.md).
 
 References: [WSO2 OIDC flow configuration](https://is.docs.wso2.com/en/latest/guides/authentication/oidc/),
-[WSO2 Discovery and its token-endpoint issuer](https://is.docs.wso2.com/en/7.0.0/guides/authentication/oidc/discover-oidc-configs/).
+[WSO2 Discovery and its token-endpoint issuer](https://is.docs.wso2.com/en/7.0.0/guides/authentication/oidc/discover-oidc-configs/),
+and [RP-initiated logout](https://is.docs.wso2.com/en/6.1.0/references/concepts/authentication/session-management/).
