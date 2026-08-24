@@ -45,6 +45,9 @@ class DiscoveryController extends PrivateApiControllerBase
         foreach (ProviderProbe::FORM_FIELDS as $field) {
             $values[$field] = (string)$this->request->getPost($field, null, '');
         }
+        if ($values['openidconnect_provider_url'] === '') {
+            $values['openidconnect_provider_url'] = (string)$this->request->getPost('url', null, '');
+        }
         return $values;
     }
 }

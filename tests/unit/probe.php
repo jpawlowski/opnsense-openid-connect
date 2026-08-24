@@ -5,6 +5,9 @@
  * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
  */
 
+use OPNsense\Mvc\Request;
+use OPNsense\OpenIDConnect\Api\DiscoveryController;
+use OPNsense\OpenIDConnect\Api\HealthController;
 use OPNsense\OpenIDConnect\HttpClient;
 use OPNsense\OpenIDConnect\JwtVerifier;
 use OPNsense\OpenIDConnect\ProviderMetadata;
@@ -219,6 +222,97 @@ Checks::that('diagnostics accept a selected key compatible with the provider alg
     $matchingPrivateKeyRow['status'], 'success');
 Checks::that('health readiness accepts a configured private-key credential',
     ProviderProbe::healthReadiness($privateKeySettings, 'https://firewall.example.net')[0]['status'], 'success');
+
+$healthRequests = [];
+$healthProvider = array_replace($provider, [
+    'token_endpoint_auth_methods_supported' => ['private_key_jwt'],
+    'token_endpoint_auth_signing_alg_values_supported' => ['RS256'],
+]);
+$healthTransport = static function (
+    string $method,
+    string $url,
+    ?string $body,
+    array $headers
+) use (&$healthRequests, $issuer, $healthProvider): array {
+    $healthRequests[] = compact('method', 'url', 'body', 'headers');
+    if ($url === $issuer . '/.well-known/openid-configuration') {
+        return jsonAnswer($healthProvider);
+    }
+    if ($url === $issuer . '/keys') {
+        return jsonAnswer(['keys' => [[
+            'kty' => 'RSA',
+            'kid' => 'probe-key',
+            'use' => 'sig',
+            'alg' => 'RS256',
+            'n' => JwtVerifier::base64UrlEncode("\x80" . str_repeat("\x01", 255)),
+            'e' => 'AQAB',
+        ]]]);
+    }
+    if ($url === $issuer . '/par') {
+        return jsonAnswer(['request_uri' => 'urn:probe:request', 'expires_in' => 60], 201);
+    }
+    throw new RuntimeException('Unexpected private-key health request: ' . $url);
+};
+$healthProbe = new ProviderProbe(
+    new HttpClient($healthTransport, true),
+    static fn(OPNsense\Auth\OpenIDConnect $settings): OPNsense\OpenIDConnect\ClientAssertion =>
+        testClientAssertion($settings)
+);
+$healthController = new class(new Request(
+    'https',
+    'firewall.example.net',
+    [],
+    [
+        'openidconnect_provider_url' => $issuer,
+        'openidconnect_client_id' => 'private-key-client',
+        'openidconnect_signing_certificate' => '0123456789abc',
+        'openidconnect_token_auth' => 'private_key_jwt',
+        'openidconnect_par_mode' => 'auto',
+        'openidconnect_origin_policy' => 'custom',
+        'openidconnect_redirect_urls' => 'https://firewall.example.net',
+        'openidconnect_tls_offloading' => '1',
+        'openidconnect_app_code' => 'private-key-health',
+    ],
+    [],
+    '',
+    'POST'
+), $healthProbe) extends HealthController {
+    public function __construct(Request $request, private ProviderProbe $probe)
+    {
+        parent::__construct($request);
+    }
+
+    protected function providerProbe(): ProviderProbe
+    {
+        return $this->probe;
+    }
+};
+$healthAnswer = $healthController->probeAction();
+$healthParRows = array_values(array_filter(
+    $healthAnswer['checks'],
+    static fn(array $check): bool => $check['label'] === 'PAR endpoint'
+));
+Checks::that('a certificate-only health controller reaches Discovery, JWKS and PAR',
+    array_column($healthRequests, 'url'), [
+        $issuer . '/.well-known/openid-configuration',
+        $issuer . '/keys',
+        $issuer . '/par',
+    ]);
+Checks::that('a certificate-only health controller exercises its client assertion live',
+    $healthParRows[0]['verification'], 'live');
+
+$legacyDiscoveryController = new DiscoveryController(new Request(
+    'https',
+    'firewall.example.net',
+    [],
+    ['url' => $issuer],
+    [],
+    '',
+    'POST'
+));
+$legacyDiscoveryValues = inspect($legacyDiscoveryController, 'formValues');
+Checks::that('the authenticated discovery API retains its legacy URL parameter',
+    ProviderProbe::settings($legacyDiscoveryValues)->issuerUrl(), $issuer);
 
 $requests = [];
 $secret = 'diagnostic-secret-value';

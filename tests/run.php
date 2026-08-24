@@ -80,6 +80,9 @@ require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderRu
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ParClient.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderProbe.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RelyingParty.php';
+require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/PrivateApiControllerBase.php';
+require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/DiscoveryController.php';
+require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/HealthController.php';
 require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/AuthController.php';
 require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/SsfController.php';
 

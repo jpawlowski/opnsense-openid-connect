@@ -562,7 +562,11 @@ final class ProviderProbe
             );
         }
         $key = ProviderRuntimeState::parKey($settings, $metadata);
-        $client = new ParClient($settings, $this->http);
+        $client = new ParClient(
+            $settings,
+            $this->http,
+            new ClientAuthenticator($settings, $this->clientAssertion($settings))
+        );
         try {
             $client->probe($metadata, $redirectUri);
             ProviderRuntimeState::parAvailable($key);
