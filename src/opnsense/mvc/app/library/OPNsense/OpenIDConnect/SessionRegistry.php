@@ -105,10 +105,12 @@ final class SessionRegistry
     public static function terminateForSecurityEvent(
         string $provider,
         string $issuer,
-        string $subject,
-        int $cutoff
+        ?string $subject,
+        int $cutoff,
+        ?string $sid = null
     ): int {
-        if ($provider === '' || $issuer === '' || $subject === '') {
+        if ($provider === '' || $issuer === ''
+            || (($subject === null || $subject === '') && ($sid === null || $sid === ''))) {
             return 0;
         }
         $terminated = 0;
@@ -117,6 +119,7 @@ final class SessionRegistry
             $provider,
             $issuer,
             $subject,
+            $sid,
             $cutoff,
             &$terminated,
             &$incomplete
@@ -124,8 +127,14 @@ final class SessionRegistry
             foreach ($records as $sessionId => $record) {
                 if (!is_array($record)
                     || !is_string($record['provider'] ?? null) || !hash_equals($provider, $record['provider'])
-                    || !is_string($record['issuer'] ?? null) || !hash_equals($issuer, $record['issuer'])
-                    || !is_string($record['sub'] ?? null) || !hash_equals($subject, $record['sub'])) {
+                    || !is_string($record['issuer'] ?? null) || !hash_equals($issuer, $record['issuer'])) {
+                    continue;
+                }
+                $matchesSubject = $subject === null || $subject === ''
+                    || (is_string($record['sub'] ?? null) && hash_equals($subject, $record['sub']));
+                $matchesSession = $sid === null || $sid === ''
+                    || (is_string($record['sid'] ?? null) && hash_equals($sid, $record['sid']));
+                if (!$matchesSubject || !$matchesSession) {
                     continue;
                 }
                 /* Records from releases predating this field are necessarily older than this event. */
