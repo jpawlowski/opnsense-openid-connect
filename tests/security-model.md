@@ -13,6 +13,7 @@ Copyright (C) 2026 Julian Pawlowski. All rights reserved. BSD-2-Clause, see LICE
 | token for another client | exact `aud` and `azp` rules |
 | stale/future token | strict integer `exp`, `iat`, optional `nbf`, 60-second clock tolerance |
 | UserInfo substitution | access token over TLS, credential redirects forbidden, exact ID Token/UserInfo `sub` binding |
+| stolen access token replay | when Discovery advertises ES256 DPoP, the authorization code and access token are bound to a mode-0600 per-provider key; every protected request carries a fresh method-, URI- and token-bound proof, and a DPoP token is never downgraded to Bearer |
 | open redirect/Host injection | local target sanitizer, strict Host grammar, HTTPS origin matched to OPNsense hostname/domain, alternate hostnames and core's IP-literal rule, or to an explicit exact custom list; disabling OPNsense DNS-rebinding checks does not widen hostname acceptance |
 | HTTP WebGUI or forged proxy scheme | native HTTP blocks enabled providers and sign-in tests; TLS offloading requires an explicit per-provider exception, exact custom HTTPS origins and exact Host matching; forwarded scheme headers and PROXY protocol are not treated as TLS proof |
 | session fixation | fail-closed PHP session ID regeneration with old ID removal after elevation |

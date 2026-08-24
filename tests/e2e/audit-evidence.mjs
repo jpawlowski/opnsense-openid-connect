@@ -103,6 +103,8 @@ if (!/^[0-9]+(?:\.[0-9]+){1,3}$/.test(zap.zapVersion || '')) {
 const capabilities = [
   ['browser-authorization-code-flow',
     'Authorization Code login uses state, nonce and PKCE S256 through a real provider and OPNsense WebGUI.'],
+  ['browser-dpop',
+    'An enforcing Keycloak client completes authorization, token exchange and UserInfo with DPoP-bound tokens.'],
   ['browser-session-rotation',
     'Successful session elevation replaces the pre-authentication PHP session identifier.'],
   ['browser-local-group-assignment',

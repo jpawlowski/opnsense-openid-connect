@@ -57,6 +57,11 @@ HOST_CAPABILITIES = {
         "Whom a token was issued for",
     ),
     "provider-http-policy": ("Bounded HTTPS transport",),
+    "dpop-sender-constraint": (
+        "RFC 9449 DPoP proofs",
+        "DPoP discovery and authorization-code binding",
+        "DPoP token and protected-resource requests",
+    ),
     "userinfo-subject-binding": (
         "Separating identity claims from protocol claims",
         "Strict endpoint responses and logout binding",

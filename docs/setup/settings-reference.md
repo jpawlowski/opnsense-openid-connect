@@ -47,6 +47,12 @@ is `hwk`, not `hw`. Passwordless is deliberately not a separate policy because
 it describes the sign-in experience rather than a portable assurance level;
 Passkeys and FIDO2 belong under phishing-resistant authentication.
 
+DPoP is negotiated protocol behavior rather than an administrator setting. If
+Discovery advertises `ES256` in `dpop_signing_alg_values_supported`, the plugin
+binds the authorization code and access token to its per-provider proof key and
+refuses a Bearer downgrade. Providers that do not advertise DPoP continue to use
+Bearer access tokens.
+
 Shared Signals is independent of offering new logins. It only ends sessions
 previously created by the same saved authentication server and never changes a
 local account, binding, group or privilege. See the [receiver setup](shared-signals.md)

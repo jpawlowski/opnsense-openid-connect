@@ -346,6 +346,7 @@ class AuthController extends ApiControllerBase
         $issuer = (string)$this->session->get(SessionGrant::ISSUER);
         $idToken = (string)$this->session->get(SessionGrant::ID_TOKEN);
         $tokens = json_decode((string)$this->session->get(SessionGrant::TOKENS), true) ?: [];
+        $dpopKey = (string)$this->session->get(SessionGrant::DPOP_KEY);
 
         $settings = $name === '' || $issuer === '' || $idToken === '' ? null : $this->settingsFor($name);
         $settings?->trace(sprintf('signing out of %s, %d token(s) to hand back', $name, count(array_filter($tokens))));
@@ -374,6 +375,9 @@ class AuthController extends ApiControllerBase
              * from the replacement configuration.
              */
             $exchange->requireIssuer($issuer);
+            if ($dpopKey !== '') {
+                $exchange->useDpopKey($dpopKey);
+            }
 
             /* ending the session at the provider does not invalidate what it already issued */
             foreach ($tokens as $hint => $token) {
@@ -614,6 +618,10 @@ class AuthController extends ApiControllerBase
             $this->session->set(SessionGrant::PROVIDER, $provider);
             $this->session->set(SessionGrant::ISSUER, $exchange->issuer());
             $this->session->set(SessionGrant::ID_TOKEN, $idToken);
+            $dpopKey = (string)$exchange->getDpopKeyId();
+            if ($dpopKey !== '') {
+                $this->session->set(SessionGrant::DPOP_KEY, $dpopKey);
+            }
             $this->session->set(SessionGrant::TOKENS, (string)json_encode(array_filter([
                 'access_token' => (string)$exchange->getAccessToken(),
                 'refresh_token' => (string)$exchange->getRefreshToken(),

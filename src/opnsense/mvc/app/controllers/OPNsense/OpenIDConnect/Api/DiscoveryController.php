@@ -130,6 +130,8 @@ class DiscoveryController extends PrivateApiControllerBase
             $list($metadata->get('code_challenge_methods_supported', [])),
             true
         );
+        $dpopAlgorithms = $metadata->dpopSigningAlgorithms();
+        $dpopUsable = $metadata->supportsDpop();
         $userInfo = $metadata->userInfoEndpoint();
         $parEndpoint = $metadata->pushedAuthorizationRequestEndpoint();
         $profileLabels = OpenIDConnect::providerProfileOptions();
@@ -194,6 +196,14 @@ class DiscoveryController extends PrivateApiControllerBase
                     : gettext(
                         'This client still sends PKCE S256; the provider must accept it despite omitting metadata.'
                     )
+            ),
+            $this->check(
+                gettext('DPoP sender constraint'),
+                $dpopAlgorithms === [] ? gettext('Not advertised') : implode(', ', $dpopAlgorithms),
+                $dpopUsable ? 'success' : 'info',
+                $dpopUsable
+                    ? gettext('ES256 is advertised; Test sign-in uses a proof-key-bound token flow.')
+                    : gettext('Bearer access tokens remain in use unless the provider advertises ES256 DPoP.')
             ),
             $this->check(
                 gettext('PAR metadata'),

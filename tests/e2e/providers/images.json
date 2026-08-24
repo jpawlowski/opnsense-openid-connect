@@ -7,7 +7,7 @@
       "digest": "sha256:831330513f55695572286e521f94fcd3c7e285250ed5b848090265a33192f669",
       "release_repository": "keycloak/keycloak",
       "release_tag": "strip-v",
-      "capabilities": ["backchannel_logout", "frontchannel_logout", "form_post", "rp_logout", "userinfo"]
+      "capabilities": ["backchannel_logout", "dpop", "frontchannel_logout", "form_post", "rp_logout", "userinfo"]
     },
     "authentik": {
       "image": "ghcr.io/goauthentik/server",

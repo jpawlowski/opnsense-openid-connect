@@ -179,8 +179,15 @@ class HttpClient
                     }
                     if (in_array($name, [
                         'cache-control', 'etag', 'expires', 'date', 'age', 'retry-after',
+                        'dpop-nonce', 'www-authenticate',
                     ], true)) {
-                        $responseHeaders[$name] = $value;
+                        if ($name === 'dpop-nonce' && array_key_exists($name, $responseHeaders)) {
+                            $responseHeaders[$name] = [$responseHeaders[$name], $value];
+                        } elseif ($name === 'www-authenticate' && isset($responseHeaders[$name])) {
+                            $responseHeaders[$name] .= ', ' . $value;
+                        } else {
+                            $responseHeaders[$name] = $value;
+                        }
                     }
                 }
 
@@ -249,7 +256,7 @@ class HttpClient
     private static function hasSensitiveHeader(array $headers): bool
     {
         foreach ($headers as $header) {
-            if (is_string($header) && preg_match('/^(Authorization|Cookie|Proxy-Authorization):/i', $header)) {
+            if (is_string($header) && preg_match('/^(Authorization|Cookie|DPoP|Proxy-Authorization):/i', $header)) {
                 return true;
             }
         }

@@ -61,7 +61,7 @@
       "id": "oauth-bearer",
       "title": "OAuth 2.0 Bearer Token Usage (RFC 6750)",
       "reference": "https://www.rfc-editor.org/rfc/rfc6750.html",
-      "scope": "Bearer access token sent by the RP to UserInfo or revocation endpoints",
+      "scope": "Bearer access tokens used when DPoP is not negotiated",
       "implementation": "partial",
       "claim": "unverified",
       "audit_complete": false,
@@ -660,12 +660,11 @@
       "id": "dpop",
       "title": "OAuth 2.0 Demonstrating Proof of Possession (RFC 9449)",
       "reference": "https://www.rfc-editor.org/rfc/rfc9449.html",
-      "scope": "Sender-constrained access and refresh tokens",
-      "implementation": "candidate",
-      "claim": "not_claimed",
+      "scope": "Sender-constrained access tokens for the confidential web RP",
+      "implementation": "implemented",
+      "claim": "unverified",
       "audit_complete": false,
-      "note": "Could reduce token replay but requires provider support and secure RP key lifecycle.",
-      "reconsider_when": "Interoperable provider demand and a reviewed key-rotation design exist."
+      "note": "ES256 DPoP is negotiated from Discovery, authorization codes and protected requests are proof-key-bound, server nonces are retained without downgrade, and per-provider keys rotate with bounded retired generations. The complete normative inventory is not yet audited."
     },
     {
       "id": "ciba",
@@ -968,7 +967,7 @@
       "implementation": "not_applicable",
       "claim": "not_applicable",
       "audit_complete": false,
-      "note": "The current RP profile uses neither DPoP nor another JWK-thumbprint URI protocol field."
+      "note": "DPoP uses the RFC 7638 thumbprint value directly, not the URI form defined by this specification."
     },
     {
       "id": "jwt-pop-key",
@@ -978,7 +977,7 @@
       "implementation": "not_applicable",
       "claim": "not_applicable",
       "audit_complete": false,
-      "note": "The RP does not consume proof-of-possession access tokens."
+      "note": "The provider and protected resource process the DPoP access token confirmation claim; this RP acts only as the presenting client."
     },
     {
       "id": "oauth-assertion-framework",
