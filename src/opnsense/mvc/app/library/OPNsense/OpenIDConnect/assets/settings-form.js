@@ -25,6 +25,51 @@
         return input ? $(input).closest('tr') : $();
     }
 
+    /* Core upgrades ordinary selects to Bootstrap pickers. The native select remains
+     * authoritative, but changing only that hidden element leaves a clickable picker
+     * showing stale values and enabled options. Keep both halves of the control in step. */
+    function refreshSelectPicker(input) {
+        if (!input || input.tagName !== 'SELECT') {
+            return;
+        }
+        var control = $(input);
+        var picker = control.closest('.bootstrap-select');
+        if (typeof control.selectpicker === 'function'
+            && (control.data('selectpicker') || picker.length)) {
+            control.selectpicker('refresh');
+            picker = control.closest('.bootstrap-select');
+        }
+        if (picker.length) {
+            picker.toggleClass('disabled', input.disabled).removeClass(input.disabled ? 'open' : '');
+            picker.children('button').prop('disabled', input.disabled)
+                .attr('aria-disabled', input.disabled ? 'true' : 'false');
+        }
+    }
+
+    function setConditionalSelectLock(input, locked) {
+        if (!input || input.tagName !== 'SELECT') {
+            return;
+        }
+        var control = $(input);
+        if (locked) {
+            control.attr('data-oidc-conditional-fixed', '1').prop('disabled', true);
+        } else if (control.attr('data-oidc-conditional-fixed') === '1') {
+            control.removeAttr('data-oidc-conditional-fixed');
+            if (control.attr('data-oidc-profile-fixed') !== '1') {
+                control.prop('disabled', false);
+            }
+        }
+        refreshSelectPicker(input);
+    }
+
+    function toggleFieldRow(name, visible) {
+        var input = field(name);
+        if (!visible && input && input.tagName === 'SELECT') {
+            $(input).closest('.bootstrap-select').removeClass('open');
+        }
+        row(name).toggle(visible);
+    }
+
     /* An <input> value has been through the browser's value sanitisation, which strips
      * CR and LF. Read the attribute to see what was actually stored. */
     function storedValue(element) {
@@ -116,6 +161,7 @@
             $(select).append($('<option>').attr('value', origin).text(origin));
         });
         select.value = effectiveOrigins().indexOf(selected) === -1 ? '' : selected;
+        refreshSelectPicker(select);
 
         function update() {
             selected = select.value;
@@ -124,6 +170,7 @@
                 $(select).append($('<option>').attr('value', origin).text(origin));
             });
             select.value = effectiveOrigins().indexOf(selected) === -1 ? '' : selected;
+            refreshSelectPicker(select);
         }
         $(field('openidconnect_redirect_urls')).on('input change', update);
         $(field('openidconnect_origin_policy')).on('change', update);
@@ -1698,6 +1745,11 @@
             var provider = field('openidconnect_provider_profile').value || 'general';
             var boundary = populationBoundary(provider);
             var authenticationCapabilities = (options.authenticationRequirementCapabilities || {})[provider] || [];
+            var broadMicrosoftAudience = provider === 'entra'
+                && (field('openidconnect_microsoft_audience').value || 'tenant') !== 'tenant';
+            if (broadMicrosoftAudience) {
+                authenticationCapabilities = [];
+            }
             $(authenticationInput).find('option').each(function () {
                 $(this).prop('disabled', this.value !== ''
                     && authenticationCapabilities.indexOf(this.value) === -1);
@@ -1709,11 +1761,19 @@
             }
             var authenticationUnsupported = authenticationCapabilities.length === 0;
             var authenticationManual = provider === 'keycloak';
-            authenticationNotice.toggle(authenticationUnsupported || authenticationManual).text(
-                authenticationUnsupported
-                    ? (options.authenticationRequirementUnsupportedHelp || '')
-                    : (options.authenticationRequirementManualHelp || '')
-            );
+            setConditionalSelectLock(authenticationInput, authenticationUnsupported);
+            authenticationNotice.toggle(authenticationUnsupported || authenticationManual).empty();
+            if (authenticationUnsupported || authenticationManual) {
+                authenticationNotice
+                    .append($('<i aria-hidden="true">').addClass(
+                        authenticationUnsupported ? 'fa fa-lock' : 'fa fa-info-circle'
+                    ), ' ')
+                    .append($('<span>').text(broadMicrosoftAudience
+                        ? (options.authenticationRequirementMicrosoftTenantHelp || '')
+                        : (authenticationUnsupported
+                            ? (options.authenticationRequirementUnsupportedHelp || '')
+                            : (options.authenticationRequirementManualHelp || ''))));
+            }
             $(admissionInput).find('option').each(function () {
                 $(this).prop('disabled', boundary.admission
                     && ['username', 'verified_email', 'either'].indexOf(this.value) !== -1);
@@ -1725,6 +1785,7 @@
                 admission = 'approval';
                 automatic = false;
             }
+            refreshSelectPicker(admissionInput);
             if (boundary.creation) {
                 $(creationInput).prop('checked', false);
             }
@@ -1739,34 +1800,35 @@
             var authenticationRequired = authentication !== '';
             var buttonTextMode = field('openidconnect_button_text_mode').value || 'localized';
             var buttonTextCustomizable = (options.fixedButtonProfiles || []).indexOf(provider) === -1;
-            row('openidconnect_tls_offloading').toggle(options.webGuiProtocol === 'http');
-            row('openidconnect_microsoft_audience').toggle(provider === 'entra');
-            row('openidconnect_acr_request').toggle(authenticationRequired && provider !== 'entra');
-            row('openidconnect_acr_values').toggle(authenticationRequired && provider !== 'entra');
-            row('openidconnect_amr_values').toggle(authenticationRequired);
-            row('openidconnect_entra_auth_context').toggle(authenticationRequired && provider === 'entra');
-            row('openidconnect_create_users').toggle(automatic && !boundary.creation);
-            row('openidconnect_default_groups').toggle(automatic && creates && !boundary.creation);
-            row('openidconnect_assignable_groups').toggle(groupClaim);
-            row('openidconnect_allow_all_groups').toggle(groupClaim);
-            row('openidconnect_logout_redirect').toggle($(field('openidconnect_logout_menu')).is(':checked'));
+            toggleFieldRow('openidconnect_tls_offloading', options.webGuiProtocol === 'http');
+            toggleFieldRow('openidconnect_microsoft_audience', provider === 'entra');
+            toggleFieldRow('openidconnect_acr_request', authenticationRequired && provider !== 'entra');
+            toggleFieldRow('openidconnect_acr_values', authenticationRequired && provider !== 'entra');
+            toggleFieldRow('openidconnect_amr_values', authenticationRequired);
+            toggleFieldRow('openidconnect_entra_auth_context', authenticationRequired && provider === 'entra');
+            toggleFieldRow('openidconnect_create_users', automatic && !boundary.creation);
+            toggleFieldRow('openidconnect_default_groups', automatic && creates && !boundary.creation);
+            toggleFieldRow('openidconnect_assignable_groups', groupClaim);
+            toggleFieldRow('openidconnect_allow_all_groups', groupClaim);
+            toggleFieldRow('openidconnect_logout_redirect', $(field('openidconnect_logout_menu')).is(':checked'));
             var sharedSignals = $(field('openidconnect_ssf_enabled')).is(':checked');
             var sharedSignalsPoll = field('openidconnect_ssf_delivery_method').value === 'poll';
-            row('openidconnect_ssf_issuer').toggle(sharedSignals);
-            row('openidconnect_ssf_audience').toggle(sharedSignals);
-            row('openidconnect_ssf_delivery_method').toggle(sharedSignals);
-            row('openidconnect_ssf_management_authorization').toggle(sharedSignals);
-            row('openidconnect_ssf_stream_id').toggle(sharedSignals);
-            row('openidconnect_ssf_poll_endpoint').toggle(sharedSignals && sharedSignalsPoll);
-            row('openidconnect_ssf_push_secret').toggle(sharedSignals && !sharedSignalsPoll);
-            row('openidconnect_ssf_previous_push_secret').toggle(sharedSignals && !sharedSignalsPoll);
-            row('openidconnect_button_text_mode').toggle(buttonTextCustomizable);
-            row('openidconnect_button_provider_label').toggle(
+            toggleFieldRow('openidconnect_ssf_issuer', sharedSignals);
+            toggleFieldRow('openidconnect_ssf_audience', sharedSignals);
+            toggleFieldRow('openidconnect_ssf_delivery_method', sharedSignals);
+            toggleFieldRow('openidconnect_ssf_management_authorization', sharedSignals);
+            toggleFieldRow('openidconnect_ssf_stream_id', sharedSignals);
+            toggleFieldRow('openidconnect_ssf_poll_endpoint', sharedSignals && sharedSignalsPoll);
+            toggleFieldRow('openidconnect_ssf_push_secret', sharedSignals && !sharedSignalsPoll);
+            toggleFieldRow('openidconnect_ssf_previous_push_secret', sharedSignals && !sharedSignalsPoll);
+            toggleFieldRow('openidconnect_button_text_mode', buttonTextCustomizable);
+            toggleFieldRow('openidconnect_button_provider_label',
                 buttonTextCustomizable && buttonTextMode !== 'custom'
             );
-            row('openidconnect_button_custom_text').toggle(
+            toggleFieldRow('openidconnect_button_custom_text',
                 buttonTextCustomizable && buttonTextMode === 'custom'
             );
+            refreshSelectPicker(authenticationInput);
         }
         $(field('openidconnect_create_users')).on('change', update);
         $(field('openidconnect_group_claim')).on('input change', update);
@@ -1806,6 +1868,7 @@
             }
             if (force || requestMode.value === '') {
                 requestMode.value = preset.request === 'entra_context' ? '' : (preset.request || '');
+                refreshSelectPicker(requestMode);
             }
             if (force || contexts.value.trim() === '') {
                 contexts.value = preset.acr || '';
@@ -1876,6 +1939,7 @@
                 return;
             }
             $(input).val(value).attr('value', value).trigger('change');
+            refreshSelectPicker(input);
 
             /* A list field is upgraded after this function first runs. Keep that visible
              * picker in step when defaults are restored later. */
@@ -1922,6 +1986,7 @@
             if (picker.length) {
                 picker.prop('disabled', locked).toggleClass('oidc-profile-fixed', locked);
             }
+            refreshSelectPicker(input);
         }
 
         function decorate() {
@@ -1962,7 +2027,9 @@
                     ? (options.profileRequiredLabel || 'Enter the value issued by this provider')
                     : (labels[classification] || labels.editable);
                 $('<span class="help-block small oidc-profile-field-note">')
-                    .append($('<i class="fa fa-lock" aria-hidden="true">').toggle(fixed), ' ')
+                    .append($('<i class="fa fa-lock" aria-hidden="true">').toggle(
+                        fixed || classification === 'unsupported'
+                    ), ' ')
                     .append($('<span>').text(label))
                     .appendTo(row(name).find('td').last());
             });
@@ -2024,6 +2091,7 @@
 
             var managedMicrosoftIssuer = '';
             $(microsoftAudience).val(options.microsoftAudience || microsoftAudience.value || 'tenant');
+            refreshSelectPicker(microsoftAudience);
             function updateMicrosoftIssuer() {
                 var managed = profile.value === 'entra' && microsoftAudience.value !== 'tenant';
                 if (managed) {
@@ -2073,6 +2141,7 @@
          * origin list written before the policy switch. Core's bare form default cannot. */
         if (options.originPolicy === 'opnsense' || options.originPolicy === 'custom') {
             $(field('openidconnect_origin_policy')).val(options.originPolicy);
+            refreshSelectPicker(field('openidconnect_origin_policy'));
         }
         sectorOriginOptions();
         withDiscoveryTest();

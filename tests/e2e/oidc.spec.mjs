@@ -95,6 +95,12 @@ async function selectNative(locator, value) {
   await locator.selectOption(value, { force: true });
 }
 
+function selectPickerButton(locator) {
+  return locator.locator(
+    'xpath=ancestor::*[contains(concat(" ", normalize-space(@class), " "), " bootstrap-select ")][1]/button'
+  );
+}
+
 async function configureServer(page) {
   let discoveryRequests = 0;
   page.on('request', request => {
@@ -161,6 +167,7 @@ async function configureServer(page) {
   await expect(issuerField).toHaveValue('https://appleid.apple.com');
   await expect(issuerField).toHaveAttribute('readonly', 'readonly');
   await expect(page.locator('select[name="openidconnect_token_auth"]')).toBeDisabled();
+  await expect(selectPickerButton(page.locator('select[name="openidconnect_token_auth"]'))).toBeDisabled();
   await expect(page.locator('input[data-oidc-profile-shadow="openidconnect_token_auth"]'))
     .toHaveValue('client_secret_post');
   await expect(page.locator('select[name="openidconnect_claims_source"]')).toBeDisabled();
@@ -175,6 +182,8 @@ async function configureServer(page) {
   await expect(page.locator('.oidc-public-creation-boundary')).toBeVisible();
   await expect(requiredAuthentication.locator('option[value="multi-factor"]')).toBeDisabled();
   await expect(requiredAuthentication.locator('option[value="phishing-resistant"]')).toBeDisabled();
+  await expect(requiredAuthentication).toBeDisabled();
+  await expect(selectPickerButton(requiredAuthentication)).toBeDisabled();
   await expect(page.locator('.oidc-authentication-requirement-boundary')).toBeVisible();
   await expect(page.locator('input[name="openidconnect_scopes"]')).toHaveValue('openid,email,name');
   await expect(iconField).toHaveValue('/api/openidconnect/auth/builtinicon/apple');
@@ -191,7 +200,19 @@ async function configureServer(page) {
   await selectNative(providerProfile, 'orcid');
   await expect(issuerField).toHaveValue('https://orcid.org');
   await expect(page.locator('input[name="openidconnect_scopes"]')).toHaveValue('openid');
+  await selectNative(providerProfile, 'auth0');
+  await expect(requiredAuthentication).toBeEnabled();
+  await expect(selectPickerButton(requiredAuthentication)).toBeEnabled();
+  await expect(requiredAuthentication.locator('option[value="multi-factor"]')).toBeEnabled();
+  await expect(requiredAuthentication.locator('option[value="phishing-resistant"]')).toBeDisabled();
+  await selectNative(requiredAuthentication, 'multi-factor');
+  await expect(selectPickerButton(requiredAuthentication)).toContainText('Multi-factor authentication');
+  await expect(page.locator('select[name="openidconnect_acr_request"]')).toHaveValue('acr_values');
+  await expect(selectPickerButton(page.locator('select[name="openidconnect_acr_request"]')))
+    .toContainText('acr_values authorization parameter');
   await selectNative(providerProfile, 'keycloak');
+  await expect(requiredAuthentication).toBeEnabled();
+  await expect(selectPickerButton(requiredAuthentication)).toBeEnabled();
   await expect(requiredAuthentication.locator('option[value="multi-factor"]')).toBeEnabled();
   await expect(requiredAuthentication.locator('option[value="phishing-resistant"]')).toBeEnabled();
   await expect(page.locator('.oidc-authentication-requirement-boundary')).toContainText(
@@ -220,6 +241,8 @@ async function configureServer(page) {
   await expect(requiredAuthentication.locator('option[value="multi-factor"]')).toBeDisabled();
   await expect(requiredAuthentication.locator('option[value="phishing-resistant"]')).toBeDisabled();
   await expect(requiredAuthentication).toHaveValue('');
+  await expect(requiredAuthentication).toBeDisabled();
+  await expect(selectPickerButton(requiredAuthentication)).toBeDisabled();
   await issuerField.fill(
     'https://auth.example.com/application/o/firewall/.well-known/openid-configuration'
   );
@@ -229,11 +252,25 @@ async function configureServer(page) {
   const microsoftAudience = page.locator('select[name="openidconnect_microsoft_audience"]');
   await expect(microsoftAudience.locator('xpath=ancestor::tr')).toBeVisible();
   await expect(microsoftAudience.locator('option')).toHaveCount(4);
+  await expect(requiredAuthentication).toBeEnabled();
+  await selectNative(requiredAuthentication, 'multi-factor');
+  const microsoftContext = page.locator('select[name="openidconnect_entra_auth_context"]');
+  await expect(microsoftContext.locator('xpath=ancestor::tr')).toBeVisible();
   await selectNative(microsoftAudience, 'common');
+  await expect(requiredAuthentication).toHaveValue('');
+  await expect(requiredAuthentication).toBeDisabled();
+  await expect(selectPickerButton(requiredAuthentication)).toBeDisabled();
+  await expect(page.locator('.oidc-authentication-requirement-boundary'))
+    .toContainText('one specific Entra tenant');
+  await expect(microsoftContext.locator('xpath=ancestor::tr')).toBeHidden();
   await expect(page.locator('input[name="openidconnect_provider_url"]'))
     .toHaveValue('https://login.microsoftonline.com/common/v2.0');
   await expect(page.locator('input[name="openidconnect_provider_url"]'))
     .toHaveAttribute('readonly', 'readonly');
+  await selectNative(microsoftAudience, 'tenant');
+  await expect(requiredAuthentication).toBeEnabled();
+  await expect(selectPickerButton(requiredAuthentication)).toBeEnabled();
+  await selectNative(microsoftAudience, 'common');
   await selectNative(page.locator('select[name="openidconnect_provider_profile"]'), 'keycloak');
   await expect(microsoftAudience.locator('xpath=ancestor::tr')).toBeHidden();
   const providerSetupSection = page.locator('[data-oidc-action-section="provider-setup"]');

@@ -1442,6 +1442,11 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'This provider profile has no documented end-to-end authentication-strength setup compatible ' .
                 'with this plugin. Provider policy only is enforced.'
             ),
+            'authenticationRequirementMicrosoftTenantHelp' => gettext(
+                'Required authentication is available only for one specific Entra tenant because Microsoft ' .
+                'authentication contexts c1-c25 have tenant-local meaning. Provider policy only is enforced ' .
+                'for this broader account audience.'
+            ),
             'authenticationRequirementManualHelp' => gettext(
                 'This requirement needs the provider-side flow and signed-token evidence described in the ' .
                 'provider guide. Download provider setup does not create that flow.'
