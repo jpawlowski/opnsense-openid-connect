@@ -267,10 +267,13 @@ final class SharedSignalsClient
         if ($response->status !== 200) {
             $this->unexpected($response, 'poll stream', []);
         }
-        $body = $response->jsonObject();
-        $sets = $body['sets'] ?? null;
-        if (!is_array($sets) || ($sets !== [] && array_is_list($sets))
-            || count($sets) > self::MAX_POLL_EVENTS) {
+        try {
+            $body = json_decode($response->body, false, 64, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            throw new ProtocolException('The poll endpoint returned invalid JSON', 0, $e);
+        }
+        $sets = $body instanceof \stdClass ? ($body->sets ?? null) : null;
+        if (!$sets instanceof \stdClass || count(get_object_vars($sets)) > self::MAX_POLL_EVENTS) {
             throw new ProtocolException('The poll endpoint returned an invalid SET collection');
         }
         $validatedSets = [];
@@ -281,10 +284,10 @@ final class SharedSignalsClient
             }
             $validatedSets[$identifier] = $set;
         }
-        if (isset($body['moreAvailable']) && !is_bool($body['moreAvailable'])) {
+        if (isset($body->moreAvailable) && !is_bool($body->moreAvailable)) {
             throw new ProtocolException('The poll endpoint returned an invalid availability flag');
         }
-        return ['sets' => $validatedSets, 'more_available' => (bool)($body['moreAvailable'] ?? false)];
+        return ['sets' => $validatedSets, 'more_available' => (bool)($body->moreAvailable ?? false)];
     }
 
     public static function validatedAuthorization(string $value): string

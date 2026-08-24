@@ -314,6 +314,21 @@ Checks::that('polling is an explicit short POST with a batch limit', [
 $managementResponses[] = [
     'status' => 200,
     'content_type' => 'application/json',
+    'body' => json_encode(['sets' => (object)['0' => 'signed-zero', '1' => 'signed-one']]),
+    'location' => '',
+    'headers' => [],
+];
+$numericSets = $management->poll(
+    $ssfMetadata,
+    'Bearer management-token',
+    'https://signals.example.net/poll/stream-1'
+);
+Checks::that('a numeric opaque SET identifier cannot turn its JSON object into a refused list',
+    $numericSets['sets'], ['signed-zero', 'signed-one']);
+
+$managementResponses[] = [
+    'status' => 200,
+    'content_type' => 'application/json',
     'body' => json_encode(['sets' => (object)[]]),
     'location' => '',
     'headers' => [],
@@ -322,20 +337,20 @@ $management->poll(
     $ssfMetadata,
     'Bearer management-token',
     'https://signals.example.net/poll/stream-1',
-    ['urn:uuid:poll-jti'],
+    ['0', '1', 'urn:uuid:poll-jti'],
     ['urn:uuid:refused-jti' => [
         'err' => 'invalid_key',
         'description' => 'The Security Event Token was not accepted.',
     ]],
     0
 );
-$pollAcknowledgement = json_decode((string)$managementCalls[4]['body'], true);
+$pollAcknowledgement = json_decode((string)$managementCalls[5]['body'], true);
 Checks::that('poll acknowledgements preserve opaque SET identifiers', $pollAcknowledgement['ack'], [
-    'urn:uuid:poll-jti',
+    '0', '1', 'urn:uuid:poll-jti',
 ]);
 Checks::that('poll errors use the shared registered SET error code and language', [
     $pollAcknowledgement['setErrs']['urn:uuid:refused-jti']['err'],
-    in_array('Content-Language: en', $managementCalls[4]['headers'], true),
+    in_array('Content-Language: en', $managementCalls[5]['headers'], true),
 ], ['invalid_key', true]);
 
 $mismatchedConfiguration = array_replace($pushConfiguration, ['iss' => 'https://other.example.net']);
