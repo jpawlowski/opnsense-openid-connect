@@ -76,10 +76,12 @@ References: [Okta web application](https://developer.okta.com/docs/guides/sign-i
 ## Optional Shared Signals
 
 Okta can send `session-revoked` and `credential-change` CAEP events to the
-package's optional push receiver. Follow the [Shared Signals setup](../setup/shared-signals.md)
-and create the stream separately from the OIDC web application. Use the Okta
-organization's documented SSF transmitter issuer and the audience returned for
-that stream; do not assume the custom authorization-server issuer or OIDC
-client ID is interchangeable with either value.
+package's optional Shared Signals receiver. Follow the
+[Shared Signals setup](../setup/shared-signals.md) and create the stream
+separately from the OIDC web application, using discovered lifecycle support
+when the tenant advertises it. Use the Okta organization's documented SSF
+transmitter issuer and the audience returned for that stream; do not assume the
+custom authorization-server issuer or OIDC client ID is interchangeable with
+either value.
 
 Reference: [Okta SSF Transmitter SET payloads](https://developer.okta.com/docs/reference/ssf-transmitter-sets/).

@@ -9,10 +9,11 @@ namespace OPNsense\OpenIDConnect;
 
 use OPNsense\Auth\OpenIDConnect;
 
-/** Small, secret-free persistent health and PAR circuit state shared by PHP workers and cron. */
+/** Small, secret-free persistent health, PAR and SSF poll state shared by PHP workers and cron. */
 final class ProviderRuntimeState
 {
     private const RETRY_DELAYS = [60, 120, 300, 600, 900];
+    private const SSF_POLL_FRESH_SECONDS = 180;
 
     public static function parKey(OpenIDConnect $settings, ProviderMetadata $metadata): string
     {
@@ -86,6 +87,60 @@ final class ProviderRuntimeState
     public static function parStatus(string $key): array
     {
         return self::read('par-' . $key);
+    }
+
+    public static function ssfKey(OpenIDConnect $settings, SharedSignalsMetadata $metadata): string
+    {
+        return hash('sha256', json_encode([
+            $settings->sharedSignalsIssuer(),
+            $metadata->issuer(),
+            $settings->sharedSignalsStreamId(),
+            $settings->sharedSignalsAudience(),
+            $settings->sharedSignalsDeliveryMethod(),
+            $settings->applicationCode(),
+        ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+    }
+
+    public static function ssfPollSuccess(string $key, int $events, ?int $now = null): void
+    {
+        $now ??= time();
+        $previous = self::read('ssf-' . $key);
+        self::write('ssf-' . $key, [
+            'status' => 'fresh',
+            'updated' => $now,
+            'fresh_until' => $now + self::SSF_POLL_FRESH_SECONDS,
+            'last_success' => $now,
+            'last_event' => $events > 0 ? $now : ($previous['last_event'] ?? null),
+            'events' => $events,
+            'reason' => '',
+        ]);
+    }
+
+    public static function ssfPollFailure(string $key, string $reason, ?int $now = null): void
+    {
+        $now ??= time();
+        $previous = self::read('ssf-' . $key);
+        self::write('ssf-' . $key, [
+            'status' => 'error',
+            'updated' => $now,
+            'fresh_until' => null,
+            'last_success' => $previous['last_success'] ?? null,
+            'last_event' => $previous['last_event'] ?? null,
+            'events' => 0,
+            'reason' => $reason,
+        ]);
+    }
+
+    /** @return array<string,mixed> */
+    public static function ssfStatus(string $key, ?int $now = null): array
+    {
+        $now ??= time();
+        $state = self::read('ssf-' . $key);
+        if (($state['status'] ?? '') === 'fresh'
+            && is_int($state['fresh_until'] ?? null) && $state['fresh_until'] < $now) {
+            $state['status'] = 'stale';
+        }
+        return $state;
     }
 
     private static function directory(): string

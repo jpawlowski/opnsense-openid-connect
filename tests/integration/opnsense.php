@@ -18,6 +18,7 @@ use OPNsense\OpenIDConnect\ProviderMetadata;
 use OPNsense\OpenIDConnect\RequestObjectSigner;
 use OPNsense\OpenIDConnect\SessionRegistry;
 use OPNsense\OpenIDConnect\SecurityEventVerifier;
+use OPNsense\OpenIDConnect\SharedSignalsClient;
 use OPNsense\OpenIDConnect\SharedSignalsMetadata;
 use OPNsense\OpenIDConnect\TransactionRegistry;
 use OPNsense\OpenIDConnect\WebGuiAccess;
@@ -59,8 +60,9 @@ $library = '/usr/local/opnsense/mvc/app/library/OPNsense/OpenIDConnect/';
 foreach ([
     'ProtocolException', 'ProviderUnavailableException', 'SecurityEventException', 'HttpResponse', 'HttpClient',
     'ProviderCache', 'ProviderMetadata', 'ProviderRuntimeState',
-    'SharedSignalsMetadata', 'JwtVerifier', 'RequestObjectSigner', 'DpopProof', 'DpopKeyStore',
-    'SecurityEventVerifier', 'PendingIdentityRegistry',
+    'SharedSignalsMetadata', 'SharedSignalsClient', 'JwtVerifier', 'RequestObjectSigner', 'DpopProof', 'DpopKeyStore',
+    'SecurityEventVerifier',
+    'SharedSignalsEventProcessor', 'SharedSignalsPoller', 'PendingIdentityRegistry',
     'SessionRegistry', 'TransactionRegistry', 'WebGuiAccess', 'ParClient', 'ProviderProbe',
 ] as $class) {
     require_once $library . $class . '.php';
@@ -367,6 +369,100 @@ $ssfEvent = (new SecurityEventVerifier(new JwtVerifier($ssfHttp)))->verify(
     $ssfIssuer
 );
 $check($ssfEvent['actionable'] && $ssfEvent['subject'] === 'runtime-subject', 'signed SSF SET through phpseclib');
+
+$lifecycleCalls = [];
+$lifecycleResponses = [[
+    'status' => 201,
+    'content_type' => 'application/json',
+    'body' => (string)json_encode([
+        'stream_id' => 'runtime-stream',
+        'iss' => $ssfIssuer,
+        'aud' => $ssfAudience,
+        'delivery' => [
+            'method' => SharedSignalsMetadata::POLL_METHOD,
+            'endpoint_url' => $ssfIssuer . '/poll/runtime-stream',
+        ],
+        'events_requested' => SecurityEventVerifier::ACTIONABLE_EVENTS,
+        'events_delivered' => [SecurityEventVerifier::CAEP_SESSION_REVOKED],
+    ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+    'location' => '',
+], [
+    'status' => 200,
+    'content_type' => 'application/json',
+    'body' => (string)json_encode([
+        'sets' => ['runtime-security-event' => $ssfSet],
+        'moreAvailable' => false,
+    ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+    'location' => '',
+], [
+    'status' => 200,
+    'content_type' => 'application/json',
+    'body' => (string)json_encode([
+        'stream_id' => 'runtime-stream',
+        'iss' => 'https://other.runtime.example.com',
+        'aud' => $ssfAudience,
+        'delivery' => [
+            'method' => SharedSignalsMetadata::POLL_METHOD,
+            'endpoint_url' => $ssfIssuer . '/poll/runtime-stream',
+        ],
+        'events_delivered' => [SecurityEventVerifier::CAEP_SESSION_REVOKED],
+    ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+    'location' => '',
+]];
+$lifecycleHttp = new HttpClient(static function (
+    string $method,
+    string $url,
+    ?string $body,
+    array $headers,
+    int $maximum
+) use (&$lifecycleCalls, &$lifecycleResponses): array {
+    $lifecycleCalls[] = compact('method', 'url', 'body', 'headers', 'maximum');
+    return array_shift($lifecycleResponses);
+});
+$lifecycleMetadata = SharedSignalsMetadata::fromArray($ssfIssuer, [
+    'issuer' => $ssfIssuer,
+    'jwks_uri' => $ssfIssuer . '/keys',
+    'delivery_methods_supported' => [SharedSignalsMetadata::PUSH_METHOD, SharedSignalsMetadata::POLL_METHOD],
+    'configuration_endpoint' => $ssfIssuer . '/streams',
+    'status_endpoint' => $ssfIssuer . '/status',
+    'authorization_schemes' => [['spec_urn' => SharedSignalsMetadata::OAUTH_AUTHORIZATION]],
+]);
+$lifecycle = new SharedSignalsClient($lifecycleHttp);
+$runtimeStream = $lifecycle->createStream(
+    $lifecycleMetadata,
+    'Bearer runtime-management',
+    SharedSignalsMetadata::POLL_METHOD
+);
+$check(
+    $runtimeStream['stream_id'] === 'runtime-stream'
+        && $runtimeStream['poll_endpoint'] === $ssfIssuer . '/poll/runtime-stream',
+    'SSF lifecycle accepts a metadata-bound poll stream response'
+);
+$runtimePoll = $lifecycle->poll(
+    $lifecycleMetadata,
+    'Bearer runtime-management',
+    $runtimeStream['poll_endpoint']
+);
+$check(
+    isset($runtimePoll['sets']['runtime-security-event'])
+        && $lifecycleCalls[1]['method'] === 'POST'
+        && json_decode((string)$lifecycleCalls[1]['body'], true)['returnImmediately'] === true,
+    'RFC 8936 short-poll response interoperates with the installed client'
+);
+$refusedLifecycle = false;
+try {
+    $lifecycle->readStream(
+        $lifecycleMetadata,
+        'Bearer runtime-management',
+        'runtime-stream',
+        SharedSignalsMetadata::POLL_METHOD,
+        null,
+        $ssfAudience
+    );
+} catch (\Throwable $e) {
+    $refusedLifecycle = str_contains($e->getMessage(), 'issuer');
+}
+$check($refusedLifecycle, 'SSF lifecycle refuses a stream response from another issuer');
 $validated('runtime-shared-signals');
 
 $jti = JwtVerifier::base64UrlEncode(random_bytes(24));
@@ -460,6 +556,8 @@ $check($delegatedAcl->isPageAccessible($aclDiscoveryName, '/api/openidconnect/he
     'the Discovery privilege includes the live current-form health probe');
 $check(!$delegatedAcl->isPageAccessible($aclProbeName, '/api/openidconnect/test/start'),
     'identity management does not grant the separate OIDC sign-in-test privilege');
+$check(!$delegatedAcl->isPageAccessible($aclProbeName, '/api/openidconnect/ssfsetup/create'),
+    'authentication-server administration does not grant external Shared Signals stream mutation');
 $check($delegatedAcl->hasPrivilege($aclProbeName, 'user-config-readonly'),
     'the real ACL exposes the read-only guard used by identity mutations');
 $managerGuard = new class extends ApprovalController {
