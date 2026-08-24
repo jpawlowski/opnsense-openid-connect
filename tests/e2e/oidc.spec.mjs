@@ -206,7 +206,7 @@ async function configureServer(page) {
   await selectNative(page.locator('select[name="openidconnect_provider_profile"]'), 'keycloak');
   await selectNative(page.locator('select[name="openidconnect_bootstrap_mode"]'), 'username');
   await page.locator('input[name="openidconnect_username_claim"]').fill('preferred_username');
-  await selectNative(page.locator('select[name="openidconnect_claims_source"]'), 'auto');
+  await selectNative(page.locator('select[name="openidconnect_claims_source"]'), 'userinfo');
   await selectNative(page.locator('select[name="openidconnect_response_mode"]'), 'query');
   await setFlatList(page, 'openidconnect_scopes', ['openid', 'email', 'profile']);
   await page.locator('input[name="openidconnect_create_users"]').check();
@@ -452,9 +452,9 @@ async function configureServer(page) {
   dialog = page.getByRole('dialog');
   await expect(dialog.locator('.oidc-discovery-result .alert-success')).toBeVisible();
   await expect(dialog.locator('.oidc-discovery-results')).toBeVisible();
-  await expect(dialog.locator('.oidc-discovery-results tbody tr')).toHaveCount(16);
-  await expect(dialog.locator('.oidc-check-flow')).toHaveCount(16);
-  await expect(dialog.locator('.oidc-check-flow[aria-label]')).toHaveCount(16);
+  await expect(dialog.locator('.oidc-discovery-results tbody tr')).toHaveCount(17);
+  await expect(dialog.locator('.oidc-check-flow')).toHaveCount(17);
+  await expect(dialog.locator('.oidc-check-flow[aria-label]')).toHaveCount(17);
   await expect(dialog.locator('.oidc-check-actor')).not.toHaveCount(0);
   await expect(dialog.locator('.oidc-check-actor i[aria-hidden="true"]')).not.toHaveCount(0);
   await expect(dialog.locator('th > div').filter({ hasText: /\(.*(?:OPNsense|Browser|IdP).*\)/ }))
@@ -474,6 +474,7 @@ async function configureServer(page) {
     'ID Token signatures': ['opnsense', 'metadata'],
     'Client authentication': ['opnsense', 'metadata'],
     PKCE: ['opnsense', 'metadata'],
+    'DPoP sender constraint': ['opnsense', 'metadata'],
     'PAR metadata': ['opnsense,idp', 'metadata'],
     'Authorization response mode': ['idp,browser,opnsense', 'metadata'],
     'Selected authentication method': ['opnsense', 'metadata'],
@@ -485,6 +486,11 @@ async function configureServer(page) {
   });
   await expect(dialog.locator('.oidc-discovery-results tr[data-status="success"]').first()).toBeVisible();
   await expect(dialog.locator('.oidc-discovery-results tr[data-status="info"]').first()).toBeVisible();
+  const dpopDiscoveryRow = dialog.locator('.oidc-discovery-results tbody tr')
+    .filter({ hasText: 'DPoP sender constraint' });
+  await expect(dpopDiscoveryRow).toHaveCount(1);
+  await expect(dpopDiscoveryRow).toHaveAttribute('data-status', 'success');
+  await expect(dpopDiscoveryRow).toContainText('ES256');
   await expect(dialog).toContainText(issuer);
   await expect(dialog).toContainText('RS256');
   await expect(dialog).toContainText('client_secret_post');

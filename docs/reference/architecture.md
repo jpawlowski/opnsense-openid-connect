@@ -161,7 +161,7 @@ flowchart TD
 | Component | Responsibility | Must not do |
 |---|---|---|
 | `AuthController` | public protocol endpoints including the exact-origin pairwise-sector document, package-owned and safely proxied login icons, generic browser errors, audit records, session elevation/logout | decide JWT validity or account policy |
-| `RelyingParty` | authorization transaction, optional signed JAR and PAR, code exchange, claim-source composition, logout/revocation requests | perform cryptography or grant privileges |
+| `RelyingParty` | authorization transaction, optional signed JAR, PAR and DPoP negotiation, code exchange, claim-source composition, logout/revocation requests | perform cryptography or grant privileges |
 | `RequestObjectSigner` | bounded RFC 9101 claims, provider/key algorithm selection and phpseclib signature | choose authorization policy, expose a private key or encrypt Request Objects |
 | `ProviderMetadata` | exact Discovery validation and immutable per-login metadata snapshot | guess provider endpoints |
 | `DiscoveryController` / `HealthController` / `ProviderProbe` | authenticated, CSRF-protected diagnostics from current form values with explicit actor paths and verification methods | persist form values, return secrets or pretend an advertised browser/token path was exercised |
@@ -171,6 +171,7 @@ flowchart TD
 | `HttpClient` | the only provider network transport; HTTPS, TLS, limits and redirect policy | follow credentials through redirects |
 | `ClientAuthentication` / `ClientCertificate` | negotiate and freeze OAuth client authentication, resolve active/retiring OPNsense certificate objects and constrain RFC 8705 endpoint use | store another private-key copy or silently downgrade to a secret |
 | `JwtVerifier` | JWS and OIDC/logout claim validation using OPNsense phpseclib | accept token-selected keys or symmetric ID Token signatures |
+| `DpopProof` / `DpopKeyStore` | fresh RFC 9449 proofs plus mode-`0600` per-provider key rotation, retired generations and endpoint nonces | choose provider trust, send a bound token as Bearer or log proof/key material |
 | `AuthenticationRequirement` | freeze one requested MFA/phishing-resistant policy and validate its verified `acr`/`acrs` plus `amr` evidence | infer provider semantics or inspect an unverified token |
 | `OpenIDConnect` | settings, stable identity binding, local account and group policy | establish browser sessions |
 | `WebGuiAccess` | apply OPNsense's effective user/group/source-network ACL and choose a navigable landing page | grant privileges or treat logout/API routes as human access |
@@ -273,6 +274,15 @@ verification subset; Ed25519 is the separately audited RFC 8037 subset.
   cannot change halfway through it. Automatic PAR may bypass only a temporarily
   unavailable optional endpoint; the provider requirement and every TLS,
   authentication or protocol failure remain fail-closed.
+- A provider that advertises ES256 DPoP receives `dpop_jkt` in the authorization
+  request and a fresh proof at the token endpoint. The private P-256 key lives in
+  a per-provider mode-`0600` store, rotates every 90 days and retains at most five
+  retired generations for 370 days so an existing grant keeps its exact key.
+  The server-side login session freezes the opaque store binding as well as the
+  key identifier, so later client-ID edits cannot detach logout from its key.
+  Server nonces are persisted per exact endpoint and, once supplied, are never
+  omitted. State for removed providers is pruned only after the same retention
+  window.
 - A selected dedicated OPNsense certificate signs all authorization parameters
   into a 60-second RFC 9101 Request Object with exact issuer/audience binding
   and a fresh `jti`. Its certificate reference is the registered `kid`; PAR
@@ -291,8 +301,10 @@ verification subset; Ed25519 is the separately audited RFC 8037 subset.
   one-time state; the transport must match and direct parameters cannot
   downgrade it. Encrypted JARM is deliberately unsupported.
 - ID, access and refresh tokens live only in the authenticated PHP session for
-  optional provider logout/revocation. They are never logged or placed in the
-  logout index.
+  optional provider logout/revocation. A DPoP session also retains only its
+  proof-key thumbprint so logout can reopen the exact stored generation. Tokens,
+  proofs, private keys and server nonces are never logged or placed in the logout
+  index.
 - An optional authentication requirement is frozen into the same one-time login
   transaction as issuer, nonce, PKCE and metadata. The callback refuses a
   configuration mismatch and validates only the signed ID Token before local

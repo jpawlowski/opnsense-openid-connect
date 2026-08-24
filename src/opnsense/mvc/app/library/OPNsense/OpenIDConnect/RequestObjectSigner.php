@@ -182,7 +182,7 @@ final class RequestObjectSigner
 
     private function signPayload(string $algorithm, string $privateKey, string $payload): string
     {
-        JwtVerifier::prepareAutoloader();
+        JwtVerifier::prepareRuntime();
         try {
             $key = PublicKeyLoader::loadPrivateKey($privateKey);
         } catch (\Throwable $e) {

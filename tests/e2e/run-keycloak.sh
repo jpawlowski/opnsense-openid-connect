@@ -161,6 +161,7 @@ jq -n \
       webOrigins: [$origin],
       attributes: {
         "pkce.code.challenge.method": "S256",
+        "dpop.bound.access.tokens": "true",
         "post.logout.redirect.uris": ($origin + "/*"),
         "backchannel.logout.url": $backchannel,
         "backchannel.logout.session.required": "true",

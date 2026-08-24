@@ -37,6 +37,7 @@ $provider = metadata([
     'authorization_signing_alg_values_supported' => ['RS256'],
     'token_endpoint_auth_methods_supported' => ['client_secret_basic', 'client_secret_post'],
     'code_challenge_methods_supported' => ['S256'],
+    'dpop_signing_alg_values_supported' => ['ES256'],
     'authorization_response_iss_parameter_supported' => true,
 ]);
 $requests = [];
@@ -122,6 +123,9 @@ Checks::that('client authentication is evaluated locally', $draftSemantics['Clie
 Checks::that('certificate-bound token support is evaluated locally',
     $draftSemantics['Certificate-bound access tokens'], ['opnsense', 'metadata']);
 Checks::that('PKCE policy is evaluated locally', $draftSemantics['PKCE'], ['opnsense', 'metadata']);
+Checks::that('DPoP negotiation is evaluated locally', $draftSemantics['DPoP sender constraint'], [
+    'opnsense', 'metadata',
+]);
 Checks::that('PAR availability comes from metadata', $draftSemantics['PAR metadata'], [
     'opnsense,idp', 'metadata',
 ]);

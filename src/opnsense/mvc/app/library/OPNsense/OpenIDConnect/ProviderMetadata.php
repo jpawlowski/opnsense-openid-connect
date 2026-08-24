@@ -97,7 +97,7 @@ final class ProviderMetadata
             'authorization_encryption_alg_values_supported', 'authorization_encryption_enc_values_supported',
             'token_endpoint_auth_methods_supported', 'response_modes_supported',
             'code_challenge_methods_supported', 'grant_types_supported', 'scopes_supported',
-            'revocation_endpoint_auth_methods_supported',
+            'revocation_endpoint_auth_methods_supported', 'dpop_signing_alg_values_supported',
         ] as $list) {
             if (array_key_exists($list, $values)
                 && (!is_array($values[$list]) || !array_is_list($values[$list]) || $values[$list] === []
@@ -336,6 +336,18 @@ final class ProviderMetadata
             'The provider offers no supported client authentication method for the %s endpoint',
             $endpoint
         ));
+    }
+
+    /** @return string[] */
+    public function dpopSigningAlgorithms(): array
+    {
+        $algorithms = $this->values['dpop_signing_alg_values_supported'] ?? [];
+        return is_array($algorithms) ? $algorithms : [];
+    }
+
+    public function supportsDpop(): bool
+    {
+        return in_array('ES256', $this->dpopSigningAlgorithms(), true);
     }
 
     /** @return string[] advertised JARM algorithms, or the specification's RS256 default */

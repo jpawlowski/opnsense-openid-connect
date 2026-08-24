@@ -12,6 +12,7 @@ use OPNsense\OpenIDConnect\HttpClient;
 use OPNsense\OpenIDConnect\JwtVerifier;
 use OPNsense\OpenIDConnect\ClientAuthentication;
 use OPNsense\OpenIDConnect\ClientCertificate;
+use OPNsense\OpenIDConnect\DpopProof;
 use OPNsense\OpenIDConnect\ProviderMetadata;
 use OPNsense\OpenIDConnect\RelyingParty;
 use OPNsense\OpenIDConnect\RequestObjectSigner;
@@ -551,10 +552,37 @@ $mtlsSettings = connector([
 $mtlsAuthentication = ClientAuthentication::negotiate($mtlsSettings, $mtlsMetadata);
 $mtlsSnapshot = $mtlsAuthentication->snapshot();
 $mtlsMetadataProperty = new ReflectionProperty(RelyingParty::class, 'metadata');
+$mtlsDpopProof = DpopProof::forTesting([
+    'kty' => 'EC',
+    'crv' => 'P-256',
+    'x' => 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    'y' => 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+], static fn(string $input): string => str_repeat("\x01", 64));
 Checks::that(
     'following a provider with a certificate prefers PKI mutual TLS',
     $mtlsSnapshot['method'],
     'tls_client_auth'
+);
+
+$certificateBoundDpopMetadata = metadata([
+    'token_endpoint_auth_methods_supported' => ['tls_client_auth'],
+    'tls_client_certificate_bound_access_tokens' => true,
+    'dpop_signing_alg_values_supported' => ['ES256'],
+]);
+$certificateBoundDpopParty = new RelyingParty(
+    $mtlsSettings,
+    new Controller(new Request('https', 'firewall.example.net'), new Session()),
+    new HttpClient(fn() => jsonAnswer($certificateBoundDpopMetadata)),
+    null,
+    null,
+    $mtlsDpopProof
+);
+$certificateBoundUrl = $certificateBoundDpopParty->authorizationUrl('mtls', '/');
+parse_str((string)parse_url($certificateBoundUrl, PHP_URL_QUERY), $certificateBoundParameters);
+Checks::that(
+    'an explicitly configured certificate binding takes precedence over provider-advertised DPoP',
+    [isset($certificateBoundParameters['dpop_jkt']), $certificateBoundDpopParty->getDpopKeyId()],
+    [false, '']
 );
 Checks::that('the active certificate reference is frozen into the login', $mtlsSnapshot['certificate_ref'], 'mtls-old');
 Checks::that(
@@ -679,6 +707,40 @@ $unboundMtlsSettings = connector([
     'openidconnect_client_certificate' => 'mtls-old',
     'openidconnect_redirect_urls' => 'https://firewall.example.net',
 ]);
+$unboundDpopRequest = [];
+$unboundDpopParty = new RelyingParty(
+    $unboundMtlsSettings,
+    new Controller(new Request('https', 'firewall.example.net'), new Session()),
+    new HttpClient(function (
+        string $method,
+        string $url,
+        ?string $body,
+        array $headers,
+        int $maximum,
+        ?ClientCertificate $certificate
+    ) use (&$unboundDpopRequest): array {
+        $unboundDpopRequest = compact('url', 'headers', 'certificate');
+        return jsonAnswer(['id_token' => 'id-token', 'access_token' => 'opaque-access', 'token_type' => 'DPoP']);
+    }),
+    null,
+    null,
+    $mtlsDpopProof
+);
+$mtlsMetadataProperty->setValue($unboundDpopParty, ProviderMetadata::fromArray(metadata([
+    'token_endpoint_auth_methods_supported' => ['tls_client_auth'],
+    'dpop_signing_alg_values_supported' => ['ES256'],
+    'mtls_endpoint_aliases' => ['token_endpoint' => 'https://mtls.example.net/token'],
+])));
+inspect($unboundDpopParty, 'exchangeCode', 'code', 'verifier');
+Checks::that(
+    'DPoP token exchange retains the mutual-TLS endpoint and certificate transport',
+    [
+        $unboundDpopRequest['url'],
+        $unboundDpopRequest['certificate']?->reference(),
+        count(array_filter($unboundDpopRequest['headers'], fn(string $header): bool => str_starts_with($header, 'DPoP: '))),
+    ],
+    ['https://mtls.example.net/token', 'mtls-old', 1]
+);
 $unboundUserInfoParty = new RelyingParty(
     $unboundMtlsSettings,
     new Controller(new Request('https', 'firewall.example.net'), new Session()),
@@ -732,6 +794,7 @@ $logoutSettings = connector([
 $restoredLogout = new RelyingParty(
     $logoutSettings,
     new Controller(new Request('https', 'firewall.example.net'), new Session()),
+    null,
     null,
     null,
     null,

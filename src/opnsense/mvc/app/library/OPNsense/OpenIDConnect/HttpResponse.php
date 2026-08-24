@@ -15,7 +15,7 @@ final class HttpResponse
         public readonly string $contentType,
         public readonly string $body,
         public readonly string $url,
-        /** @var array<string,string> lower-case response header names */
+        /** @var array<string,mixed> lower-case response header names; duplicates remain detectable */
         public readonly array $headers = [],
         public readonly string $source = 'live'
     ) {

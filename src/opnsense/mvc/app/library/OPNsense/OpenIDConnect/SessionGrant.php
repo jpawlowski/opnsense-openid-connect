@@ -15,6 +15,8 @@ final class SessionGrant
     public const ID_TOKEN = 'openidconnect_grant_id_token';
     public const TOKENS = 'openidconnect_grant_tokens';
     public const CLIENT_AUTHENTICATION = 'openidconnect_grant_client_authentication';
+    public const DPOP_KEY = 'openidconnect_grant_dpop_key';
+    public const DPOP_BINDING = 'openidconnect_grant_dpop_binding';
 
     public static function currentProvider(): string
     {

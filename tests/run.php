@@ -13,11 +13,14 @@ define('OPENIDCONNECT_TEST_PENDING_REGISTRY', sys_get_temp_dir() . '/openidconne
 $sessionTestDirectory = sys_get_temp_dir() . '/openidconnect-sessions-' . getmypid();
 $runtimeTestDirectory = sys_get_temp_dir() . '/openidconnect-runtime-' . getmypid();
 $cacheTestDirectory = sys_get_temp_dir() . '/openidconnect-cache-' . getmypid();
+$dpopTestDirectory = sys_get_temp_dir() . '/openidconnect-dpop-' . getmypid();
 @mkdir($sessionTestDirectory, 0700);
 @mkdir($runtimeTestDirectory, 0700);
 @mkdir($cacheTestDirectory, 0700);
+@mkdir($dpopTestDirectory, 0700);
 define('OPENIDCONNECT_TEST_RUNTIME_DIRECTORY', $runtimeTestDirectory);
 define('OPENIDCONNECT_TEST_CACHE_DIRECTORY', $cacheTestDirectory);
+define('OPENIDCONNECT_TEST_DPOP_DIRECTORY', $dpopTestDirectory);
 define('OPENIDCONNECT_TEST_SESSION_DIRECTORY', $sessionTestDirectory);
 define('OPENIDCONNECT_TEST_SESSION_REGISTRY', $sessionTestDirectory . '/index.json');
 define('OPENIDCONNECT_TEST_SIGNAL_REPLAYS', $sessionTestDirectory . '/signals.json');
@@ -34,8 +37,12 @@ register_shutdown_function(static function (): void {
     foreach (glob((string)constant('OPENIDCONNECT_TEST_CACHE_DIRECTORY') . '/*') ?: [] as $file) {
         @unlink($file);
     }
+    foreach (glob((string)constant('OPENIDCONNECT_TEST_DPOP_DIRECTORY') . '/*') ?: [] as $file) {
+        @unlink($file);
+    }
     @rmdir((string)constant('OPENIDCONNECT_TEST_RUNTIME_DIRECTORY'));
     @rmdir((string)constant('OPENIDCONNECT_TEST_CACHE_DIRECTORY'));
+    @rmdir((string)constant('OPENIDCONNECT_TEST_DPOP_DIRECTORY'));
 });
 
 require __DIR__ . '/stubs/opnsense.php';
@@ -58,6 +65,8 @@ require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/JwtVerifie
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientCertificate.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientAuthentication.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RequestObjectSigner.php';
+require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/DpopProof.php';
+require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/DpopKeyStore.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SecurityEventException.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SecurityEventVerifier.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/PendingIdentityRegistry.php';
