@@ -10,6 +10,40 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
+capability_action=--check
+capability_output=
+capability_temporary=
+case "${1:-}" in
+    --update-capability-matrix)
+        capability_action=--update
+        capability_temporary=$(mktemp "tests/generated/provider-capabilities.md.tmp.XXXXXX")
+        capability_output=$capability_temporary
+        shift
+        ;;
+    --render-capability-matrix)
+        if [ "$#" -lt 2 ]; then
+            echo 'usage: ./tests/run.sh --render-capability-matrix OUTPUT' >&2
+            exit 2
+        fi
+        capability_action=--update
+        capability_output=$2
+        shift 2
+        ;;
+esac
+if [ "$#" -ne 0 ]; then
+    echo 'usage: ./tests/run.sh [--update-capability-matrix | --render-capability-matrix OUTPUT]' >&2
+    exit 2
+fi
+executed_tests=$(mktemp "${TMPDIR:-/tmp}/openid-connect-executed-tests.XXXXXX")
+cleanup() {
+    rm -f "$executed_tests"
+    if [ -n "$capability_temporary" ]; then
+        rm -f "$capability_temporary"
+    fi
+}
+trap cleanup EXIT HUP INT TERM
+export OPENIDCONNECT_EXECUTED_TESTS="$executed_tests"
+
 echo '== syntax =='
 find src packaging tests -name '*.php' -print0 | xargs -0 -n1 php -l >/dev/null
 # An earlier E2E run may have left Playwright dependencies here. They are not
@@ -25,6 +59,16 @@ echo 'all files parse'
 echo
 echo '== behaviour =='
 php tests/run.php
+
+echo
+echo '== normative conformance evidence =='
+python3 tests/capability-matrix.py
+if [ -n "$capability_output" ]; then
+    python3 tests/update-capability-matrix.py "$capability_action" \
+        --executed-tests "$executed_tests" --output "$capability_output"
+else
+    python3 tests/update-capability-matrix.py "$capability_action" --executed-tests "$executed_tests"
+fi
 
 echo
 echo '== what a commit message may be =='
@@ -43,3 +87,9 @@ python3 tests/agent-hooks.py
 echo
 echo '== the package that gets built =='
 python3 tests/package.py
+
+if [ -n "$capability_temporary" ]; then
+    mv "$capability_temporary" tests/generated/provider-capabilities.md
+    capability_temporary=
+    echo 'updated tests/generated/provider-capabilities.md'
+fi

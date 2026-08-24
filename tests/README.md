@@ -2,16 +2,41 @@
 
     ./tests/run.sh
 
-The security validation report is generated from a versioned control catalog
-and machine-readable evidence. Refresh its host-independent statements with:
+The unified security and conformance report is generated from versioned
+standards, provider and control catalogs plus machine-readable evidence. Refresh
+its host-independent statements with:
 
-    python3 tests/update-audit-report.py --update
+    python3 tests/update-security-report.py --update
 
-`--check` runs the same suite without changing the report and fails when the
+`--check` runs the same suite without changing the unified report and fails when the
 report is stale. A failing suite makes generation fail and leaves the existing
 report untouched; CI already presents the failure. The report contains only
 positive security properties whose complete evidence requirement is met. It
 has no finding backlog, audit IDs or test-count dashboard.
+
+The standards and provider section has a stricter, normative gate and an
+intermediate generated fragment:
+
+    python3 tests/update-capability-matrix.py --check
+
+Its source catalogs are `tests/standards/catalog.json` and
+`tests/providers/capabilities.json`. A standard can be marked verified only
+after the exact RP profile and specification revision are pinned, every
+applicable normative requirement has a stable ID, and each mandatory or claimed
+behaviour points to distinct accepting and refusing checks in a test suite run by
+the host-independent gate. Each exact check name starts with the requirement ID
+and evidence direction. The PHP and Python harnesses record the checks actually
+reached by `./tests/run.sh`; a check merely present in source is not evidence.
+Recommendations need the same evidence or a dated, reviewed rationale for
+deviating. Verified source-review pins require a canonical date and non-empty
+revision, profile and section inventory. The validator also requires every
+provider profile and matrix dimension to be represented. Run the complete gate,
+not only the standalone generator, when validating a verified claim.
+
+Every `documented` or `conditional` provider cell names one feature-specific
+HTTPS source that is also cited in that provider's guide. The generated matrix
+links the cell directly to that source; an unrelated URL elsewhere in the guide
+cannot support another feature.
 
 Installed and browser evidence is optional but required for statements that
 cannot be proven on the host alone. Keep a sanitized result under
@@ -84,6 +109,12 @@ copyright line it looks for is read from `LICENSE` rather than written out.
 
 That is also the stronger check. It catches whatever a future author leaves
 behind, not only what this one happened to think of.
+
+**`tests/capability-matrix.py`** attacks the publication gate itself. It proves
+that an empty normative inventory, one-sided mandatory evidence, a live provider
+claim without a dated retained artifact and an unnamed vendor adaptation are
+all refused. It also proves that a pinned complete fixture with two-sided test
+markers is the only shape that can become green.
 
 ## What is deliberately not covered
 

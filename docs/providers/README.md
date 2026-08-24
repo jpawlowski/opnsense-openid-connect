@@ -15,6 +15,9 @@ Discovery document and a redacted log reference.
 The central [profile-default matrix](../setup/provider-profiles.md) shows what the
 selection fills, what remains editable and what the provider fixes. Individual
 guides concentrate on values that still have to come from the provider console.
+The generated [security and conformance report](../reference/security-and-conformance.md)
+keeps documentation, retained live interoperability evidence and verified
+standards conformance as three deliberately separate claims.
 
 The first entry is named **Generic OpenID Connect**: “Generic” is the usual
 technical term for a standards-only provider profile, whereas “General” would
@@ -33,8 +36,8 @@ describe a settings category rather than an interoperable fallback.
 | [Slack](slack.md) | Discovery exercised; flow checked against documentation | modern Sign in with Slack OIDC flow |
 | [Yahoo](yahoo.md) | Discovery exercised; flow checked against documentation | Consumer Key/Secret; global account population |
 | [ORCID](orcid.md) | Discovery exercised; flow checked against documentation | `sub` identity; only `openid` is required |
-| [authentik](authentik.md) | primary live target | separate redirect types and one chosen logout method |
-| [Keycloak](keycloak.md) | live E2E against a real OPNsense WebGUI | realm issuer; back-channel and front-channel are alternatives |
+| [authentik](authentik.md) | primary live-test target; no retained matrix result yet | separate redirect types and one chosen logout method |
+| [Keycloak](keycloak.md) | disposable E2E target; no retained matrix result yet | realm issuer; back-channel and front-channel are alternatives |
 | [Authelia](authelia.md) | checked against documentation | confidential client plus PKCE S256 |
 | [ZITADEL](zitadel.md) | checked against documentation | role claim is a JSON object keyed by role |
 | [Ping Identity](ping.md) | checked against documentation | PingOne environment-specific issuer |

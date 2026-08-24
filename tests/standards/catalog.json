@@ -1,0 +1,693 @@
+{
+  "copyright": "Copyright (C) 2026 Julian Pawlowski; BSD-2-Clause, see LICENSE at the repository root.",
+  "schema_version": 1,
+  "coverage": {
+    "reviewed_on": "2026-08-24",
+    "sources": [
+      "https://openid.net/developers/specs/",
+      "https://oauth.net/specs/"
+    ],
+    "boundary": "Published OpenID Connect, directly supporting JOSE/SET, and OAuth specifications that can affect a confidential server-side web RP; active framework drafts are included only when they materially describe this profile.",
+    "excluded_families": "Digital credentials, native/mobile identity, financial API resource access, transaction authorization and unrelated assertion ecosystems are represented by their applicable umbrella profile or excluded when they assign no meaningful role to this RP."
+  },
+  "claim_policy": {
+    "verified": "Every applicable normative requirement for the stated RP profile is inventoried and has the required review and test evidence.",
+    "unverified": "The implementation exists wholly or partly, but the normative inventory or its evidence is not complete.",
+    "not_claimed": "The project makes no standards-conformance claim for this item.",
+    "not_applicable": "The specification assigns no applicable role to this web-based relying party."
+  },
+  "standards": [
+    {
+      "id": "oidc-core-code",
+      "title": "OpenID Connect Core 1.0 — Authorization Code Flow",
+      "reference": "https://openid.net/specs/openid-connect-core-1_0.html",
+      "scope": "Web RP using the Authorization Code Flow",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Implemented, but no green claim is allowed until every applicable RP requirement is inventoried and evidenced."
+    },
+    {
+      "id": "oidc-core-userinfo",
+      "title": "OpenID Connect Core 1.0 — UserInfo",
+      "reference": "https://openid.net/specs/openid-connect-core-1_0.html#UserInfo",
+      "scope": "RP consuming UserInfo responses when configured",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "The optional endpoint is implemented; its complete normative RP inventory is still required."
+    },
+    {
+      "id": "oidc-discovery",
+      "title": "OpenID Connect Discovery 1.0",
+      "reference": "https://openid.net/specs/openid-connect-discovery-1_0.html",
+      "scope": "RP discovery and issuer validation",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Discovery is implemented with exact issuer matching; requirement-level evidence is incomplete."
+    },
+    {
+      "id": "oauth2",
+      "title": "OAuth 2.0 Authorization Framework (RFC 6749)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc6749.html",
+      "scope": "Confidential web client portions used by OIDC code flow",
+      "implementation": "partial",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Only the portions required by the OIDC web RP profile are in scope; other grants are listed separately."
+    },
+    {
+      "id": "oauth-bearer",
+      "title": "OAuth 2.0 Bearer Token Usage (RFC 6750)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc6750.html",
+      "scope": "Bearer access token sent by the RP to UserInfo or revocation endpoints",
+      "implementation": "partial",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Only client-side use needed by this RP is in scope."
+    },
+    {
+      "id": "oauth-revocation",
+      "title": "OAuth 2.0 Token Revocation (RFC 7009)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7009.html",
+      "scope": "RP revoking tokens during logout",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Implemented as a logout cleanup mechanism; normative evidence is incomplete."
+    },
+    {
+      "id": "pkce",
+      "title": "Proof Key for Code Exchange (RFC 7636)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7636.html",
+      "scope": "S256 authorization-code binding for a confidential web client",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "S256 is mandatory in the implementation; requirement-level evidence is incomplete."
+    },
+    {
+      "id": "oauth-metadata",
+      "title": "OAuth 2.0 Authorization Server Metadata (RFC 8414)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc8414.html",
+      "scope": "Metadata consumed through OIDC Discovery",
+      "implementation": "partial",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Only metadata used by the OIDC RP is consumed."
+    },
+    {
+      "id": "jwt-bcp",
+      "title": "JSON Web Token Best Current Practices (RFC 8725)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc8725.html",
+      "scope": "JWT validation by the RP",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Defensive JWT validation exists; the cross-specification normative audit is not complete."
+    },
+    {
+      "id": "par",
+      "title": "OAuth 2.0 Pushed Authorization Requests (RFC 9126)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc9126.html",
+      "scope": "RP sending pushed authorization requests",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Supported in automatic and required modes; requirement-level evidence is incomplete."
+    },
+    {
+      "id": "oauth-iss",
+      "title": "OAuth 2.0 Authorization Server Issuer Identification (RFC 9207)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc9207.html",
+      "scope": "RP validating the authorization response issuer",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Issuer response validation exists; requirement-level evidence is incomplete."
+    },
+    {
+      "id": "oauth-security-bcp",
+      "title": "Best Current Practice for OAuth 2.0 Security (RFC 9700)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc9700.html",
+      "scope": "Confidential browser-based RP",
+      "implementation": "partial",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Multiple recommendations are implemented, but a complete applicable-requirement audit is pending."
+    },
+    {
+      "id": "oidc-rp-logout",
+      "title": "OpenID Connect RP-Initiated Logout 1.0",
+      "reference": "https://openid.net/specs/openid-connect-rpinitiated-1_0.html",
+      "scope": "RP initiating provider logout",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Implemented when the provider advertises an end-session endpoint; normative evidence is incomplete."
+    },
+    {
+      "id": "oidc-frontchannel-logout",
+      "title": "OpenID Connect Front-Channel Logout 1.0",
+      "reference": "https://openid.net/specs/openid-connect-frontchannel-1_0.html",
+      "scope": "RP receiving front-channel logout notifications",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Implemented with issuer and session binding; normative evidence is incomplete."
+    },
+    {
+      "id": "oidc-backchannel-logout",
+      "title": "OpenID Connect Back-Channel Logout 1.0",
+      "reference": "https://openid.net/specs/openid-connect-backchannel-1_0.html",
+      "scope": "RP receiving logout tokens",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Implemented with logout-token replay protection; normative evidence is incomplete."
+    },
+    {
+      "id": "shared-signals",
+      "title": "OpenID Shared Signals Framework 1.0",
+      "reference": "https://openid.net/specs/openid-sharedsignals-framework-1_0-final.html",
+      "scope": "Push-based stream receiver",
+      "implementation": "partial",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "A bounded push receiver is implemented; stream management and polling are outside the current profile."
+    },
+    {
+      "id": "caep",
+      "title": "OpenID Continuous Access Evaluation Profile 1.0",
+      "reference": "https://openid.net/specs/openid-caep-1_0-final.html",
+      "scope": "Selected session-affecting events received over Shared Signals",
+      "implementation": "partial",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Only events that can safely invalidate a local WebGUI session are consumed."
+    },
+    {
+      "id": "risc",
+      "title": "OpenID RISC Profile 1.0",
+      "reference": "https://openid.net/specs/openid-risc-1_0-final.html",
+      "scope": "Selected account-risk events received over Shared Signals",
+      "implementation": "partial",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Only events with a safe local-session consequence are consumed."
+    },
+    {
+      "id": "oidc-session",
+      "title": "OpenID Connect Session Management 1.0",
+      "reference": "https://openid.net/specs/openid-connect-session-1_0.html",
+      "scope": "Browser session-state monitoring",
+      "implementation": "not_planned",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "Iframe polling is not required for firewall WebGUI sign-in; explicit and provider-initiated logout are safer fits.",
+      "reconsider_when": "A supported provider requires session-state monitoring and it can be isolated from the WebGUI."
+    },
+    {
+      "id": "oidc-registration",
+      "title": "OpenID Connect Dynamic Client Registration 1.0 / RFC 7591",
+      "reference": "https://openid.net/specs/openid-connect-registration-1_0.html",
+      "scope": "Automated client registration",
+      "implementation": "not_planned",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "Firewall administrators deliberately provision and review a confidential client; automatic registration widens authority.",
+      "reconsider_when": "A deployment model can preserve explicit administrative approval and credential custody."
+    },
+    {
+      "id": "oauth-registration-management",
+      "title": "OAuth 2.0 Dynamic Client Registration Management (RFC 7592)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7592.html",
+      "scope": "Automated client configuration management",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "No dynamically registered client is managed."
+    },
+    {
+      "id": "oauth-introspection",
+      "title": "OAuth 2.0 Token Introspection (RFC 7662)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7662.html",
+      "scope": "Resource server token validation",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The plugin is an OIDC relying party, not an OAuth resource server."
+    },
+    {
+      "id": "oauth-device-grant",
+      "title": "OAuth 2.0 Device Authorization Grant (RFC 8628)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc8628.html",
+      "scope": "Input-constrained devices",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The OPNsense WebGUI is an interactive browser client."
+    },
+    {
+      "id": "oauth-token-exchange",
+      "title": "OAuth 2.0 Token Exchange (RFC 8693)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc8693.html",
+      "scope": "Security-token exchange",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The RP authenticates a browser session and does not broker tokens to downstream services."
+    },
+    {
+      "id": "oauth-mtls",
+      "title": "OAuth 2.0 Mutual-TLS Client Authentication and Certificate-Bound Tokens (RFC 8705)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc8705.html",
+      "scope": "Token endpoint client authentication and sender-constrained tokens",
+      "implementation": "deferred",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "Certificate lifecycle and a safely bounded HTTP client configuration are not yet available.",
+      "reconsider_when": "OPNsense can provide reviewed per-provider client-certificate custody and rotation."
+    },
+    {
+      "id": "oauth-jwt-client-auth",
+      "title": "JWT Profile for OAuth 2.0 Client Authentication (RFC 7523)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7523.html",
+      "scope": "private_key_jwt client authentication",
+      "implementation": "candidate",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "Useful for providers that discourage static client secrets, but requires signing-key lifecycle design.",
+      "reconsider_when": "A reviewed signing-key storage and rotation design exists."
+    },
+    {
+      "id": "jar",
+      "title": "JWT-Secured Authorization Request (RFC 9101)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc9101.html",
+      "scope": "Signed or encrypted authorization requests",
+      "implementation": "deferred",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "PAR already protects request delivery for the current profile; JAR adds RP signing-key lifecycle.",
+      "reconsider_when": "A target provider requires signed request objects or FAPI alignment is pursued."
+    },
+    {
+      "id": "jarm",
+      "title": "JWT Secured Authorization Response Mode (JARM)",
+      "reference": "https://openid.net/specs/oauth-v2-jarm.html",
+      "scope": "Signed authorization responses",
+      "implementation": "deferred",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "The current callback validates state, code binding and issuer without JARM.",
+      "reconsider_when": "A target provider requires JARM or a FAPI profile becomes a project goal."
+    },
+    {
+      "id": "rar",
+      "title": "OAuth 2.0 Rich Authorization Requests (RFC 9396)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc9396.html",
+      "scope": "Fine-grained API authorization data",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The RP requests identity claims for WebGUI login, not transaction-specific API authority."
+    },
+    {
+      "id": "dpop",
+      "title": "OAuth 2.0 Demonstrating Proof of Possession (RFC 9449)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc9449.html",
+      "scope": "Sender-constrained access and refresh tokens",
+      "implementation": "candidate",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "Could reduce token replay but requires provider support and secure RP key lifecycle.",
+      "reconsider_when": "Interoperable provider demand and a reviewed key-rotation design exist."
+    },
+    {
+      "id": "ciba",
+      "title": "OpenID Connect Client-Initiated Backchannel Authentication (CIBA) Core 1.0",
+      "reference": "https://openid.net/specs/openid-client-initiated-backchannel-authentication-core-1_0.html",
+      "scope": "Decoupled authentication",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The WebGUI uses an immediate browser redirect and requires no decoupled approval channel."
+    },
+    {
+      "id": "fapi1-advanced",
+      "title": "Financial-grade API 1.0 — Advanced Final",
+      "reference": "https://openid.net/specs/openid-financial-api-part-2-1_0.html",
+      "scope": "High-value API access",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "This project authenticates a firewall WebGUI and is not a financial API client."
+    },
+    {
+      "id": "fapi2-security",
+      "title": "FAPI 2.0 Security Profile",
+      "reference": "https://openid.net/specs/fapi-security-profile-2_0.html",
+      "scope": "High-security API client profile",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The profile targets protected APIs and requires mechanisms outside this WebGUI RP use case."
+    },
+    {
+      "id": "oidc-identity-assurance",
+      "title": "OpenID Connect for Identity Assurance 1.0",
+      "reference": "https://openid.net/specs/openid-connect-4-identity-assurance-1_0.html",
+      "scope": "Verified identity evidence and claims",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "Local account admission uses stable identity and configured claims, not regulated identity evidence."
+    },
+    {
+      "id": "oidc-federation",
+      "title": "OpenID Federation 1.0",
+      "reference": "https://openid.net/specs/openid-federation-1_0.html",
+      "scope": "Federation entity statements and trust chains",
+      "implementation": "not_planned",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "Each firewall administrator explicitly configures one trusted issuer; automatic trust-chain expansion conflicts with that boundary.",
+      "reconsider_when": "A deployment requires federation trust chains with an explicit local trust-anchor policy."
+    },
+    {
+      "id": "oidc-third-party-login",
+      "title": "OpenID Connect Third-Party Initiated Login 1.0",
+      "reference": "https://openid.net/specs/openid-connect-third-party-initiated-login-1_0.html",
+      "scope": "Login initiated outside the RP",
+      "implementation": "not_planned",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "The firewall keeps login initiation local so redirect targets and provider selection remain bounded.",
+      "reconsider_when": "A safe, allow-listed initiation model has a concrete operator need."
+    },
+    {
+      "id": "oauth-native-apps",
+      "title": "OAuth 2.0 for Native Apps (RFC 8252)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc8252.html",
+      "scope": "Native application authorization",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The RP is a server-side WebGUI, not an installed application."
+    },
+    {
+      "id": "oauth-jwt-access-token",
+      "title": "JWT Profile for OAuth 2.0 Access Tokens (RFC 9068)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc9068.html",
+      "scope": "Resource server validation of JWT access tokens",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The plugin treats access tokens as opaque credentials and is not the protected resource server."
+    },
+    {
+      "id": "oauth-form-post",
+      "title": "OAuth 2.0 Form Post Response Mode",
+      "reference": "https://openid.net/specs/oauth-v2-form-post-response-mode-1_0.html",
+      "scope": "RP receiving an authorization response by cross-origin form POST",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Implemented for providers such as Apple; requirement-level evidence is incomplete."
+    },
+    {
+      "id": "jws",
+      "title": "JSON Web Signature (RFC 7515)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7515.html",
+      "scope": "RP verification of signed ID, logout and security-event tokens",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Signature verification uses the platform cryptographic runtime; the applicable validation inventory is incomplete."
+    },
+    {
+      "id": "jwk",
+      "title": "JSON Web Key (RFC 7517)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7517.html",
+      "scope": "RP selection and validation of provider signing keys",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Provider JWKS consumption is implemented; the normative evidence inventory is incomplete."
+    },
+    {
+      "id": "jwa",
+      "title": "JSON Web Algorithms (RFC 7518)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7518.html",
+      "scope": "Allow-listed asymmetric algorithms used for JWS verification",
+      "implementation": "partial",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "RS, PS and ES verification are supported; symmetric signing and unused algorithm families are deliberately excluded."
+    },
+    {
+      "id": "jwt",
+      "title": "JSON Web Token (RFC 7519)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7519.html",
+      "scope": "RP processing of signed protocol tokens",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "JWT parsing and claim validation are implemented; cross-profile normative evidence is incomplete."
+    },
+    {
+      "id": "jwe",
+      "title": "JSON Web Encryption (RFC 7516)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7516.html",
+      "scope": "Encrypted ID Tokens, UserInfo or request objects",
+      "implementation": "not_planned",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "TLS protects transport and the RP accepts only signed protocol tokens; decryption would add private-key custody and algorithm surface.",
+      "reconsider_when": "A target provider requires encrypted OIDC messages and reviewed decryption-key lifecycle support exists."
+    },
+    {
+      "id": "oidc-core-implicit",
+      "title": "OpenID Connect Core 1.0 — Implicit Flow",
+      "reference": "https://openid.net/specs/openid-connect-core-1_0.html#ImplicitFlowAuth",
+      "scope": "Tokens returned through the browser authorization response",
+      "implementation": "not_planned",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "The code flow keeps tokens out of browser URLs and is the profile recommended by current OAuth security guidance."
+    },
+    {
+      "id": "oidc-core-hybrid",
+      "title": "OpenID Connect Core 1.0 — Hybrid Flow",
+      "reference": "https://openid.net/specs/openid-connect-core-1_0.html#HybridFlowAuth",
+      "scope": "Code and tokens returned through the authorization response",
+      "implementation": "not_planned",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "The server-side code flow supplies the needed login result without exposing tokens through the browser."
+    },
+    {
+      "id": "oauth-password-grant",
+      "title": "OAuth 2.0 Resource Owner Password Credentials Grant (RFC 6749 section 4.3)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc6749.html#section-4.3",
+      "scope": "RP collecting a provider password",
+      "implementation": "not_planned",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "The firewall must never collect the identity-provider password; RFC 9700 prohibits this grant."
+    },
+    {
+      "id": "oauth-client-credentials",
+      "title": "OAuth 2.0 Client Credentials Grant (RFC 6749 section 4.4)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc6749.html#section-4.4",
+      "scope": "Machine identity without an end-user",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The plugin authenticates a human WebGUI session."
+    },
+    {
+      "id": "oauth-resource-indicators",
+      "title": "OAuth 2.0 Resource Indicators (RFC 8707)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc8707.html",
+      "scope": "Selecting a protected-resource audience",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The login flow consumes identity information and does not select among downstream resource servers."
+    },
+    {
+      "id": "refeds-mfa",
+      "title": "REFEDS Multi-Factor Authentication Profile",
+      "reference": "https://refeds.org/profile/mfa",
+      "scope": "RP requesting and validating a common MFA authentication context",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "The context is supported together with method evidence; profile-level evidence is incomplete."
+    },
+    {
+      "id": "eap",
+      "title": "OpenID Connect Extended Authentication Profile (EAP) ACR Values 1.0",
+      "reference": "https://openid.net/specs/openid-connect-eap-acr-values-1_0.html",
+      "scope": "RP requesting phishing-resistant authentication contexts",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "The phr and phrh contexts are supported together with method evidence; normative evidence is incomplete."
+    },
+    {
+      "id": "amr-values",
+      "title": "Authentication Method Reference Values (RFC 8176)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc8176.html",
+      "scope": "RP interpretation of bounded signed authentication-method evidence",
+      "implementation": "partial",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "A bounded subset is used as supporting evidence for configured authentication strength; normative evidence is incomplete."
+    },
+    {
+      "id": "security-event-token",
+      "title": "Security Event Token (RFC 8417)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc8417.html",
+      "scope": "RP verification of signed Shared Signals security events",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Signed SET validation is implemented for the bounded receiver profile; normative evidence is incomplete."
+    },
+    {
+      "id": "set-push",
+      "title": "Push-Based Security Event Token Delivery (RFC 8935)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc8935.html",
+      "scope": "Push delivery to the RP Shared Signals receiver",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Authenticated push delivery and explicit response handling are implemented; normative evidence is incomplete."
+    },
+    {
+      "id": "oauth-browser-apps",
+      "title": "OAuth 2.0 for Browser-Based Applications (RFC 10017)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc10017.html",
+      "scope": "JavaScript applications executing the OAuth client in a browser",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The OAuth client and tokens remain server-side; the browser is not the OAuth client."
+    },
+    {
+      "id": "oauth-cross-device-bcp",
+      "title": "Best Current Practice for Security of Cross-Device Flows (RFC 10027)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc10027.html",
+      "scope": "Authorization split across two devices",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The WebGUI login starts and completes in one browser session."
+    },
+    {
+      "id": "oauth-protected-resource-metadata",
+      "title": "OAuth 2.0 Protected Resource Metadata (RFC 9728)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc9728.html",
+      "scope": "Protected-resource metadata discovery",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The plugin is not an OAuth protected resource."
+    },
+    {
+      "id": "oauth-jwt-introspection-response",
+      "title": "JWT Response for OAuth Token Introspection (RFC 9701)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc9701.html",
+      "scope": "Protected resource consuming token-introspection responses",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The RP neither introspects tokens nor validates them as a protected resource."
+    },
+    {
+      "id": "oauth-step-up",
+      "title": "OAuth 2.0 Step Up Authentication Challenge Protocol (RFC 9470)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc9470.html",
+      "scope": "Resource server demanding stronger authorization from an API client",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "Authentication strength is selected before WebGUI login; no downstream resource server issues step-up challenges."
+    },
+    {
+      "id": "jwk-thumbprint-uri",
+      "title": "JWK Thumbprint URI (RFC 9278)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc9278.html",
+      "scope": "URI identification of proof-of-possession keys",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The current RP profile uses neither DPoP nor another JWK-thumbprint URI protocol field."
+    },
+    {
+      "id": "jwt-pop-key",
+      "title": "Proof-of-Possession Key Semantics for JWTs (RFC 7800)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7800.html",
+      "scope": "JWT confirmation claims for proof-of-possession keys",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The RP does not consume proof-of-possession access tokens."
+    },
+    {
+      "id": "oauth-assertion-framework",
+      "title": "Assertion Framework for OAuth 2.0 (RFC 7521)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7521.html",
+      "scope": "Assertion grants and client authentication",
+      "implementation": "candidate",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "Only its JWT client-authentication profile is a potential future fit; assertion grants are outside WebGUI login.",
+      "reconsider_when": "private_key_jwt key custody and rotation are implemented."
+    },
+    {
+      "id": "oauth-saml-assertion",
+      "title": "SAML 2.0 Profile for OAuth 2.0 Assertions (RFC 7522)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7522.html",
+      "scope": "SAML assertion grant or client authentication",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The provider boundary is OpenID Connect and does not accept SAML assertions."
+    },
+    {
+      "id": "oauth-threat-model",
+      "title": "OAuth 2.0 Threat Model and Security Considerations (RFC 6819)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc6819.html",
+      "scope": "Historic OAuth security guidance",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "RFC 9700 is the current Best Current Practice and explicitly updates the security baseline used by this profile."
+    },
+    {
+      "id": "oauth-urn",
+      "title": "IETF URN Sub-Namespace for OAuth (RFC 6755)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc6755.html",
+      "scope": "Registry namespace allocation",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "This registry document assigns no runtime behaviour to the RP."
+    },
+    {
+      "id": "oauth2-1-draft",
+      "title": "OAuth 2.1 Authorization Framework (active IETF draft)",
+      "reference": "https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/",
+      "scope": "Consolidated authorization-code profile for a confidential web client",
+      "implementation": "partial",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "The design already follows many consolidated security requirements, but the document remains an active draft and is not an RFC conformance target.",
+      "reconsider_when": "The specification is published or a provider requires a pinned draft profile."
+    }
+  ]
+}

@@ -145,4 +145,4 @@ administrator setting merely to make an external test pass.
 After the pilot, delete the OPNsense test server and the suite test plan or
 test-only client credentials. A future automated evidence tier must generate
 sanitized, revision-bound evidence; this manual checklist is intentionally not
-accepted as audit-report input.
+accepted as evidence for the unified security and conformance report.
