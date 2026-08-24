@@ -20,7 +20,8 @@ $provider = metadata([
     'end_session_endpoint' => $issuer . '/logout',
     'revocation_endpoint' => $issuer . '/revoke',
     'pushed_authorization_request_endpoint' => $issuer . '/par',
-    'response_modes_supported' => ['query', 'form_post'],
+    'response_modes_supported' => ['query', 'form_post', 'query.jwt', 'form_post.jwt'],
+    'authorization_signing_alg_values_supported' => ['RS256'],
     'token_endpoint_auth_methods_supported' => ['client_secret_basic', 'client_secret_post'],
     'code_challenge_methods_supported' => ['S256'],
     'authorization_response_iss_parameter_supported' => true,
@@ -171,6 +172,33 @@ Checks::that('health results remain secret-free', str_contains(
     json_encode($answer, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
     $secret
 ), false);
+$jarm = ProviderProbe::settings([
+    'openidconnect_provider_url' => $issuer,
+    'openidconnect_provider_profile' => 'general',
+    'openidconnect_client_id' => 'diagnostic-client',
+    'openidconnect_client_secret' => $secret,
+    'openidconnect_token_auth' => 'client_secret_post',
+    'openidconnect_par_mode' => 'auto',
+    'openidconnect_scopes' => 'openid,profile',
+    'openidconnect_response_mode' => 'query.jwt',
+    'openidconnect_claims_source' => 'auto',
+]);
+$jarmChecks = (new ProviderProbe(new HttpClient($transport, true)))->checks(
+    $jarm,
+    'https://firewall.example.net/api/openidconnect/auth/callback/main'
+);
+$jarmRows = array_values(array_filter(
+    $jarmChecks,
+    static fn(array $check): bool => $check['label'] === 'JARM signatures'
+));
+Checks::that('signed response diagnostics retain the JARM capability check', $jarmRows[0], [
+    'label' => 'JARM signatures',
+    'value' => 'RS256',
+    'status' => 'success',
+    'note' => 'The signed authorization response can use a supported asymmetric signature.',
+    'actors' => ['opnsense'],
+    'verification' => 'metadata',
+]);
 $failedAnswer = ProviderProbe::answer(
     [ProviderProbe::failureCheck('Live provider preflight', 'unreachable', ['opnsense', 'idp'], 'live')],
     'accepted',

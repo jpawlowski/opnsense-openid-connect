@@ -20,7 +20,7 @@ defaults below.
 | Pushed authorization requests | Automatic with availability fallback | use Required when authorization parameters must never pass through the browser, or Disabled for a provider whose optional PAR path is intentionally unreachable; a provider requirement always wins |
 | Username claim | `preferred_username` | the provider guide specifies `email`, a vendor claim or a custom mapping |
 | Claims source | Automatic | all required claims must come only from the ID Token, or UserInfo is explicitly required |
-| Authorization response mode | Query | Apple with requested user scopes requires Form POST |
+| Authorization response mode | Query | Apple with requested user scopes requires Form POST; select signed Query or signed Form POST only for a provider configured to return JARM |
 | Required authentication | Provider policy only; no additional `acr`/`amr` decision | require the verified ID Token to prove MFA or phishing-resistant authentication before local account and session processing |
 | Authentication context request | provider preset; essential `acr` for Generic and `acr_values` for Okta | the provider documents a different request form |
 | Accepted authentication contexts | requirement/provider preset | the provider uses an installation-specific, documented exact `acr` value |
@@ -41,11 +41,37 @@ defaults below.
 
 The authentication requirement checks both context and method evidence from the
 already signature-verified ID Token. Missing, malformed or nonmatching evidence
-ends the login before a local account is resolved. `user` means only that a user
-was present; it is not cryptographic evidence. The registered hardware-key AMR
-is `hwk`, not `hw`. Passwordless is deliberately not a separate policy because
-it describes the sign-in experience rather than a portable assurance level;
-Passkeys and FIDO2 belong under phishing-resistant authentication.
+ends the login before a local account is resolved. The accepted-method setting
+is an exact vocabulary, not an “any value wins” list: a recognized standard
+context still needs sufficient evidence for its selected policy. The inventory
+below follows the [IANA AMR registry](https://www.iana.org/assignments/authentication-method-reference-values/).
+
+| Evidence | Authentication methods | Effect |
+|---|---|---|
+| Explicit MFA | `mfa` | directly reports multiple-factor authentication |
+| Knowledge factor | `kba`, `pin`, `pwd` | combines with a different factor type for REFEDS MFA |
+| Possession factor | `hwk`, `otp`, `pop`, `sc`, `sms`, `swk`, `tel` | combines with knowledge or inherence for REFEDS MFA |
+| Inherence factor | `face`, `fpt`, `iris`, `retina`, `vbm` | combines with knowledge or possession for REFEDS MFA |
+| No portable factor proof | `geo`, `mca`, `rba`, `user`, `wia` | never raises the achieved assurance level |
+
+The EAP `phr` context additionally needs `pop`, `hwk` or `swk`; its
+hardware-protected `phrh` context needs `hwk`. A provider-specific value counts
+only when it was entered exactly as a documented local mapping. Unknown token
+values, ACR names repeated as AMR values and the nonstandard `hw` spelling do
+not count. Microsoft Entra requires `mfa` for both tiers and, for
+phishing-resistant authentication, also its documented `fido`, `hwk` or `x509`
+method. Microsoft explicitly states that `x509` alone is insufficient.
+
+Passwordless is deliberately not a separate policy because it describes the
+sign-in experience rather than a portable assurance level; Passkeys and FIDO2
+belong under phishing-resistant authentication.
+
+The signed Query and signed Form POST choices request JARM. OPNsense then accepts
+only the `response` JWT, verifies an advertised supported asymmetric signature,
+exact issuer and client audience, time and the one-time transaction state, and
+only afterwards processes its code or provider error. Encrypted JARM responses
+are not supported. Register or enable the matching signed authorization-response
+algorithm at the provider before selecting either mode.
 
 Shared Signals is independent of offering new logins. It only ends sessions
 previously created by the same saved authentication server and never changes a

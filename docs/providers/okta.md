@@ -52,9 +52,12 @@ closed at OPNsense rather than creating a session.
 Ensure the authorization server includes AMR in the ID Token and that the app
 sign-in policy permits the requested authenticators. For phishing resistance,
 Okta currently documents Passkey/FIDO2 WebAuthn for `phr`; `phrh` additionally
-requires hardware protection. Use **Test sign-in** before enabling the login
-button. Classic Engine and tenant-specific custom authorization-server behavior
-must be checked against the installed Okta policy.
+requires hardware protection. The standard method check accepts key
+proof-of-possession for `phr` and specifically `hwk` for `phrh`; configure a
+different exact AMR value only when the tenant documents that mapping. Use
+**Test sign-in** before enabling the login button. Classic Engine and
+tenant-specific custom authorization-server behavior must be checked against
+the installed Okta policy.
 
 ## Defaults and remaining settings
 

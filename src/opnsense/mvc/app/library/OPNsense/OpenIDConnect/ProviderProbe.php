@@ -189,7 +189,8 @@ final class ProviderProbe
             'token_endpoint_auth_methods_supported',
             ['client_secret_basic']
         ));
-        $responseModes = $list($metadata->get('response_modes_supported', []));
+        $advertisedResponseModes = $metadata->get('response_modes_supported', null);
+        $responseModes = $list($advertisedResponseModes ?? ['query', 'fragment']);
         $pkceAdvertised = in_array(
             'S256',
             $list($metadata->get('code_challenge_methods_supported', [])),
@@ -309,19 +310,38 @@ final class ProviderProbe
         array $advertisedAuth
     ): void {
         $responseMode = $settings->responseMode();
-        $modeSupported = $responseModes === [] || in_array($responseMode, $responseModes, true);
+        $modeSupported = in_array($responseMode, $responseModes, true);
+        $modesAdvertised = is_array($metadata->get('response_modes_supported', null));
         $checks[] = self::check(
             gettext('Authorization response mode'),
             $responseMode,
-            $responseModes === [] ? 'info' : ($modeSupported ? 'success' : 'warning'),
-            $responseModes === []
-                ? gettext('The provider does not advertise response modes; the selected mode is tested during sign-in.')
+            $modesAdvertised ? ($modeSupported ? 'success' : 'warning') : ($modeSupported ? 'info' : 'warning'),
+            !$modesAdvertised
+                ? ($modeSupported
+                    ? gettext('The selected mode is covered by the provider metadata omission default.')
+                    : gettext('The selected mode is not covered by the provider metadata omission default.'))
                 : ($modeSupported
                     ? gettext('The selected response mode is advertised.')
                     : gettext('The selected response mode is not advertised.')),
             ['idp', 'browser', 'opnsense'],
             'metadata'
         );
+        if (str_ends_with($responseMode, '.jwt')) {
+            $jarmAlgorithms = array_values(array_intersect(
+                $metadata->authorizationResponseSigningAlgorithms(),
+                JwtVerifier::ALGORITHMS
+            ));
+            $checks[] = self::check(
+                gettext('JARM signatures'),
+                implode(', ', $jarmAlgorithms) ?: gettext('None supported'),
+                $jarmAlgorithms === [] ? 'warning' : 'success',
+                $jarmAlgorithms === []
+                    ? gettext('The provider advertises no supported asymmetric JARM signature.')
+                    : gettext('The signed authorization response can use a supported asymmetric signature.'),
+                ['opnsense'],
+                'metadata'
+            );
+        }
         $tokenAuth = $settings->tokenAuthMethod();
         $selectedAuth = $tokenAuth === null ? gettext('Follow the provider') : $tokenAuth;
         $selectedAuthUsable = $tokenAuth === null ? $authMethods !== [] : in_array($tokenAuth, $advertisedAuth, true);

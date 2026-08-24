@@ -74,7 +74,7 @@ class OpenIDConnect extends Base implements IAuthConnector
         'wso2', 'zitadel', 'linkedin', 'slack', 'yahoo', 'orcid',
     ];
     public const CLAIMS_SOURCES = ['auto', 'id_token', 'userinfo'];
-    public const RESPONSE_MODES = ['query', 'form_post'];
+    public const RESPONSE_MODES = ['query', 'form_post', 'query.jwt', 'form_post.jwt'];
     public const BOOTSTRAP_MODES = ['strict', 'approval', 'username', 'verified_email', 'either'];
     public const MICROSOFT_AUDIENCES = ['tenant', 'organizations', 'consumers', 'common'];
     public const ORIGIN_POLICIES = ['opnsense', 'custom'];
@@ -315,10 +315,18 @@ class OpenIDConnect extends Base implements IAuthConnector
             ],
             'openidconnect_response_mode' => [
                 'name' => gettext('Authorization response mode'),
-                'help' => gettext('Query is the interoperable default. Apple uses form_post when scopes are requested.'),
+                'help' => gettext(
+                    'Query is the interoperable default. Apple uses Form POST when scopes are requested. ' .
+                    'The JARM choices require a provider that returns signed authorization responses.'
+                ),
                 'type' => 'dropdown',
                 'default' => 'query',
-                'options' => ['query' => gettext('Query'), 'form_post' => gettext('Form POST')],
+                'options' => [
+                    'query' => gettext('Query'),
+                    'form_post' => gettext('Form POST'),
+                    'query.jwt' => gettext('Signed query (JARM)'),
+                    'form_post.jwt' => gettext('Signed Form POST (JARM)'),
+                ],
                 'validate' => fn($value) => in_array($value ?: 'query', self::RESPONSE_MODES, true)
                     ? [] : [gettext('Unknown response mode.')],
             ],
@@ -375,9 +383,9 @@ class OpenIDConnect extends Base implements IAuthConnector
             'openidconnect_amr_values' => [
                 'name' => gettext('Accepted authentication methods'),
                 'help' => gettext(
-                    'Advanced. Exact, case-sensitive amr values; any one may satisfy the method check. Empty ' .
-                    'restores the documented preset. user means presence only and is not a cryptographic method; ' .
-                    'the registered hardware-key value is hwk, not hw.'
+                    'Advanced. Exact, case-sensitive amr values from which the selected policy must have sufficient ' .
+                    'evidence. Empty restores the documented preset. Standard MFA needs mfa or methods from two ' .
+                    'different factor types. user means presence only; the hardware-key value is hwk, not hw.'
                 ),
                 'type' => 'text',
                 'validate' => fn($value) => static::validateRequirementList(
@@ -1061,12 +1069,12 @@ class OpenIDConnect extends Base implements IAuthConnector
                 AuthenticationRequirement::MULTI_FACTOR => [
                     'request' => AuthenticationRequirement::ESSENTIAL_CLAIM,
                     'acr' => 'https://refeds.org/profile/mfa',
-                    'amr' => 'mfa',
+                    'amr' => 'mfa,pwd,pin,kba,otp,hwk,sc,sms,swk,tel,pop,face,fpt,iris,retina,vbm',
                 ],
                 AuthenticationRequirement::PHISHING_RESISTANT => [
                     'request' => AuthenticationRequirement::ESSENTIAL_CLAIM,
                     'acr' => 'phr,phrh',
-                    'amr' => 'fido,pop,hwk,swk',
+                    'amr' => 'pop,hwk,swk',
                 ],
             ],
             'okta' => [
@@ -1078,7 +1086,7 @@ class OpenIDConnect extends Base implements IAuthConnector
                 AuthenticationRequirement::PHISHING_RESISTANT => [
                     'request' => AuthenticationRequirement::ACR_VALUES,
                     'acr' => 'phr,phrh',
-                    'amr' => 'fido,pop,hwk,swk',
+                    'amr' => 'pop,hwk,swk',
                 ],
             ],
             'entra' => [
