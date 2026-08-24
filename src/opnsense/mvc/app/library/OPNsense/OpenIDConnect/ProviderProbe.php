@@ -15,8 +15,10 @@ final class ProviderProbe
     public const FORM_FIELDS = [
         'openidconnect_provider_url', 'openidconnect_app_code', 'openidconnect_provider_profile',
         'openidconnect_microsoft_audience', 'openidconnect_client_id', 'openidconnect_client_secret',
-        'openidconnect_signing_certificate', 'openidconnect_token_auth', 'openidconnect_par_mode',
-        'openidconnect_request_object_key', 'openidconnect_scopes',
+        'openidconnect_signing_certificate', 'openidconnect_token_auth', 'openidconnect_client_certificate',
+        'openidconnect_retiring_client_certificate', 'openidconnect_certificate_bound_access_tokens',
+        'openidconnect_par_mode', 'openidconnect_request_object_key',
+        'openidconnect_scopes',
         'openidconnect_response_mode', 'openidconnect_claims_source', 'openidconnect_max_age',
         'openidconnect_select_account', 'openidconnect_required_authentication', 'openidconnect_acr_request',
         'openidconnect_acr_values', 'openidconnect_amr_values', 'openidconnect_entra_auth_context',
@@ -119,8 +121,7 @@ final class ProviderProbe
     /** @return array<int,array<string,mixed>> */
     public static function healthReadiness(OpenIDConnect $settings, ?string $redirectUri): array
     {
-        $complete = $settings->issuerUrl() !== '' && $settings->clientId() !== ''
-            && $settings->hasClientAuthenticationCredential();
+        $complete = self::clientConfigurationReady($settings);
         $transportReady = $settings->isWebGuiTransportReady();
         $transport = $transportReady && $redirectUri !== null;
         return [
@@ -129,11 +130,8 @@ final class ProviderProbe
                 $complete ? gettext('Complete confidential client') : gettext('Incomplete'),
                 $complete ? 'success' : 'error',
                 $complete
-                    ? gettext('Exact issuer URL, Client ID and a client credential are present in the current form.')
-                    : gettext(
-                        'Enter Exact issuer URL, Client ID and a Client Secret or signing certificate before ' .
-                        'checking connection health.'
-                    ),
+                    ? gettext('Exact issuer URL, Client ID and the selected client credential are present.')
+                    : gettext('Enter Exact issuer URL, Client ID and the selected client credential.'),
                 ['opnsense'],
                 'configuration'
             ),
@@ -240,21 +238,32 @@ final class ProviderProbe
             $list($metadata->get('id_token_signing_alg_values_supported', [])),
             JwtVerifier::ALGORITHMS
         ));
-        $authMethods = array_values(array_intersect(
-            $list($metadata->get('token_endpoint_auth_methods_supported', ['client_secret_basic'])),
-            OpenIDConnect::TOKEN_AUTH_METHODS
-        ));
-        $assertionAlgorithms = array_values(array_intersect(
-            $settings->clientAssertionAlgorithms(
-                'token_endpoint_auth_signing_alg_values_supported',
-                $list($metadata->get('token_endpoint_auth_signing_alg_values_supported', []))
-            ),
-            ClientAssertion::ALGORITHMS
-        ));
-        $advertisedAuth = $list($metadata->get(
-            'token_endpoint_auth_methods_supported',
-            ['client_secret_basic']
-        ));
+        $authProblem = null;
+        try {
+            if ($settings->clientId() === '') {
+                throw new \RuntimeException(gettext('Enter the client ID before testing client authentication.'));
+            }
+            $authenticator = new ClientAuthenticator($settings, $this->clientAssertion($settings));
+            $authentication = ClientAuthentication::negotiate($settings, $metadata, null, $authenticator);
+            if (in_array($authentication->method(), ['client_secret_basic', 'client_secret_post'], true)
+                && $settings->clientSecret() === '') {
+                throw new \RuntimeException(
+                    gettext('Enter the client secret required by the selected authentication method.')
+                );
+            }
+            $authMethods = [$authentication->method()];
+        } catch (\Throwable $error) {
+            $authMethods = [];
+            $authProblem = $error->getMessage();
+        }
+        $advertisedAssertionAlgorithms = $metadata->get(
+            'token_endpoint_auth_signing_alg_values_supported',
+            []
+        );
+        $assertionAlgorithms = $settings->clientAssertionAlgorithms(
+            'token_endpoint_auth_signing_alg_values_supported',
+            is_array($advertisedAssertionAlgorithms) ? $advertisedAssertionAlgorithms : []
+        );
         $advertisedResponseModes = $metadata->get('response_modes_supported', null);
         $responseModes = $list($advertisedResponseModes ?? ['query', 'fragment']);
         $pkceAdvertised = in_array(
@@ -328,21 +337,33 @@ final class ProviderProbe
                 implode(', ', $authMethods) ?: gettext('None supported'),
                 $authMethods === [] ? 'error' : 'success',
                 $authMethods === []
-                    ? gettext('No supported token endpoint authentication method is advertised.')
+                    ? ($authProblem ?? gettext('No usable token endpoint authentication method is available.'))
                     : gettext('At least one confidential-client authentication method is usable.'),
                 ['opnsense'],
                 'metadata'
             ),
             self::check(
                 gettext('Client assertion signatures'),
-                implode(', ', $assertionAlgorithms) ?: gettext('Not offered'),
+                implode(', ', array_intersect($assertionAlgorithms, ClientAssertion::ALGORITHMS))
+                    ?: gettext('Not offered'),
                 in_array('private_key_jwt', $authMethods, true)
                     ? ($assertionAlgorithms === [] ? 'warning' : 'success') : 'info',
                 in_array('private_key_jwt', $authMethods, true)
                     ? ($assertionAlgorithms === []
                         ? gettext('No supported private-key JWT signing algorithm is advertised.')
                         : gettext('Private-key JWT can negotiate one of these asymmetric signatures.'))
-                    : gettext('Private-key JWT client authentication is not advertised.'),
+                    : gettext('Private-key JWT client authentication is not selected.'),
+                ['opnsense'],
+                'metadata'
+            ),
+            self::check(
+                gettext('Certificate-bound access tokens'),
+                $metadata->supportsCertificateBoundAccessTokens()
+                    ? gettext('Advertised') : gettext('Not advertised'),
+                $metadata->supportsCertificateBoundAccessTokens() ? 'success' : 'info',
+                $metadata->supportsCertificateBoundAccessTokens()
+                    ? gettext('The provider can bind access tokens to the mutual-TLS client certificate.')
+                    : gettext('Certificate-bound access tokens cannot be required for this provider.'),
                 ['opnsense'],
                 'metadata'
             ),
@@ -386,20 +407,20 @@ final class ProviderProbe
             $metadata,
             $responseModes,
             $authMethods,
-            $advertisedAuth
+            $authProblem
         );
         return $checks;
     }
 
     /** @param array<int,array<string,mixed>> $checks @param string[] $responseModes
-     *  @param string[] $authMethods @param string[] $advertisedAuth */
+     *  @param string[] $authMethods */
     private function appendSelectedMetadataChecks(
         array &$checks,
         OpenIDConnect $settings,
         ProviderMetadata $metadata,
         array $responseModes,
         array $authMethods,
-        array $advertisedAuth
+        ?string $authProblem
     ): void {
         $responseMode = $settings->responseMode();
         $modeSupported = in_array($responseMode, $responseModes, true);
@@ -436,42 +457,14 @@ final class ProviderProbe
         }
         $tokenAuth = $settings->tokenAuthMethod();
         $selectedAuth = $tokenAuth === null ? gettext('Follow the provider') : $tokenAuth;
-        $advertisedAssertionAlgorithms = $metadata->get(
-            'token_endpoint_auth_signing_alg_values_supported',
-            []
-        );
-        $assertionAlgorithms = $settings->clientAssertionAlgorithms(
-            'token_endpoint_auth_signing_alg_values_supported',
-            is_array($advertisedAssertionAlgorithms) ? $advertisedAssertionAlgorithms : []
-        );
-        $privateKeyUsable = false;
-        $privateKeyFailure = null;
-        if ($settings->signingCertificate() !== ''
-            && in_array('private_key_jwt', $advertisedAuth, true) && $assertionAlgorithms !== []) {
-            try {
-                $this->clientAssertion($settings)->assertUsable($assertionAlgorithms);
-                $privateKeyUsable = true;
-            } catch (\Throwable $error) {
-                $privateKeyFailure = $error->getMessage();
-            }
-        }
-        $secretUsable = $settings->clientSecret() !== ''
-            && array_intersect($advertisedAuth, ['client_secret_basic', 'client_secret_post']) !== [];
-        $selectedAuthUsable = $tokenAuth === null
-            ? $privateKeyUsable || $secretUsable
-            : (in_array($tokenAuth, $advertisedAuth, true)
-                && ($tokenAuth === 'private_key_jwt' ? $privateKeyUsable : $settings->clientSecret() !== ''));
+        $selectedAuthUsable = $authMethods !== [];
         $checks[] = self::check(
             gettext('Selected authentication method'),
             $selectedAuth,
             $selectedAuthUsable ? 'success' : 'error',
             $selectedAuthUsable
                 ? gettext('The configured choice can use the provider metadata.')
-                : ($privateKeyFailure !== null
-                    ? $privateKeyFailure
-                    : ($tokenAuth === 'private_key_jwt' && $assertionAlgorithms === []
-                        ? gettext('The provider advertises no supported private-key JWT signing algorithm.')
-                        : gettext('The selected client authentication method is not advertised.'))),
+                : ($authProblem ?? gettext('The selected client authentication method is not usable.')),
             ['opnsense'],
             'metadata'
         );
@@ -566,15 +559,12 @@ final class ProviderProbe
             }
             return $check;
         }
-        if ($settings->clientId() === '' || !$settings->hasClientAuthenticationCredential()) {
+        if (!self::clientConfigurationReady($settings)) {
             return self::check(
                 gettext('PAR endpoint'),
                 gettext('Not tested'),
                 'warning',
-                gettext(
-                    'Enter Client ID and a usable Client Secret or signing certificate to run the authenticated ' .
-                    'live PAR check.'
-                ),
+                gettext('Enter Client ID and the selected client credential to run the live PAR check.'),
                 ['opnsense', 'idp'],
                 'not-tested'
             );
@@ -593,6 +583,8 @@ final class ProviderProbe
         $client = new ParClient(
             $settings,
             $this->http,
+            null,
+            null,
             new ClientAuthenticator($settings, $this->clientAssertion($settings))
         );
         try {
@@ -670,5 +662,29 @@ final class ProviderProbe
         string $verification
     ): array {
         return compact('label', 'value', 'status', 'note', 'actors', 'verification');
+    }
+
+    private static function clientConfigurationReady(OpenIDConnect $settings): bool
+    {
+        if ($settings->issuerUrl() === '' || $settings->clientId() === '') {
+            return false;
+        }
+        $method = $settings->tokenAuthMethod();
+        $certificate = $settings->clientCertificateRef();
+        $needsCertificate = $settings->certificateBoundAccessTokens()
+            || in_array($method, ['tls_client_auth', 'self_signed_tls_client_auth'], true)
+            || ($method === null && $certificate !== '');
+        if ($needsCertificate) {
+            try {
+                return ClientCertificate::load($certificate) !== null;
+            } catch (\Throwable $error) {
+                return false;
+            }
+        }
+        if ($method === 'private_key_jwt'
+            || ($method === null && $settings->signingCertificate() !== '')) {
+            return $settings->signingCertificate() !== '';
+        }
+        return $settings->clientSecret() !== '';
     }
 }

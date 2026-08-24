@@ -20,11 +20,12 @@ final class ParClient
     public function __construct(
         private readonly OpenIDConnect $settings,
         private readonly HttpClient $http,
-        ?ClientAuthenticator $clientAuthenticator = null,
-        ?RequestObjectSigner $requestObjectSigner = null
+        private ?ClientAuthentication $clientAuthentication = null,
+        ?RequestObjectSigner $requestObjectSigner = null,
+        ?ClientAuthenticator $clientAuthenticator = null
     ) {
-        $this->clientAuthenticator = $clientAuthenticator ?? new ClientAuthenticator($settings);
         $this->requestObjectSigner = $requestObjectSigner ?? new RequestObjectSigner();
+        $this->clientAuthenticator = $clientAuthenticator ?? new ClientAuthenticator($settings);
     }
 
     /** @param array<string,string> $parameters */
@@ -32,18 +33,27 @@ final class ParClient
     {
         $this->credentialsExercised = false;
         $headers = ['Accept: application/json'];
+        $authentication = $this->authentication($metadata);
+        $endpoint = $authentication->endpoint($metadata, 'pushed_authorization_request_endpoint') ?? $endpoint;
         $this->clientAuthenticator->authenticate(
             $metadata,
             $endpoint,
             ClientAuthenticator::TOKEN,
             $parameters,
             $headers,
-            $metadata->issuer()
+            $metadata->issuer(),
+            $authentication->method()
         );
         // A metadata refusal above never exposed the credentials to transport; from this point the authenticated
         // request is attempted even when the provider or network rejects it.
         $this->credentialsExercised = true;
-        $response = $this->http->postForm($endpoint, $parameters, self::MAX_BYTES, $headers);
+        $response = $this->http->postForm(
+            $endpoint,
+            $parameters,
+            self::MAX_BYTES,
+            $headers,
+            $authentication->certificate()
+        );
         if ($response->status === 429 || $response->status >= 500) {
             throw new ProviderUnavailableException(
                 sprintf('The pushed authorization request endpoint returned HTTP %d', $response->status),
@@ -87,7 +97,10 @@ final class ParClient
 
     public function probe(ProviderMetadata $metadata, string $redirectUri): void
     {
-        $endpoint = $metadata->pushedAuthorizationRequestEndpoint();
+        $endpoint = $this->authentication($metadata)->endpoint(
+            $metadata,
+            'pushed_authorization_request_endpoint'
+        );
         if ($endpoint === null) {
             throw new ProtocolException('Discovery offers no pushed authorization request endpoint');
         }
@@ -126,4 +139,13 @@ final class ParClient
         $this->push($metadata, $endpoint, $parameters);
     }
 
+    private function authentication(ProviderMetadata $metadata): ClientAuthentication
+    {
+        return $this->clientAuthentication ??= ClientAuthentication::negotiate(
+            $this->settings,
+            $metadata,
+            null,
+            $this->clientAuthenticator
+        );
+    }
 }

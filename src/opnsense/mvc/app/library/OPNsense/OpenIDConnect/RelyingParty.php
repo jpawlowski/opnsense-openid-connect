@@ -53,6 +53,9 @@ class RelyingParty
     private string $redirectUri;
     private ?ProviderMetadata $metadata = null;
     private ?string $tokenAuthMethod = null;
+    private ?ClientAuthentication $clientAuthentication = null;
+    /** @var array<string,mixed>|null trusted snapshot retained with an established session */
+    private ?array $restoredClientAuthentication;
     /** @var array<string,mixed> */
     private array $tokens = [];
     /** @var array<string,mixed> */
@@ -65,19 +68,21 @@ class RelyingParty
         ?JwtVerifier $verifier = null,
         ?RequestObjectSigner $requestObjectSigner = null,
         ?DpopProof $dpop = null,
-        ?ClientAuthenticator $clientAuthenticator = null
-    )
-    {
+        ClientAuthenticator|array|null $clientAuthenticatorOrRestoredState = null
+    ) {
         $this->settings = $settings;
         $this->session = $controller->session;
         $this->request = $controller->request;
         $this->response = $controller->response;
         $this->http = $http ?? new HttpClient();
         $this->verifier = $verifier ?? new JwtVerifier($this->http);
-        $this->clientAuthenticator = $clientAuthenticator ?? new ClientAuthenticator($settings);
+        $this->clientAuthenticator = $clientAuthenticatorOrRestoredState instanceof ClientAuthenticator
+            ? $clientAuthenticatorOrRestoredState : new ClientAuthenticator($settings);
         $this->dpopStore = DpopKeyStore::forSettings($settings);
         $this->dpop = $dpop;
         $this->requestObjectSigner = $requestObjectSigner ?? new RequestObjectSigner();
+        $this->restoredClientAuthentication = is_array($clientAuthenticatorOrRestoredState)
+            ? $clientAuthenticatorOrRestoredState : null;
 
         $redirect = static::acceptedRedirectUri($settings, $controller->request);
         if ($redirect === null) {
@@ -146,7 +151,6 @@ class RelyingParty
         $this->metadata = $metadata;
         $responseMode = $this->settings->responseMode();
         $metadata->assertAuthorizationCapabilities($responseMode);
-        $this->tokenAuthMethod = $this->clientAuthenticator->selectMethod($metadata, ClientAuthenticator::TOKEN);
         if (self::isJarmMode($responseMode)
             && array_intersect($metadata->authorizationResponseSigningAlgorithms(), JwtVerifier::ALGORITHMS) === []) {
             throw new ProtocolException('The provider advertises no supported JARM signing algorithm');
@@ -157,8 +161,20 @@ class RelyingParty
         $verifier = self::randomValue(64);
         $challenge = JwtVerifier::base64UrlEncode(hash('sha256', $verifier, true));
         $authenticationRequirement = $this->settings->authenticationRequirement();
-        if ($this->negotiatesDpop($metadata)) {
+        $this->clientAuthentication = ClientAuthentication::negotiate(
+            $this->settings,
+            $metadata,
+            null,
+            $this->clientAuthenticator
+        );
+        $this->tokenAuthMethod = $this->clientAuthentication->method();
+        if ($this->clientAuthentication->snapshot()['certificate_bound_access_tokens']) {
+            /* One access token has one sender constraint: prefer the explicitly configured certificate binding. */
+            $this->dpop = null;
+        } elseif ($this->negotiatesDpop($metadata)) {
             $this->dpop ??= $this->dpopStore->active();
+        } else {
+            $this->dpop = null;
         }
 
         $transaction = [
@@ -175,6 +191,7 @@ class RelyingParty
             'code_verifier' => $verifier,
             'token_auth_method' => $this->tokenAuthMethod,
             'metadata' => $metadata->toArray(),
+            'client_authentication' => $this->clientAuthentication->snapshot(),
         ];
         if ($this->dpop !== null) {
             $transaction['dpop_key'] = $this->dpop->keyId();
@@ -224,7 +241,7 @@ class RelyingParty
             $usedRequestObject = true;
         }
 
-        $parEndpoint = $metadata->pushedAuthorizationRequestEndpoint();
+        $parEndpoint = $this->clientAuthentication->endpoint($metadata, 'pushed_authorization_request_endpoint');
         $parRequired = $metadata->requiresPushedAuthorizationRequests();
         $parMode = $this->settings->parMode();
         if ($parMode === 'disabled' && $parRequired) {
@@ -285,8 +302,9 @@ class RelyingParty
         $requestUri = (new ParClient(
             $this->settings,
             $this->http,
-            $this->clientAuthenticator,
-            $this->requestObjectSigner
+            $this->clientAuthentication,
+            $this->requestObjectSigner,
+            $this->clientAuthenticator
         ))->push(
             $metadata,
             $endpoint,
@@ -341,13 +359,23 @@ class RelyingParty
         if (!is_string($frozenAuthMethod)) {
             throw new ProtocolException('The login transaction carries no client authentication method');
         }
-        $this->tokenAuthMethod = $this->clientAuthenticator->selectMethod(
+        if (!is_array($transaction['client_authentication'] ?? null)) {
+            throw new ProtocolException('The pending login carries no client authentication state');
+        }
+        $this->clientAuthentication = ClientAuthentication::negotiate(
+            $this->settings,
             $this->metadata,
-            ClientAuthenticator::TOKEN,
-            $frozenAuthMethod
+            $transaction['client_authentication'],
+            $this->clientAuthenticator
         );
+        if (!hash_equals($this->clientAuthentication->method(), $frozenAuthMethod)) {
+            throw new ProtocolException('The pending login carries inconsistent client authentication state');
+        }
+        $this->tokenAuthMethod = $frozenAuthMethod;
         $dpopKey = $transaction['dpop_key'] ?? null;
-        if ($this->negotiatesDpop($this->metadata)) {
+        $certificateBound = $this->clientAuthentication->snapshot()['certificate_bound_access_tokens'];
+        $dpopNegotiated = !$certificateBound && $this->negotiatesDpop($this->metadata);
+        if ($dpopNegotiated) {
             if (!is_string($dpopKey) || !preg_match('/^[A-Za-z0-9_-]{43}$/D', $dpopKey)) {
                 throw new ProtocolException('The login transaction carries no usable DPoP proof key');
             }
@@ -445,7 +473,8 @@ class RelyingParty
             'code_verifier' => $verifier,
         ];
         $headers = ['Accept: application/json'];
-        $endpoint = $this->metadata->tokenEndpoint();
+        $endpoint = (string)$this->clientAuthentication()->endpoint($this->metadata, 'token_endpoint');
+        $certificate = $this->clientAuthentication()->certificate();
         $authenticate = function (array &$attemptFields, array &$attemptHeaders) use ($endpoint): void {
             $this->clientAuthenticator->authenticate(
                 $this->metadata,
@@ -459,7 +488,13 @@ class RelyingParty
         };
         if ($this->dpop === null) {
             $authenticate($fields, $headers);
-            $response = $this->http->postForm($endpoint, $fields, self::TOKEN_MAX_BYTES, $headers);
+            $response = $this->http->postForm(
+                $endpoint,
+                $fields,
+                self::TOKEN_MAX_BYTES,
+                $headers,
+                $certificate
+            );
         } else {
             $response = $this->dpopRequest(
                 'POST',
@@ -467,7 +502,10 @@ class RelyingParty
                 $fields,
                 $headers,
                 self::TOKEN_MAX_BYTES,
-                prepareRequest: $authenticate
+                null,
+                false,
+                $certificate,
+                $authenticate
             );
         }
         if ($response->status !== 200) {
@@ -507,6 +545,7 @@ class RelyingParty
         } else {
             self::dpopAuthorization($tokens['access_token']);
         }
+        $this->clientAuthentication()->assertAccessTokenBinding($tokens['access_token']);
         if (array_key_exists('expires_in', $tokens)) {
             $lifetime = $tokens['expires_in'];
             if ((!is_int($lifetime) && !is_float($lifetime)) || !is_finite((float)$lifetime) || $lifetime < 0) {
@@ -561,6 +600,27 @@ class RelyingParty
         return is_string($error) && preg_match('/^[A-Za-z0-9_.-]{1,80}$/D', $error) ? $error : null;
     }
 
+    private function clientAuthentication(): ClientAuthentication
+    {
+        if ($this->metadata === null) {
+            throw new ProtocolException('Provider metadata is not available for client authentication');
+        }
+        if ($this->restoredClientAuthentication !== null) {
+            return $this->clientAuthentication ??= ClientAuthentication::restore(
+                $this->settings,
+                $this->metadata,
+                $this->restoredClientAuthentication,
+                $this->clientAuthenticator
+            );
+        }
+        return $this->clientAuthentication ??= ClientAuthentication::negotiate(
+            $this->settings,
+            $this->metadata,
+            null,
+            $this->clientAuthenticator
+        );
+    }
+
     private function claimsForAccount(?string $accessToken): object
     {
         $source = $this->settings->claimsSource();
@@ -571,7 +631,7 @@ class RelyingParty
             $this->settings->groupClaim() ?: null,
         ]);
         $missing = array_filter($required, fn(string $name): bool => !array_key_exists($name, $claims));
-        $endpoint = $this->metadata->userInfoEndpoint();
+        $endpoint = $this->clientAuthentication()->endpoint($this->metadata, 'userinfo_endpoint');
         $callUserInfo = $source === 'userinfo'
             || ($source === 'auto' && $endpoint !== null && $missing !== []);
 
@@ -621,9 +681,19 @@ class RelyingParty
             $dpop ? self::dpopAuthorization($accessToken) : self::bearerAuthorization($accessToken),
             'Accept: application/json, application/jwt',
         ];
+        $certificate = $this->clientAuthentication()->certificate();
         $response = $dpop
-            ? $this->dpopRequest('GET', $endpoint, null, $headers, self::USERINFO_MAX_BYTES, $accessToken, true)
-            : $this->http->get($endpoint, self::USERINFO_MAX_BYTES, $headers);
+            ? $this->dpopRequest(
+                'GET',
+                $endpoint,
+                null,
+                $headers,
+                self::USERINFO_MAX_BYTES,
+                $accessToken,
+                true,
+                $certificate
+            )
+            : $this->http->get($endpoint, self::USERINFO_MAX_BYTES, $headers, $certificate);
         if ($response->status !== 200) {
             throw new ProtocolException(sprintf('UserInfo returned HTTP %d', $response->status));
         }
@@ -677,7 +747,7 @@ class RelyingParty
     public function revokeToken(string $token, string $hint = ''): void
     {
         $this->metadata ??= $this->discoverMetadata();
-        $endpoint = $this->metadata->revocationEndpoint();
+        $endpoint = $this->clientAuthentication()->endpoint($this->metadata, 'revocation_endpoint');
         if ($endpoint === null) {
             return;
         }
@@ -686,18 +756,22 @@ class RelyingParty
             $fields['token_type_hint'] = $hint;
         }
         $headers = [];
-        $authenticate = function (array &$attemptFields, array &$attemptHeaders) use ($endpoint): void {
+        $certificate = $this->clientAuthentication()->certificate();
+        $method = $this->clientAuthentication()->revocationMethod($this->metadata);
+        $authenticate = function (array &$attemptFields, array &$attemptHeaders) use ($endpoint, $method): void {
             $this->clientAuthenticator->authenticate(
                 $this->metadata,
                 $endpoint,
                 ClientAuthenticator::REVOCATION,
                 $attemptFields,
-                $attemptHeaders
+                $attemptHeaders,
+                null,
+                $method
             );
         };
         if ($this->dpop === null) {
             $authenticate($fields, $headers);
-            $response = $this->http->postForm($endpoint, $fields, 262144, $headers);
+            $response = $this->http->postForm($endpoint, $fields, 262144, $headers, $certificate);
         } else {
             $response = $this->dpopRequest(
                 'POST',
@@ -705,7 +779,10 @@ class RelyingParty
                 $fields,
                 $headers,
                 262144,
-                prepareRequest: $authenticate
+                null,
+                false,
+                $certificate,
+                $authenticate
             );
         }
         if (!in_array($response->status, [200, 204], true)) {
@@ -817,6 +894,7 @@ class RelyingParty
         int $maxBytes,
         ?string $accessToken = null,
         bool $resource = false,
+        ?ClientCertificate $clientCertificate = null,
         ?callable $prepareRequest = null
     ): HttpResponse {
         if ($this->dpop === null) {
@@ -838,8 +916,14 @@ class RelyingParty
                 $this->dpopStore->nonce($endpoint)
             );
             $response = $attemptFields === null
-                ? $this->http->get($endpoint, $maxBytes, $attemptHeaders)
-                : $this->http->postForm($endpoint, $attemptFields, $maxBytes, $attemptHeaders);
+                ? $this->http->get($endpoint, $maxBytes, $attemptHeaders, $clientCertificate)
+                : $this->http->postForm(
+                    $endpoint,
+                    $attemptFields,
+                    $maxBytes,
+                    $attemptHeaders,
+                    $clientCertificate
+                );
             $receivedNonce = $this->dpopStore->acceptNonce($endpoint, $response);
             if (!$this->isDpopNonceChallenge($response, $resource)) {
                 return $response;
@@ -863,6 +947,12 @@ class RelyingParty
             return false;
         }
         return ($response->jsonObject()['error'] ?? null) === 'use_dpop_nonce';
+    }
+
+    /** @return array<string,mixed> */
+    public function getClientAuthenticationSnapshot(): array
+    {
+        return $this->clientAuthentication()->snapshot();
     }
 
     public static function issuedForThisFirewall(object $claims, string $clientId): bool

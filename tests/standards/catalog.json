@@ -1408,11 +1408,10 @@
       "title": "OAuth 2.0 Mutual-TLS Client Authentication and Certificate-Bound Tokens (RFC 8705)",
       "reference": "https://www.rfc-editor.org/rfc/rfc8705.html",
       "scope": "Token endpoint client authentication and sender-constrained tokens",
-      "implementation": "deferred",
-      "claim": "not_claimed",
+      "implementation": "implemented",
+      "claim": "unverified",
       "audit_complete": false,
-      "note": "Certificate lifecycle and a safely bounded HTTP client configuration are not yet available.",
-      "reconsider_when": "OPNsense can provide reviewed per-provider client-certificate custody and rotation."
+      "note": "PKI and self-signed mutual-TLS client authentication, endpoint aliases, OPNsense certificate selection and rotation, and certificate-bound UserInfo use are implemented; requirement-level interoperability evidence is incomplete."
     },
     {
       "id": "oauth-jwt-client-auth",

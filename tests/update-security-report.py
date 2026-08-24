@@ -64,6 +64,10 @@ HOST_CAPABILITIES = {
         "Private-key JWT client assertions",
         "Endpoint client authentication",
     ),
+    "mutual-tls-policy": (
+        "Mutual-TLS client authentication and certificate-bound tokens",
+        "Bounded HTTPS transport",
+    ),
     "dpop-sender-constraint": (
         "RFC 9449 DPoP proofs",
         "DPoP discovery and authorization-code binding",

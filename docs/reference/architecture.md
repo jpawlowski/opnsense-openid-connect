@@ -172,6 +172,7 @@ flowchart TD
 | `ApprovalController` | authenticated CRUD for durable bindings, explicit local-account creation and approval/denial of identities queued for one saved server; rechecks the core authentication-server, user-manager and read-only privileges | authenticate the identity, create a session, trust button visibility as authorization or choose a local account automatically |
 | `SetupController` / `ProviderSetup` | authenticated, no-secret provider import generation from an unfinished form | contact the provider, persist credentials or mutate either system |
 | `HttpClient` | the only provider network transport; HTTPS, TLS, limits and redirect policy | follow credentials through redirects |
+| `ClientAuthentication` / `ClientCertificate` | negotiate and freeze OAuth client authentication, resolve active/retiring OPNsense certificate objects and constrain RFC 8705 endpoint use | store another private-key copy or silently downgrade to a secret |
 | `JwtVerifier` | JWS and OIDC/logout claim validation using OPNsense phpseclib | accept token-selected keys or symmetric ID Token signatures |
 | `DpopProof` / `DpopKeyStore` | fresh RFC 9449 proofs plus mode-`0600` per-provider key rotation, retired generations and endpoint nonces | choose provider trust, send a bound token as Bearer or log proof/key material |
 | `AuthenticationRequirement` | freeze one requested MFA/phishing-resistant policy and validate its verified `acr`/`acrs` plus `amr` evidence | infer provider semantics or inspect an unverified token |
@@ -223,6 +224,11 @@ The exact endpoint matrix and the reasons for the two exceptions are recorded in
   indexes are mode `0600`; the logout indexes contain identifiers only, while
   the short-lived form-post index contains state, nonce, PKCE verifier and the
   validated metadata snapshot, but no token or client secret.
+- Mutual-TLS private keys remain in the OPNsense trust store and are handed to
+  cURL only as in-memory PEM blobs. A pending login freezes the selected
+  certificate reference and SHA-256 thumbprint; a session retains that
+  non-secret snapshot so rotation can use an explicitly retiring certificate
+  for its older grants.
 - phpseclib is an OPNsense runtime component. The plugin owns algorithm policy
   and claim validation; it does not implement RSA or elliptic-curve arithmetic.
 
@@ -310,6 +316,10 @@ verification subset; Ed25519 is the separately audited RFC 8037 subset.
   transaction as issuer, nonce, PKCE and metadata. The callback refuses a
   configuration mismatch and validates only the signed ID Token before local
   account or session processing.
+- OAuth client authentication, certificate-bound-token intent and the exact
+  mTLS certificate thumbprint are frozen into the transaction. Rotation may
+  continue an older exchange only while its certificate is explicitly retained
+  as retiring; removing or replacing it fails closed.
 - The logout index contains PHP session ID, issuer, subject, provider `sid` and
   creation time and expiry. The logout replay index contains only a hash of
   issuer plus logout `jti`; the SSF replay index likewise stores only a bounded

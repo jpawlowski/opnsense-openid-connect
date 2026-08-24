@@ -12,6 +12,7 @@ use OPNsense\Auth\OpenIDConnect;
 /** Negotiated client authentication shared by every direct provider endpoint. */
 final class ClientAuthenticator
 {
+    private const TLS_METHODS = ['tls_client_auth', 'self_signed_tls_client_auth'];
     public const TOKEN = 'token';
     public const REVOCATION = 'revocation';
     public const INTROSPECTION = 'introspection';
@@ -72,6 +73,10 @@ final class ClientAuthenticator
             );
             return;
         }
+        if (in_array($method, self::TLS_METHODS, true)) {
+            $fields['client_id'] = $this->settings->clientId();
+            return;
+        }
         throw new ProtocolException('No supported client authentication method is available');
     }
 
@@ -95,6 +100,18 @@ final class ClientAuthenticator
                 $this->assertPrivateKeyUsable($metadata, $kind);
             }
             return $selected;
+        }
+
+        if ($this->settings->clientCertificateRef() !== '') {
+            foreach (self::TLS_METHODS as $candidate) {
+                if (in_array($candidate, $advertised, true)) {
+                    return $candidate;
+                }
+            }
+            throw new ProtocolException(sprintf(
+                'The provider offers no supported mutual-TLS authentication method for the %s endpoint',
+                $kind
+            ));
         }
 
         $privateKeyFailure = null;
@@ -132,8 +149,11 @@ final class ClientAuthenticator
 
     private function hasCredential(string $method): bool
     {
-        return $method === 'private_key_jwt'
-            ? $this->settings->signingCertificate() !== '' : $this->settings->clientSecret() !== '';
+        if ($method === 'private_key_jwt') {
+            return $this->settings->signingCertificate() !== '';
+        }
+        return in_array($method, self::TLS_METHODS, true)
+            ? $this->settings->clientCertificateRef() !== '' : $this->settings->clientSecret() !== '';
     }
 
     private function assertCredential(string $method): void
@@ -141,8 +161,11 @@ final class ClientAuthenticator
         if ($this->hasCredential($method)) {
             return;
         }
-        throw new ProtocolException($method === 'private_key_jwt'
-            ? 'Private-key client authentication has no signing certificate'
+        if ($method === 'private_key_jwt') {
+            throw new ProtocolException('Private-key client authentication has no signing certificate');
+        }
+        throw new ProtocolException(in_array($method, self::TLS_METHODS, true)
+            ? 'Mutual TLS has no client certificate'
             : 'The selected client authentication method has no client secret');
     }
 }

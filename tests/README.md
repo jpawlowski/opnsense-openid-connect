@@ -144,6 +144,22 @@ runtime values. Add `--network` to the same command only when public Discovery
 requests are intended. The report generator accepts retained integration
 evidence only when all three identities are present and valid.
 
+An administrator can also prove mutual-TLS interoperability against one
+deliberately prepared provider client without completing a browser login. The
+probe sends a random invalid authorization code through the discovered mTLS
+token endpoint and passes only when the provider first accepts the certificate
+and then returns `invalid_grant` rather than `invalid_client`:
+
+    php tests/integration/opnsense.php \
+      --mtls-issuer=https://id.example.net/realms/firewall \
+      --mtls-client-id=opnsense \
+      --mtls-certificate-ref=0123456789abc \
+      --mtls-redirect-uri=https://firewall.example.net/api/openidconnect/auth/callback/main
+
+All four values are required together. The certificate reference names an
+existing OPNsense certificate with its private key; no secret, certificate,
+key, provider response or address is written into audit evidence.
+
 For a disposable firewall, [`e2e/run.sh`](e2e/README.md) goes further: it
 creates an isolated Keycloak realm in pinned official containers, installs the
 current package and a short-lived CA, configures the server through the real

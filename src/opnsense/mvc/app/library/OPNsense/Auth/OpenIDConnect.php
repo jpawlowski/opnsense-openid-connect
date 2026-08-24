@@ -32,6 +32,7 @@ use OPNsense\Core\Backend;
 use OPNsense\Core\Config;
 use OPNsense\OpenIDConnect\AuthenticationRequirement;
 use OPNsense\OpenIDConnect\ClientAssertion;
+use OPNsense\OpenIDConnect\ClientCertificate;
 use OPNsense\OpenIDConnect\PendingIdentityRegistry;
 use OPNsense\OpenIDConnect\ProviderMetadata;
 use OPNsense\OpenIDConnect\SharedSignalsClient;
@@ -63,7 +64,10 @@ class OpenIDConnect extends Base implements IAuthConnector
     public const ICON_MODES = ['monochrome', 'original'];
 
     /** how this firewall authenticates itself at the token endpoint */
-    public const TOKEN_AUTH_METHODS = ['client_secret_basic', 'client_secret_post', 'private_key_jwt'];
+    public const TOKEN_AUTH_METHODS = [
+        'tls_client_auth', 'self_signed_tls_client_auth', 'client_secret_basic', 'client_secret_post',
+        'private_key_jwt',
+    ];
     public const PAR_MODES = ['auto', 'required', 'disabled'];
     public const LOGOUT_NOTIFICATION_MODES = ['both', 'backchannel', 'frontchannel', 'off'];
     public const SSF_DELIVERY_METHODS = ['push', 'poll'];
@@ -266,12 +270,13 @@ class OpenIDConnect extends Base implements IAuthConnector
             'openidconnect_client_secret' => [
                 'name' => gettext('Client Secret'),
                 'help' => gettext(
-                    'Used for Basic or POST client authentication. It may be empty when a signing certificate ' .
-                    'is selected for private-key JWT authentication.'
+                    'This firewall authenticates as a confidential client. Public clients, which have no ' .
+                    'credential, are not supported. A secret is unnecessary when mutual TLS or private-key JWT ' .
+                    'authentication is selected.'
                 ),
                 'type' => 'text',
-                'validate' => fn($value) => !empty(trim((string)$value)) || $this->allowsIncompleteDraft()
-                    || $this->submittedAuthenticationMayUseCertificate()
+                'validate' => fn($value) => !empty(trim((string)$value)) || !$this->clientSecretIsRequired()
+                    || $this->allowsIncompleteDraft()
                     ? [] : [gettext('A client secret is required.')],
             ],
             'openidconnect_signing_certificate' => [
@@ -286,6 +291,43 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'options' => static::signingCertificateOptions(),
                 'validate' => fn($value) => $this->validateSigningCertificate($value),
             ],
+            'openidconnect_client_certificate' => [
+                'name' => gettext('Client certificate'),
+                'help' => gettext(
+                    'Select a certificate with its private key from System > Trust > Certificates. Following ' .
+                    'the provider then negotiates only mutual-TLS authentication methods and never falls back ' .
+                    'to a client secret.'
+                ),
+                'type' => 'dropdown',
+                'default' => '',
+                'options' => static::clientCertificateOptions(),
+                'validate' => fn($value) => $this->validateClientCertificateRef($value, false),
+            ],
+            'openidconnect_retiring_client_certificate' => [
+                'name' => gettext('Retiring client certificate'),
+                'help' => gettext(
+                    'During rotation, keep the former certificate here until pending logins and retained ' .
+                    'certificate-bound tokens have expired. New exchanges always use the active certificate.'
+                ),
+                'type' => 'dropdown',
+                'default' => '',
+                'options' => static::clientCertificateOptions(),
+                'validate' => fn($value) => $this->validateClientCertificateRef($value, true),
+            ],
+            'openidconnect_certificate_bound_access_tokens' => [
+                'name' => gettext('Require certificate-bound access tokens'),
+                'help' => gettext(
+                    'Enable only when the provider client is registered for RFC 8705 certificate-bound ' .
+                    'tokens. Discovery must advertise support; UserInfo then uses the exact certificate from ' .
+                    'the token exchange.'
+                ),
+                'type' => 'checkbox',
+                'default' => '0',
+                'validate' => fn($value) => $this->flagValue($value)
+                    && $this->submittedText('openidconnect_client_certificate') === ''
+                    ? [gettext('Certificate-bound access tokens require a client certificate.')]
+                    : [],
+            ],
             'openidconnect_token_auth' => [
                 'name' => gettext('Authentication method'),
                 'help' => gettext(
@@ -297,12 +339,13 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'default' => '',
                 'options' => [
                     '' => gettext('Follow the provider'),
+                    'tls_client_auth' => gettext('Insist on mutual TLS (PKI certificate)'),
+                    'self_signed_tls_client_auth' => gettext('Insist on mutual TLS (self-signed certificate)'),
                     'client_secret_basic' => gettext('Insist on Basic (secret in the header)'),
                     'client_secret_post' => gettext('Insist on POST (secret in the body)'),
                     'private_key_jwt' => gettext('Insist on private-key JWT (certificate signature)'),
                 ],
-                'validate' => fn($value) => in_array($value, array_merge(self::TOKEN_AUTH_METHODS, ['']), true)
-                    ? [] : [gettext('Unknown authentication method.')],
+                'validate' => fn($value) => $this->validateTokenAuthMethod($value),
             ],
             'openidconnect_par_mode' => [
                 'name' => gettext('Pushed authorization requests'),
@@ -1035,6 +1078,110 @@ class OpenIDConnect extends Base implements IAuthConnector
         return ['general' => gettext('Generic OpenID Connect')] + $named;
     }
 
+    /** @return array<string,string> OPNsense certificate refid to administrator-facing label */
+    private static function clientCertificateOptions(): array
+    {
+        $options = ['' => gettext('No client certificate')];
+        foreach (config_read_array('cert') as $certificate) {
+            if (!is_array($certificate) || empty($certificate['refid'])
+                || empty($certificate['crt']) || empty($certificate['prv'])) {
+                continue;
+            }
+            $reference = (string)$certificate['refid'];
+            $description = trim((string)($certificate['descr'] ?? ''));
+            $options[$reference] = $description === ''
+                ? $reference : sprintf('%s (%s)', $description, $reference);
+        }
+        return $options;
+    }
+
+    /** @return array<string,string> */
+    private static function signingCertificateOptions(): array
+    {
+        $options = ['' => gettext('None')];
+        try {
+            $certificates = Config::getInstance()->object()->cert ?? [];
+        } catch (\Throwable $e) {
+            return $options;
+        }
+        $available = [];
+        foreach ($certificates as $certificate) {
+            $reference = (string)($certificate->refid ?? '');
+            if (!preg_match('/^[0-9a-f]{13}$/D', $reference)
+                || trim((string)($certificate->crt ?? '')) === ''
+                || trim((string)($certificate->prv ?? '')) === '') {
+                continue;
+            }
+            $description = trim((string)($certificate->descr ?? ''));
+            $available[$reference] = $description !== '' ? $description : $reference;
+        }
+        natcasesort($available);
+        return $options + $available;
+    }
+
+    private function validateSigningCertificate($value): array
+    {
+        $reference = trim((string)$value);
+        if ($reference === '') {
+            $method = $this->submittedChoice('openidconnect_token_auth', self::TOKEN_AUTH_METHODS, '');
+            return $method !== 'private_key_jwt' || $this->allowsIncompleteDraft()
+                ? [] : [gettext('A client signing certificate is required for private-key JWT authentication.')];
+        }
+        if (!array_key_exists($reference, static::signingCertificateOptions())) {
+            return [gettext('Select an available certificate that has a private key.')];
+        }
+        try {
+            (new ClientAssertion($this))->assertCertificateUsable($reference, ClientAssertion::ALGORITHMS);
+        } catch (\Throwable $e) {
+            return [gettext('Select a usable RSA or supported elliptic-curve certificate with a private key.')];
+        }
+        return [];
+    }
+
+    private function validateClientCertificateRef($value, bool $retiring): array
+    {
+        $reference = trim((string)$value);
+        if ($reference === '') {
+            return [];
+        }
+        if (!array_key_exists($reference, static::clientCertificateOptions())) {
+            return [gettext('Choose an OPNsense certificate which includes its private key.')];
+        }
+        if ($retiring && $this->submittedText('openidconnect_client_certificate') === '') {
+            return [gettext('A retiring certificate requires a different active client certificate.')];
+        }
+        $other = $this->submittedText($retiring
+            ? 'openidconnect_client_certificate' : 'openidconnect_retiring_client_certificate');
+        if ($other !== '' && hash_equals($reference, $other)) {
+            return [gettext('The active and retiring client certificates must be different.')];
+        }
+        try {
+            ClientCertificate::load($reference);
+        } catch (\Throwable $e) {
+            return [gettext('The selected client certificate is invalid, expired, or does not match its private key.')];
+        }
+        return [];
+    }
+
+    private function validateTokenAuthMethod($value): array
+    {
+        $method = trim((string)$value);
+        if (!in_array($method, array_merge(self::TOKEN_AUTH_METHODS, ['']), true)) {
+            return [gettext('Unknown authentication method.')];
+        }
+        if (in_array($method, ['tls_client_auth', 'self_signed_tls_client_auth'], true)
+            && $this->submittedText('openidconnect_client_certificate') === ''
+            && !$this->allowsIncompleteDraft()) {
+            return [gettext('Mutual-TLS authentication requires a client certificate.')];
+        }
+        if ($method === 'private_key_jwt'
+            && $this->submittedText('openidconnect_signing_certificate') === ''
+            && !$this->allowsIncompleteDraft()) {
+            return [gettext('Private-key JWT authentication requires a client signing certificate.')];
+        }
+        return [];
+    }
+
     /**
      * Provider knowledge used by both the settings form and the relying party.
      *
@@ -1553,8 +1700,8 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'the browser and token paths.'
             ),
             'healthTestIncompleteHelp' => gettext(
-                'Enter Exact issuer URL, Client ID and either a Client Secret or Client signing certificate to ' .
-                'check connection health. Saving is not required.'
+                'Enter Exact issuer URL, Client ID and a configured client credential to check connection health. ' .
+                'Saving is not required.'
             ),
             'signInTestLabel' => gettext('Test sign-in'),
             'signInTestHelp' => gettext(
@@ -1571,8 +1718,8 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'Save or revert all unsaved changes before testing sign-in. The test always uses the saved server.'
             ),
             'signInTestIncompleteHelp' => gettext(
-                'Complete and save `Exact issuer URL`, `Client ID` and either a Client Secret or Client ' .
-                'signing certificate before testing sign-in.'
+                'Complete and save `Exact issuer URL`, `Client ID` and the selected client credential before ' .
+                'testing sign-in.'
             ),
             'signInTestTransportHelp' => gettext(
                 'OpenID Connect sign-in is blocked until the WebGUI uses HTTPS or the saved trusted ' .
@@ -2680,6 +2827,11 @@ class OpenIDConnect extends Base implements IAuthConnector
         return !empty($this->settings[$key]);
     }
 
+    private function flagValue($value): bool
+    {
+        return !empty($value);
+    }
+
     private function choice(string $key, array $allowed, string $default): string
     {
         $value = $this->text($key);
@@ -2962,58 +3114,6 @@ class OpenIDConnect extends Base implements IAuthConnector
     {
         return $profile === 'gitlab'
             && rtrim(ProviderMetadata::normalizeIssuerInput($issuer), '/') === 'https://gitlab.com';
-    }
-
-    private function submittedAuthenticationMayUseCertificate(): bool
-    {
-        $method = $this->submittedChoice('openidconnect_token_auth', self::TOKEN_AUTH_METHODS, '');
-        $certificate = isset($_POST['type']) && (string)$_POST['type'] === self::TYPE
-            ? trim((string)($_POST['openidconnect_signing_certificate'] ?? ''))
-            : $this->signingCertificate();
-        return $method === 'private_key_jwt' || ($method === '' && $certificate !== '');
-    }
-
-    /** @return array<string,string> */
-    private static function signingCertificateOptions(): array
-    {
-        $options = ['' => gettext('None')];
-        try {
-            $certificates = Config::getInstance()->object()->cert ?? [];
-        } catch (\Throwable $e) {
-            return $options;
-        }
-        $available = [];
-        foreach ($certificates as $certificate) {
-            $reference = (string)($certificate->refid ?? '');
-            if (!preg_match('/^[0-9a-f]{13}$/D', $reference)
-                || trim((string)($certificate->crt ?? '')) === ''
-                || trim((string)($certificate->prv ?? '')) === '') {
-                continue;
-            }
-            $description = trim((string)($certificate->descr ?? ''));
-            $available[$reference] = $description !== '' ? $description : $reference;
-        }
-        natcasesort($available);
-        return $options + $available;
-    }
-
-    private function validateSigningCertificate($value): array
-    {
-        $reference = trim((string)$value);
-        if ($reference === '') {
-            $method = $this->submittedChoice('openidconnect_token_auth', self::TOKEN_AUTH_METHODS, '');
-            return $method !== 'private_key_jwt' || $this->allowsIncompleteDraft()
-                ? [] : [gettext('A client signing certificate is required for private-key JWT authentication.')];
-        }
-        if (!array_key_exists($reference, static::signingCertificateOptions())) {
-            return [gettext('Select an available certificate that has a private key.')];
-        }
-        try {
-            (new ClientAssertion($this))->assertCertificateUsable($reference, ClientAssertion::ALGORITHMS);
-        } catch (\Throwable $e) {
-            return [gettext('Select a usable RSA or supported elliptic-curve certificate with a private key.')];
-        }
-        return [];
     }
 
     private function submittedButtonTextMode(): string
@@ -3453,10 +3553,14 @@ class OpenIDConnect extends Base implements IAuthConnector
         if ($method === 'private_key_jwt') {
             return $this->signingCertificate() !== '';
         }
+        if (in_array($method, ['tls_client_auth', 'self_signed_tls_client_auth'], true)) {
+            return $this->clientCertificateRef() !== '';
+        }
         if (in_array($method, ['client_secret_basic', 'client_secret_post'], true)) {
             return $this->clientSecret() !== '';
         }
-        return $this->clientSecret() !== '' || $this->signingCertificate() !== '';
+        return $this->clientCertificateRef() !== ''
+            || $this->signingCertificate() !== '' || $this->clientSecret() !== '';
     }
 
     /** @param string[] $advertised @return string[] */
@@ -3468,6 +3572,40 @@ class OpenIDConnect extends Base implements IAuthConnector
         /* Entra omits the RFC 8414 list but documents PS256 for certificate credentials. */
         return $this->providerProfile() === 'entra'
             && $metadataField === 'token_endpoint_auth_signing_alg_values_supported' ? ['PS256'] : [];
+    }
+
+    public function clientCertificateRef(): string
+    {
+        return $this->text('openidconnect_client_certificate');
+    }
+
+    public function retiringClientCertificateRef(): string
+    {
+        return $this->text('openidconnect_retiring_client_certificate');
+    }
+
+    public function acceptsClientCertificateRef(string $reference): bool
+    {
+        return $reference !== '' && (
+            hash_equals($this->clientCertificateRef(), $reference)
+            || ($this->retiringClientCertificateRef() !== ''
+                && hash_equals($this->retiringClientCertificateRef(), $reference))
+        );
+    }
+
+    public function certificateBoundAccessTokens(): bool
+    {
+        return $this->flag('openidconnect_certificate_bound_access_tokens');
+    }
+
+    private function clientSecretIsRequired(): bool
+    {
+        $method = $this->submittedChoice('openidconnect_token_auth', self::TOKEN_AUTH_METHODS, '');
+        return !in_array($method, ['tls_client_auth', 'self_signed_tls_client_auth', 'private_key_jwt'], true)
+            && !($method === '' && (
+                $this->submittedText('openidconnect_client_certificate') !== ''
+                || $this->submittedText('openidconnect_signing_certificate') !== ''
+            ));
     }
 
     public function requestObjectSigningKey(): string
@@ -3499,9 +3637,25 @@ class OpenIDConnect extends Base implements IAuthConnector
     /** A browser sign-in test always uses the saved confidential-client configuration. */
     public function isSignInTestReady(): bool
     {
-        return $this->isWebGuiTransportReady()
-            && $this->issuerUrl() !== '' && $this->clientId() !== ''
-            && $this->hasClientAuthenticationCredential();
+        if (!$this->isWebGuiTransportReady() || $this->issuerUrl() === '' || $this->clientId() === '') {
+            return false;
+        }
+        if (!$this->hasClientAuthenticationCredential()) {
+            return false;
+        }
+        $method = $this->tokenAuthMethod();
+        $needsCertificate = $this->certificateBoundAccessTokens()
+            || in_array($method, ['tls_client_auth', 'self_signed_tls_client_auth'], true)
+            || ($method === null && $this->clientCertificateRef() !== '');
+        if (!$needsCertificate) {
+            return true;
+        }
+        try {
+            ClientCertificate::load($this->clientCertificateRef());
+            return true;
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
     /** Whether OPNsense itself is configured to serve the WebGUI over HTTPS. */

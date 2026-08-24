@@ -65,6 +65,8 @@ require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderSe
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/JwtVerifier.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientAssertion.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientAuthenticator.php';
+require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientCertificate.php';
+require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientAuthentication.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RequestObjectSigner.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/DpopProof.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/DpopKeyStore.php';

@@ -383,6 +383,11 @@ class AuthController extends ApiControllerBase
         $issuer = (string)$this->session->get(SessionGrant::ISSUER);
         $idToken = (string)$this->session->get(SessionGrant::ID_TOKEN);
         $tokens = json_decode((string)$this->session->get(SessionGrant::TOKENS), true) ?: [];
+        $clientAuthentication = json_decode(
+            (string)$this->session->get(SessionGrant::CLIENT_AUTHENTICATION),
+            true
+        );
+        $clientAuthentication = is_array($clientAuthentication) ? $clientAuthentication : null;
         $dpopKey = (string)$this->session->get(SessionGrant::DPOP_KEY);
         $dpopBinding = (string)$this->session->get(SessionGrant::DPOP_BINDING);
 
@@ -406,7 +411,7 @@ class AuthController extends ApiControllerBase
         }
 
         try {
-            $exchange = new RelyingParty($settings, $this);
+            $exchange = new RelyingParty($settings, $this, null, null, null, null, $clientAuthentication);
             /*
              * A server name can be reused for another issuer after this session was
              * created. Never hand grants from the former issuer to endpoints discovered
@@ -665,6 +670,10 @@ class AuthController extends ApiControllerBase
                 'access_token' => (string)$exchange->getAccessToken(),
                 'refresh_token' => (string)$exchange->getRefreshToken(),
             ])));
+            $this->session->set(
+                SessionGrant::CLIENT_AUTHENTICATION,
+                (string)json_encode($exchange->getClientAuthenticationSnapshot())
+            );
         }
 
         syslog(LOG_NOTICE, sprintf('OIDC: %s signed in through %s', $account, $provider));

@@ -421,8 +421,9 @@
         var names = [
             'openidconnect_provider_url', 'openidconnect_app_code', 'openidconnect_provider_profile',
             'openidconnect_microsoft_audience', 'openidconnect_client_id', 'openidconnect_client_secret',
-            'openidconnect_signing_certificate', 'openidconnect_token_auth', 'openidconnect_par_mode',
-            'openidconnect_request_object_key',
+            'openidconnect_signing_certificate', 'openidconnect_token_auth', 'openidconnect_client_certificate',
+            'openidconnect_retiring_client_certificate', 'openidconnect_certificate_bound_access_tokens',
+            'openidconnect_par_mode', 'openidconnect_request_object_key',
             'openidconnect_scopes',
             'openidconnect_response_mode', 'openidconnect_claims_source', 'openidconnect_max_age',
             'openidconnect_select_account', 'openidconnect_required_authentication', 'openidconnect_acr_request',
@@ -440,17 +441,25 @@
         return data;
     }
 
-    function credentialComplete() {
-        var method = field('openidconnect_token_auth').value || '';
-        var secret = field('openidconnect_client_secret').value.trim() !== '';
-        var certificate = field('openidconnect_signing_certificate').value.trim() !== '';
-        if (method === 'private_key_jwt') {
-            return certificate;
-        }
-        if (method === 'client_secret_basic' || method === 'client_secret_post') {
-            return secret;
-        }
-        return secret || certificate;
+    function currentClientFieldsComplete() {
+        var issuer = (field('openidconnect_provider_url') || {}).value || '';
+        var clientId = (field('openidconnect_client_id') || {}).value || '';
+        var method = (field('openidconnect_token_auth') || {}).value || '';
+        var secret = (field('openidconnect_client_secret') || {}).value || '';
+        var certificate = (field('openidconnect_client_certificate') || {}).value || '';
+        var signingCertificate = (field('openidconnect_signing_certificate') || {}).value || '';
+        var boundInput = field('openidconnect_certificate_bound_access_tokens');
+        var bound = boundInput ? $(boundInput).is(':checked') : false;
+        var tlsMethod = method === 'tls_client_auth' || method === 'self_signed_tls_client_auth';
+        var needsCertificate = bound || tlsMethod || (method === '' && certificate.trim() !== '');
+        var needsSigningCertificate = method === 'private_key_jwt'
+            || (method === '' && certificate.trim() === '' && signingCertificate.trim() !== '');
+        var needsSecret = method === 'client_secret_basic' || method === 'client_secret_post'
+            || (method === '' && certificate.trim() === '' && signingCertificate.trim() === '');
+        return issuer.trim() !== '' && clientId.trim() !== ''
+            && (!needsCertificate || certificate.trim() !== '')
+            && (!needsSigningCertificate || signingCertificate.trim() !== '')
+            && (!needsSecret || secret.trim() !== '');
     }
 
     function withDiscoveryTest() {
@@ -505,7 +514,11 @@
         if (submit.length === 0) {
             return;
         }
-        var requiredFields = ['openidconnect_provider_url', 'openidconnect_client_id'];
+        var readinessFields = [
+            'openidconnect_provider_url', 'openidconnect_client_id', 'openidconnect_client_secret',
+            'openidconnect_client_certificate', 'openidconnect_signing_certificate', 'openidconnect_token_auth',
+            'openidconnect_certificate_bound_access_tokens'
+        ];
         var running = false;
         var button = $('<button>')
             .attr({
@@ -553,10 +566,7 @@
                     });
             });
         function complete() {
-            return requiredFields.every(function (name) {
-                var input = field(name);
-                return input && input.value.trim() !== '';
-            }) && credentialComplete();
+            return currentClientFieldsComplete();
         }
 
         function updateAvailability() {
@@ -567,14 +577,12 @@
             button.attr('title', complete()
                 ? (options.healthTestHelp || 'Uses the current form values; saving is not required.')
                 : (options.healthTestIncompleteHelp
-                    || 'Enter Exact issuer URL, Client ID and a Client Secret or signing certificate; saving is not required.'));
+                    || 'Enter Exact issuer URL, Client ID and the selected client credential.'));
         }
 
-        requiredFields.forEach(function (name) {
+        readinessFields.forEach(function (name) {
             $(field(name)).on('input change', updateAvailability);
         });
-        ['openidconnect_client_secret', 'openidconnect_signing_certificate', 'openidconnect_token_auth']
-            .forEach(function (name) { $(field(name)).on('input change', updateAvailability); });
         formActionSection('diagnostics', options.diagnosticsActionsHeading || 'Test and diagnostics')
             .find('.oidc-form-actions').append(button);
         updateAvailability();
@@ -591,7 +599,6 @@
         var savedName = nameInput ? nameInput.value.trim() : '';
         var saved = address.searchParams.get('act') === 'edit'
             && /^\d+$/.test(address.searchParams.get('id') || '') && savedName !== '';
-        var requiredFields = ['openidconnect_provider_url', 'openidconnect_client_id'];
         var savedReady = false;
         var initialized = false;
         var baseline = null;
@@ -644,10 +651,7 @@
                 });
             });
         function currentFieldsComplete() {
-            return requiredFields.every(function (name) {
-                var input = field(name);
-                return input && input.value.trim() !== '';
-            }) && credentialComplete();
+            return currentClientFieldsComplete();
         }
 
         function formState() {
@@ -672,7 +676,6 @@
         function formChanged() {
             return saved && (baseline === null || formState() !== baseline);
         }
-
         function updateAvailability() {
             var changed = formChanged();
             var ready = saved && initialized && !changed && savedReady;
@@ -693,7 +696,7 @@
                     || 'Save a complete secure WebGUI transport configuration before testing sign-in.';
             } else if (!currentFieldsComplete() || !savedReady) {
                 explanation = options.signInTestIncompleteHelp
-                    || 'Complete and save Exact issuer URL, Client ID and a Client Secret or signing certificate before testing sign-in.';
+                    || 'Complete and save the issuer, client ID and selected client credential before testing sign-in.';
             } else {
                 explanation = options.signInTestHelp
                     || 'Runs a complete browser sign-in without changing OPNsense.';

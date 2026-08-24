@@ -15,9 +15,12 @@ defaults below.
 | Provider profile | Generic OpenID Connect | a named provider is available; its preset and diagnostics then apply |
 | Microsoft account audience | One specific Entra tenant; shown only for the Microsoft profile | one button should accept any Entra organization, personal Microsoft accounts, or both |
 | Exact issuer URL | may be empty only while disabled | copy the provider's exact `issuer`, including path and trailing slash, before enabling; a pasted URL ending in `/.well-known/openid-configuration` is accepted and stored without that suffix, while named profiles retain a documented significant trailing slash |
-| Client ID / Client Secret | may be empty only while disabled; a secret is optional with a selected client signing certificate | enter the confidential web application's identifier and its Basic/POST secret before enabling |
+| Client ID / Client Secret | may be empty only while disabled; the secret is unnecessary for mTLS or `private_key_jwt` authentication | enter the confidential web application's identifier and its Basic/POST secret unless a certificate method is selected |
 | Client signing certificate | None | the provider application has the public half of an OPNsense certificate registered for `private_key_jwt` |
-| Authentication method | profile preset, normally Follow the provider | the application was explicitly configured for Basic, POST or `private_key_jwt` and the profile does not already enforce a documented requirement |
+| Client certificate | None | the provider client is registered for RFC 8705 mutual TLS; select an existing certificate with its private key from **System > Trust > Certificates** |
+| Retiring client certificate | None | rotating the active certificate; retain the former certificate until pending logins, sessions and their tokens have expired |
+| Require certificate-bound access tokens | Off | the provider client is registered to receive RFC 8705 certificate-bound tokens and Discovery advertises support |
+| Authentication method | profile preset, normally Follow the provider | the application was explicitly configured for Basic, POST, `private_key_jwt`, PKI mTLS or self-signed mTLS and the profile does not already enforce a documented requirement |
 | Pushed authorization requests | Automatic with availability fallback | use Required when authorization parameters must never pass through the browser, or Disabled for a provider whose optional PAR path is intentionally unreachable; a provider requirement always wins |
 | Request Object signing key | Disabled | select a dedicated OPNsense certificate only after its public key and displayed `kid` have been registered for this client at the provider; a provider requirement always wins |
 | Username claim | `preferred_username` | the provider guide specifies `email`, a vendor claim or a custom mapping |
@@ -84,8 +87,8 @@ Rotate without an authentication gap: create or import the replacement under
 **System > Trust > Certificates**, register that public certificate alongside
 the old one at the provider, select the replacement here, run both tests, and
 only then remove the old provider credential and certificate. OPNsense reads the
-selected certificate on every request, so the saved reference is the rotation
-boundary and no private key is copied into the authentication server.
+selected signing certificate on every request, so no private key is copied into
+the authentication server.
 
 DPoP is negotiated protocol behavior rather than an administrator setting. If
 the selected provider profile documents RFC 9449 access-token support and
@@ -102,6 +105,18 @@ exact issuer and client audience, time and the one-time transaction state, and
 only afterwards processes its code or provider error. Encrypted JARM responses
 are not supported. Register or enable the matching signed authorization-response
 algorithm at the provider before selecting either mode.
+
+Selecting a client certificate while **Authentication method** follows the
+provider negotiates only `tls_client_auth` or
+`self_signed_tls_client_auth`; it never falls back to a shared secret. An
+explicit Basic or POST choice may still use the certificate solely to obtain
+and present certificate-bound tokens. When rotating, move the old active
+certificate to **Retiring client certificate** and select the new active
+certificate in the same save. Remove the retiring reference only after the
+longest pending-login, access-token, refresh-token and WebGUI-session lifetime
+has elapsed. Replacing certificate material under the same OPNsense reference
+does not bypass this rule because each transaction also freezes its SHA-256
+thumbprint.
 
 Unsupported named profiles do not merely hide the setting. Save validation
 rejects a crafted value, and the login path refuses an older or manually edited

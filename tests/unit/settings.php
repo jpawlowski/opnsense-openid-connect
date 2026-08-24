@@ -260,6 +260,47 @@ Checks::that('Entra applies its documented PS256 certificate-credential profile'
     'openidconnect_provider_profile' => 'entra',
 ])->clientAssertionAlgorithms('token_endpoint_auth_signing_alg_values_supported', []), ['PS256']);
 Checks::that('token auth, nonsense value', connector(['openidconnect_token_auth' => 'wobble'])->tokenAuthMethod(), null);
+installClientCertificate('settings-client', 'Settings client');
+installClientCertificate('settings-retiring', 'Settings retiring client');
+$certificateSettings = connector([
+    'openidconnect_client_id' => 'certificate-client',
+    'openidconnect_client_certificate' => 'settings-client',
+    'openidconnect_retiring_client_certificate' => 'settings-retiring',
+    'openidconnect_certificate_bound_access_tokens' => '1',
+    'openidconnect_token_auth' => 'tls_client_auth',
+]);
+$certificateOptions = $certificateSettings->getConfigurationOptions();
+Checks::that('the selected OPNsense client certificate has a typed accessor',
+    $certificateSettings->clientCertificateRef(), 'settings-client');
+Checks::that('the retiring OPNsense certificate has a typed accessor',
+    $certificateSettings->retiringClientCertificateRef(), 'settings-retiring');
+Checks::that('certificate-bound tokens are off unless explicitly requested',
+    connector([])->certificateBoundAccessTokens(), false);
+Checks::that('certificate-bound tokens can be required',
+    $certificateSettings->certificateBoundAccessTokens(), true);
+Checks::that('the form offers PKI mutual TLS as a client authentication method',
+    array_key_exists('tls_client_auth', $certificateOptions['openidconnect_token_auth']['options']), true);
+Checks::that('the form lists only OPNsense certificates with a private key',
+    array_key_exists('settings-client', $certificateOptions['openidconnect_client_certificate']['options']), true);
+Checks::that('an enabled mutual-TLS client needs no client secret',
+    $certificateOptions['openidconnect_client_secret']['validate'](''), []);
+Checks::that('a valid selected client certificate is accepted',
+    $certificateOptions['openidconnect_client_certificate']['validate']('settings-client'), []);
+Checks::that('the active certificate cannot also be the retiring certificate', count(
+    $certificateOptions['openidconnect_retiring_client_certificate']['validate']('settings-client')
+), 1);
+$missingCertificateOptions = connector([
+    'openidconnect_certificate_bound_access_tokens' => '1',
+])->getConfigurationOptions();
+Checks::that('certificate-bound tokens cannot be saved without a selected certificate', count(
+    $missingCertificateOptions['openidconnect_certificate_bound_access_tokens']['validate']('1')
+), 1);
+Checks::that('a complete mutual-TLS client can start a sign-in test', connector([
+    'openidconnect_provider_url' => 'https://id.example.net',
+    'openidconnect_client_id' => 'certificate-client',
+    'openidconnect_client_certificate' => 'settings-client',
+    'openidconnect_token_auth' => 'tls_client_auth',
+])->isSignInTestReady(), true);
 Checks::that('PAR uses availability-aware automatic mode by default', connector([])->parMode(), 'auto');
 Checks::that('PAR can be required', connector(['openidconnect_par_mode' => 'required'])->parMode(), 'required');
 Checks::that('an unknown PAR mode falls back to automatic', connector([
@@ -424,6 +465,9 @@ $installationSpecificFields = [
     'openidconnect_client_id',
     'openidconnect_client_secret',
     'openidconnect_signing_certificate',
+    'openidconnect_client_certificate',
+    'openidconnect_retiring_client_certificate',
+    'openidconnect_certificate_bound_access_tokens',
     'openidconnect_request_object_key',
     'openidconnect_origin_policy',
     'openidconnect_tls_offloading',
@@ -960,13 +1004,31 @@ Checks::that('an enabled private-key JWT client requires a signing certificate',
     $enabledOptions['openidconnect_signing_certificate']['validate']('')
 ), 1);
 unset($_POST['openidconnect_token_auth'], $_POST['openidconnect_signing_certificate']);
+$_POST['openidconnect_token_auth'] = 'tls_client_auth';
+Checks::that('an enabled mutual-TLS method requires a client certificate', count(
+    (new OpenIDConnect())->getConfigurationOptions()['openidconnect_token_auth']['validate']('tls_client_auth')
+), 1);
+$_POST['openidconnect_client_certificate'] = 'settings-client';
+$_POST['openidconnect_certificate_bound_access_tokens'] = '1';
+$submittedMtlsOptions = (new OpenIDConnect())->getConfigurationOptions();
+Checks::that('the fresh core form validator sees a submitted mutual-TLS credential',
+    $submittedMtlsOptions['openidconnect_client_secret']['validate'](''), []);
+Checks::that('the fresh core form validator sees the submitted certificate for bound tokens',
+    $submittedMtlsOptions['openidconnect_certificate_bound_access_tokens']['validate']('1'), []);
 Checks::that('an enabled server following OPNsense needs no duplicate address',
     $enabledOptions['openidconnect_redirect_urls']['validate'](''), []);
 $_POST['openidconnect_origin_policy'] = 'custom';
 Checks::that('an enabled server with a custom policy requires an address', count(
     $enabledOptions['openidconnect_redirect_urls']['validate']('')
 ), 1);
-unset($_POST['type'], $_POST['openidconnect_enabled'], $_POST['openidconnect_origin_policy']);
+unset(
+    $_POST['type'],
+    $_POST['openidconnect_enabled'],
+    $_POST['openidconnect_origin_policy'],
+    $_POST['openidconnect_token_auth'],
+    $_POST['openidconnect_client_certificate'],
+    $_POST['openidconnect_certificate_bound_access_tokens']
+);
 
 \OPNsense\Core\Config::reset();
 \OPNsense\Core\Config::getInstance()->object()->system->webgui = (object)['protocol' => 'http'];

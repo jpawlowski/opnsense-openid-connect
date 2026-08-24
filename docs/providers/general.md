@@ -2,8 +2,8 @@
 
 Complete the [common setup](../setup/README.md) first. Besides the
 provider-specific values below, every connection needs a unique **Application
-code**, confidential **Client ID** and either a **Client Secret** or registered
-client signing certificate. By default, the
+code** and confidential **Client ID** plus a **Client Secret**, a registered
+client signing certificate, or an OPNsense mTLS **Client certificate**. By default, the
 callback address follows the WebGUI name already accepted by OPNsense; a custom
 origin list is needed only for an intentional restriction or unusual proxy.
 
@@ -16,9 +16,14 @@ confidential web client.
 - Enable Authorization Code and disable implicit/password grants.
 - Register the exact callback displayed by OPNsense.
 - Enable PKCE `S256`, `openid` scope, asymmetric ID Token signing and either
-  `client_secret_basic`, `client_secret_post` or `private_key_jwt`. For
-  `private_key_jwt`, publish a supported signing algorithm in Discovery and
-  register the public OPNsense certificate at the client.
+  `client_secret_basic`, `client_secret_post`, `private_key_jwt`,
+  `tls_client_auth` or `self_signed_tls_client_auth`.
+- For `private_key_jwt`, publish a supported signing algorithm in Discovery and
+  register the public OPNsense signing certificate at the client.
+- For RFC 8705, register the selected OPNsense certificate, publish any
+  `mtls_endpoint_aliases`, and advertise
+  `tls_client_certificate_bound_access_tokens=true` before the matching local
+  option is enabled.
 - Publish OIDC Discovery at the standard location. Its `issuer` must exactly
   equal the configured issuer, including trailing slash.
 - When Discovery publishes `pushed_authorization_request_endpoint`, OPNsense
@@ -48,12 +53,15 @@ confidential web client.
 | Authorization response mode | Query; use a signed JARM mode only when the provider advertises and is configured for it |
 | Scopes | `openid,email,profile` |
 | Authentication method | Follow the provider |
+| Client signing certificate | None unless this client is registered for `private_key_jwt` |
+| Client certificate | None unless this client is registered for mutual TLS |
+| Require certificate-bound access tokens | Off unless the provider registration enables them |
 | Pushed authorization requests | Automatic with availability fallback |
 | Request Object signing key | Disabled until its public key and `kid` are registered |
 
 Run discovery. If it does not advertise an asymmetric ID Token algorithm and a
 client authentication method with the metadata needed by that method, this
-confidential-client profile is not compatible.
+profile is not compatible.
 Do not choose a named provider merely to bypass a warning; named profiles never
 weaken protocol checks anyway.
 
@@ -94,6 +102,7 @@ References: [OIDC Core](https://openid.net/specs/openid-connect-core-1_0.html),
 [JAR](https://www.rfc-editor.org/rfc/rfc9101.html),
 [authorization issuer](https://www.rfc-editor.org/rfc/rfc9207.html),
 [token revocation](https://www.rfc-editor.org/rfc/rfc7009.html),
+[OAuth mutual TLS](https://www.rfc-editor.org/rfc/rfc8705.html),
 [RP-initiated logout](https://openid.net/specs/openid-connect-rpinitiated-1_0.html),
 [front-channel logout](https://openid.net/specs/openid-connect-frontchannel-1_0.html),
 [back-channel logout](https://openid.net/specs/openid-connect-backchannel-1_0.html),

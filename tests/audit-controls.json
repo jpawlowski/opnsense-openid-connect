@@ -13,6 +13,7 @@
         "jwt-claim-policy",
         "provider-http-policy",
         "private-key-jwt-client-auth",
+        "mutual-tls-policy",
         "dpop-sender-constraint",
         "userinfo-subject-binding",
         "issuer-bound-logout-grants",
@@ -40,6 +41,8 @@
         "runtime-core-acl",
         "runtime-login-presentation",
         "runtime-transport-policy",
+        "runtime-mtls-client-certificates",
+        "provider-mtls-interoperability",
         "public-provider-discovery"
       ]
     },
@@ -225,33 +228,6 @@
           }
         },
         {
-          "slug": "private-key-jwt-client-auth",
-          "claim": "Private-key JWT client authentication uses a selected OPNsense certificate, endpoint-specific metadata negotiation, short-lived single-use assertions and exact endpoint or PAR issuer audiences without sending a client secret.",
-          "implementation": [
-            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientAssertion.php",
-            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientAuthenticator.php",
-            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderMetadata.php"
-          ],
-          "evidence": {
-            "all_of": [
-              {
-                "tier": "host-independent",
-                "capabilities": ["private-key-jwt-client-auth"],
-                "validation": [
-                  "tests/unit/client-authentication.php",
-                  "tests/unit/exchange.php",
-                  "tests/unit/settings.php"
-                ]
-              },
-              {
-                "tier": "installed-integration",
-                "capabilities": ["runtime-jws-crypto"],
-                "validation": ["tests/integration/opnsense.php"]
-              }
-            ]
-          }
-        },
-        {
           "slug": "provider-http-policy",
           "claim": "Provider communication is HTTPS-only and bounded by media-type, body-size, timeout and redirect rules that refuse credential-bearing redirects.",
           "implementation": [
@@ -307,6 +283,76 @@
                 "tier": "host-independent",
                 "capabilities": ["userinfo-subject-binding"],
                 "validation": ["tests/unit/claims.php", "tests/unit/exchange.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "private-key-jwt-client-auth",
+          "claim": "Private-key JWT client authentication uses a selected OPNsense certificate, endpoint-specific metadata negotiation, short-lived single-use assertions and exact endpoint or PAR issuer audiences without sending a client secret.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientAssertion.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientAuthenticator.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderMetadata.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["private-key-jwt-client-auth"],
+                "validation": [
+                  "tests/unit/client-authentication.php",
+                  "tests/unit/exchange.php",
+                  "tests/unit/settings.php"
+                ]
+              },
+              {
+                "tier": "installed-integration",
+                "capabilities": ["runtime-jws-crypto"],
+                "validation": ["tests/integration/opnsense.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "mutual-tls-client-policy",
+          "claim": "RFC 8705 client authentication and certificate-bound token use prefer validated mTLS endpoint aliases, freeze the selected OPNsense certificate thumbprint, refuse downgrade or mismatch, and retain only an explicit retiring certificate during rotation.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientAuthentication.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientCertificate.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderMetadata.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/HttpClient.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RelyingParty.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["mutual-tls-policy"],
+                "validation": ["tests/unit/exchange.php", "tests/unit/settings.php"]
+              },
+              {
+                "tier": "installed-integration",
+                "capabilities": ["runtime-mtls-client-certificates"],
+                "validation": ["tests/integration/opnsense.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "mutual-tls-provider-interoperability",
+          "claim": "An explicitly configured RFC 8705 provider accepts the installed OPNsense certificate and proves client authentication by returning invalid_grant, rather than invalid_client, for a deliberate one-time test code.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientAuthentication.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientCertificate.php",
+            "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/HttpClient.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "installed-integration",
+                "capabilities": ["provider-mtls-interoperability"],
+                "validation": ["tests/integration/opnsense.php"]
               }
             ]
           }
