@@ -485,7 +485,9 @@ def branch_lag(repository, base_main, base_name):
     )
 
 
-def observe_remote(state, synchronization, pr_max_age=github_watch.PR_REFRESH_TTL):
+def observe_remote(
+    state, synchronization, pr_max_age=github_watch.PR_REFRESH_TTL, require_pr_fresh=False,
+):
     """Update one task's canonical and pull-request view without integrating either."""
     progress = main_progress(
         REPOSITORY, state, synchronization["base_main"], synchronization["base_name"],
@@ -512,7 +514,16 @@ def observe_remote(state, synchronization, pr_max_age=github_watch.PR_REFRESH_TT
     else:
         state["pr_overlap"] = overlap
     pr_refusal = github_watch.remote_head_refusal(REPOSITORY, snapshot)
-    return messages(progress, github_warning, pr_notice, overlap), messages(main_refusal, pr_refusal)
+    freshness_refusal = ""
+    if require_pr_fresh and github_warning:
+        freshness_refusal = (
+            "Fresh GitHub state is unavailable at this publication boundary: "
+            f"{github_warning}. Retry the refresh before publishing or handing off."
+        )
+    return (
+        messages(progress, github_warning, pr_notice, overlap),
+        messages(main_refusal, pr_refusal, freshness_refusal),
+    )
 
 
 def pre_tool_context(message):
@@ -718,6 +729,7 @@ def guard(event):
     }
     notice, refusal = observe_remote(
         state, synchronization, pr_max_age=0 if uncached_remote else github_watch.PR_REFRESH_TTL,
+        require_pr_fresh=uncached_remote,
     )
     save_state(state_path, state)
     if refusal:
@@ -818,7 +830,9 @@ def refresh(event):
     }
     state.setdefault("base_main", synchronization["base_main"])
     state.setdefault("seen_main", synchronization["base_main"])
-    remote_notice, remote_refusal = observe_remote(state, synchronization, pr_max_age=0)
+    remote_notice, remote_refusal = observe_remote(
+        state, synchronization, pr_max_age=0, require_pr_fresh=True,
+    )
     save_state(state_path, state)
     base = synchronization["base_main"][:12] if synchronization["base_main"] else "unavailable"
     if synchronization["warning"]:

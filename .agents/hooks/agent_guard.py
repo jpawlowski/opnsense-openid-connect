@@ -283,7 +283,10 @@ def _read_only_gh(arguments):
 
 
 def _shell_invocation(command):
-    if not command.strip() or re.search(r"[\r\n;&|<>`]", command) or "$(" in command:
+    # The allow-list classifies the literal arguments below. Parameter expansion
+    # would let the shell turn an apparently harmless literal into an executable
+    # option only after that classification has completed.
+    if not command.strip() or re.search(r"[\r\n;&|<>`$]", command):
         return "", []
     try:
         arguments = shlex.split(command)
@@ -294,7 +297,11 @@ def _shell_invocation(command):
     if not arguments:
         return "", []
 
-    program = Path(arguments.pop(0)).name
+    program = arguments.pop(0)
+    # A basename match is not an executable identity: /tmp/git is unrelated to
+    # the trusted git found through the task's controlled PATH.
+    if Path(program).name != program:
+        return "", []
     if program == "env":
         return "", []
     return program, arguments

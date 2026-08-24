@@ -392,11 +392,15 @@ def main():
           guard_module.is_read_only_shell("rg worktree AGENTS.md\nrm tracked-file"), False)
     check("ripgrep preprocessors are not read-only",
           guard_module.is_read_only_shell("rg --pre=rm worktree tracked-file"), False)
+    check("shell expansion cannot manufacture a ripgrep preprocessor option",
+          guard_module.is_read_only_shell("rg ${UNSET:---pre=rm} worktree tracked-file"), False)
     check("ripgrep hostname programs are not read-only",
           guard_module.is_read_only_shell("rg --hostname-bin sh worktree AGENTS.md"), False)
     check("environment overrides cannot alter an allow-listed program",
           guard_module.is_read_only_shell("RIPGREP_CONFIG_PATH=config rg worktree AGENTS.md"), False)
     check("Git status is read-only", guard_module.is_read_only_shell("git status --short"), True)
+    check("a path-qualified look-alike Git executable is not trusted",
+          guard_module.is_read_only_shell("/tmp/git status --short"), False)
     check("Git grep cannot launch a pager command",
           guard_module.is_read_only_shell("git grep --open-files-in-pager=rm needle"), False)
     check("Git diff cannot launch an external diff helper",
@@ -524,7 +528,7 @@ def main():
             "base_main": "base", "old_base": "base", "base_name": "origin/main",
             "warning": "", "remote_available": True, "execution": "local",
         }
-        hook.observe_remote = lambda state, synchronization, pr_max_age=None: ("", "")
+        hook.observe_remote = lambda state, synchronization, **_keywords: ("", "")
         state = root / "guard-state.json"
         hook.state_paths = lambda event: (state, state.with_suffix(".log"))
         emitted = []
@@ -745,6 +749,30 @@ def main():
         )
         check("a fresh task-local PR snapshot is reused", len(calls), first_calls)
         check("the cached snapshot keeps its current pull request", cached["current"]["number"], 1)
+        def failed_reader(_repository, _path, _token):
+            raise ValueError("temporary GitHub failure")
+
+        stale, warning = watch.refresh(
+            repository, repository / ".git", "jpawlowski/opnsense-openid-connect",
+            max_age=0, now=12, reader=failed_reader,
+        )
+        check("a failed refresh identifies its cached snapshot as stale",
+              (stale["current"]["number"], warning), (1, "temporary GitHub failure"))
+
+        publication_hook = load_hook()
+        publication_hook.REPOSITORY = repository
+        publication_hook.github_watch.refresh = lambda *_arguments, **_keywords: (
+            stale, "temporary GitHub failure",
+        )
+        _notice, refusal = publication_hook.observe_remote(
+            {"base_main": head, "seen_main": head},
+            {
+                "base_main": head, "base_name": "origin/main", "remote_available": True,
+            },
+            pr_max_age=0, require_pr_fresh=True,
+        )
+        check("a stale GitHub snapshot blocks a publication boundary",
+              "Fresh GitHub state is unavailable" in refusal, True)
         tree = subprocess.run(("git", "rev-parse", "HEAD^{tree}"), cwd=repository, check=True,
                               capture_output=True, text=True).stdout.strip()
         foreign = subprocess.run(("git", "commit-tree", tree, "-p", head, "-m", "test: foreign"),
@@ -968,7 +996,7 @@ def main():
             "execution": "local",
         }
         hook.state_paths = lambda event: (state, state.with_suffix(".log"))
-        hook.observe_remote = lambda task_state, synchronization, pr_max_age=0: ("", "")
+        hook.observe_remote = lambda task_state, synchronization, **_keywords: ("", "")
         emitted = []
         hook.emit = emitted.append
         hook.refresh({})
