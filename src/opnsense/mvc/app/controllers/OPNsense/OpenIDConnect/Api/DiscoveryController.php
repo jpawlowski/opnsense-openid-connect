@@ -8,6 +8,7 @@
 namespace OPNsense\OpenIDConnect\Api;
 
 use OPNsense\Auth\OpenIDConnect;
+use OPNsense\OpenIDConnect\ClientAuthentication;
 use OPNsense\OpenIDConnect\HttpClient;
 use OPNsense\OpenIDConnect\JwtVerifier;
 use OPNsense\OpenIDConnect\ParClient;
@@ -39,18 +40,16 @@ class DiscoveryController extends PrivateApiControllerBase
             /* This explicit diagnostic must not let an old cache hide a broken live path. */
             $metadata = ProviderMetadata::discover($given, $http, $template, true, false);
             $responseMode = (string)$this->request->getPost('response_mode', null, 'query');
-            $tokenAuth = (string)$this->request->getPost('token_auth', null, '');
             $claimsSource = (string)$this->request->getPost('claims_source', null, 'auto');
             $responseMode = in_array($responseMode, OpenIDConnect::RESPONSE_MODES, true) ? $responseMode : 'query';
-            $tokenAuth = in_array($tokenAuth, array_merge(OpenIDConnect::TOKEN_AUTH_METHODS, ['']), true)
-                ? $tokenAuth : '';
             $claimsSource = in_array($claimsSource, OpenIDConnect::CLAIMS_SOURCES, true)
                 ? $claimsSource : 'auto';
+            $settings = $this->currentSettings($given);
             $checks = $this->checks(
                 $metadata,
+                $settings,
                 $profile,
                 $responseMode,
-                $tokenAuth,
                 $claimsSource
             );
             try {
@@ -70,7 +69,6 @@ class DiscoveryController extends PrivateApiControllerBase
                 );
             }
 
-            $settings = $this->currentSettings($given);
             $checks[] = $this->requestObjectCheck($settings, $metadata);
             $checks[] = $this->parCheck($settings, $metadata, $http);
             $warnings = count(array_filter(
@@ -105,9 +103,9 @@ class DiscoveryController extends PrivateApiControllerBase
     /** @return array<int,array{label:string,value:string,status:string,note:string}> */
     private function checks(
         ProviderMetadata $metadata,
+        OpenIDConnect $settings,
         string $profile,
         string $responseMode,
-        string $tokenAuth,
         string $claimsSource
     ): array
     {
@@ -122,15 +120,24 @@ class DiscoveryController extends PrivateApiControllerBase
             $metadata->authorizationResponseSigningAlgorithms(),
             JwtVerifier::ALGORITHMS
         ));
-        $authMethods = array_values(array_intersect(
-            $list($metadata->get('token_endpoint_auth_methods_supported', ['client_secret_basic'])),
-            OpenIDConnect::TOKEN_AUTH_METHODS
-        ));
+        $authProblem = null;
+        try {
+            if ($settings->clientId() === '') {
+                throw new \RuntimeException(gettext('Enter the client ID before testing client authentication.'));
+            }
+            $authentication = ClientAuthentication::negotiate($settings, $metadata);
+            if (in_array($authentication->method(), ['client_secret_basic', 'client_secret_post'], true)
+                && $settings->clientSecret() === '') {
+                throw new \RuntimeException(
+                    gettext('Enter the client secret required by the selected authentication method.')
+                );
+            }
+            $authMethods = [$authentication->method()];
+        } catch (\Throwable $e) {
+            $authMethods = [];
+            $authProblem = $e->getMessage();
+        }
         $responseModes = $list($metadata->get('response_modes_supported', []));
-        $advertisedAuth = $list($metadata->get(
-            'token_endpoint_auth_methods_supported',
-            ['client_secret_basic']
-        ));
         $pkceAdvertised = in_array(
             'S256',
             $list($metadata->get('code_challenge_methods_supported', [])),
@@ -188,7 +195,7 @@ class DiscoveryController extends PrivateApiControllerBase
                 implode(', ', $authMethods) ?: gettext('None supported'),
                 $authMethods === [] ? 'warning' : 'success',
                 $authMethods === []
-                    ? gettext('No supported token endpoint authentication method is advertised.')
+                    ? ($authProblem ?? gettext('No usable token endpoint authentication method is available.'))
                     : gettext('At least one confidential-client authentication method is usable.')
             ),
             $this->check(
@@ -250,15 +257,16 @@ class DiscoveryController extends PrivateApiControllerBase
             );
         }
 
+        $tokenAuth = $settings->tokenAuthMethod() ?? '';
         $selectedAuth = $tokenAuth === '' ? gettext('Follow the provider') : $tokenAuth;
-        $selectedAuthUsable = $tokenAuth === '' ? $authMethods !== [] : in_array($tokenAuth, $advertisedAuth, true);
+        $selectedAuthUsable = $authMethods !== [];
         $checks[] = $this->check(
             gettext('Selected authentication method'),
             $selectedAuth,
             $selectedAuthUsable ? 'success' : 'warning',
             $selectedAuthUsable
                 ? gettext('The configured choice can use the provider metadata.')
-                : gettext('The selected client authentication method is not advertised.')
+                : ($authProblem ?? gettext('The selected client authentication method is not usable.'))
         );
 
         $checks[] = $this->check(
