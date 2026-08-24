@@ -265,6 +265,16 @@ Checks::that('the retry uses the server nonce', $tokenProofs[1]['claims']['nonce
 Checks::that('the retry never replays the challenged proof',
     $tokenProofs[0]['claims']['jti'] !== $tokenProofs[1]['claims']['jti'], true);
 Checks::that('a DPoP token type is accepted after a DPoP request', $issuedTokens['token_type'], 'DPoP');
+Checks::that(
+    'a DPoP access token is serialized only as one token68 credential',
+    inspect($tokenParty, 'dpopAuthorization', 'AZaz09-._~+/=='),
+    'Authorization: DPoP AZaz09-._~+/=='
+);
+Checks::throws(
+    'a DPoP access token that cannot be serialized safely is refused',
+    fn() => inspect($tokenParty, 'dpopAuthorization', 'token with space'),
+    'cannot be used as a DPoP token'
+);
 $laterTokens = inspect($tokenParty, 'exchangeCode', 'later-code', 'later-verifier');
 Checks::that('a later request cannot omit a nonce the server already supplied',
     $tokenProofs[2]['claims']['nonce'], 'token-nonce');

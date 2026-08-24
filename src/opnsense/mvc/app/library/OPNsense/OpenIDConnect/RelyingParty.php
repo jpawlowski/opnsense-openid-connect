@@ -24,6 +24,14 @@ class RelyingParty
     private const TOKEN_MAX_BYTES = 1048576;
     private const USERINFO_MAX_BYTES = 1048576;
     private const FRONT_CHANNEL_TOKEN_FIELDS = ['access_token', 'id_token', 'token_type', 'expires_in'];
+    private const TOKEN_RESPONSE_FIELDS = [
+        'access_token' => true,
+        'token_type' => true,
+        'expires_in' => true,
+        'refresh_token' => true,
+        'scope' => true,
+        'id_token' => true,
+    ];
     private const PROTOCOL_CLAIMS = [
         'iss', 'aud', 'exp', 'iat', 'nbf', 'jti', 'nonce', 'at_hash', 'c_hash',
         'azp', 'sid', 'typ', 'auth_time', 'acr', 'acrs', 'amr',
@@ -171,11 +179,15 @@ class RelyingParty
         if ($authenticationRequirement !== null) {
             $transaction['authentication_requirement'] = $authenticationRequirement->toArray();
         }
+        $scopes = implode(' ', $this->settings->scopes());
+        if (!preg_match('/^[\x21\x23-\x5B\x5D-\x7E]+(?: [\x21\x23-\x5B\x5D-\x7E]+)*$/D', $scopes)) {
+            throw new ProtocolException('The configured OAuth scopes are not valid scope tokens');
+        }
         $parameters = [
             'response_type' => 'code',
             'client_id' => $this->settings->clientId(),
             'redirect_uri' => $this->redirectUri,
-            'scope' => implode(' ', $this->settings->scopes()),
+            'scope' => $scopes,
             'state' => $state,
             'nonce' => $nonce,
             'code_challenge' => $challenge,
@@ -276,17 +288,13 @@ class RelyingParty
             'client_id' => $this->settings->clientId(),
             'request_uri' => $requestUri,
         ];
-        $separator = str_contains($metadata->authorizationEndpoint(), '?') ? '&' : '?';
-        return $metadata->authorizationEndpoint() . $separator
-            . http_build_query($browserParameters, '', '&', PHP_QUERY_RFC3986);
+        return HttpClient::appendQueryParameters($metadata->authorizationEndpoint(), $browserParameters);
     }
 
     /** @param array<string,string> $parameters */
     private function directAuthorizationUrl(ProviderMetadata $metadata, array $parameters): string
     {
-        $separator = str_contains($metadata->authorizationEndpoint(), '?') ? '&' : '?';
-        return $metadata->authorizationEndpoint() . $separator
-            . http_build_query($parameters, '', '&', PHP_QUERY_RFC3986);
+        return HttpClient::appendQueryParameters($metadata->authorizationEndpoint(), $parameters);
     }
 
     /** @param array<string,mixed> $parameters @return array<string,mixed> */
@@ -422,7 +430,6 @@ class RelyingParty
             'grant_type' => 'authorization_code',
             'code' => $code,
             'redirect_uri' => $this->redirectUri,
-            'client_id' => $this->settings->clientId(),
             'code_verifier' => $verifier,
         ];
         $headers = ['Accept: application/json'];
@@ -433,14 +440,14 @@ class RelyingParty
             ? $this->http->postForm($endpoint, $fields, self::TOKEN_MAX_BYTES, $headers)
             : $this->dpopRequest('POST', $endpoint, $fields, $headers, self::TOKEN_MAX_BYTES);
         if ($response->status !== 200) {
-            throw new ProtocolException(sprintf('The token endpoint returned HTTP %d', $response->status));
+            throw new ProtocolException($this->tokenEndpointError($response));
         }
         if ($response->contentType !== 'application/json') {
             throw new ProtocolException('The token endpoint did not return application/json');
         }
         $tokens = $response->jsonObject();
-        if (count($tokens) > 32) {
-            throw new ProtocolException('The token endpoint returned too many fields');
+        if (array_key_exists('error', $tokens)) {
+            throw new ProtocolException($this->tokenEndpointError($response));
         }
         foreach (['id_token', 'access_token', 'refresh_token'] as $tokenName) {
             if (isset($tokens[$tokenName])
@@ -450,20 +457,55 @@ class RelyingParty
                 throw new ProtocolException(sprintf('The token endpoint returned an invalid %s', $tokenName));
             }
         }
-        if (isset($tokens['access_token']) && !isset($tokens['token_type'])) {
+        if (!isset($tokens['access_token'])) {
+            throw new ProtocolException('The token endpoint returned no access token');
+        }
+        if (!isset($tokens['token_type'])) {
             throw new ProtocolException('The token endpoint omitted the access token type');
         }
         $expectedType = $this->dpop === null ? 'Bearer' : 'DPoP';
-        if (isset($tokens['token_type'])
-            && (!is_string($tokens['token_type']) || strcasecmp($tokens['token_type'], $expectedType) !== 0)) {
+        if (!is_string($tokens['token_type']) || strcasecmp($tokens['token_type'], $expectedType) !== 0) {
             if ($this->dpop !== null && is_string($tokens['token_type'])
                 && strcasecmp($tokens['token_type'], 'Bearer') === 0) {
                 throw new ProtocolException('The token endpoint downgraded a DPoP request to a bearer token');
             }
             throw new ProtocolException('The token endpoint returned an unsupported token type');
         }
+        if ($this->dpop === null) {
+            self::bearerAuthorization($tokens['access_token']);
+        } else {
+            self::dpopAuthorization($tokens['access_token']);
+        }
+        if (array_key_exists('expires_in', $tokens)) {
+            $lifetime = $tokens['expires_in'];
+            if ((!is_int($lifetime) && !is_float($lifetime)) || !is_finite((float)$lifetime) || $lifetime < 0) {
+                throw new ProtocolException('The token endpoint returned an invalid access token lifetime');
+            }
+        }
+        if (array_key_exists('scope', $tokens) && (!is_string($tokens['scope'])
+            || !preg_match('/^[\x21\x23-\x5B\x5D-\x7E]+(?: [\x21\x23-\x5B\x5D-\x7E]+)*$/D', $tokens['scope']))) {
+            throw new ProtocolException('The token endpoint returned an invalid access token scope');
+        }
 
-        return $tokens;
+        /* RFC 6749 requires clients to ignore extension response names. Keeping only the
+         * fields this RP consumes also prevents an unreviewed value from reaching session state. */
+        return array_intersect_key($tokens, self::TOKEN_RESPONSE_FIELDS);
+    }
+
+    private function tokenEndpointError(HttpResponse $response): string
+    {
+        if ($response->contentType === 'application/json') {
+            try {
+                $answer = $response->jsonObject();
+                $error = $answer['error'] ?? null;
+                if (is_string($error) && preg_match('/^[A-Za-z0-9_.-]{1,80}$/D', $error)) {
+                    return 'The token endpoint declined the request (' . $error . ')';
+                }
+            } catch (ProtocolException $e) {
+                /* The status remains useful; an untrusted error body never belongs in the log. */
+            }
+        }
+        return sprintf('The token endpoint returned HTTP %d', $response->status);
     }
 
     /** @param array<string,string> $fields @param string[] $headers */
@@ -477,6 +519,7 @@ class RelyingParty
             return;
         }
         if ($method === 'client_secret_post') {
+            $fields['client_id'] = $this->settings->clientId();
             $fields['client_secret'] = $this->settings->clientSecret();
             return;
         }
@@ -540,7 +583,7 @@ class RelyingParty
             throw new ProtocolException('A DPoP-bound access token has no proof key');
         }
         $headers = [
-            'Authorization: ' . ($dpop ? 'DPoP' : 'Bearer') . ' ' . $accessToken,
+            $dpop ? self::dpopAuthorization($accessToken) : self::bearerAuthorization($accessToken),
             'Accept: application/json, application/jwt',
         ];
         $response = $dpop
@@ -564,6 +607,22 @@ class RelyingParty
             throw new ProtocolException('UserInfo did not return application/json or application/jwt');
         }
         return $response->jsonObject();
+    }
+
+    private static function bearerAuthorization(string $accessToken): string
+    {
+        if (!preg_match('/^[A-Za-z0-9._~+\/-]+=*$/D', $accessToken)) {
+            throw new ProtocolException('The provider returned an access token that cannot be used as a bearer token');
+        }
+        return 'Authorization: Bearer ' . $accessToken;
+    }
+
+    private static function dpopAuthorization(string $accessToken): string
+    {
+        if (!preg_match('/^[A-Za-z0-9._~+\/-]+=*$/D', $accessToken)) {
+            throw new ProtocolException('The provider returned an access token that cannot be used as a DPoP token');
+        }
+        return 'Authorization: DPoP ' . $accessToken;
     }
 
     /** @param array<string,mixed> $claims @return array<string,mixed> */
@@ -639,8 +698,7 @@ class RelyingParty
             HttpClient::assertHttpsUrl($returnTo);
             $parameters['post_logout_redirect_uri'] = $returnTo;
         }
-        $separator = str_contains($endpoint, '?') ? '&' : '?';
-        $this->response->redirect($endpoint . $separator . http_build_query($parameters, '', '&', PHP_QUERY_RFC3986));
+        $this->response->redirect(HttpClient::appendQueryParameters($endpoint, $parameters));
     }
 
     public function ownOrigin(): string { return (string)static::originOf($this->redirectUri); }
