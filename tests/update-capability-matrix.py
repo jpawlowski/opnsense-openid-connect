@@ -301,6 +301,13 @@ def validate_live_evidence_record(provider, feature_id, status, record, root=ROO
         raise CatalogError(
             f"{label}: provider_revision must be a safe version, release, service date or commit identifier"
         )
+    if provider_revision.startswith("service:"):
+        service_date = provider_revision.removeprefix("service:")
+        try:
+            if datetime.date.fromisoformat(service_date).isoformat() != service_date:
+                raise ValueError
+        except ValueError as error:
+            raise CatalogError(f"{label}: service revision must contain a real YYYY-MM-DD date") from error
     relative, artifact_path = repository_file(record.get("artifact"), label, root)
     if relative.parent != PROVIDER_EVIDENCE_DIRECTORY or relative.suffix != ".json":
         raise CatalogError(f"{label}: live evidence artifact must be a JSON file in tests/evidence")
@@ -324,19 +331,19 @@ def validate_live_evidence_record(provider, feature_id, status, record, root=ROO
         raise CatalogError(f"{label}: artifact is not bound to the provider, revision and test date")
     validate_safe_configuration(provider, feature_id, artifact.get("configuration"))
     results = artifact.get("results")
-    if not isinstance(results, list):
-        raise CatalogError(f"{label}: artifact must contain provider capability results")
-    matches = [result for result in results if isinstance(result, dict) and result.get("feature") == feature_id]
-    if len(matches) != 1 or matches[0].get("status") != status:
+    if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict):
+        raise CatalogError(f"{label}: artifact must contain exactly one provider capability result")
+    result = results[0]
+    if result.get("feature") != feature_id or result.get("status") != status:
         raise CatalogError(f"{label}: artifact does not prove this capability status")
     result_fields = {"feature", "status", "adaptation"} if status == "adapter" else {"feature", "status"}
-    if set(matches[0]) != result_fields:
+    if set(result) != result_fields:
         raise CatalogError(f"{label}: capability result contains fields outside the publishable schema")
     if status == "adapter":
         adaptation = provider.get("adaptations", {}).get(feature_id)
         if not isinstance(adaptation, str) or not adaptation.strip():
             raise CatalogError(f"{label}: adapter status must name the deviation")
-        if matches[0].get("adaptation") != adaptation:
+        if result.get("adaptation") != adaptation:
             raise CatalogError(f"{label}: artifact is not bound to the named provider adaptation")
 
 

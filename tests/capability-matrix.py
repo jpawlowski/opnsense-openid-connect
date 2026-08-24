@@ -241,6 +241,14 @@ def main():
         lambda: matrix.validate_live_evidence_record(provider, "login", "live", malformed_revision)
     ), True)
 
+    impossible_service_revision = copy.deepcopy(dated_record)
+    impossible_service_revision["provider_revision"] = "service:2026-02-30"
+    check("a live record rejects an impossible hosted-service date", refused(
+        lambda: matrix.validate_live_evidence_record(
+            provider, "login", "live", impossible_service_revision
+        )
+    ), True)
+
     arbitrary_artifact = copy.deepcopy(dated_record)
     arbitrary_artifact["artifact"] = "LICENSE"
     check("an arbitrary existing file cannot prove live interoperability", refused(
@@ -277,6 +285,14 @@ def main():
                 provider, "login", "live", dated_record, evidence_root
             )
         ), False)
+        artifact["results"].append({"access_token": "must-not-be-retained"})
+        retained_artifact(evidence_root, artifact)
+        check("an unvalidated extra result cannot travel with live evidence", refused(
+            lambda: matrix.validate_live_evidence_record(
+                provider, "login", "live", dated_record, evidence_root
+            )
+        ), True)
+        artifact["results"] = [{"feature": "login", "status": "live"}]
         artifact["configuration"]["client_secret"] = "must-not-be-retained"
         retained_artifact(evidence_root, artifact)
         check("a retained configuration rejects sensitive or unknown fields", refused(
