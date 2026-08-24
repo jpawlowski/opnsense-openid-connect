@@ -249,6 +249,11 @@ def main():
           "/var/lib/php/tmp/opnsense_acl_cache.json" in install)
     check("uninstalling invalidates core's pluggable ACL cache",
           "/var/lib/php/tmp/opnsense_acl_cache.json" in deinstall)
+    cron_restart = "/usr/local/sbin/pluginctl -s cron restart"
+    check("installing activates the bundled cron jobs",
+          install.rstrip().endswith(cron_restart))
+    check("uninstalling drops the bundled cron jobs from the running daemon",
+          deinstall.rstrip().endswith(cron_restart))
     check("uninstalling takes the watchdog's anchor with it",
           "/var/db/openid-connect" in deinstall)
     check("uninstalling takes provider cache and circuit state with it",

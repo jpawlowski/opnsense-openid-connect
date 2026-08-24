@@ -71,7 +71,7 @@ EXTRA = [
 # again on the next run and the only cost is one line in the log.
 POST_INSTALL = """\
 rm -f /var/lib/php/tmp/opnsense_acl_cache.json /tmp/opnsense_acl_cache.json
-exit 0
+/usr/local/sbin/pluginctl -s cron restart
 """
 
 POST_DEINSTALL = """\
@@ -85,7 +85,7 @@ rm -f /var/lib/php/sessions/.openidconnect-security-events
 rm -f /var/lib/php/sessions/.openidconnect-transactions
 rm -f /var/lib/php/sessions/.openidconnect-pending-identities
 rmdir /var/db/openid-connect 2>/dev/null
-exit 0
+/usr/local/sbin/pluginctl -s cron restart
 """
 
 COMMENT = "OpenID Connect sign-in for the OPNsense web interface"

@@ -197,18 +197,19 @@ core/login-page compatibility check.
 
 `/usr/local/sbin/openid-connect-watch`, nightly at 03:01 through
 `/usr/local/etc/cron.d/openid-connect.cron`. That is the way the OPNsense
-plugins which schedule anything schedule it, and `cron(8)` reads the directory
-by itself — no restart, and nothing to switch on. `periodic(8)` would be the
-other way and was the way this started, but neither the core package nor any
-plugin puts anything under `/usr/local/etc/periodic`, so whether it runs at all
-depends on base defaults nobody here maintains.
+plugins which schedule anything schedule it. The package restarts `cron(8)`
+after installation and removal so the running daemon immediately sees the
+directory change; there is nothing for an operator to switch on. `periodic(8)`
+would be the other way and was the way this started, but neither the core
+package nor any plugin puts anything under `/usr/local/etc/periodic`, so whether
+it runs at all depends on base defaults nobody here maintains.
 
 It checks two things, and the order is deliberate:
 
 1. **Live probe** — the login page is actually fetched and checked for the
    form, the SSO button, a clean closing tag and PHP errors. This is the check
    that matters.
-2. **Fingerprint** — a `sha256` over the 26 core files this module hangs
+2. **Fingerprint** — a `sha256` over the 27 core files this module hangs
    off. If it differs, the ground has moved.
 
 A mere version change deliberately triggers nothing: OPNsense moves often
