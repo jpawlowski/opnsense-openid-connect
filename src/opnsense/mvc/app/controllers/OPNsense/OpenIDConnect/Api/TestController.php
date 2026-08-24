@@ -56,8 +56,7 @@ class TestController extends PrivateApiControllerBase
             $preflight = (new AuthorizationPreflight($http))->check(
                 $settings,
                 $metadata,
-                RelyingParty::acceptedRedirectUri($settings, $this->request),
-                false
+                RelyingParty::acceptedRedirectUri($settings, $this->request)
             );
             if ($preflight['status'] === 'error') {
                 throw new \RuntimeException($preflight['note']);

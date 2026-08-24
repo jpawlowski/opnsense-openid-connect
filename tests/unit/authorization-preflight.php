@@ -96,6 +96,8 @@ $parCovered = (new AuthorizationPreflight(new HttpClient(static function () use 
     return [];
 })))->check($parSettings, $parMetadata, $preflightCallback);
 Checks::that('health lets authenticated PAR cover the same registration', $parCovered['verification'], 'skipped');
+Checks::that('a registration delegated to the live PAR row is ready rather than indeterminate',
+    $parCovered['status'], 'success');
 Checks::that('the reduced authorization request is not duplicated beside PAR', $parRequests, 0);
 
 $specializedRequests = 0;
@@ -117,6 +119,8 @@ $signedCovered = (new AuthorizationPreflight($specializedTransport))->check(
 );
 Checks::that('a selected signed Request Object is never replaced by an unsigned probe',
     $signedCovered['verification'], 'skipped');
+Checks::that('a signed browser-only registration remains explicitly unchecked here',
+    $signedCovered['status'], 'info');
 $formPostSettings = connector([
     'openidconnect_provider_url' => $preflightIssuer,
     'openidconnect_client_id' => 'current-client',

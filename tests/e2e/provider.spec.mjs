@@ -193,7 +193,7 @@ async function configureServer(page) {
   ));
   await page.getByRole('button', { name: 'Test discovery' }).click();
   expect((await discovery).ok()).toBeTruthy();
-  await expect(page.getByRole('dialog').locator('.oidc-discovery-result .alert-success')).toBeVisible();
+  await expect(page.getByRole('dialog').locator('.oidc-probe-summary .label-success')).toBeVisible();
   await page.getByRole('dialog').getByRole('button', { name: '×' }).click();
   await page.locator('input[name="openidconnect_enabled"]').check();
   await page.getByRole('button', { name: 'Save' }).click();

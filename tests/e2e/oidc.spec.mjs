@@ -106,6 +106,20 @@ async function configureServer(page) {
   await selectNative(page.locator('select[name="type"]'), 'openidconnect');
   await expect(page.locator('input[name="openidconnect_provider_url"]')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Connection health' })).toBeDisabled();
+  await expect(page.locator('[data-oidc-action-section="diagnostics"]')).toBeVisible();
+  await expect(page.locator('[data-oidc-action-section="identities"]')).toBeVisible();
+  await expect(page.locator('[data-oidc-action-section="provider-setup"]')).toBeHidden();
+  expect(await page.evaluate(() => {
+    const sections = document.querySelector('.oidc-action-sections');
+    const save = document.querySelector('#submit');
+    return Boolean(sections && save
+      && (sections.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING));
+  })).toBe(true);
+  const diagnosticButtons = page.locator('[data-oidc-action-section="diagnostics"] button:visible');
+  await expect(diagnosticButtons).toHaveCount(3);
+  expect(new Set((await diagnosticButtons.evaluateAll(buttons => (
+    buttons.map(button => Math.round(button.getBoundingClientRect().top))
+  )))).size).toBe(1);
   await expect(page.locator('.oidc-endpoints')).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('input[name="openidconnect_tls_offloading"]')
     .locator('xpath=ancestor::tr')).toBeHidden();
@@ -222,6 +236,10 @@ async function configureServer(page) {
     .toHaveAttribute('readonly', 'readonly');
   await selectNative(page.locator('select[name="openidconnect_provider_profile"]'), 'keycloak');
   await expect(microsoftAudience.locator('xpath=ancestor::tr')).toBeHidden();
+  const providerSetupSection = page.locator('[data-oidc-action-section="provider-setup"]');
+  await expect(providerSetupSection).toBeVisible();
+  const setupChannel = providerSetupSection.locator('select');
+  expect(await setupChannel.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThan(35);
   await expect(page.locator('input[name="openidconnect_provider_url"]')).toHaveValue('');
   await expect(page.locator('select[name="openidconnect_origin_policy"]')).toHaveValue('opnsense');
   await expect(page.locator('input[name="openidconnect_redirect_urls"]').locator('xpath=ancestor::tr')).toBeVisible();
@@ -413,7 +431,7 @@ async function configureServer(page) {
   await page.locator('input[name="openidconnect_provider_url"]')
     .fill(`${issuer}/.well-known/openid-configuration`);
   await expect(signInTestButton).toBeDisabled();
-  await expect(page.locator('.oidc-signin-help')).toContainText('Save or revert your changes');
+  await expect(signInTestButton).toHaveAttribute('title', /Save or revert your changes/);
   const refusedTestResponsePromise = page.waitForResponse(response => (
     new URL(response.url()).pathname === '/api/openidconnect/test/start'
   ));
@@ -438,7 +456,7 @@ async function configureServer(page) {
   expectPrivateResponseHeaders(await draftDiscoveryResponsePromise);
   let dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('Enter Client ID and Client Secret');
-  await expect(dialog.locator('tr[data-verification="not-tested"]').first()).toBeVisible();
+  await expect(dialog.locator('.oidc-probe-check[data-verification="not-tested"]').first()).toBeVisible();
   await dialog.getByRole('button', { name: '×' }).click();
 
   await page.locator('input[name="openidconnect_client_id"]').fill(process.env.E2E_KEYCLOAK_CLIENT_ID);
@@ -474,10 +492,10 @@ async function configureServer(page) {
   await expect(dialog).toContainText('Client configuration');
   await expect(dialog).toContainText('WebGUI transport');
   await expect(dialog).toContainText('Client credentials');
-  await expect(dialog.locator('tr[data-verification="live"]').first()).toBeVisible();
-  await expect(dialog.locator('tr[data-verification="metadata"]').first()).toBeVisible();
-  await expect(dialog.locator('tr[data-verification="configuration"]').first()).toBeVisible();
-  await expect(dialog.locator('tr[data-verification="not-tested"]').first()).toBeVisible();
+  await expect(dialog.locator('.oidc-probe-check[data-verification="live"]').first()).toBeVisible();
+  await expect(dialog.locator('.oidc-probe-check[data-verification="metadata"]').first()).toBeVisible();
+  await expect(dialog.locator('.oidc-probe-check[data-verification="configuration"]').first()).toBeVisible();
+  await expect(dialog.locator('.oidc-probe-check[data-verification="not-tested"]').first()).toBeVisible();
   await dialog.getByRole('button', { name: '×' }).click();
 
   const discoveryResponsePromise = page.waitForResponse(response => (
@@ -487,18 +505,18 @@ async function configureServer(page) {
   expectPrivateResponseHeaders(await discoveryResponsePromise);
   await expect(page.locator('input[name="openidconnect_provider_url"]')).toHaveValue(issuer);
   dialog = page.getByRole('dialog');
-  await expect(dialog.locator('.oidc-discovery-result .alert-success')).toBeVisible();
+  await expect(dialog.locator('.oidc-probe-summary .label-success')).toBeVisible();
   await expect(dialog.locator('.oidc-discovery-results')).toBeVisible();
-  await expect(dialog.locator('.oidc-discovery-results tbody tr')).toHaveCount(18);
-  await expect(dialog.locator('.oidc-check-flow')).toHaveCount(18);
-  await expect(dialog.locator('.oidc-check-flow[aria-label]')).toHaveCount(18);
+  await expect(dialog.locator('.oidc-probe-check')).toHaveCount(17);
+  await expect(dialog.locator('.oidc-check-flow')).toHaveCount(17);
+  await expect(dialog.locator('.oidc-check-flow[aria-label]')).toHaveCount(17);
   await expect(dialog.locator('.oidc-check-actor')).not.toHaveCount(0);
   await expect(dialog.locator('.oidc-check-actor i[aria-hidden="true"]')).not.toHaveCount(0);
-  await expect(dialog.locator('th > div').filter({ hasText: /\(.*(?:OPNsense|Browser|IdP).*\)/ }))
+  await expect(dialog.locator('th').filter({ hasText: /(?:OPNsense|Browser|IdP)/ }))
     .toHaveCount(0);
-  const resultSemantics = await dialog.locator('.oidc-discovery-results tbody tr').evaluateAll(rows => (
+  const resultSemantics = await dialog.locator('.oidc-probe-check').evaluateAll(rows => (
     Object.fromEntries(rows.map(row => [
-      row.querySelector('th > div:first-child').textContent.trim(),
+      row.querySelector('h4').textContent.trim(),
       [row.querySelector('.oidc-check-flow').dataset.actors, row.dataset.verification],
     ]))
   ));
@@ -512,7 +530,6 @@ async function configureServer(page) {
     'Client authentication': ['opnsense', 'metadata'],
     PKCE: ['opnsense', 'metadata'],
     'DPoP sender constraint': ['opnsense', 'metadata'],
-    'PAR metadata': ['opnsense,idp', 'metadata'],
     'Authorization response mode': ['idp,browser,opnsense', 'metadata'],
     'Selected authentication method': ['opnsense', 'metadata'],
     'Authorization response issuer': ['idp,browser,opnsense', 'metadata'],
@@ -522,9 +539,9 @@ async function configureServer(page) {
     'JWT-secured authorization request': ['opnsense', 'configuration'],
     'PAR endpoint': ['opnsense,idp', 'live'],
   });
-  await expect(dialog.locator('.oidc-discovery-results tr[data-status="success"]').first()).toBeVisible();
-  await expect(dialog.locator('.oidc-discovery-results tr[data-status="info"]').first()).toBeVisible();
-  const dpopDiscoveryRow = dialog.locator('.oidc-discovery-results tbody tr')
+  await expect(dialog.locator('.oidc-probe-check[data-status="success"]').first()).toBeVisible();
+  await expect(dialog.locator('.oidc-probe-check[data-status="info"]')).toHaveCount(0);
+  const dpopDiscoveryRow = dialog.locator('.oidc-probe-check')
     .filter({ hasText: 'DPoP sender constraint' });
   await expect(dpopDiscoveryRow).toHaveCount(1);
   await expect(dpopDiscoveryRow).toHaveAttribute('data-status', 'success');
@@ -532,12 +549,14 @@ async function configureServer(page) {
   await expect(dialog).toContainText(issuer);
   await expect(dialog).toContainText('RS256');
   await expect(dialog).toContainText('client_secret_post');
-  await expect(dialog).toContainText('PAR will be used automatically');
-  await page.setViewportSize({ width: 500, height: 900 });
-  await expect.poll(() => dialog.locator('.oidc-check-verification').first().evaluate(element => (
-    window.getComputedStyle(element).flexBasis
-  ))).toBe('100%');
-  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect(dialog.getByText(/PAR will be used automatically/)).toBeHidden();
+  const authorizationRow = dialog.locator('.oidc-probe-check').filter({ hasText: 'Authorization endpoint' });
+  await expect(authorizationRow.locator('.oidc-probe-check-details')).toBeHidden();
+  await authorizationRow.locator('.oidc-probe-info').click();
+  await expect(authorizationRow.locator('.oidc-probe-check-details')).toContainText('Live Discovery document');
+  await expect(authorizationRow.locator('.oidc-probe-check-details')).toContainText(
+    'The endpoint was not called because it needs an interactive browser sign-in'
+  );
   await dialog.getByRole('button', { name: '×' }).click();
 
   await page.getByRole('button', { name: 'Save' }).click();
@@ -558,7 +577,7 @@ async function configureServer(page) {
   const savedMaxAge = await maxAge.inputValue();
   await maxAge.fill('60');
   await expect(savedSignInTest).toBeDisabled();
-  await expect(page.locator('.oidc-signin-help')).toContainText('Save or revert your changes');
+  await expect(savedSignInTest).toHaveAttribute('title', /Save or revert your changes/);
   await maxAge.fill(savedMaxAge);
   await expect(savedSignInTest).toBeEnabled();
 
@@ -1048,7 +1067,7 @@ test('real OPNsense login, session binding and logout interoperability', async (
     ));
     await managerButton.click();
     expectPrivateResponseHeaders(await approvalListResponsePromise);
-    const manager = page.getByRole('dialog', { name: 'Manage identities' });
+    const manager = page.getByRole('dialog');
     await expect(manager.getByRole('heading', { name: 'Bound identities' })).toBeVisible();
 
     // Manual creation is deliberately assisted, yet remains available for a
@@ -1057,23 +1076,27 @@ test('real OPNsense login, session binding and logout interoperability', async (
     const editedSubject = `${manualSubject}-edited`;
     const inlineUsername = `${process.env.E2E_TEST_USERNAME}-inline`;
     await manager.getByRole('button', { name: 'Add identity binding' }).click();
+    await expect(manager).toHaveAccessibleName('Add an identity');
     const editor = manager.locator('.oidc-binding-editor');
     await expect(editor).toContainText('exact sub');
     await expect(editor).toContainText('federation and subject-mode mappings');
     await editor.getByRole('textbox', { name: 'Paste the exact sub claim' }).fill(manualSubject);
+    await expect(editor.locator('select option', { hasText: process.env.E2E_TEST_USERNAME }))
+      .toHaveCount(0);
     await editor.locator('select').selectOption({ label: 'Create a new local account…' });
     await editor.locator('.oidc-account-creation input').fill(inlineUsername);
     await editor.getByRole('button', { name: 'Save binding' }).click();
+    await expect(manager).toHaveAccessibleName('Manage identities');
     let manualRow = manager.locator('tbody tr').filter({ hasText: manualSubject });
     await expect(manualRow).toHaveCount(1);
     await expect(manualRow).toContainText(inlineUsername);
     await manualRow.getByRole('button', { name: 'Edit' }).click();
+    await expect(manager).toHaveAccessibleName('Edit identity binding');
     await manager.locator('.oidc-binding-editor')
       .getByRole('textbox', { name: 'Paste the exact sub claim' }).fill(editedSubject);
-    await manager.locator('.oidc-binding-editor select').selectOption({
-      label: process.env.E2E_TEST_USERNAME,
-    });
+    await expect(manager.locator('.oidc-binding-editor select')).toHaveValue(/\d+/);
     await manager.locator('.oidc-binding-editor').getByRole('button', { name: 'Save binding' }).click();
+    await expect(manager).toHaveAccessibleName('Manage identities');
     manualRow = manager.locator('tbody tr').filter({ hasText: editedSubject });
     await expect(manualRow).toHaveCount(1);
     await manualRow.getByRole('button', { name: 'Remove' }).click();
@@ -1116,7 +1139,9 @@ test('real OPNsense login, session binding and logout interoperability', async (
   await adminPage.getByRole('row', { name: new RegExp(process.env.E2E_SERVER_NAME) })
     .getByRole('link', { name: 'Edit' }).click();
   await adminPage.getByRole('button', { name: 'Manage identities' }).click();
-  const approvalDialog = adminPage.getByRole('dialog', { name: 'Manage identities' });
+  const approvalDialog = adminPage.getByRole('dialog');
+  await approvalDialog.getByRole('button', { name: /Pending administrator approvals/ }).click();
+  await expect(approvalDialog).toHaveAccessibleName('Pending administrator approvals');
   await expect(approvalDialog.locator('.oidc-approval-card')).toHaveCount(1);
   await expect(approvalDialog).toContainText(issuer);
   await expect(approvalDialog).toContainText(process.env.E2E_TEST_USERNAME);

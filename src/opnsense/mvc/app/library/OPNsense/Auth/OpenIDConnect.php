@@ -1474,21 +1474,51 @@ class OpenIDConnect extends Base implements IAuthConnector
             'resultLabel' => gettext('Result'),
             'statusLabel' => gettext('Status'),
             'statusPassed' => gettext('Passed'),
-            'statusWarning' => gettext('Warning'),
-            'statusInformation' => gettext('Information'),
+            'statusWarning' => gettext('Needs attention'),
+            'statusInformation' => gettext('Not checked'),
             'statusFailed' => gettext('Failed'),
+            'diagnosticsActionsHeading' => gettext('Test and diagnostics'),
+            'identityActionsHeading' => gettext('Identity management'),
+            'providerSetupActionsHeading' => gettext('Provider setup'),
+            'detailsLabel' => gettext('Show details'),
+            'hideDetailsLabel' => gettext('Hide details'),
+            'sourceLabel' => gettext('Source'),
+            'executionLabel' => gettext('Execution'),
+            'readinessHeading' => gettext('Readiness'),
+            'notOfferedHeading' => gettext('Not offered by the provider'),
+            'notOfferedHelp' => gettext(
+                'Optional capabilities absent from the live Discovery document. A capability required by the ' .
+                'current configuration remains under Readiness instead.'
+            ),
             'actors' => [
                 'opnsense' => gettext('OPNsense'),
                 'browser' => gettext('Browser'),
                 'idp' => gettext('IdP'),
             ],
             'actorFlowSeparator' => gettext('to'),
-            'verification' => [
-                'live' => gettext('Live request from OPNsense'),
-                'metadata' => gettext('Checked from live Discovery metadata'),
-                'configuration' => gettext('Checked against the current form'),
-                'not-tested' => gettext('Advertised; not exercised here'),
-                'skipped' => gettext('Skipped by configuration'),
+            'verificationSources' => [
+                'live' => gettext('Live provider response'),
+                'metadata' => gettext('Live Discovery document'),
+                'configuration' => gettext('Current form values'),
+                'not-tested' => gettext('Live Discovery document'),
+                'skipped' => gettext('Current configuration and the named covering check'),
+            ],
+            'verificationExecution' => [
+                'live' => gettext('A live request for this path was sent now.'),
+                'metadata' => gettext(
+                    'No separate endpoint call was needed; the advertised capability was validated against ' .
+                    'the current configuration.'
+                ),
+                'configuration' => gettext(
+                    'No provider call was needed; the current form values were validated locally.'
+                ),
+                'not-tested' => gettext(
+                    'The endpoint was not called because it needs an interactive browser sign-in, an ' .
+                    'authorization code, a token, or a logout session. Test sign-in covers the sign-in paths.'
+                ),
+                'skipped' => gettext(
+                    'No separate request was sent because another configured check covers this path.'
+                ),
             ],
             'testHelp' => gettext(
                 'Live server-side preflight of Discovery, JWKS, the public authorization registration and, ' .
@@ -1556,6 +1586,7 @@ class OpenIDConnect extends Base implements IAuthConnector
             'bindingLegacy' => gettext('Legacy mapping; save an edit to normalize it'),
             'bindingSave' => gettext('Save binding'),
             'bindingCancel' => gettext('Cancel'),
+            'bindingBack' => gettext('Back to bound identities'),
             'bindingEditorNew' => gettext('Add an identity'),
             'bindingEditorEdit' => gettext('Edit identity binding'),
             'bindingValidation' => gettext(
@@ -1925,13 +1956,20 @@ class OpenIDConnect extends Base implements IAuthConnector
     public function approvableAccounts(): array
     {
         $accounts = [];
+        $boundUids = [];
+        foreach ($this->subjectBindingRecords() as $binding) {
+            $boundUid = (string)($binding['uid'] ?? '');
+            if ($boundUid !== '') {
+                $boundUids[$boundUid] = true;
+            }
+        }
         foreach (Config::getInstance()->object()->system->user ?? [] as $user) {
             if (!$this->accountMayBeUsed($user)) {
                 continue;
             }
             $uid = (string)($user->uid ?? '');
             $name = (string)($user->name ?? '');
-            if ($uid !== '' && ctype_digit($uid) && $name !== '') {
+            if ($uid !== '' && ctype_digit($uid) && $name !== '' && !isset($boundUids[$uid])) {
                 $accounts[] = ['uid' => $uid, 'name' => $name];
             }
         }
@@ -2096,7 +2134,7 @@ class OpenIDConnect extends Base implements IAuthConnector
             || !is_string($record['issuer'] ?? null) || !is_string($record['subject'] ?? null)) {
             return false;
         }
-        if (!$this->persistBinding($record['issuer'], $record['subject'], $user)) {
+        if (!$this->createSubjectBinding($record['issuer'], $record['subject'], $uid)) {
             return false;
         }
         PendingIdentityRegistry::remove($requestId, $this->applicationCode());
@@ -2400,7 +2438,8 @@ class OpenIDConnect extends Base implements IAuthConnector
             $issuer,
             $subject,
             $right,
-            $canonical
+            $canonical,
+            $uid
         ): ?array {
             if ($bindingId !== '') {
                 $matches = array_keys(array_filter($lines, static fn(string $line): bool =>
@@ -2419,6 +2458,11 @@ class OpenIDConnect extends Base implements IAuthConnector
                 [$existingIssuer, $existingSubject] = $this->bindingIdentity($parts[0]);
                 if (hash_equals($issuer, $existingIssuer) && hash_equals($subject, $existingSubject)) {
                     return hash_equals($right, $parts[1]) ? $lines : null;
+                }
+                $existingUser = str_starts_with($parts[1], 'uid:')
+                    ? $this->userByUid(substr($parts[1], 4)) : $this->getUser($parts[1]);
+                if ($existingUser !== null && hash_equals($uid, (string)($existingUser->uid ?? ''))) {
+                    return null;
                 }
             }
             $lines[] = $canonical;

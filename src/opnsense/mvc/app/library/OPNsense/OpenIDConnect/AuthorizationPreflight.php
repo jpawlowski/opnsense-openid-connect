@@ -38,7 +38,7 @@ final class AuthorizationPreflight
             || ($parCoversRegistration && $metadata->pushedAuthorizationRequestEndpoint() !== null
                 && $settings->parMode() !== 'disabled')) {
             return $this->result(
-                'info',
+                'success',
                 gettext('Covered by PAR'),
                 gettext('The authenticated PAR check validates the client and callback before browser sign-in.'),
                 'skipped'

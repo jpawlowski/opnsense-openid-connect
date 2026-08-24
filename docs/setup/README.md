@@ -230,11 +230,15 @@ Resolve a failed check at the provider or in the entered value. A named profile
 supplies compatible defaults and clearer diagnostics, but never turns off a
 protocol check.
 
-Every result names the actors and method beneath the check name. The arrow path
+Every result keeps only the actor path beneath the check name. The arrow
 distinguishes requests made by OPNsense from browser paths and provider
-responses. The method distinguishes a live request, local evaluation of live
-Discovery metadata, current-form policy, an intentionally skipped path and a
-path that has not yet been exercised. A silent `prompt=none` request may verify
+responses. Open the row's info control to see two deliberately separate facts:
+the source used for the result and whether that endpoint was actually called.
+An advertised endpoint can pass readiness because the validated live Discovery
+document contains a compatible value without pretending that a browser, code,
+token or logout path ran. Optional capabilities absent from Discovery are grouped
+under **Not offered by the provider**; anything selected by the current
+configuration remains under **Readiness** and needs attention instead. A silent `prompt=none` request may verify
 that the public Client ID and exact callback are accepted, but it neither
 authenticates a user nor exchanges a code. **Test sign-in** remains the action
 that exercises the real browser and token paths.

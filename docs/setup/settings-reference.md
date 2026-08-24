@@ -150,9 +150,13 @@ request checks whether the provider accepts the public Client ID and exact
 callback without authenticating a user. Connection health becomes
 available when the current form contains Exact issuer URL, Client ID and Client
 Secret and adds form and WebGUI transport checks without requiring a save. Both
-dialogs distinguish live OPNsense requests, metadata/configuration evaluation
-and advertised paths that remain untested. The browser does not need to reach
-Discovery. Test sign-in becomes available after the server has first been saved,
+dialogs keep only the actor path visible. Their info control separates the source
+of the result from what was actually executed: a capability may pass readiness
+because validated live Discovery offers it even though its browser, code, token or
+logout path needs Test sign-in. Optional capabilities absent from Discovery appear
+in a separate **Not offered by the provider** section; a missing capability required
+by the current form remains under **Readiness** as attention or failure. The browser
+does not need to reach Discovery. Test sign-in becomes available after the server has first been saved,
 is complete and has no unsaved changes. It may be used while the provider
 remains disabled and validates a real browser flow without changing the WebGUI
 session or local identity state. A Client ID or callback rejected during the
