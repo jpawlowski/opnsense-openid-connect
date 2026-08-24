@@ -326,19 +326,32 @@ Checks::that('an exact opaque session subject is actionable', [
     $opaqueSession['subject'],
     $opaqueSession['session_id'],
 ], [null, 'provider-session']);
-$complexTarget = $verifyEvent(
-    SecurityEventVerifier::CAEP_SESSION_REVOKED,
-    [],
-    [
-        'format' => 'complex',
-        'user' => ['format' => 'iss_sub', 'iss' => 'https://id.example.net', 'sub' => 'subject-1'],
-        'session' => ['format' => 'opaque', 'id' => 'provider-session'],
-    ]
-);
+$complexUserSession = [
+    'format' => 'complex',
+    'user' => ['format' => 'iss_sub', 'iss' => 'https://id.example.net', 'sub' => 'subject-1'],
+    'session' => ['format' => 'opaque', 'id' => 'provider-session'],
+];
+$complexTarget = $verifyEvent(SecurityEventVerifier::CAEP_SESSION_REVOKED, [], $complexUserSession);
 Checks::that('a complete user and session subject retains both selectors', [
     $complexTarget['subject'],
     $complexTarget['session_id'],
 ], ['subject-1', 'provider-session']);
+$credentialTarget = $verifyEvent(SecurityEventVerifier::CAEP_CREDENTIAL_CHANGE, [
+    'credential_type' => 'password',
+    'change_type' => 'update',
+], $complexUserSession);
+Checks::that('a user credential change remains user-wide', [
+    $credentialTarget['subject'],
+    $credentialTarget['session_id'],
+], ['subject-1', null]);
+$userRiskTarget = $verifyEvent(SecurityEventVerifier::CAEP_RISK_LEVEL_CHANGE, [
+    'principal' => 'USER',
+    'current_level' => 'HIGH',
+], $complexUserSession);
+Checks::that('an elevated user risk remains user-wide', [
+    $userRiskTarget['subject'],
+    $userRiskTarget['session_id'],
+], ['subject-1', null]);
 Checks::that(
     'an unindexed complex subject member prevents a broader session action',
     $verifyEvent(SecurityEventVerifier::CAEP_SESSION_REVOKED, [], [

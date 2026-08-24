@@ -509,9 +509,13 @@ final class SecurityEventVerifier
             if ($event['principal'] !== 'USER') {
                 return null;
             }
+            return $this->target($subject, $oidcIssuer, false, false);
         }
         if ($type === self::CAEP_SESSION_REVOKED) {
             return $this->target($subject, $oidcIssuer, true);
+        }
+        if ($type === self::CAEP_CREDENTIAL_CHANGE) {
+            return $this->target($subject, $oidcIssuer, false, false);
         }
         return $this->target($subject, $oidcIssuer, false);
     }

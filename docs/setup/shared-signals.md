@@ -76,7 +76,7 @@ non-critical member neither widens nor narrows their consequence.
 | `assurance-level-change` | Exact user, optionally constrained by provider session: end matching pre-event sessions so authentication evidence is renewed. |
 | `device-compliance-change` | No device index exists, so the event is acknowledged without broadening it to every user session. |
 | `session-established`, `session-presented` | Observational events are acknowledged without creating or changing local state. |
-| `risk-level-change` | `MEDIUM` or `HIGH` risk for an exact `USER` or `SESSION` ends matching pre-event sessions; `LOW` and other principals are informational. |
+| `risk-level-change` | `MEDIUM` or `HIGH` risk for an exact `USER` ends all matching pre-event user sessions; exact `SESSION` risk ends only that provider session. `LOW` and other principals are informational. |
 
 | RISC event | Actionable subject and local consequence |
 |---|---|
