@@ -14,6 +14,7 @@ import secrets
 import subprocess
 import tempfile
 import time
+from urllib.parse import urlparse
 
 
 CANONICAL_REPOSITORY = "jpawlowski/opnsense-openid-connect"
@@ -40,6 +41,34 @@ def git_value(repository, *arguments):
         ("git", *arguments), cwd=repository, check=False, capture_output=True, text=True,
     )
     return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def github_repository(url):
+    """Return owner/name only for an unambiguous GitHub remote URL."""
+    value = str(url or "").strip()
+    if re.match(r"^[^/@:]+@github\.com:", value):
+        path = value.split(":", 1)[1]
+    else:
+        parsed = urlparse(value)
+        if parsed.hostname != "github.com":
+            return ""
+        path = parsed.path
+    repository = path.strip("/").removesuffix(".git")
+    return repository if repository.count("/") == 1 else ""
+
+
+def pull_head_repository(pull):
+    value = pull.get("headRepository")
+    if isinstance(value, dict):
+        name_with_owner = value.get("nameWithOwner")
+        if name_with_owner:
+            return str(name_with_owner)
+        owner = value.get("owner") or {}
+        owner_name = owner.get("login") if isinstance(owner, dict) else owner
+        if owner_name and value.get("name"):
+            return f"{owner_name}/{value['name']}"
+        return ""
+    return str(value or "")
 
 
 def resolve_git_path(repository, value):
@@ -421,14 +450,20 @@ def adopt_pull_request(repository, pull_number):
         )
     pull = _gh((
         "pr", "view", str(pull_number), "--repo", CANONICAL_REPOSITORY,
-        "--json", "number,state,body,headRefName,headRefOid,url",
+        "--json", "number,state,body,headRefName,headRefOid,headRepository,url",
     ), json_output=True)
     branch = git_value(repository, "symbolic-ref", "--short", "HEAD")
     head = git_value(repository, "rev-parse", "HEAD")
     issue = _closing_issue(pull.get("body"))
+    publishing_repository = github_repository(git_value(repository, "remote", "get-url", "origin"))
+    head_repository = pull_head_repository(pull)
     if (str(pull.get("state") or "").upper() != "OPEN" or not issue
-            or pull.get("headRefName") != branch or pull.get("headRefOid") != head):
-        raise RuntimeError("the open pull request must close one issue and use this worktree's exact branch head")
+            or pull.get("headRefName") != branch or pull.get("headRefOid") != head
+            or not publishing_repository or head_repository.lower() != publishing_repository.lower()):
+        raise RuntimeError(
+            "the open pull request must close one issue and use this worktree's exact publishing repository, "
+            "branch and head"
+        )
     record = {
         "issue": issue, "token": f"pr-{secrets.token_hex(6)}", "status": "pr-linked",
         "pull_request": int(pull_number), "branch": branch, "head": head,

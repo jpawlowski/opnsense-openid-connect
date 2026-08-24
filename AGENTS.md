@@ -88,6 +88,8 @@ states.
 The shared startup hook identifies the canonical base from the `origin` fetch
 URL. A direct clone uses `origin/main`; a GitHub fork keeps `origin` for
 publishing and gains a push-disabled `upstream`, then uses `upstream/main`.
+In the read-only control checkout, prefix Git inspection with
+`GIT_OPTIONAL_LOCKS=0`; otherwise Git may refresh its index while reporting.
 It serializes fetches, keeps clean local `main` as a fast-forward mirror, and
 checks the canonical ref at session start, at most every five minutes before a
 write, at turn stop, and unconditionally before publication. It reports lag and

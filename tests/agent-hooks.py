@@ -418,8 +418,20 @@ def main():
           guard_module.is_read_only_shell("rg --hostname-bin sh worktree AGENTS.md"), False)
     check("environment overrides cannot alter an allow-listed program",
           guard_module.is_read_only_shell("RIPGREP_CONFIG_PATH=config rg worktree AGENTS.md"), False)
-    check("Git status is read-only with external pagers disabled",
-          guard_module.is_read_only_shell("git --no-pager status --short"), True)
+    previous_rg_config = os.environ.get("RIPGREP_CONFIG_PATH")
+    os.environ["RIPGREP_CONFIG_PATH"] = "/tmp/untrusted-ripgrep-config"
+    check("ambient ripgrep configuration makes bare inspection unsafe",
+          guard_module.is_read_only_shell("rg worktree AGENTS.md"), False)
+    check("--no-config suppresses ambient ripgrep configuration",
+          guard_module.is_read_only_shell("rg --no-config worktree AGENTS.md"), True)
+    if previous_rg_config is None:
+        os.environ.pop("RIPGREP_CONFIG_PATH", None)
+    else:
+        os.environ["RIPGREP_CONFIG_PATH"] = previous_rg_config
+    check("bare Git status may refresh the index",
+          guard_module.is_read_only_shell("git --no-pager status --short"), False)
+    check("Git status is read-only when optional index locks are disabled",
+          guard_module.is_read_only_shell("GIT_OPTIONAL_LOCKS=0 git --no-pager status --short"), True)
     check("Git inspection cannot inherit helpers from another repository through -C",
           guard_module.is_read_only_shell("git -C /tmp/other --no-pager status --short"), False)
     check("a later paginate flag cannot re-enable a configured Git pager",
@@ -429,13 +441,13 @@ def main():
     check("an environment-selected Git pager makes bare inspection unsafe",
           guard_module.is_read_only_shell("git log -1"), False)
     check("--no-pager suppresses an environment-selected Git pager",
-          guard_module.is_read_only_shell("git --no-pager log -1"), True)
+          guard_module.is_read_only_shell("GIT_OPTIONAL_LOCKS=0 git --no-pager log -1"), True)
     if previous_git_pager is None:
         os.environ.pop("GIT_PAGER", None)
     else:
         os.environ["GIT_PAGER"] = previous_git_pager
     check("a subcommand patch flag is not mistaken for a global Git pager",
-          guard_module.is_read_only_shell("git --no-pager diff -p"), True)
+          guard_module.is_read_only_shell("GIT_OPTIONAL_LOCKS=0 git --no-pager diff -p"), True)
     check("command-line Git configuration cannot install a read helper",
           guard_module.is_read_only_shell(
               "git --no-pager -c core.fsmonitor=/tmp/helper status --short",
@@ -443,7 +455,7 @@ def main():
     check("remote inspection must explicitly avoid querying the transport",
           guard_module.is_read_only_shell("git remote show origin"), False)
     check("remote inspection with no query is read-only",
-          guard_module.is_read_only_shell("git --no-pager remote show -n origin"), True)
+          guard_module.is_read_only_shell("GIT_OPTIONAL_LOCKS=0 git --no-pager remote show -n origin"), True)
     check("a path-qualified look-alike Git executable is not trusted",
           guard_module.is_read_only_shell("/tmp/git status --short"), False)
     check("Git grep cannot launch a pager command",
@@ -636,7 +648,9 @@ def main():
         check("a configured external diff helper is not read-only",
               guard_module.is_read_only_shell("git --no-pager diff"), False)
         check("an explicitly disabled external diff remains read-only",
-              guard_module.is_read_only_shell("git --no-pager diff --no-ext-diff"), True)
+              guard_module.is_read_only_shell(
+                  "GIT_OPTIONAL_LOCKS=0 git --no-pager diff --no-ext-diff",
+              ), True)
         subprocess.run(("git", "config", "--unset", "diff.external"), cwd=control, check=True)
         guard_module.REPOSITORY_ROOT = original_repository_root
 
@@ -813,6 +827,9 @@ def main():
         subprocess.run(("git", "init", "-b", "codex/claimed", "-q", str(repository)), check=True)
         subprocess.run(("git", "config", "user.name", "Test"), cwd=repository, check=True)
         subprocess.run(("git", "config", "user.email", "test"), cwd=repository, check=True)
+        subprocess.run((
+            "git", "remote", "add", "origin", "https://github.com/jpawlowski/opnsense-openid-connect.git",
+        ), cwd=repository, check=True)
         (repository / "base.txt").write_text("base\n", encoding="utf-8")
         subprocess.run(("git", "add", "base.txt"), cwd=repository, check=True)
         subprocess.run(("git", "commit", "-q", "-m", "test: seed"), cwd=repository, check=True)
@@ -851,7 +868,10 @@ module.update_registry(repository, update)
             "closedByPullRequestsReferences": [], "url": "https://example.invalid/issues/36",
         }
         label_definitions = set()
-        issue_state = {"fail_after_comment": False, "comment_published": False}
+        issue_state = {
+            "fail_after_comment": False, "comment_published": False,
+            "head_repository": "jpawlowski/opnsense-openid-connect",
+        }
 
         def issue_copy(_number):
             if issue_state["fail_after_comment"] and issue_state["comment_published"]:
@@ -923,6 +943,7 @@ module.update_registry(repository, update)
                         ("git", "rev-parse", "HEAD"), cwd=repository, check=True,
                         capture_output=True, text=True,
                     ).stdout.strip(),
+                    "headRepository": {"nameWithOwner": issue_state["head_repository"]},
                     "url": "https://example.invalid/pulls/41",
                 }
             raise AssertionError(arguments)
@@ -992,6 +1013,15 @@ module.update_registry(repository, update)
             replaced = False
         check("one worktree cannot abandon its current claim by claiming another issue", replaced, False)
         claim_module.forget(repository)
+        issue_state["head_repository"] = "other/fork"
+        try:
+            claim_module.adopt_pull_request(repository, 41)
+            adopted_foreign_repository = True
+        except RuntimeError:
+            adopted_foreign_repository = False
+        check("a pull request from another repository cannot be adopted",
+              (adopted_foreign_repository, claim_module.current_claim(repository)), (False, None))
+        issue_state["head_repository"] = "jpawlowski/opnsense-openid-connect"
         issue["assignees"] = []
         released_claim = claim_module.claim(repository, 37, now=1_777_000_001)
         claim_module.release(repository)

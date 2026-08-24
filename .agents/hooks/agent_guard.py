@@ -277,6 +277,8 @@ def _read_only_sed(arguments):
 
 def _read_only_rg(arguments):
     executable_options = ("--hostname-bin", "--pre")
+    if os.environ.get("RIPGREP_CONFIG_PATH") and "--no-config" not in arguments:
+        return False
     return not any(
         argument == option or argument.startswith(f"{option}=")
         for argument in arguments for option in executable_options
@@ -412,6 +414,10 @@ def _shell_invocation(command):
 
 def is_read_only_shell(command):
     """Accept a deliberately small grammar; ambiguity belongs in an isolated worktree."""
+    literal_program, literal_arguments = _literal_shell_invocation(command)
+    if (literal_program == "GIT_OPTIONAL_LOCKS=0" and literal_arguments
+            and literal_arguments[0] == "git" and not _shell_hazard(command)):
+        return _read_only_git(literal_arguments[1:])
     program, arguments = _shell_invocation(command)
     if not program:
         return False
@@ -424,7 +430,9 @@ def is_read_only_shell(command):
     if program == "rg":
         return _read_only_rg(arguments)
     if program == "git":
-        return _read_only_git(arguments)
+        # Even inspection may refresh the index. The exact environment prefix
+        # above is part of the read-only contract for the control checkout.
+        return False
     if program == "gh":
         return _read_only_gh(arguments)
     if program in ("python", "python3"):
