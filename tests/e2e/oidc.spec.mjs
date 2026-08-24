@@ -468,7 +468,7 @@ async function configureServer(page) {
   expectPrivateResponseHeaders(healthResponse);
   const healthAnswer = await healthResponse.json();
   expect(healthAnswer.status).toBe('ok');
-  expect(JSON.stringify(healthAnswer)).not.toContain(process.env.E2E_KEYCLOAK_CLIENT_SECRET);
+  expect(JSON.stringify(healthAnswer)).not.toContain(keycloakClientSecret);
   dialog = page.getByRole('dialog');
   await expect(dialog.locator('.oidc-discovery-results')).toBeVisible();
   await expect(dialog).toContainText('Client configuration');
@@ -573,9 +573,9 @@ async function configureServer(page) {
   await expect(savedSignInTest).toBeEnabled();
 
   const secretField = page.locator('input[name="openidconnect_client_secret"]');
-  await secretField.fill(`${process.env.E2E_KEYCLOAK_CLIENT_SECRET}-changed`);
+  await secretField.fill(`${keycloakClientSecret}-changed`);
   await expect(savedSignInTest).toBeDisabled();
-  await secretField.fill(process.env.E2E_KEYCLOAK_CLIENT_SECRET);
+  await secretField.fill(keycloakClientSecret);
   await expect(savedSignInTest).toBeEnabled();
 
   await selectNative(page.locator('select[name="openidconnect_provider_profile"]'), 'authentik');
@@ -910,7 +910,7 @@ test('real OPNsense login, session binding and logout interoperability', async (
     form: {
       openidconnect_provider_url: issuer,
       openidconnect_client_id: process.env.E2E_KEYCLOAK_CLIENT_ID,
-      openidconnect_client_secret: process.env.E2E_KEYCLOAK_CLIENT_SECRET,
+      openidconnect_client_secret: 'not-a-real-secret',
     },
     maxRedirects: 0,
   });
