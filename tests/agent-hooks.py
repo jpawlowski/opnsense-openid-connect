@@ -11,6 +11,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import threading
 from types import SimpleNamespace
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -466,14 +467,38 @@ def main():
           guard_module.is_read_only_shell("git grep --open-files-in-pager=rm needle"), False)
     check("Git diff cannot launch an external diff helper",
           guard_module.is_read_only_shell("git diff --ext-diff"), False)
+    original_gh_config = guard_module._gh_config
+    previous_gh_pager = os.environ.pop("GH_PAGER", None)
+    previous_pager = os.environ.pop("PAGER", None)
+    guard_module._gh_config = lambda _key: ""
     check("GitHub pull request inspection is read-only",
           guard_module.is_read_only_shell("gh pr view 42 --json headRefOid"), True)
+    os.environ["GH_PAGER"] = "touch pager-ran"
+    check("an environment-selected GitHub pager makes inspection unsafe",
+          guard_module.is_read_only_shell("gh pr diff 42"), False)
+    os.environ["GH_PAGER"] = "cat"
+    check("GitHub CLI's explicit no-paging program remains safe",
+          guard_module.is_read_only_shell("gh pr diff 42"), True)
+    os.environ.pop("GH_PAGER")
+    os.environ["PAGER"] = "touch pager-ran"
+    check("the shared pager environment cannot launch from GitHub inspection",
+          guard_module.is_read_only_shell("gh pr diff 42"), False)
+    os.environ.pop("PAGER")
+    guard_module._gh_config = lambda _key: "touch pager-ran"
+    check("a configured GitHub pager makes inspection unsafe",
+          guard_module.is_read_only_shell("gh pr diff 42"), False)
+    guard_module._gh_config = lambda _key: ""
     check("GitHub inspection cannot launch a configured browser helper",
           guard_module.is_read_only_shell("gh pr view 42 --web"), False)
     check("assigned GitHub browser flags are also rejected",
           guard_module.is_read_only_shell("gh pr view 42 --web=true"), False)
     check("GitHub API GET inspection is read-only",
           guard_module.is_read_only_shell("gh api repos/example/project/pulls/42"), True)
+    guard_module._gh_config = original_gh_config
+    if previous_gh_pager is not None:
+        os.environ["GH_PAGER"] = previous_gh_pager
+    if previous_pager is not None:
+        os.environ["PAGER"] = previous_pager
     check("the worktree bootstrap is an allowed control operation",
           guard_module.is_read_only_shell(
               "python3 .agents/worktrees.py create example --client codex",
@@ -951,6 +976,107 @@ module.update_registry(repository, update)
                     "url": "https://example.invalid/pulls/41",
                 }
             raise AssertionError(arguments)
+
+        race_issues = {
+            number: {
+                "number": number, "state": "OPEN", "labels": [], "comments": [], "assignees": [],
+                "closedByPullRequestsReferences": [], "url": f"https://example.invalid/issues/{number}",
+            }
+            for number in (36, 37)
+        }
+        race_label_definitions = set()
+        first_reached_publication = threading.Event()
+        second_reached_publication = threading.Event()
+
+        def race_issue_copy(number):
+            return json.loads(json.dumps(race_issues[number]))
+
+        def race_gh(arguments, json_output=False):
+            arguments = tuple(arguments)
+            if arguments[:2] == ("api", "user"):
+                if threading.current_thread().name == "first-claim":
+                    first_reached_publication.set()
+                    second_reached_publication.wait(0.25)
+                else:
+                    second_reached_publication.set()
+                return "publisher"
+            if arguments[:2] == ("api", "repos/jpawlowski/opnsense-openid-connect/labels"):
+                label = next(value.removeprefix("name=") for value in arguments if value.startswith("name="))
+                if label in race_label_definitions:
+                    raise RuntimeError("label already exists")
+                race_label_definitions.add(label)
+                return {"name": label}
+            if arguments[:2] == ("label", "create"):
+                race_label_definitions.add(arguments[2])
+                return ""
+            if arguments[:2] == ("label", "delete"):
+                label = arguments[2]
+                race_label_definitions.discard(label)
+                for race_issue in race_issues.values():
+                    race_issue["labels"] = [value for value in race_issue["labels"] if value["name"] != label]
+                return ""
+            if arguments[:2] == ("issue", "edit"):
+                race_issue = race_issues[int(arguments[2])]
+                if "--add-label" in arguments:
+                    race_issue["labels"].append({"name": arguments[arguments.index("--add-label") + 1]})
+                if "--add-assignee" in arguments:
+                    login = arguments[arguments.index("--add-assignee") + 1]
+                    race_issue["assignees"].append({"login": login})
+                if "--remove-assignee" in arguments:
+                    login = arguments[arguments.index("--remove-assignee") + 1]
+                    race_issue["assignees"] = [
+                        value for value in race_issue["assignees"] if value.get("login") != login
+                    ]
+                return ""
+            if arguments[:2] == ("issue", "comment"):
+                number = int(arguments[2])
+                body = arguments[arguments.index("--body") + 1]
+                database_id = 12000 + sum(len(value["comments"]) for value in race_issues.values()) + 1
+                race_issues[number]["comments"].append({
+                    "body": body, "id": str(database_id), "databaseId": database_id,
+                    "url": f"https://example.invalid/issues/{number}#issuecomment-{database_id}",
+                    "createdAt": "2026-08-24T00:00:00Z",
+                })
+                return race_issues[number]["comments"][-1]["url"]
+            if arguments[:3] == ("api", "-X", "DELETE"):
+                database_id = int(arguments[3].rsplit("/", 1)[1])
+                for race_issue in race_issues.values():
+                    race_issue["comments"] = [
+                        value for value in race_issue["comments"] if value.get("databaseId") != database_id
+                    ]
+                return ""
+            raise AssertionError(arguments)
+
+        claim_module._issue = race_issue_copy
+        claim_module._gh = race_gh
+        race_results = {}
+
+        def race_claim(name, number, now):
+            try:
+                race_results[name] = ("claimed", claim_module.claim(repository, number, now=now))
+            except RuntimeError as error:
+                race_results[name] = ("refused", str(error))
+
+        first_claim = threading.Thread(
+            target=race_claim, args=("first", 36, 1_777_000_000), name="first-claim",
+        )
+        second_claim = threading.Thread(
+            target=race_claim, args=("second", 37, 1_777_000_001), name="second-claim",
+        )
+        first_claim.start()
+        first_reached_publication.wait(1)
+        second_claim.start()
+        first_claim.join(2)
+        second_claim.join(2)
+        successful_claims = [value[1] for value in race_results.values() if value[0] == "claimed"]
+        successful_token = successful_claims[0]["token"] if successful_claims else ""
+        retained_claim = claim_module.current_claim(repository)
+        check("same-worktree claim publication is serialized before public state changes",
+              (first_claim.is_alive(), second_claim.is_alive(), len(successful_claims),
+               retained_claim and retained_claim.get("token"),
+               sum(len(value["comments"]) for value in race_issues.values())),
+              (False, False, 1, successful_token, 1))
+        claim_module.release(repository)
 
         claim_module._issue = issue_copy
         claim_module._gh = fake_gh

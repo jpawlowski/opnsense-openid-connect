@@ -170,6 +170,24 @@ def _git_config(*arguments):
     return result.stdout.splitlines() if result.returncode == 0 else []
 
 
+def _gh_config(key):
+    result = subprocess.run(
+        ("gh", "config", "get", key), cwd=REPOSITORY_ROOT, check=False, capture_output=True, text=True,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _configured_gh_pager():
+    # GitHub CLI only starts a pager for terminal output, but the hook cannot
+    # infer whether a supported client's shell tool owns a terminal. Reject an
+    # explicitly selected program before it can turn inspection into a write.
+    pager = next(
+        (os.environ[name].strip() for name in ("GH_PAGER", "PAGER") if os.environ.get(name, "").strip()),
+        "",
+    ) or _gh_config("pager").strip()
+    return pager.lower() not in ("", "cat")
+
+
 def _configured_git_helper(command, arguments, global_arguments):
     if any(value == "-C" or value.startswith("-C") for value in global_arguments):
         # A different repository has different pager, fsmonitor and diff
@@ -314,6 +332,8 @@ def _issue_helper(arguments):
 
 def _read_only_gh(arguments):
     if any(value.split("=", 1)[0] in ("--web", "-w") for value in arguments):
+        return False
+    if _configured_gh_pager():
         return False
     if len(arguments) >= 2 and arguments[0] in ("issue", "pr", "repo", "run"):
         read_actions = {
