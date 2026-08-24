@@ -263,18 +263,21 @@ validation are complete. Before merging, wait for Codex to review the current
 head commit; compare the reviewed commit shown by Codex with the pull request's
 current head. A review of an older head does not count.
 
-Every P0, P1 and P2 finding blocks the merge until it is fixed or technically
-rebutted in its review thread. Answer or track every P3 finding. Do not dismiss
-or silently resolve a finding: document its disposition in the thread, then
-resolve it. The ruleset's required thread resolution is the hard backstop, but
-it does not replace waiting for a late review or checking the reviewed commit.
+Every P0 and P1 finding blocks the merge until it is fixed or technically
+rebutted in its review thread. Independently reproduce each P2: it blocks only
+when it affects security, recoverability, worktree or issue ownership, remote
+or pull-request freshness, publication correctness, or cleanup safety. Answer
+and track every other P2 and every P3. Do not dismiss or silently resolve a
+finding: document its disposition in the thread, then resolve it. The ruleset's
+required thread resolution is the hard backstop, but it does not replace
+waiting for a late review or checking the reviewed commit.
 
 The integrating agent that owns the publishing branch owns every review thread
 through completion; the reviewing agent does not. After each review:
 
 1. Inventory every unresolved thread, including outdated threads from earlier
    heads.
-2. Fix the finding, technically rebut it, or track it when the P3 rule permits.
+2. Fix the finding, technically rebut it, or track it when the P2/P3 rule permits.
 3. Push the change and run the relevant validation before claiming it is fixed.
 4. Reply in the thread with the disposition and, when applicable, the commit
    and validation that demonstrate it.
@@ -282,9 +285,11 @@ through completion; the reviewing agent does not. After each review:
    cleanup for the reviewer or silently resolve an unaddressed finding.
 
 Only after all existing threads have a disposition, all addressed threads are
-resolved, and no P0, P1 or P2 remains unaddressed may the integrating agent
+resolved, and no blocking finding remains unaddressed may the integrating agent
 request exactly one new review for the current head. A new Codex review is a
 separate snapshot; it does not update or close an earlier review's threads.
+Once that current-head review has no blocking finding, stop: do not request
+another review merely to obtain zero suggestions.
 
 ## Agent notice
 

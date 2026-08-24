@@ -614,9 +614,21 @@ def requires_topic_branch(event):
     if _shell_hazard(command) == "expansion" and (program == "git" or program == "gh" or not program.isidentifier()):
         return True
     git_command, _git_arguments = _git_subcommand(arguments) if program == "git" else ("", [])
+    nested_durable = False
+    if program not in ("git", "gh"):
+        for index, value in enumerate(arguments):
+            nested_program = Path(value).name
+            if nested_program == "git":
+                nested_command, _nested_arguments = _git_subcommand(arguments[index + 1:])
+                nested_durable = nested_command in ("commit", "push", "send-pack")
+            elif nested_program == "gh":
+                nested_durable = not _read_only_gh(arguments[index + 1:])
+            if nested_durable:
+                break
     return bool(
         (program == "git" and git_command in ("commit", "push", "send-pack"))
         or (program == "gh" and not _read_only_gh(arguments))
+        or nested_durable
     )
 
 

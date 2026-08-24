@@ -558,6 +558,14 @@ def main():
           guard_module.requires_topic_branch({
               "tool_name": "Bash", "tool_input": {"command": "FOO=bar git commit -m test"},
           }), True)
+    check("an unlisted launcher cannot hide a detached-worktree commit",
+          guard_module.requires_topic_branch({
+              "tool_name": "Bash", "tool_input": {"command": "flock /tmp/lock git commit -m test"},
+          }), True)
+    check("a nested read-only Git command does not require a topic branch",
+          guard_module.requires_topic_branch({
+              "tool_name": "Bash", "tool_input": {"command": "flock /tmp/lock git status --short"},
+          }), False)
     check("a shell interpreter cannot hide a push boundary", guard_module.requires_uncached_remote({
         "tool_name": "Bash", "tool_input": {"command": "bash -c 'git push origin codex/topic'"},
     }), True)

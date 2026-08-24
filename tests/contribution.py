@@ -265,10 +265,14 @@ def main():
     contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     check("agent and contributor rules wait for a review of the current head",
           all("current head" in text.lower() for text in (contribution_skill, agents, contributing)), True)
-    check("high and medium Codex findings are explicitly merge-blocking",
-          all("P0, P1 and P2" in text for text in (contribution_skill, agents, contributing)), True)
+    check("Codex findings use one consistent risk-based merge threshold",
+          all("P0 and P1" in text and "P2" in text and "recoverability" in text
+              for text in (contribution_skill, agents, contributing)), True)
+    check("a clean current-head risk review is the explicit stopping point",
+          all("merely to obtain zero suggestions" in text
+              for text in (contribution_skill, agents, contributing)), True)
     check("one integrating agent owns review threads through completion",
-          all(re.search(r"owns\s+every review thread\s+through completion", text)
+          all(re.search(r"owns\s+every\s+review\s+thread\s+through\s+completion", text)
               for text in (contribution_skill, agents, contributing)), True)
     check("the agent closes old review threads before requesting another review",
           "Only after all existing threads have a disposition" in contribution_skill

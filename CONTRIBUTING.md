@@ -97,11 +97,15 @@ body locally:
 
 Keep the pull request in draft while it is changing. Before merge, wait for
 Codex to review the current head commit, not an earlier revision. P0, P1 and P2
-findings block merge until fixed or technically rebutted in their thread; P3
-findings are answered or tracked. The pull request's author or integrating
-agent owns every review thread through completion: document its disposition and
-resolve it when addressed before requesting another review. The required-thread
-rule prevents unresolved findings from merging, while this wait prevents a late
+do not have one blanket disposition: P0 and P1 always block until fixed or
+technically rebutted. A P2 blocks when independently reproduced in a
+security-, recoverability-, ownership-, freshness-, publication-, or
+cleanup-critical path; other P2 and all P3 findings are answered and tracked.
+The pull request's author or integrating agent owns every review thread through
+completion: document its disposition and resolve it when addressed before
+requesting another review. Once the current head has no blocking finding, do
+not repeat reviews merely to obtain zero suggestions. The required-thread rule
+prevents unresolved findings from merging, while this wait prevents a late
 Codex review from arriving only after merge.
 
 ## Issues and public conversation
