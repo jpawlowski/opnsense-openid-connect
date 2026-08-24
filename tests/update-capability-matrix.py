@@ -30,6 +30,7 @@ SAFE_CONFIGURATION_FIELDS = {"provider_profile", "guide", "client_type", "flow",
 LIVE_EVIDENCE_FIELDS = {"feature", "tested_on", "provider_revision", "artifact"}
 FEATURE_MODES = {"enabled", "automatic", "required"}
 EXECUTED_TESTS = set()
+REQUIREMENT_FIELDS = {"id", "section", "strength", "applicable", "evidence", "claimed", "rationale", "deviation"}
 
 STATUS_LABEL = {
     "implemented": "Implemented",
@@ -68,11 +69,27 @@ def read_json(path):
 def unique(items, label):
     seen = set()
     for item in items:
+        if not isinstance(item, dict):
+            raise CatalogError(f"{label} inventory contains a non-object entry")
         value = item["id"]
+        if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", value):
+            raise CatalogError(f"{label} id must be a stable, non-empty identifier")
         if value in seen:
             raise CatalogError(f"duplicate {label} id: {value}")
         seen.add(value)
     return seen
+
+
+def historical_date(value, label):
+    try:
+        parsed = datetime.date.fromisoformat(value) if isinstance(value, str) else None
+        if parsed is None or parsed.isoformat() != value:
+            raise ValueError
+    except ValueError as error:
+        raise CatalogError(f"{label} must use YYYY-MM-DD") from error
+    if parsed > datetime.date.today():
+        raise CatalogError(f"{label} cannot be in the future")
+    return parsed
 
 
 def repository_file(value, label, root=ROOT):
@@ -143,12 +160,7 @@ def reviewed_deviation(requirement):
         raise CatalogError(f"{requirement['id']}: only recommendations may record a deviation")
     if not isinstance(deviation, dict) or not {"reviewed_on", "rationale"} <= deviation.keys():
         raise CatalogError(f"{requirement['id']}: deviation needs a review date and rationale")
-    reviewed_on = deviation["reviewed_on"]
-    try:
-        if not isinstance(reviewed_on, str) or datetime.date.fromisoformat(reviewed_on).isoformat() != reviewed_on:
-            raise ValueError
-    except ValueError as error:
-        raise CatalogError(f"{requirement['id']}: deviation review date must use YYYY-MM-DD") from error
+    historical_date(deviation["reviewed_on"], f"{requirement['id']}: deviation review date")
     rationale = deviation["rationale"]
     if not isinstance(rationale, str) or rationale.strip() != rationale or not 1 <= len(rationale) <= 1000:
         raise CatalogError(f"{requirement['id']}: deviation needs a non-empty reviewed rationale")
@@ -157,20 +169,14 @@ def reviewed_deviation(requirement):
 
 def validate_source_review(standard, review):
     label = standard["id"]
-    if not isinstance(review, dict) or not {
-        "specification_revision", "reviewed_on", "profile", "sections"
-    } <= review.keys():
+    fields = {"specification_revision", "reviewed_on", "profile", "sections"}
+    if not isinstance(review, dict) or set(review) != fields:
         raise CatalogError(f"{label}: verified requires a pinned source and applicability review")
     for field in ("specification_revision", "profile"):
         value = review[field]
         if not isinstance(value, str) or value.strip() != value or not 1 <= len(value) <= 500:
             raise CatalogError(f"{label}: source review {field} must be a non-empty, trimmed value")
-    reviewed_on = review["reviewed_on"]
-    try:
-        if not isinstance(reviewed_on, str) or datetime.date.fromisoformat(reviewed_on).isoformat() != reviewed_on:
-            raise ValueError
-    except ValueError as error:
-        raise CatalogError(f"{label}: source review date must use YYYY-MM-DD") from error
+    historical_date(review["reviewed_on"], f"{label}: source review date")
     sections = review["sections"]
     if (
         not isinstance(sections, list)
@@ -188,12 +194,28 @@ def validate_source_review(standard, review):
 
 
 def validate_requirement(standard, requirement):
+    if not isinstance(requirement, dict) or not set(requirement) <= REQUIREMENT_FIELDS:
+        raise CatalogError(f"{standard['id']}: requirement contains fields outside the publishable schema")
     missing = {"id", "section", "strength", "applicable", "evidence"} - requirement.keys()
     if missing:
         raise CatalogError(f"{standard['id']}: requirement misses {', '.join(sorted(missing))}")
+    section = requirement["section"]
+    if (
+        not isinstance(section, str)
+        or section.strip() != section
+        or not 1 <= len(section) <= 200
+        or not all(character.isprintable() for character in section)
+    ):
+        raise CatalogError(f"{requirement['id']}: section must be a stable, non-empty reference")
+    if not isinstance(requirement["applicable"], bool):
+        raise CatalogError(f"{requirement['id']}: applicable must be a boolean")
+    if "claimed" in requirement and not isinstance(requirement["claimed"], bool):
+        raise CatalogError(f"{requirement['id']}: claimed must be a boolean")
     if requirement["strength"] not in REQUIREMENT_STRENGTH:
         raise CatalogError(f"{requirement['id']}: invalid normative strength")
     evidence = requirement["evidence"]
+    if not isinstance(evidence, dict):
+        raise CatalogError(f"{requirement['id']}: evidence must be an object")
     has_reviewed_deviation = reviewed_deviation(requirement)
     if not requirement["applicable"]:
         if not requirement.get("rationale"):
@@ -229,6 +251,7 @@ def validate_standards(data):
         raise CatalogError("standards catalog must pin its coverage review and boundary")
     if not isinstance(coverage["sources"], list) or len(coverage["sources"]) < 2:
         raise CatalogError("standards catalog needs the OpenID and OAuth source indexes")
+    historical_date(coverage["reviewed_on"], "standards coverage review date")
     ids = unique(data["standards"], "standard")
     requirement_ids = set()
     for standard in data["standards"]:
@@ -236,6 +259,8 @@ def validate_standards(data):
             raise CatalogError(f"{standard['id']}: invalid implementation status")
         if standard["claim"] not in CLAIMS:
             raise CatalogError(f"{standard['id']}: invalid claim status")
+        if standard["claim"] == "verified" and standard["implementation"] != "implemented":
+            raise CatalogError(f"{standard['id']}: verified requires an implemented standard scope")
         requirements = standard.get("requirements", [])
         unique(requirements, f"requirement in {standard['id']}")
         for requirement in requirements:
@@ -292,14 +317,7 @@ def validate_live_evidence_record(provider, feature_id, status, record, root=ROO
     if record["feature"] != feature_id:
         raise CatalogError(f"{label}: live evidence record names another feature")
     tested_on = validate_record_text(record, "tested_on", label)
-    try:
-        tested_date = datetime.date.fromisoformat(tested_on)
-        if tested_date.isoformat() != tested_on:
-            raise ValueError
-    except ValueError as error:
-        raise CatalogError(f"{label}: tested_on must use YYYY-MM-DD") from error
-    if tested_date > datetime.date.today():
-        raise CatalogError(f"{label}: tested_on cannot be in the future")
+    tested_date = historical_date(tested_on, f"{label}: tested_on")
     provider_revision = validate_record_text(record, "provider_revision", label)
     if not PROVIDER_REVISION.fullmatch(provider_revision):
         raise CatalogError(

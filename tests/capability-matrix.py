@@ -132,6 +132,12 @@ def main():
         lambda: matrix.validate_standards(reviewed)
     ), False)
 
+    future_deviation = copy.deepcopy(reviewed)
+    future_deviation["standards"][0]["requirements"][0]["deviation"]["reviewed_on"] = "2999-01-01"
+    check("a future deviation review cannot support conformance", refused(
+        lambda: matrix.validate_standards(future_deviation)
+    ), True)
+
     complete = copy.deepcopy(standards)
     complete["standards"][0]["claim"] = "verified"
     complete["standards"][0]["audit_complete"] = True
@@ -159,6 +165,30 @@ def main():
     check("a pinned complete inventory with two-sided evidence may become green", refused(
         lambda: matrix.validate_standards(complete)
     ), False)
+
+    future_source_review = copy.deepcopy(complete)
+    future_source_review["standards"][0]["source_review"]["reviewed_on"] = "2999-01-01"
+    check("a future source review cannot make a standard green", refused(
+        lambda: matrix.validate_standards(future_source_review)
+    ), True)
+
+    unimplemented = copy.deepcopy(complete)
+    unimplemented["standards"][0]["implementation"] = "not_planned"
+    check("an unimplemented standard cannot make a verified claim", refused(
+        lambda: matrix.validate_standards(unimplemented)
+    ), True)
+
+    empty_requirement_id = copy.deepcopy(complete)
+    empty_requirement_id["standards"][0]["requirements"][0]["id"] = ""
+    check("an empty requirement identifier cannot fill a verified inventory", refused(
+        lambda: matrix.validate_standards(empty_requirement_id)
+    ), True)
+
+    empty_requirement_section = copy.deepcopy(complete)
+    empty_requirement_section["standards"][0]["requirements"][0]["section"] = ""
+    check("an empty requirement section cannot fill a verified inventory", refused(
+        lambda: matrix.validate_standards(empty_requirement_section)
+    ), True)
 
     arbitrary = copy.deepcopy(complete)
     arbitrary["standards"][0]["requirements"][0]["evidence"]["positive"] = [{
