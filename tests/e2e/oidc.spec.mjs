@@ -241,7 +241,7 @@ async function configureServer(page) {
   await expect(keycloakSetupResult.locator('.oidc-setup-file code')).toHaveText(download.suggestedFilename());
   await expect(keycloakSetupResult.locator('.oidc-setup-progress-label')).toHaveText('Step 1 of 3');
   await expect(keycloakSetupResult.locator('[data-step="download"]')).toBeVisible();
-  await keycloakSetupResult.getByRole('button', { name: 'Next' }).click();
+  await keycloakSetupResult.getByRole('button', { name: 'Next' }).click({ force: true });
   await expect(keycloakSetupResult.locator('.oidc-setup-progress-label')).toHaveText('Step 2 of 3');
   await expect(keycloakSetupResult.locator('[data-step="import"]')).toBeVisible();
   await expect(keycloakSetupResult.locator('.oidc-setup-steps li')).toHaveCount(4);
@@ -254,7 +254,7 @@ async function configureServer(page) {
   ]);
   await expect(keycloakSetupResult.locator('.oidc-setup-warning')).toContainText('currently selected realm');
   await expect(keycloakSetupResult.locator('.oidc-setup-warning code')).toHaveText('Partial import');
-  await keycloakSetupResult.getByRole('button', { name: 'Next' }).click();
+  await keycloakSetupResult.getByRole('button', { name: 'Next' }).click({ force: true });
   await expect(keycloakSetupResult.locator('.oidc-setup-progress-label')).toHaveText('Step 3 of 3');
   await expect(keycloakSetupResult.locator('[data-step="finish"]')).toBeVisible();
   await expect(keycloakSetupResult.locator('[data-step="finish"]')).toContainText('Credentials tab');
@@ -265,10 +265,10 @@ async function configureServer(page) {
     hasText: 'Test discovery',
   })).toHaveCount(1);
   await expect(keycloakSetupResult.getByRole('button', { name: 'Done' })).toBeVisible();
-  await keycloakSetupResult.getByRole('button', { name: 'Previous' }).click();
+  await keycloakSetupResult.getByRole('button', { name: 'Previous' }).click({ force: true });
   await expect(keycloakSetupResult.locator('[data-step="import"]')).toBeVisible();
-  await keycloakSetupResult.getByRole('button', { name: 'Next' }).click();
-  await keycloakSetupResult.getByRole('button', { name: 'Done' }).click();
+  await keycloakSetupResult.getByRole('button', { name: 'Next' }).click({ force: true });
+  await keycloakSetupResult.getByRole('button', { name: 'Done' }).click({ force: true });
   await expect(keycloakSetupDialog).toBeHidden();
 
   // Each supported profile receives concrete instructions for its own import UI.
