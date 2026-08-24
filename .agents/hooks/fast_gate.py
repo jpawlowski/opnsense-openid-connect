@@ -4,15 +4,26 @@
 # All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
 """Prepare an agent's clone and run the deterministic test tier when needed."""
 
+import argparse
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import shlex
 import subprocess
 import sys
 import tempfile
 import time
 from urllib.parse import urlparse
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import agent_guard  # noqa: E402
+import github_watch  # noqa: E402
+import issue_claim  # noqa: E402
+import worktree_cleanup  # noqa: E402
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -30,7 +41,7 @@ RELEVANT_PATHS = (
     "tests",
 )
 START_FETCH_TTL = 5 * 60
-ACTIVE_FETCH_TTL = 10 * 60
+ACTIVE_FETCH_TTL = 5 * 60
 FETCH_TIMEOUT = 20
 # A fork can fetch the canonical and publishing remotes sequentially while
 # holding the shared lock. Another session must be able to consume that refresh
@@ -406,23 +417,60 @@ def work_paths(repository, base_main):
 def main_progress(repository, state, base_main, base_name):
     base = state.get("base_main")
     seen = state.get("seen_main")
-    if not base or not base_main or base_main in (base, seen):
+    if not base or not base_main or base_main == base:
         return ""
 
+    paths = work_paths(repository, base_main)
+    paths_fingerprint = hashlib.sha256("\0".join(sorted(paths)).encode()).hexdigest()
+    if base_main == seen and state.get("main_paths_fingerprint") == paths_fingerprint:
+        return ""
+    previously_seen = base_main == seen
     changed = path_output(repository, "diff", "--name-only", f"{base}..{base_main}", "--")
-    overlap = sorted(changed & work_paths(repository, base_main))
+    overlap = sorted(changed & paths)
     count = git_value(repository, "rev-list", "--count", f"{base}..{base_main}") or "unknown"
     state["seen_main"] = base_main
+    state["main_paths_fingerprint"] = paths_fingerprint
     if overlap:
+        state["pending_main"] = base_main
         preview = ", ".join(overlap[:8])
         suffix = ", …" if len(overlap) > 8 else ""
         return (
             f"{base_name} advanced by {count} commit(s) since this task began and overlaps this work in: "
-            f"{preview}{suffix}. Refresh and integrate deliberately before publishing; no merge or rebase was run."
+            f"{preview}{suffix}. Compare it now, then integrate it or record a deliberate deferral; no merge or "
+            "rebase was run."
         )
+    state.pop("pending_main", None)
+    if previously_seen:
+        return ""
     return (
         f"{base_name} advanced by {count} commit(s) since this task began without a changed-path overlap. "
         "The working branch was left unchanged."
+    )
+
+
+def canonical_contains_head(repository, base_main):
+    if not base_main:
+        return False
+    return repository_git(
+        repository, "merge-base", "--is-ancestor", base_main, "HEAD", check=False,
+    ).returncode == 0
+
+
+def pending_main_refusal(repository, state, base_main, base_name):
+    pending = state.get("pending_main")
+    if not pending or pending != base_main:
+        return ""
+    if canonical_contains_head(repository, base_main):
+        state["acknowledged_main"] = base_main
+        state.pop("pending_main", None)
+        return ""
+    if (state.get("acknowledged_main") == base_main
+            and state.get("acknowledged_main_paths") == state.get("main_paths_fingerprint")):
+        return ""
+    return (
+        f"{base_name} at {base_main[:12]} overlaps this task. Compare the changed paths, then integrate that head "
+        "or run `python3 .agents/hooks/fast_gate.py acknowledge-main --sha "
+        f"{base_main} --reason \"why deferral is safe\"` before another write."
     )
 
 
@@ -439,12 +487,175 @@ def branch_lag(repository, base_main, base_name):
     )
 
 
+def observe_remote(
+    state, synchronization, pr_max_age=github_watch.PR_REFRESH_TTL, require_pr_fresh=False,
+    reconciled_pr_head="",
+):
+    """Update one task's canonical and pull-request view without integrating either."""
+    progress = main_progress(
+        REPOSITORY, state, synchronization["base_main"], synchronization["base_name"],
+    )
+    main_refusal = pending_main_refusal(
+        REPOSITORY, state, synchronization["base_main"], synchronization["base_name"],
+    )
+    if not synchronization["remote_available"]:
+        return progress, main_refusal
+
+    with RepositoryLock(REPOSITORY):
+        snapshot, github_warning = github_watch.refresh(
+            REPOSITORY, common_git_directory(REPOSITORY), CANONICAL_REPOSITORY,
+            max_age=pr_max_age,
+        )
+    current = snapshot.get("current")
+    pr_notice = github_watch.state_notice(state.get("pr_state"), current)
+    state["pr_state"] = current
+    overlap = github_watch.overlap_notice(
+        snapshot, work_paths(REPOSITORY, synchronization["base_main"]),
+    )
+    if overlap == state.get("pr_overlap"):
+        overlap = ""
+    else:
+        state["pr_overlap"] = overlap
+    current_head = str((snapshot.get("current") or {}).get("head_sha") or "")
+    pr_refusal = (
+        "" if reconciled_pr_head and reconciled_pr_head == current_head
+        else github_watch.remote_head_refusal(REPOSITORY, snapshot)
+    )
+    freshness_refusal = ""
+    if require_pr_fresh and github_warning:
+        freshness_refusal = (
+            "Fresh GitHub state is unavailable at this publication boundary: "
+            f"{github_warning}. Retry the refresh before publishing or handing off."
+        )
+    return (
+        messages(progress, github_warning, pr_notice, overlap),
+        messages(main_refusal, pr_refusal, freshness_refusal),
+    )
+
+
+def reconcile_pull_request_cli():
+    """Deliberately merge one freshly verified foreign PR head into this worktree."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--sha", required=True)
+    parser.add_argument("--strategy", required=True, choices=("merge",))
+    arguments = parser.parse_args(sys.argv[2:])
+    if not re.fullmatch(r"[0-9a-f]{40}", arguments.sha):
+        raise RuntimeError("the pull-request reconciliation SHA must be a full lowercase commit id")
+    if git_value(REPOSITORY, "status", "--porcelain=v1", "--untracked-files=all"):
+        raise RuntimeError("commit or hand off local changes before reconciling a foreign pull-request head")
+
+    synchronization = synchronize_repository(REPOSITORY, 0, required=True)
+    with RepositoryLock(REPOSITORY):
+        snapshot, warning = github_watch.refresh(
+            REPOSITORY, common_git_directory(REPOSITORY), CANONICAL_REPOSITORY, max_age=0,
+        )
+    if warning:
+        raise RuntimeError(f"fresh pull-request state is unavailable: {warning}")
+    current = snapshot.get("current") or {}
+    if str(current.get("head_sha") or "") != arguments.sha:
+        raise RuntimeError("the requested SHA is no longer the current pull-request head")
+    pull = next(
+        (value for value in snapshot.get("pulls") or [] if value.get("number") == current.get("number")), None,
+    )
+    branch = git_value(REPOSITORY, "symbolic-ref", "--short", "HEAD")
+    if not pull or pull.get("head_ref") != branch:
+        raise RuntimeError("the current pull request no longer uses this worktree branch")
+
+    head_repository = str(pull.get("head_repo") or "").lower()
+    remote = next((
+        name for name in ("origin", "upstream")
+        if github_repository(git_value(REPOSITORY, "remote", "get-url", name)) == head_repository
+    ), "")
+    if not remote:
+        raise RuntimeError(f"no configured remote fetches the pull-request head repository {head_repository}")
+
+    temporary_ref = "refs/opnsense-agent/reconcile/" + hashlib.sha256(
+        f"{REPOSITORY.resolve()}\0{arguments.sha}".encode()
+    ).hexdigest()
+    try:
+        with RepositoryLock(REPOSITORY):
+            fetched = repository_git(
+                REPOSITORY, "fetch", "--no-tags", remote,
+                f"+refs/heads/{branch}:{temporary_ref}", check=False, timeout=FETCH_TIMEOUT,
+            )
+            if fetched.returncode != 0:
+                raise RuntimeError(fetched.stderr.strip() or "the pull-request branch could not be fetched")
+            if git_value(REPOSITORY, "rev-parse", temporary_ref) != arguments.sha:
+                raise RuntimeError("the fetched branch no longer matches the verified pull-request head")
+        merged = repository_git(REPOSITORY, "merge", "--no-edit", arguments.sha, check=False)
+        if merged.returncode != 0:
+            raise RuntimeError(
+                (merged.stderr.strip() or merged.stdout.strip() or "the explicit merge needs manual resolution")
+                + "; resolve or abort the merge in this owned worktree"
+            )
+    finally:
+        with RepositoryLock(REPOSITORY):
+            repository_git(REPOSITORY, "update-ref", "-d", temporary_ref, check=False)
+    print(
+        f"merged verified pull request #{current.get('number')} head {arguments.sha[:12]} "
+        f"after refreshing {synchronization['base_name']}"
+    )
+
+
+def pre_tool_context(message):
+    if not message:
+        return {}
+    return {
+        "systemMessage": message,
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": message,
+        },
+    }
+
+
+def acknowledge_event(event):
+    if not agent_guard.is_main_acknowledgement(event):
+        return None
+    command = agent_guard.event_command(event)
+    try:
+        arguments = shlex.split(command)
+    except ValueError:
+        return "the main-drift acknowledgement could not be parsed"
+    try:
+        sha = arguments[arguments.index("--sha") + 1]
+        reason = arguments[arguments.index("--reason") + 1].strip()
+    except (ValueError, IndexError):
+        return "acknowledge-main needs both --sha and --reason"
+    state_path, _ = state_paths(event)
+    state = load_state(state_path)
+    pending = "" if state is None else str(state.get("pending_main") or "")
+    if not pending or not pending.startswith(sha) or not reason:
+        return "the acknowledgement must name the currently pending main head and a non-empty reason"
+    state["acknowledged_main"] = pending
+    state["acknowledged_main_paths"] = state.get("main_paths_fingerprint")
+    state["main_acknowledgement_reason"] = reason
+    save_state(state_path, state)
+    return ""
+
+
 def messages(*values):
     return " ".join(value for value in values if value)
 
 
+def platform_output(value):
+    """Translate the shared Claude-compatible hook result for Copilot cloud."""
+    if execution_context(REPOSITORY) != "copilot-cloud" or not isinstance(value, dict):
+        return value
+    specific = value.get("hookSpecificOutput") or {}
+    if not isinstance(specific, dict):
+        return value
+    translated = {}
+    for key in ("permissionDecision", "permissionDecisionReason", "additionalContext"):
+        if specific.get(key):
+            translated[key] = specific[key]
+    if value.get("systemMessage") and not translated.get("additionalContext"):
+        translated["additionalContext"] = value["systemMessage"]
+    return translated or value
+
+
 def emit(value):
-    json.dump(value, sys.stdout)
+    json.dump(platform_output(value), sys.stdout)
     sys.stdout.write("\n")
 
 
@@ -470,28 +681,191 @@ def initialize(event):
     else:
         state.setdefault("base_main", synchronization["base_main"])
         state.setdefault("seen_main", synchronization["base_main"])
-    save_state(state_path, state)
 
     branch = git_value(REPOSITORY, "symbolic-ref", "--short", "HEAD")
     branch_warning = ""
-    if synchronization["execution"] == "local" and branch in ("", "main"):
-        branch_warning = "Agent changes need their own topic branch and worktree; do not edit main or a detached HEAD."
+    if synchronization["execution"] == "local" and (
+        agent_guard.is_primary_worktree(REPOSITORY) or branch == "main"
+    ):
+        branch_warning = (
+            "This is the local control checkout. Agent inspection is allowed here, but writing, builds and tests "
+            "need a dedicated worktree. Codex-managed detached worktrees are valid."
+        )
     elif not synchronization["remote_available"] and branch in ("", "main"):
         branch_warning = (
             "This cloud or bundled snapshot may remain detached, but its commit is only a handoff artifact until "
             "the platform updates the existing pull request or an integrating agent applies it."
         )
+    claim_warning = ""
+    if ((synchronization["execution"] != "local" or not agent_guard.is_primary_worktree(REPOSITORY))
+            and not issue_claim.current_claim(REPOSITORY)):
+        claim_warning = (
+            "Before the first repository write, search open issues and pull requests for this outcome. Reuse the "
+            "matching issue or create one, then publish its exclusive claim with "
+            "`python3 .agents/issues.py claim <N>`."
+        )
     lag_warning = branch_lag(REPOSITORY, synchronization["base_main"], synchronization["base_name"])
-    notice = messages(synchronization["warning"], branch_warning, lag_warning)
+    remote_notice, remote_refusal = observe_remote(state, synchronization)
+    save_state(state_path, state)
+    cleanup_actions = []
+    if synchronization["execution"] == "local" and synchronization["remote_available"]:
+        with RepositoryLock(REPOSITORY):
+            cleanup_actions = worktree_cleanup.sweep(
+                REPOSITORY, synchronization["base_name"], CANONICAL_REPOSITORY,
+                current_path=REPOSITORY, max_removals=1,
+            )
+    cleanup_notice = " ".join(cleanup_actions)
+    notice = messages(
+        synchronization["warning"], branch_warning, claim_warning, lag_warning, remote_notice, remote_refusal,
+        cleanup_notice,
+    )
     emit(informational(notice))
 
 
+def cleanup_pull_number(state, claim):
+    observed = ((state.get("pr_state") or {}).get("number"))
+    if observed:
+        return observed
+    if claim and claim.get("status") == "pr-linked":
+        return claim.get("pull_request")
+    return None
+
+
 def cleanup(event):
+    state_path, _ = state_paths(event)
+    state = load_state(state_path) or {}
+    claim = issue_claim.current_claim(REPOSITORY)
+    pull_number = cleanup_pull_number(state, claim)
+    cleanup_status = "cloud or snapshot checkout retained"
+    if execution_context(REPOSITORY) == "local":
+        with RepositoryLock(REPOSITORY):
+            cleanup_status = worktree_cleanup.finish_session(
+                REPOSITORY, event.get("session_id"), pull_number=pull_number,
+            )
+            try:
+                if claim and claim.get("status") == "active" and pull_number:
+                    issue_claim.linked(REPOSITORY, pull_number)
+                    cleanup_status += "; issue claim transferred to the linked pull request"
+                elif claim and claim.get("status") == "active" and cleanup_status.startswith("queued"):
+                    issue_claim.release(REPOSITORY)
+                    cleanup_status += "; temporary issue claim released"
+                elif claim and claim.get("status") == "pr-linked" and cleanup_status.startswith("queued"):
+                    issue_claim.forget(REPOSITORY)
+                    cleanup_status += "; completed local issue record removed"
+            except RuntimeError as error:
+                cleanup_status += f"; issue claim cleanup needs attention: {error}"
+            agent_guard.release_lease(REPOSITORY, event.get("session_id"))
+    else:
+        agent_guard.release_lease(REPOSITORY, event.get("session_id"))
     for path in state_paths(event):
         try:
             path.unlink()
         except FileNotFoundError:
             pass
+    emit(informational(f"Cleanup status: {cleanup_status}."))
+
+
+def guard(event):
+    tool = str(event.get("tool_name") or "")
+    if tool in ("Agent", "Task"):
+        if not agent_guard.is_read_only_agent(event):
+            emit(agent_guard.blocked(
+                "Parallel subagents in this repository are read-only. Prefix the delegated task with "
+                "`[read-only]`, or start a separate app task in its own worktree for implementation."
+            ))
+        else:
+            emit({})
+        return
+
+    acknowledgement = acknowledge_event(event) if tool == "Bash" else None
+    if acknowledgement is not None:
+        emit(agent_guard.blocked(acknowledgement) if acknowledgement else {})
+        return
+    if not agent_guard.tool_requires_write(event):
+        emit({})
+        return
+
+    if agent_guard.is_issue_bootstrap(event):
+        emit({})
+        return
+
+    execution = execution_context(REPOSITORY)
+    branch = git_value(REPOSITORY, "symbolic-ref", "--short", "HEAD")
+    if execution == "local" and (agent_guard.is_primary_worktree(REPOSITORY) or branch == "main"):
+        emit(agent_guard.blocked(
+            "The local control checkout is read-only for agents. Start this implementation in the Codex Worktree "
+            "mode or run `python3 .agents/worktrees.py create <slug> --client codex|claude`."
+        ))
+        return
+    if execution == "local" and not branch and agent_guard.requires_topic_branch(event):
+        emit(agent_guard.blocked(
+            "A Codex-managed worktree may stay detached while editing and testing, but it needs a topic branch "
+            "before a commit or publication. Create one with `git switch -c codex/<task-slug>`."
+        ))
+        return
+
+    claim = issue_claim.current_claim(REPOSITORY)
+    if not claim or claim.get("status") not in ("active", "pr-linked"):
+        emit(agent_guard.blocked(
+            "No exclusive issue claim is registered for this implementation. Search open issues and pull requests "
+            "for the requested outcome. Reuse the matching issue or create one, then run "
+            "`python3 .agents/issues.py claim <N>`. Use `adopt-pr` only when the user explicitly asked to continue "
+            "an existing pull request."
+        ))
+        return
+
+    reconciliation_sha = agent_guard.pull_reconciliation_sha(event)
+    shell_publication = tool == "Bash" and agent_guard.requires_uncached_remote(event)
+    uncached_remote = bool(reconciliation_sha) or shell_publication or tool.lower() == "handoff"
+    try:
+        synchronization = synchronize_repository(
+            REPOSITORY, 0 if uncached_remote else ACTIVE_FETCH_TTL, required=uncached_remote,
+        )
+    except RuntimeError as error:
+        emit(agent_guard.blocked(str(error)))
+        return
+    if (reconciliation_sha or shell_publication) and not synchronization["remote_available"]:
+        emit(agent_guard.blocked(
+            "This isolated snapshot has no observable Git remote, so shell publication is blocked. Commit here "
+            "and use the cloud platform's existing-PR update or hand the commit to the integrating agent."
+        ))
+        return
+    state_path, _ = state_paths(event)
+    state = load_state(state_path) or {
+        "passed": fingerprint(),
+        "failed": None,
+        "base_main": synchronization["base_main"],
+        "seen_main": synchronization["old_base"] or synchronization["base_main"],
+    }
+    notice, refusal = observe_remote(
+        state, synchronization, pr_max_age=0 if uncached_remote else github_watch.PR_REFRESH_TTL,
+        require_pr_fresh=uncached_remote,
+        reconciled_pr_head=reconciliation_sha,
+    )
+    save_state(state_path, state)
+    if refusal:
+        emit(agent_guard.blocked(refusal))
+        return
+
+    with RepositoryLock(REPOSITORY):
+        lease_refusal = agent_guard.acquire_lease(REPOSITORY, event.get("session_id"))
+    if lease_refusal:
+        emit(agent_guard.blocked(lease_refusal))
+        return
+    emit(pre_tool_context(messages(synchronization["warning"], notice)))
+
+
+def subagent(_event):
+    emit({
+        "hookSpecificOutput": {
+            "hookEventName": "SubagentStart",
+            "additionalContext": (
+                "This supporting subagent is read-only. Inspect and report, but do not edit files, create commits, "
+                "run builds that write into the checkout, or change Git state. A writing workstream needs its own "
+                "top-level task and worktree."
+            ),
+        }
+    })
 
 
 def failed_output(event, log_path, extra=""):
@@ -523,10 +897,8 @@ def stop(event):
         emit(informational(synchronization["warning"]))
         return
 
-    progress = main_progress(
-        REPOSITORY, state, synchronization["base_main"], synchronization["base_name"],
-    )
-    notice = messages(synchronization["warning"], progress)
+    remote_notice, remote_refusal = observe_remote(state, synchronization)
+    notice = messages(synchronization["warning"], remote_notice, remote_refusal)
     save_state(state_path, state)
 
     if current == state["passed"]:
@@ -569,8 +941,8 @@ def refresh(event):
     }
     state.setdefault("base_main", synchronization["base_main"])
     state.setdefault("seen_main", synchronization["base_main"])
-    progress = main_progress(
-        REPOSITORY, state, synchronization["base_main"], synchronization["base_name"],
+    remote_notice, remote_refusal = observe_remote(
+        state, synchronization, pr_max_age=0, require_pr_fresh=True,
     )
     save_state(state_path, state)
     base = synchronization["base_main"][:12] if synchronization["base_main"] else "unavailable"
@@ -578,20 +950,53 @@ def refresh(event):
         status = f"{synchronization['base_name']} is {base}; {synchronization['warning']}"
     else:
         status = f"{synchronization['base_name']} is {base}; local main is a safe fast-forward mirror."
-    emit(informational(messages(status, progress)))
+    emit(informational(messages(status, remote_notice, remote_refusal)))
+
+
+def acknowledge_main_cli():
+    # A synchronous PreToolUse hook records the session-scoped acknowledgement
+    # before this harmless command runs. Without that hook, pretending it was
+    # recorded would turn an enforcement failure into silent permission.
+    print("main-drift acknowledgement command completed; enforcement requires the trusted PreToolUse hook")
+
+
+def watch(event):
+    """One read-only observation used by an explicitly approved waiting monitor."""
+    synchronization = synchronize_repository(REPOSITORY, 0)
+    state_path, _ = state_paths(event)
+    state = load_state(state_path) or {
+        "passed": fingerprint(),
+        "failed": None,
+        "base_main": synchronization["base_main"],
+        "seen_main": synchronization["old_base"] or synchronization["base_main"],
+    }
+    remote_notice, remote_refusal = observe_remote(state, synchronization, pr_max_age=0)
+    save_state(state_path, state)
+    notice = messages(synchronization["warning"], remote_notice, remote_refusal)
+    emit(informational(notice) if notice else {})
 
 
 def main():
-    action = sys.argv[1] if len(sys.argv) == 2 else ""
+    action = sys.argv[1] if len(sys.argv) >= 2 else ""
     event = event_input()
     if action == "initialize":
         initialize(event)
+    elif action == "guard":
+        guard(event)
+    elif action == "subagent":
+        subagent(event)
     elif action == "stop":
         stop(event)
     elif action == "cleanup":
         cleanup(event)
     elif action == "refresh":
         refresh(event)
+    elif action == "watch":
+        watch(event)
+    elif action == "acknowledge-main":
+        acknowledge_main_cli()
+    elif action == "reconcile-pr":
+        reconcile_pull_request_cli()
     else:
         raise ValueError(f"unknown hook action: {action}")
 
@@ -600,7 +1005,9 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as error:  # The agent must get a chance to diagnose a broken gate.
-        if len(sys.argv) == 2 and sys.argv[1] == "stop":
+        if len(sys.argv) >= 2 and sys.argv[1] == "guard":
+            emit(agent_guard.blocked(f"The worktree safety guard failed closed: {error}"))
+        elif len(sys.argv) >= 2 and sys.argv[1] == "stop":
             emit({"decision": "block", "reason": f"The fast test hook failed: {error}"})
         else:
             raise

@@ -10,6 +10,25 @@
         "timeoutSec": 60
       }
     ],
+    "PreToolUse": [
+      {
+        "type": "command",
+        "bash": "python3 .agents/hooks/fast_gate.py guard",
+        "cwd": ".",
+        "env": {"AGENT_EXECUTION": "copilot-cloud"},
+        "matcher": "Bash|Edit|Write|Agent|Task",
+        "timeoutSec": 60
+      }
+    ],
+    "SubagentStart": [
+      {
+        "type": "command",
+        "bash": "python3 .agents/hooks/fast_gate.py subagent",
+        "cwd": ".",
+        "env": {"AGENT_EXECUTION": "copilot-cloud"},
+        "timeoutSec": 3
+      }
+    ],
     "Stop": [
       {
         "type": "command",
@@ -25,7 +44,7 @@
         "bash": "python3 .agents/hooks/fast_gate.py cleanup",
         "cwd": ".",
         "env": {"AGENT_EXECUTION": "copilot-cloud"},
-        "timeoutSec": 3
+        "timeoutSec": 60
       }
     ]
   }

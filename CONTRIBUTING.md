@@ -49,17 +49,43 @@ overwritten. GitHub's Sync fork button and a current fork `main` are optional:
 create and push the topic branch through `origin`, but derive and refresh it
 from the canonical ref.
 
-Concurrent local agents use separate linked worktrees and topic branches.
-Cloud sessions already run in isolated checkouts and do not add another
-worktree. Claude Code cloud exposes `CLAUDE_CODE_REMOTE=true`; Codex cloud uses
-the repository-defined `AGENT_EXECUTION=codex-cloud`, and GitHub Copilot coding
-agent is recognized from its scoped `GITHUB_COPILOT_GIT_TOKEN` by the adapter
-under `.github/hooks/`. Regardless of vendor, a checkout without `origin` is
-treated as an isolated snapshot: it can test and create a handoff commit, but
-cannot claim remote freshness or a successful push. Do not place a personal
-access token in a cloud setup script. Use the platform's existing pull request
-update facility, or hand a commit and patch to the agent that owns the
-pull-request branch. Do not open a replacement pull request for the same work.
+The primary local checkout is read-only for agents. Pure inspection needs no
+extra worktree; every implementation, build or test that may write uses a
+dedicated worktree. Codex-managed worktrees may remain detached until a branch
+is needed, while manually created Codex, Claude and CLI worktrees start with a
+topic branch. Parallel subagents are read-only; parallel implementations use
+separate top-level tasks and worktrees. Cloud sessions already run in isolated
+checkouts and do not add another worktree. Claude Code cloud exposes
+`CLAUDE_CODE_REMOTE=true`; Codex cloud uses the repository-defined
+`AGENT_EXECUTION=codex-cloud`, and GitHub Copilot coding agent is recognized
+from its scoped `GITHUB_COPILOT_GIT_TOKEN` by the adapter under `.github/hooks/`.
+Regardless of vendor, a checkout without `origin` is treated as an isolated
+snapshot: it can test and create a handoff commit, but cannot claim remote
+freshness or a successful push. Do not place a personal access token in a cloud
+setup script. Use the platform's existing pull request update facility, or hand
+a commit and patch to the agent that owns the pull-request branch. Do not open
+a replacement pull request for the same work.
+
+Agent hooks refresh the canonical branch throughout active work and report
+path overlap with new `main` commits or other open pull requests. They also
+observe a published pull request's remote head, checks, review and merge state.
+They never merge or rebase automatically. A foreign remote head must be
+reconciled before another write or publication, and a changed head needs a new
+review. A read-only ten-minute waiting monitor may be offered after local work
+finishes, but it is created only with explicit user consent and never comments,
+pushes, requests review or merges.
+
+Agent worktrees have an event-driven cleanup queue rather than a background
+scheduler. SessionEnd retains dirty work and open pull requests, while a clean
+finished worktree becomes eligible after a 24-hour grace period. A later
+session removes only
+a registered worktree with no lease, tracked, untracked or ignored files, open
+or closed-unmerged pull request, foreign head or unknown GitHub state. The local
+branch remains for a seven-day grace period and is deleted only when canonical
+`main`
+contains it or GitHub confirms that its exact head was merged. Remote branches
+are never deleted by this cleanup. `python3 .agents/worktrees.py audit` explains
+every retained or removable item before `retire` or `sweep` is used.
 
 Before opening a pull request, an agent validates the exact proposed title and
 body locally:
@@ -71,36 +97,48 @@ body locally:
 
 Keep the pull request in draft while it is changing. Before merge, wait for
 Codex to review the current head commit, not an earlier revision. P0, P1 and P2
-findings block merge until fixed or technically rebutted in their thread; P3
-findings are answered or tracked. The pull request's author or integrating
-agent owns every review thread through completion: document its disposition and
-resolve it when addressed before requesting another review. The required-thread
-rule prevents unresolved findings from merging, while this wait prevents a late
+do not have one blanket disposition: P0 and P1 always block until fixed or
+technically rebutted. A P2 blocks when independently reproduced in a
+security-, recoverability-, ownership-, freshness-, publication-, or
+cleanup-critical path; other P2 and all P3 findings are answered and tracked.
+The pull request's author or integrating agent owns every review thread through
+completion: document its disposition and resolve it when addressed before
+requesting another review. Once the current head has no blocking finding, do
+not repeat reviews merely to obtain zero suggestions. The required-thread rule
+prevents unresolved findings from merging, while this wait prevents a late
 Codex review from arriving only after merge.
 
 ## Issues and public conversation
 
-Search before opening another issue. Extend an existing open issue and its
+Every implementation starts with a visible issue before its first source write.
+Search open issues and pull requests first. Extend an existing open issue and its
 active pull request when follow-up work belongs to the same continuous request,
 serves the same outcome, and can be reviewed and accepted or rejected together.
 Update the issue title and body when its coherent scope grows. A shared area
 alone is not enough; create a separate issue when the work is independently
 decidable, needs a separate security path, or requires another real decision.
-An agent never creates an issue merely to satisfy the issue-first rule and asks
-the user before splitting an ambiguous continuous request.
+When no suitable issue exists, create one for the actual requested outcome;
+never create a placeholder merely to satisfy the issue-first rule. Ask the user
+before splitting an ambiguous continuous request.
 
 When work begins now rather than at some later date, first check assignees,
-Development links, and recent comments. A contributor with write access assigns
-their own account to the issue. Until a pull request is linked, the contributor
-also leaves one short temporary comment saying that work has started; this is
-the only signal available to a contributor without assignment permission. An
-agent uses the issue's language and includes its authorship notice.
+Development links, recent comments and temporary `wip:*` labels. The repository
+helper requires label-management permission, atomically creates one fixed
+per-issue lock definition, assigns the publishing account, creates a unique
+`wip:<epoch>-<random>` label on the issue, and leaves a matching hidden-marker
+comment. The fixed definition serializes cross-clone claimants even when one is
+paused mid-operation; a contributor without that permission coordinates with a
+maintainer instead of starting an unguarded agent implementation.
 
-Delete only the contributor's own temporary work comment as soon as the pull
-request appears through `Fixes #N`. Never delete another person's comment, even
-if it copies the same marker or wording. If work stops before a pull request
-exists, remove the contributor's own comment and self-assignment. When the pull request is
-opened immediately, its Development link makes a temporary comment unnecessary.
+Use `python3 .agents/issues.py claim N` before implementation. Delete only that
+task's own temporary comment, issue label and both label definitions as soon as the
+pull request appears through `Fixes #N`, using
+`python3 .agents/issues.py linked PR`. The pull request and its head branch then
+become the work signal; do not copy a WIP label to the pull request. If work
+stops first, use `python3 .agents/issues.py release`, which also removes the
+self-assignment when permitted. Never delete another task's claim. A timestamped
+claim that appears abandoned is inspected and handed over deliberately, never
+silently stolen.
 
 Bug and Change forms ask for `TL;DR`, `Where`, `Now`, `Want`, and `To decide`.
 Keep the complete issue to at most 175 counted prose words. The last field names
@@ -126,8 +164,12 @@ relevant, but workflow labels such as `needs decision` are not copied.
 `needs reproduction`, or `blocked` only while that action is needed; `help wanted`
 and `good first issue` are deliberate invitations. `accessibility` records an
 impact, while `duplicate` and `not planned` record a reasoned close. There are no
-priority or agent-authorship labels. Contributors without triage access make
-their classification through the forms rather than applying labels directly.
+priority or permanent agent-authorship labels. Temporary `wip:<epoch>-<random>`
+labels expose exclusive issue locks; their dynamic definition and the fixed
+per-issue mutex definition are deleted when released. They are never
+classification labels or pull-request labels. Contributors
+without triage access make their classification through the forms rather than
+applying labels directly.
 
 English and German are accepted; prefer English when in doubt. Replies follow
 the language of the issue or pull request, and use English for a mixed-language
