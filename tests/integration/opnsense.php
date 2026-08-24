@@ -206,11 +206,23 @@ $verifier = new class(new HttpClient()) extends JwtVerifier {
         return $this->verifySignature($algorithm, $jwk, $payload, $signature);
     }
 };
+$canonicalPublicJwk = static function (array $jwk): array {
+    /* OPNsense's bundled phpseclib pads exported base64url members. A simulated
+     * provider JWKS must use the canonical unpadded representation that the
+     * protocol validator correctly requires from an HTTP response. */
+    foreach (['n', 'e', 'x', 'y'] as $member) {
+        if (is_string($jwk[$member] ?? null)) {
+            $jwk[$member] = rtrim($jwk[$member], '=');
+        }
+    }
+    return $jwk;
+};
 
 $payload = 'OPNsense OpenID Connect runtime cryptography';
 $rsa = RSA::createKey(2048);
 $rsaJwkExport = json_decode($rsa->getPublicKey()->toString('JWK'), true, 16, JSON_THROW_ON_ERROR);
 $rsaJwk = is_array($rsaJwkExport['keys'][0] ?? null) ? $rsaJwkExport['keys'][0] : $rsaJwkExport;
+$rsaJwk = $canonicalPublicJwk($rsaJwk);
 $rsaSignature = $rsa->withHash('sha256')->withPadding(RSA::SIGNATURE_PKCS1)->sign($payload);
 $check($verifier->signature('RS256', $rsaJwk, $payload, $rsaSignature), 'RS256 through OPNsense phpseclib');
 
@@ -227,11 +239,13 @@ $check(
 $ec = EC::createKey('secp256r1');
 $ecJwkExport = json_decode($ec->getPublicKey()->toString('JWK'), true, 16, JSON_THROW_ON_ERROR);
 $ecJwk = is_array($ecJwkExport['keys'][0] ?? null) ? $ecJwkExport['keys'][0] : $ecJwkExport;
+$ecJwk = $canonicalPublicJwk($ecJwk);
 $ecSignature = $ec->withHash('sha256')->withSignatureFormat('IEEE')->sign($payload);
 $check($verifier->signature('ES256', $ecJwk, $payload, $ecSignature), 'ES256 IEEE signature through OPNsense phpseclib');
 $ed25519 = EC::createKey('Ed25519');
 $ed25519JwkExport = json_decode($ed25519->getPublicKey()->toString('JWK'), true, 16, JSON_THROW_ON_ERROR);
 $ed25519Jwk = is_array($ed25519JwkExport['keys'][0] ?? null) ? $ed25519JwkExport['keys'][0] : $ed25519JwkExport;
+$ed25519Jwk = $canonicalPublicJwk($ed25519Jwk);
 $ed25519Signature = $ed25519->sign($payload);
 $check(
     $verifier->signature('EdDSA', $ed25519Jwk, $payload, $ed25519Signature),
