@@ -433,6 +433,14 @@ def main():
           guard_module.is_issue_bootstrap({
               "tool_name": "Bash", "tool_input": {"command": "gh issue create --title example"},
           }), True)
+    check("issue bootstrap cannot launch a configured browser helper",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash", "tool_input": {"command": "gh issue create --web"},
+          }), False)
+    check("issue bootstrap cannot launch a configured editor helper",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash", "tool_input": {"command": "gh issue create --editor"},
+          }), False)
     check("shell redirection is not read-only", guard_module.is_read_only_shell("rg value . > result"), False)
     check("bounded sed line inspection remains read-only",
           guard_module.is_read_only_shell("sed -n 1,20p AGENTS.md"), True)
@@ -489,6 +497,10 @@ def main():
     check("a shell control list fails closed at a publication boundary",
           guard_module.requires_uncached_remote({
               "tool_name": "Bash", "tool_input": {"command": "true; git push origin codex/topic"},
+          }), True)
+    check("a subshell fails closed at a publication boundary",
+          guard_module.requires_uncached_remote({
+              "tool_name": "Bash", "tool_input": {"command": "(git push origin codex/topic)"},
           }), True)
     check("quoted commit punctuation cannot hide a detached-worktree commit", guard_module.requires_topic_branch({
         "tool_name": "Bash", "tool_input": {"command": "git commit -m 'test: durable work?'"},

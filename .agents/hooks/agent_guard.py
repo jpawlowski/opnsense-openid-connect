@@ -305,7 +305,7 @@ def _shell_hazard(command):
             continue
         if value in "'\"":
             quote = value
-        elif value in "\r\n;&|<>":
+        elif value in "\r\n;&|<>!()":
             return "control"
         elif value in "`$*?[]{}~":
             return "expansion"
@@ -378,7 +378,8 @@ def is_issue_bootstrap(event):
         return False
     program, arguments = _shell_invocation(event_command(event))
     return bool(program == "gh" and len(arguments) >= 2
-                and arguments[0] == "issue" and arguments[1] == "create")
+                and arguments[0] == "issue" and arguments[1] == "create"
+                and not any(value in ("--editor", "--web", "-e", "-w") for value in arguments[2:]))
 
 
 def is_main_acknowledgement(event):
@@ -484,7 +485,7 @@ def _effective_invocation(command):
         }
         name = Path(program).name
         option = interpreter_options.get(name)
-        if (program in ("eval", "source", ".", "xargs")
+        if (program in (".", "coproc", "doas", "eval", "nice", "nohup", "source", "sudo", "time", "xargs")
                 or (option and any(value.startswith("-") and option in value[1:] for value in arguments))):
             return program, arguments, True
         break
