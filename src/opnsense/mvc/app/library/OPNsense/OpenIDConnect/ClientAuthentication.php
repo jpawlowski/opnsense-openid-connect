@@ -146,11 +146,6 @@ final class ClientAuthentication
         return $this->certificate;
     }
 
-    public function protectedResourceCertificate(): ?ClientCertificate
-    {
-        return $this->certificateBoundAccessTokens ? $this->certificate : null;
-    }
-
     public function assertAccessTokenBinding(string $accessToken): void
     {
         if (!$this->certificateBoundAccessTokens || substr_count($accessToken, '.') !== 2) {

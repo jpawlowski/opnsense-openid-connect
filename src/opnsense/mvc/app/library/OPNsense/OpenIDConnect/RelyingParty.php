@@ -512,7 +512,7 @@ class RelyingParty
             $endpoint,
             self::USERINFO_MAX_BYTES,
             ['Authorization: Bearer ' . $accessToken, 'Accept: application/json, application/jwt'],
-            $this->clientAuthentication()->protectedResourceCertificate()
+            $this->clientAuthentication()->certificate()
         );
         if ($response->status !== 200) {
             throw new ProtocolException(sprintf('UserInfo returned HTTP %d', $response->status));

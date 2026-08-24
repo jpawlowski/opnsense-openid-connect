@@ -539,6 +539,35 @@ Checks::that(
     $mtlsSnapshot['certificate_thumbprint']
 );
 
+$unboundUserInfo = [];
+$unboundMtlsSettings = connector([
+    'openidconnect_client_id' => 'unbound-mtls-client',
+    'openidconnect_client_certificate' => 'mtls-old',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+]);
+$unboundUserInfoParty = new RelyingParty(
+    $unboundMtlsSettings,
+    new Controller(new Request('https', 'firewall.example.net'), new Session()),
+    new HttpClient(function (
+        string $method,
+        string $url,
+        ?string $body,
+        array $headers,
+        int $maximum,
+        ?ClientCertificate $certificate
+    ) use (&$unboundUserInfo): array {
+        $unboundUserInfo = compact('url', 'certificate');
+        return jsonAnswer(['sub' => 'stable-subject']);
+    })
+);
+$mtlsMetadataProperty->setValue($unboundUserInfoParty, $mtlsMetadata);
+inspect($unboundUserInfoParty, 'requestUserInfo', 'https://mtls.example.net/userinfo', 'opaque-access');
+Checks::that(
+    'an unbound UserInfo mTLS alias is coupled to the client certificate',
+    [$unboundUserInfo['url'], $unboundUserInfo['certificate']?->reference()],
+    ['https://mtls.example.net/userinfo', 'mtls-old']
+);
+
 $wrongThumbprint = JwtVerifier::base64UrlEncode('{}') . '.' . JwtVerifier::base64UrlEncode(json_encode([
     'cnf' => ['x5t#S256' => 'different-certificate'],
 ], JSON_THROW_ON_ERROR)) . '.signature';
