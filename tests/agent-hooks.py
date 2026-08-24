@@ -333,6 +333,21 @@ def main():
         agent_head = subprocess.run(
             ("git", "rev-parse", "HEAD"), cwd=worktree, check=True, capture_output=True, text=True,
         ).stdout.strip()
+        late_overlap = {"base_main": agent_head, "seen_main": agent_head}
+        first_notice = hook.main_progress(worktree, late_overlap, remote_head, "origin/main")
+        check("canonical progress is initially non-overlapping", "without a changed-path overlap" in first_notice,
+              True)
+        late_overlap["acknowledged_main"] = remote_head
+        late_overlap["acknowledged_main_paths"] = late_overlap["main_paths_fingerprint"]
+        (worktree / "remote.txt").write_text("agent later touched it\n", encoding="utf-8")
+        late_notice = hook.main_progress(worktree, late_overlap, remote_head, "origin/main")
+        check("the same canonical head is re-evaluated when local paths later overlap",
+              "remote.txt" in late_notice and late_overlap.get("pending_main") == remote_head, True)
+        check("an acknowledgement for the earlier path set cannot excuse a later overlap",
+              "acknowledge-main" in hook.pending_main_refusal(
+                  worktree, late_overlap, remote_head, "origin/main",
+              ), True)
+        (worktree / "remote.txt").unlink()
         (worktree / "shared.txt").write_text("agent\n", encoding="utf-8")
         (seed / "shared.txt").write_text("remote changed\n", encoding="utf-8")
         subprocess.run(("git", "add", "shared.txt"), cwd=seed, check=True)
@@ -357,6 +372,7 @@ def main():
                   worktree, drift_state, refused["base_main"], refused["base_name"],
               ), True)
         drift_state["acknowledged_main"] = refused["base_main"]
+        drift_state["acknowledged_main_paths"] = drift_state["main_paths_fingerprint"]
         check("a deliberate deferral releases the write guard",
               hook.pending_main_refusal(
                   worktree, drift_state, refused["base_main"], refused["base_name"],
@@ -381,6 +397,10 @@ def main():
     check("environment overrides cannot alter an allow-listed program",
           guard_module.is_read_only_shell("RIPGREP_CONFIG_PATH=config rg worktree AGENTS.md"), False)
     check("Git status is read-only", guard_module.is_read_only_shell("git status --short"), True)
+    check("Git grep cannot launch a pager command",
+          guard_module.is_read_only_shell("git grep --open-files-in-pager=rm needle"), False)
+    check("Git diff cannot launch an external diff helper",
+          guard_module.is_read_only_shell("git diff --ext-diff"), False)
     check("GitHub pull request inspection is read-only",
           guard_module.is_read_only_shell("gh pr view 42 --json headRefOid"), True)
     check("GitHub API GET inspection is read-only",
@@ -732,20 +752,6 @@ def main():
         subprocess.run(("git", "update-ref", "refs/remotes/origin/codex/cleanup", head),
                        cwd=control, check=True)
 
-        cleanup.register(linked, client="codex", slug="cleanup", managed_by="repository", now=10)
-        waiting = cleanup.finish_session(linked, "task-one", pull_number=17, now=20)
-        check("an open pull request keeps its clean worktree", "still open" in waiting, True)
-        registry = cleanup.load_registry(control)
-        record = next(iter(registry["records"].values()))
-        check("waiting work is not retired", bool(record.get("retired_at")), False)
-        retired = cleanup.finish_session(linked, "task-one", now=30)
-        check("a clean completed session enters the cleanup queue", "queued" in retired, True)
-        cleanup.register(linked, session_id="task-one", now=31)
-        registry = cleanup.load_registry(control)
-        record = next(iter(registry["records"].values()))
-        check("resuming the same task cancels its pending retirement", bool(record.get("retired_at")), False)
-        cleanup.finish_session(linked, "task-one", now=32)
-
         def merged_reader(_repository, path, _token):
             if path.startswith("pulls?"):
                 return [{
@@ -754,6 +760,27 @@ def main():
                              "repo": {"full_name": "jpawlowski/opnsense-openid-connect"}},
                 }]
             raise AssertionError(f"unexpected GitHub path {path}")
+
+        cleanup.register(linked, client="codex", slug="cleanup", managed_by="repository", now=10)
+        waiting = cleanup.finish_session(linked, "task-one", pull_number=17, now=20)
+        check("an open pull request keeps its clean worktree", "still open" in waiting, True)
+        registry = cleanup.load_registry(control)
+        record = next(iter(registry["records"].values()))
+        check("waiting work is not retired", bool(record.get("retired_at")), False)
+        cleanup.sweep(
+            control, "main", "jpawlowski/opnsense-openid-connect", current_path=control,
+            now=21, reader=merged_reader,
+        )
+        registry = cleanup.load_registry(control)
+        record = next(iter(registry["records"].values()))
+        check("a merged waiting pull request enters retirement automatically", record["retired_at"], 21)
+        retired = cleanup.finish_session(linked, "task-one", now=30)
+        check("a clean completed session enters the cleanup queue", "queued" in retired, True)
+        cleanup.register(linked, session_id="task-one", now=31)
+        registry = cleanup.load_registry(control)
+        record = next(iter(registry["records"].values()))
+        check("resuming the same task cancels its pending retirement", bool(record.get("retired_at")), False)
+        cleanup.finish_session(linked, "task-one", now=32)
 
         too_early = cleanup.inventory(
             control, "main", "jpawlowski/opnsense-openid-connect", current_path=control,
@@ -804,6 +831,19 @@ def main():
             ("git", "show-ref", "--verify", "refs/heads/codex/cleanup"), cwd=control, check=False,
             capture_output=True, text=True,
         ).returncode, 0)
+        replacement = pathlib.Path(temporary) / "replacement"
+        subprocess.run(("git", "worktree", "add", "-q", str(replacement), "codex/cleanup"),
+                       cwd=control, check=True)
+        actions = cleanup.sweep(
+            control, "main", "jpawlowski/opnsense-openid-connect", current_path=control,
+            now=32 + cleanup.BRANCH_GRACE + 1, reader=merged_reader,
+        )
+        check("a retained branch checked out in a replacement worktree is not deleted", actions, [])
+        check("the replacement worktree keeps its attached branch", subprocess.run(
+            ("git", "symbolic-ref", "--short", "HEAD"), cwd=replacement, check=True,
+            capture_output=True, text=True,
+        ).stdout.strip(), "codex/cleanup")
+        subprocess.run(("git", "worktree", "remove", "--", str(replacement)), cwd=control, check=True)
         actions = cleanup.sweep(
             control, "main", "jpawlowski/opnsense-openid-connect", current_path=control,
             now=32 + cleanup.BRANCH_GRACE + 1, reader=merged_reader,

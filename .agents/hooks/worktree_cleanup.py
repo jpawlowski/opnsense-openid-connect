@@ -273,14 +273,52 @@ def _classify(repository, record, canonical_ref, canonical_repository, current_p
         if dirty:
             value.update({"state": "blocked", "reason": dirty})
             return value
-    retired_at = float(value.get("retired_at") or 0)
-    if not retired_at:
-        value.update({"state": "retained", "reason": value.get("waiting_reason") or "not retired"})
+    attached = next((
+        item for item in worktrees(repository)
+        if branch and item.get("branch") == branch
+        and (not path or Path(item["path"]).resolve() != Path(path).resolve())
+    ), None)
+    if attached:
+        value.update({
+            "state": "active",
+            "reason": f"branch is checked out in replacement worktree {attached['path']}",
+        })
         return value
+    retired_at = float(value.get("retired_at") or 0)
+    pull = None
+    if not retired_at:
+        waiting_for_pull = str(value.get("waiting_reason") or "").startswith("pull request #")
+        if not waiting_for_pull or not branch:
+            value.update({"state": "retained", "reason": value.get("waiting_reason") or "not retired"})
+            return value
+        pull = _pull_state(repository, canonical_repository, branch, head, reader=reader)
+        value["pull"] = pull
+        contained = bool(head) and git(
+            repository, "merge-base", "--is-ancestor", head, canonical_ref, check=False,
+        ).returncode == 0
+        if pull["state"] == "merged" or (pull["state"] == "unpublished" and contained):
+            retired_at = now
+            value["retired_at"] = now
+            value["retire_reason"] = "pull request merged"
+            value.pop("waiting_reason", None)
+        else:
+            reasons = {
+                "open": f"pull request #{pull.get('number')} is open",
+                "closed": f"pull request #{pull.get('number')} closed without merge",
+                "foreign-head": f"pull request #{pull.get('number')} has another head",
+                "unknown": pull.get("warning") or "pull-request state is unknown",
+                "unpublished": "waiting pull request is no longer discoverable",
+            }
+            value.update({
+                "state": "retained" if pull["state"] == "open" else "blocked",
+                "reason": reasons.get(pull["state"], "pull-request state is unknown"),
+            })
+            return value
 
-    pull = _pull_state(repository, canonical_repository, branch, head, reader=reader) if branch else {
-        "state": "unpublished", "number": None, "warning": "",
-    }
+    if pull is None:
+        pull = _pull_state(repository, canonical_repository, branch, head, reader=reader) if branch else {
+            "state": "unpublished", "number": None, "warning": "",
+        }
     value["pull"] = pull
     if pull["state"] in ("open", "closed", "foreign-head", "unknown"):
         reasons = {
@@ -363,6 +401,10 @@ def sweep(repository, canonical_ref, canonical_repository, current_path=None, no
         classified = _classify(
             repository, record, canonical_ref, canonical_repository, current_path, now, reader=reader,
         )
+        if classified.get("retired_at") and not record.get("retired_at"):
+            record["retired_at"] = classified["retired_at"]
+            record["retire_reason"] = classified.get("retire_reason") or "completed"
+            record.pop("waiting_reason", None)
         if classified["state"] == "worktree-ready" and (max_removals is None or removals < max_removals):
             path = classified["path"]
             result = git(primary_worktree(repository), "worktree", "remove", "--", path, check=False)

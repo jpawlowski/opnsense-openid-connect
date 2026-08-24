@@ -160,7 +160,16 @@ def _read_only_git(arguments):
         return False
     command, rest = arguments[0], arguments[1:]
     if command in READ_ONLY_GIT:
-        return not any(argument == "--output" or argument.startswith("--output=") for argument in rest)
+        executable = {"--ext-diff", "--textconv"}
+        if command == "grep":
+            executable.add("--open-files-in-pager")
+            if any(argument == "-O" or argument.startswith("-O") for argument in rest):
+                return False
+        return not any(
+            argument == "--output" or argument.startswith("--output=")
+            or argument in executable or argument.startswith("--open-files-in-pager=")
+            for argument in rest
+        )
     if command == "branch":
         mutations = {
             "-c", "-C", "-d", "-D", "-m", "-M", "--copy", "--delete", "--edit-description", "--move",

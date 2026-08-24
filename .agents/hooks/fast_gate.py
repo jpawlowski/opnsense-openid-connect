@@ -415,13 +415,19 @@ def work_paths(repository, base_main):
 def main_progress(repository, state, base_main, base_name):
     base = state.get("base_main")
     seen = state.get("seen_main")
-    if not base or not base_main or base_main in (base, seen):
+    if not base or not base_main or base_main == base:
         return ""
 
+    paths = work_paths(repository, base_main)
+    paths_fingerprint = hashlib.sha256("\0".join(sorted(paths)).encode()).hexdigest()
+    if base_main == seen and state.get("main_paths_fingerprint") == paths_fingerprint:
+        return ""
+    previously_seen = base_main == seen
     changed = path_output(repository, "diff", "--name-only", f"{base}..{base_main}", "--")
-    overlap = sorted(changed & work_paths(repository, base_main))
+    overlap = sorted(changed & paths)
     count = git_value(repository, "rev-list", "--count", f"{base}..{base_main}") or "unknown"
     state["seen_main"] = base_main
+    state["main_paths_fingerprint"] = paths_fingerprint
     if overlap:
         state["pending_main"] = base_main
         preview = ", ".join(overlap[:8])
@@ -432,6 +438,8 @@ def main_progress(repository, state, base_main, base_name):
             "rebase was run."
         )
     state.pop("pending_main", None)
+    if previously_seen:
+        return ""
     return (
         f"{base_name} advanced by {count} commit(s) since this task began without a changed-path overlap. "
         "The working branch was left unchanged."
@@ -454,7 +462,8 @@ def pending_main_refusal(repository, state, base_main, base_name):
         state["acknowledged_main"] = base_main
         state.pop("pending_main", None)
         return ""
-    if state.get("acknowledged_main") == base_main:
+    if (state.get("acknowledged_main") == base_main
+            and state.get("acknowledged_main_paths") == state.get("main_paths_fingerprint")):
         return ""
     return (
         f"{base_name} at {base_main[:12]} overlaps this task. Compare the changed paths, then integrate that head "
@@ -537,6 +546,7 @@ def acknowledge_event(event):
     if not pending or not pending.startswith(sha) or not reason:
         return "the acknowledgement must name the currently pending main head and a non-empty reason"
     state["acknowledged_main"] = pending
+    state["acknowledged_main_paths"] = state.get("main_paths_fingerprint")
     state["main_acknowledgement_reason"] = reason
     save_state(state_path, state)
     return ""
