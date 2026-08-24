@@ -431,7 +431,8 @@ def is_issue_bootstrap(event):
     return bool(program == "gh" and len(arguments) >= 2
                 and arguments[0] == "issue" and arguments[1] == "create"
                 and not any(
-                    value.split("=", 1)[0] in ("--editor", "--web", "-e", "-w")
+                    value.split("=", 1)[0] in ("--editor", "--repo", "--web", "-R", "-e", "-w")
+                    or value.startswith("-R")
                     for value in arguments[2:]
                 ))
 

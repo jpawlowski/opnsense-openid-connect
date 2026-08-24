@@ -460,6 +460,15 @@ def main():
           guard_module.is_issue_bootstrap({
               "tool_name": "Bash", "tool_input": {"command": "gh issue create --title example"},
           }), True)
+    check("issue bootstrap cannot target another repository",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash",
+              "tool_input": {"command": "gh issue create --repo other/project --title example"},
+          }), False)
+    check("attached repository selectors cannot bypass issue-bootstrap scope",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash", "tool_input": {"command": "gh issue create -Rother/project -t example"},
+          }), False)
     check("issue bootstrap cannot launch a configured browser helper",
           guard_module.is_issue_bootstrap({
               "tool_name": "Bash", "tool_input": {"command": "gh issue create --web"},
