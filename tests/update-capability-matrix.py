@@ -572,7 +572,11 @@ def main():
     action.add_argument("--check", action="store_true")
     action.add_argument("--update", action="store_true")
     parser.add_argument("--executed-tests", type=pathlib.Path)
+    parser.add_argument("--output", type=pathlib.Path, help="alternate output path for a transactional render")
     args = parser.parse_args()
+    output = args.output.resolve() if args.output else OUTPUT
+    if args.output and not args.update:
+        parser.error("--output requires --update")
 
     try:
         global EXECUTED_TESTS
@@ -587,12 +591,13 @@ def main():
         return 1
 
     if args.update:
-        OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-        OUTPUT.write_text(rendered, encoding="utf-8")
-        print(f"updated {OUTPUT.relative_to(ROOT)}")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(rendered, encoding="utf-8")
+        label = output.relative_to(ROOT) if output.is_relative_to(ROOT) else output
+        print(f"rendered {label}")
         return 0
 
-    current = OUTPUT.read_text(encoding="utf-8") if OUTPUT.exists() else ""
+    current = output.read_text(encoding="utf-8") if output.exists() else ""
     if current != rendered:
         print("capability matrix is stale; run tests/update-capability-matrix.py --update", file=sys.stderr)
         return 1
