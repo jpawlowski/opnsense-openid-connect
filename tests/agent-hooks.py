@@ -595,6 +595,21 @@ def main():
     check("GitHub API mutation forces an uncached remote observation", guard_module.requires_uncached_remote({
         "tool_name": "Bash", "tool_input": {"command": "gh api --method PATCH repos/example/project/pulls/42"},
     }), True)
+    check("the coordination helper forces an uncached observation before publishing",
+          guard_module.requires_uncached_remote({
+              "tool_name": "Bash",
+              "tool_input": {"command": "python3 .agents/pr-coordination.py recommend --prs 42 57"},
+          }), True)
+    check("direct coordination helper execution is also a publication boundary",
+          guard_module.requires_uncached_remote({
+              "tool_name": "Bash",
+              "tool_input": {"command": ".agents/pr-coordination.py fulfill --id 42-57-order"},
+          }), True)
+    check("read-only coordination status does not become a publication boundary",
+          guard_module.requires_uncached_remote({
+              "tool_name": "Bash",
+              "tool_input": {"command": "python3 .agents/pr-coordination.py status --pr 42"},
+          }), False)
     check("a detached worktree needs a branch before commit", guard_module.requires_topic_branch({
         "tool_name": "Bash", "tool_input": {"command": "git commit -m 'test: durable work'"},
     }), True)
@@ -1379,12 +1394,17 @@ module.update_registry(repository, update)
     check("the public record carries the required agent notice",
           body.rstrip().endswith(coordination.NOTICE["en"]), True)
     mirrored = [
-        {"id": 1, "created_at": "2026-08-24T10:00:00Z", "body": body},
-        {"id": 2, "created_at": "2026-08-24T10:00:01Z", "body": body},
+        {"id": 1, "created_at": "2026-08-24T10:00:00Z", "body": body, "author_association": "OWNER"},
+        {"id": 2, "created_at": "2026-08-24T10:00:01Z", "body": body, "author_association": "OWNER"},
     ]
     active = coordination.records_from_comments(mirrored)
     check("mirrored comments become one active machine record",
           [(value["id"], value["order"]) for value in active], [("42-57-order", [42, 57])])
+    check("a public commenter cannot forge a coordination marker",
+          coordination.records_from_comments([
+              {"id": 3, "created_at": "2026-08-24T10:00:02Z", "body": body,
+               "author_association": "CONTRIBUTOR"},
+          ]), [])
     check("a later steward is told to wait without stopping ordinary work",
           "must not merge before #42" in coordination.status_notice(active, 57, {42: "open", 57: "open"}),
           True)
@@ -1398,8 +1418,34 @@ module.update_registry(repository, update)
     fulfilled = coordination.render_fulfilled(record)
     check("a fulfilled event retires the active recommendation", coordination.records_from_comments([
         *mirrored,
-        {"id": 3, "created_at": "2026-08-24T11:00:00Z", "body": fulfilled},
+        {"id": 4, "created_at": "2026-08-24T11:00:00Z", "body": fulfilled,
+         "author_association": "COLLABORATOR"},
     ]), [])
+
+    publisher = load_agent_module(
+        "pr_coordination_publisher_test", ROOT / ".agents" / "pr-coordination.py",
+    )
+    resumable_record = {
+        "id": "42-57-1787590800-a1b2c3", "order": [42, 57], "state": "final", "supersedes": [],
+    }
+    resumable_body = coordination.render_final(resumable_record, "same file", "review state", "contract changes")
+    published_paths = []
+    publisher.github_write = lambda path, _body, _token: (
+        published_paths.append(path) or {"html_url": f"https://example.invalid/{path}"}
+    )
+    existing = {
+        42: [{
+            "id": 5, "created_at": "2026-08-24T12:00:00Z", "body": resumable_body,
+            "html_url": "https://example.invalid/existing", "author_association": "OWNER",
+        }],
+        57: [],
+    }
+    resumed_urls = publisher.publish_mirrored(
+        [42, 57], resumable_body, resumable_record["id"], "token", existing,
+    )
+    check("a partial mirrored recommendation resumes without duplicating its first comment",
+          (published_paths, resumed_urls[0]),
+          (["issues/57/comments"], "https://example.invalid/existing"))
 
     group("Finished worktrees retire before local branches and never delete remote branches")
     cleanup = load_agent_module(

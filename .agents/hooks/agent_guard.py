@@ -642,10 +642,19 @@ def requires_uncached_remote(event):
     if _shell_hazard(command) == "expansion" and (program == "git" or program == "gh" or not program.isidentifier()):
         return True
     git_command, _git_arguments = _git_subcommand(arguments) if program == "git" else ("", [])
+    coordination_publication = (
+        Path(program).name == "pr-coordination.py"
+        and any(command in ("recommend", "fulfill") for command in arguments)
+    ) or any(
+        Path(value).name == "pr-coordination.py"
+        and any(command in ("recommend", "fulfill") for command in arguments[index + 1:])
+        for index, value in enumerate(arguments)
+    )
     return bool(
         (program == "git" and git_command in ("push", "send-pack"))
         or (program == "git" and git_command not in KNOWN_GIT_SUBCOMMANDS)
         or (program == "gh" and not _read_only_gh(arguments))
+        or coordination_publication
         or (program not in ("git", "gh") and any(Path(value).name in ("git", "gh") for value in arguments))
     )
 

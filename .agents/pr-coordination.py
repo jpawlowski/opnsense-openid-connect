@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import sys
 import time
@@ -24,6 +25,7 @@ import pr_coordination  # noqa: E402
 
 CANONICAL_REPOSITORY = "jpawlowski/opnsense-openid-connect"
 GITHUB_TIMEOUT = 10
+IDENTIFIER = re.compile(r"[0-9]+(?:-[0-9]+)+-[0-9]+-[0-9a-f]{6}")
 
 
 def github_write(path, body, token):
@@ -66,11 +68,63 @@ def comments(number, token):
     return paged(f"issues/{number}/comments", token)
 
 
-def all_records(pulls, token):
-    values = []
-    for pull in pulls:
-        values.extend(comments(int(pull["number"]), token))
-    return pr_coordination.records_from_comments(values)
+def comment_sets(pulls, token):
+    return {int(pull["number"]): comments(int(pull["number"]), token) for pull in pulls}
+
+
+def all_records(pulls, token, values_by_pull=None):
+    values_by_pull = comment_sets(pulls, token) if values_by_pull is None else values_by_pull
+    records = {}
+    for values in values_by_pull.values():
+        for record in pr_coordination.records_from_comments(values):
+            records.setdefault(record["id"], record)
+    return sorted(records.values(), key=lambda record: (record["created_at"], record["comment_id"], record["id"]))
+
+
+def matching_comments(values, identifier):
+    matches = []
+    for comment in values:
+        if not pr_coordination.trusted_comment(comment):
+            continue
+        record = pr_coordination.parse_marker(comment.get("body"))
+        if record is not None and record["id"] == identifier:
+            matches.append((comment, record))
+    return matches
+
+
+def publication_identifier(prs, requested):
+    if not requested:
+        return f"{'-'.join(map(str, prs))}-{int(time.time())}-{secrets.token_hex(3)}"
+    if not IDENTIFIER.fullmatch(requested) or not requested.startswith(f"{'-'.join(map(str, prs))}-"):
+        raise RuntimeError("coordination id does not belong to this exact pull-request set")
+    return requested
+
+
+def publish_mirrored(numbers, body, identifier, token, values_by_pull):
+    urls = []
+    desired = pr_coordination.parse_marker(body)
+    if desired is None or desired["id"] != identifier:
+        raise RuntimeError("mirrored publication body has no matching coordination marker")
+    print(f"coordination id {identifier}; rerun the same command with --id {identifier} to resume", flush=True)
+    try:
+        for number in numbers:
+            existing = matching_comments(values_by_pull.get(number, []), identifier)
+            same_state = [item for item in existing if item[1]["state"] == desired["state"]]
+            if same_state:
+                if not any(str(comment.get("body") or "") == body for comment, _record in same_state):
+                    raise RuntimeError(f"coordination id {identifier} already has different content on #{number}")
+                comment = next(comment for comment, _record in same_state if str(comment.get("body") or "") == body)
+                urls.append(str(comment.get("html_url") or f"pull request #{number}"))
+                continue
+            if desired["state"] == "final" and any(record["state"] == "fulfilled" for _comment, record in existing):
+                raise RuntimeError(f"coordination id {identifier} is already fulfilled on #{number}")
+            result = github_write(f"issues/{number}/comments", {"body": body}, token)
+            urls.append(str(result.get("html_url") or f"pull request #{number}"))
+    except RuntimeError as error:
+        raise RuntimeError(
+            f"coordination {identifier} may be partially published; rerun the same command with --id {identifier}"
+        ) from error
+    return urls
 
 
 def require_token():
@@ -84,42 +138,43 @@ def recommend(arguments):
     token = require_token()
     prs, order = pr_coordination.validate_order(arguments.prs, arguments.order)
     pulls = open_pulls(token)
+    values_by_pull = comment_sets(pulls, token)
     open_numbers = {int(pull["number"]) for pull in pulls}
     missing = sorted(set(prs) - open_numbers)
     if missing:
         raise RuntimeError("coordination targets must be open pull requests: " + ", ".join(map(str, missing)))
 
-    active = all_records(pulls, token)
+    identifier = publication_identifier(prs, arguments.id)
+    active = all_records(pulls, token, values_by_pull)
     replaced = set(arguments.supersedes)
     unknown = replaced - {record["id"] for record in active}
     if unknown:
         raise RuntimeError("superseded coordination is not active: " + ", ".join(sorted(unknown)))
     overlapping = [record for record in active if len(set(record["order"]) & set(prs)) >= 2]
-    unaddressed = [record["id"] for record in overlapping if record["id"] not in replaced]
+    unaddressed = [
+        record["id"] for record in overlapping
+        if record["id"] not in replaced and record["id"] != identifier
+    ]
     if unaddressed:
         raise RuntimeError(
             "an active recommendation already covers this pull-request set; supersede it explicitly: "
             + ", ".join(unaddressed)
         )
 
-    identifier = f"{'-'.join(map(str, prs))}-{int(time.time())}-{secrets.token_hex(3)}"
     record = {
         "id": identifier,
         "order": order,
         "state": "final",
         "supersedes": sorted(replaced),
     }
-    remaining = [value for value in active if value["id"] not in replaced]
+    remaining = [value for value in active if value["id"] not in replaced and value["id"] != identifier]
     if pr_coordination.has_cycle([*remaining, record]):
         raise RuntimeError("the recommended order would create a cycle with active coordination records")
     body = pr_coordination.render_final(
         record, arguments.overlap.strip(), arguments.reason.strip(), arguments.reconsider.strip(),
         language=arguments.language,
     )
-    urls = []
-    for number in prs:
-        result = github_write(f"issues/{number}/comments", {"body": body}, token)
-        urls.append(str(result.get("html_url") or f"pull request #{number}"))
+    urls = publish_mirrored(prs, body, identifier, token, values_by_pull)
     print(f"published final coordination {identifier}")
     for url in urls:
         print(url)
@@ -128,15 +183,18 @@ def recommend(arguments):
 def fulfill(arguments):
     token = require_token()
     pulls = open_pulls(token)
-    records = all_records(pulls, token)
-    record = next((value for value in records if value["id"] == arguments.id), None)
+    values_by_pull = comment_sets(pulls, token)
+    records = [
+        record
+        for values in values_by_pull.values()
+        for _comment, record in matching_comments(values, arguments.id)
+        if record["state"] == "final"
+    ]
+    record = next(iter(records), None)
     if record is None:
         raise RuntimeError("the coordination record is not active on an open pull request")
     body = pr_coordination.render_fulfilled(record, language=arguments.language)
-    urls = []
-    for number in record["order"]:
-        result = github_write(f"issues/{number}/comments", {"body": body}, token)
-        urls.append(str(result.get("html_url") or f"pull request #{number}"))
+    urls = publish_mirrored(record["order"], body, record["id"], token, values_by_pull)
     print(f"fulfilled coordination {record['id']}")
     for url in urls:
         print(url)
@@ -170,6 +228,7 @@ def parser():
     recommendation.add_argument("--reason", required=True)
     recommendation.add_argument("--reconsider", required=True)
     recommendation.add_argument("--supersedes", action="append", default=[])
+    recommendation.add_argument("--id", help="resume an interrupted mirrored publication with its printed id")
     recommendation.add_argument("--language", choices=("en", "de"), default="en")
     recommendation.set_defaults(action=recommend)
 

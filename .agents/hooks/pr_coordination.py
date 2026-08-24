@@ -13,6 +13,7 @@ NOTICE = {
     "en": "*An AI agent wrote this text on my behalf; I am responsible for its content.*",
     "de": "*Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.*",
 }
+TRUSTED_ASSOCIATIONS = {"COLLABORATOR", "MEMBER", "OWNER"}
 
 
 def validate_order(prs, order):
@@ -52,10 +53,17 @@ def parse_marker(body):
     return {"id": identifier, "order": order, "state": state, "supersedes": supersedes}
 
 
+def trusted_comment(comment):
+    """Accept coordination only from identities GitHub associates with repository stewardship."""
+    return str(comment.get("author_association") or "").upper() in TRUSTED_ASSOCIATIONS
+
+
 def records_from_comments(comments):
     """Return the latest mirrored event for every machine-readable record."""
     latest = {}
     for comment in comments:
+        if not trusted_comment(comment):
+            continue
         record = parse_marker(comment.get("body"))
         if record is None:
             continue

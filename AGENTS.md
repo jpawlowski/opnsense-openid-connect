@@ -150,7 +150,10 @@ Agents resolve uncertainty themselves: prerequisite first, then a current-head
 reviewed or more merge-ready PR, then least total rework, then lower PR number as
 the deterministic tie-breaker. Never give the human alternatives. For three or
 more PRs, publish one complete acyclic sequence. A replacement explicitly
-supersedes the earlier record.
+supersedes the earlier record. Only markers whose GitHub author association is
+owner, member or collaborator are authoritative. The helper prints its identifier
+before the first comment; if mirroring is interrupted, rerun the same command with
+`--id ID` so already published copies are verified and skipped.
 
 The order controls merging, not current execution. A later PR may finish its
 implementation, review or protected operation but does not merge first or chase
