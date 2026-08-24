@@ -30,9 +30,9 @@ revision; it does not expire automatically and does not silently prove later rev
 | [OpenID Connect RP-Initiated Logout 1.0](https://openid.net/specs/openid-connect-rpinitiated-1_0.html) | RP initiating provider logout | Implemented | 🟡 unverified | Implemented when the provider advertises an end-session endpoint; normative evidence is incomplete. |
 | [OpenID Connect Front-Channel Logout 1.0](https://openid.net/specs/openid-connect-frontchannel-1_0.html) | RP receiving front-channel logout notifications | Implemented | 🟡 unverified | Implemented with issuer and session binding; normative evidence is incomplete. |
 | [OpenID Connect Back-Channel Logout 1.0](https://openid.net/specs/openid-connect-backchannel-1_0.html) | RP receiving logout tokens | Implemented | 🟡 unverified | Implemented with logout-token replay protection; normative evidence is incomplete. |
-| [OpenID Shared Signals Framework 1.0](https://openid.net/specs/openid-sharedsignals-framework-1_0.html) | Push-based stream receiver | Partial | 🟡 unverified | A bounded push receiver is implemented; stream management and polling are outside the current profile. |
-| [OpenID Continuous Access Evaluation Profile 1.0](https://openid.net/specs/openid-caep-1_0.html) | Selected session-affecting events received over Shared Signals | Partial | 🟡 unverified | Only events that can safely invalidate a local WebGUI session are consumed. |
-| [OpenID RISC Profile 1.0](https://openid.net/specs/openid-risc-profile-1_0.html) | Selected account-risk events received over Shared Signals | Partial | 🟡 unverified | Only events with a safe local-session consequence are consumed. |
+| [OpenID Shared Signals Framework 1.0](https://openid.net/specs/openid-sharedsignals-framework-1_0-final.html) | Push-based stream receiver | Partial | 🟡 unverified | A bounded push receiver is implemented; stream management and polling are outside the current profile. |
+| [OpenID Continuous Access Evaluation Profile 1.0](https://openid.net/specs/openid-caep-1_0-final.html) | Selected session-affecting events received over Shared Signals | Partial | 🟡 unverified | Only events that can safely invalidate a local WebGUI session are consumed. |
+| [OpenID RISC Profile 1.0](https://openid.net/specs/openid-risc-1_0-final.html) | Selected account-risk events received over Shared Signals | Partial | 🟡 unverified | Only events with a safe local-session consequence are consumed. |
 | [OpenID Connect Session Management 1.0](https://openid.net/specs/openid-connect-session-1_0.html) | Browser session-state monitoring | Not planned | — not claimed | Iframe polling is not required for firewall WebGUI sign-in; explicit and provider-initiated logout are safer fits. Reconsider: A supported provider requires session-state monitoring and it can be isolated from the WebGUI. |
 | [OpenID Connect Dynamic Client Registration 1.0 / RFC 7591](https://openid.net/specs/openid-connect-registration-1_0.html) | Automated client registration | Not planned | — not claimed | Firewall administrators deliberately provision and review a confidential client; automatic registration widens authority. Reconsider: A deployment model can preserve explicit administrative approval and credential custody. |
 | [OAuth 2.0 Dynamic Client Registration Management (RFC 7592)](https://www.rfc-editor.org/rfc/rfc7592.html) | Automated client configuration management | N/A | N/A | No dynamically registered client is managed. |
@@ -53,6 +53,22 @@ revision; it does not expire automatically and does not silently prove later rev
 | [OpenID Connect Third-Party Initiated Login 1.0](https://openid.net/specs/openid-connect-third-party-initiated-login-1_0.html) | Login initiated outside the RP | Not planned | — not claimed | The firewall keeps login initiation local so redirect targets and provider selection remain bounded. Reconsider: A safe, allow-listed initiation model has a concrete operator need. |
 | [OAuth 2.0 for Native Apps (RFC 8252)](https://www.rfc-editor.org/rfc/rfc8252.html) | Native application authorization | N/A | N/A | The RP is a server-side WebGUI, not an installed application. |
 | [JWT Profile for OAuth 2.0 Access Tokens (RFC 9068)](https://www.rfc-editor.org/rfc/rfc9068.html) | Resource server validation of JWT access tokens | N/A | N/A | The plugin treats access tokens as opaque credentials and is not the protected resource server. |
+| [OAuth 2.0 Form Post Response Mode](https://openid.net/specs/oauth-v2-form-post-response-mode-1_0.html) | RP receiving an authorization response by cross-origin form POST | Implemented | 🟡 unverified | Implemented for providers such as Apple; requirement-level evidence is incomplete. |
+| [JSON Web Signature (RFC 7515)](https://www.rfc-editor.org/rfc/rfc7515.html) | RP verification of signed ID, logout and security-event tokens | Implemented | 🟡 unverified | Signature verification uses the platform cryptographic runtime; the applicable validation inventory is incomplete. |
+| [JSON Web Key (RFC 7517)](https://www.rfc-editor.org/rfc/rfc7517.html) | RP selection and validation of provider signing keys | Implemented | 🟡 unverified | Provider JWKS consumption is implemented; the normative evidence inventory is incomplete. |
+| [JSON Web Algorithms (RFC 7518)](https://www.rfc-editor.org/rfc/rfc7518.html) | Allow-listed asymmetric algorithms used for JWS verification | Partial | 🟡 unverified | RS, PS and ES verification are supported; symmetric signing and unused algorithm families are deliberately excluded. |
+| [JSON Web Token (RFC 7519)](https://www.rfc-editor.org/rfc/rfc7519.html) | RP processing of signed protocol tokens | Implemented | 🟡 unverified | JWT parsing and claim validation are implemented; cross-profile normative evidence is incomplete. |
+| [JSON Web Encryption (RFC 7516)](https://www.rfc-editor.org/rfc/rfc7516.html) | Encrypted ID Tokens, UserInfo or request objects | Not planned | — not claimed | TLS protects transport and the RP accepts only signed protocol tokens; decryption would add private-key custody and algorithm surface. Reconsider: A target provider requires encrypted OIDC messages and reviewed decryption-key lifecycle support exists. |
+| [OpenID Connect Core 1.0 — Implicit Flow](https://openid.net/specs/openid-connect-core-1_0.html#ImplicitFlowAuth) | Tokens returned through the browser authorization response | Not planned | — not claimed | The code flow keeps tokens out of browser URLs and is the profile recommended by current OAuth security guidance. |
+| [OpenID Connect Core 1.0 — Hybrid Flow](https://openid.net/specs/openid-connect-core-1_0.html#HybridFlowAuth) | Code and tokens returned through the authorization response | Not planned | — not claimed | The server-side code flow supplies the needed login result without exposing tokens through the browser. |
+| [OAuth 2.0 Resource Owner Password Credentials Grant (RFC 6749 section 4.3)](https://www.rfc-editor.org/rfc/rfc6749.html#section-4.3) | RP collecting a provider password | Not planned | — not claimed | The firewall must never collect the identity-provider password; RFC 9700 prohibits this grant. |
+| [OAuth 2.0 Client Credentials Grant (RFC 6749 section 4.4)](https://www.rfc-editor.org/rfc/rfc6749.html#section-4.4) | Machine identity without an end-user | N/A | N/A | The plugin authenticates a human WebGUI session. |
+| [OAuth 2.0 Resource Indicators (RFC 8707)](https://www.rfc-editor.org/rfc/rfc8707.html) | Selecting a protected-resource audience | N/A | N/A | The login flow consumes identity information and does not select among downstream resource servers. |
+| [REFEDS Multi-Factor Authentication Profile](https://refeds.org/profile/mfa) | RP requesting and validating a common MFA authentication context | Implemented | 🟡 unverified | The context is supported together with method evidence; profile-level evidence is incomplete. |
+| [OpenID Connect Extended Authentication Profile (EAP) ACR Values 1.0](https://openid.net/specs/openid-connect-eap-acr-values-1_0.html) | RP requesting phishing-resistant authentication contexts | Implemented | 🟡 unverified | The phr and phrh contexts are supported together with method evidence; normative evidence is incomplete. |
+| [Authentication Method Reference Values (RFC 8176)](https://www.rfc-editor.org/rfc/rfc8176.html) | RP interpretation of bounded signed authentication-method evidence | Partial | 🟡 unverified | A bounded subset is used as supporting evidence for configured authentication strength; normative evidence is incomplete. |
+| [Security Event Token (RFC 8417)](https://www.rfc-editor.org/rfc/rfc8417.html) | RP verification of signed Shared Signals security events | Implemented | 🟡 unverified | Signed SET validation is implemented for the bounded receiver profile; normative evidence is incomplete. |
+| [Push-Based Security Event Token Delivery (RFC 8935)](https://www.rfc-editor.org/rfc/rfc8935.html) | Push delivery to the RP Shared Signals receiver | Implemented | 🟡 unverified | Authenticated push delivery and explicit response handling are implemented; normative evidence is incomplete. |
 
 ## Provider interoperability matrix
 
@@ -62,40 +78,42 @@ A provider guide alone is never rendered green.
 
 | Provider | OIDC code login | PKCE S256 | PAR | Authorization issuer | Token revocation | RP-initiated logout | Front-channel logout | Back-channel logout | Shared Signals | MFA evidence | Phishing-resistant evidence |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| [Generic OpenID Connect](../../docs/providers/general.md) | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Auth0](../../docs/providers/auth0.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Authelia](../../docs/providers/authelia.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [authentik](../../docs/providers/authentik.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [AWS Cognito](../../docs/providers/cognito.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Cisco Duo Single Sign-On](../../docs/providers/duo.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Dex](../../docs/providers/dex.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [FusionAuth](../../docs/providers/fusionauth.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [GitLab](../../docs/providers/gitlab.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Google / Workspace](../../docs/providers/google.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [IBM Security Verify](../../docs/providers/ibm-verify.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [JumpCloud](../../docs/providers/jumpcloud.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Keycloak](../../docs/providers/keycloak.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Microsoft Entra ID](../../docs/providers/entra-id.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Okta](../../docs/providers/okta.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [OneLogin](../../docs/providers/onelogin.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Oracle Identity Cloud / OCI IAM](../../docs/providers/oracle-idcs.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Ping Identity](../../docs/providers/ping.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Pocket ID](../../docs/providers/pocketid.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Apple](../../docs/providers/apple.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [WSO2 Identity Server](../../docs/providers/wso2.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [ZITADEL](../../docs/providers/zitadel.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [LinkedIn](../../docs/providers/linkedin.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Slack](../../docs/providers/slack.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [Yahoo](../../docs/providers/yahoo.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| [ORCID](../../docs/providers/orcid.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Generic OpenID Connect](../providers/general.md) | ◇ | ◇ | ◇ | ◇ | ◇ | ◇ | ◇ | ◇ | ◇ | ◇ | ◇ |
+| [Auth0](../providers/auth0.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Authelia](../providers/authelia.md) | 📘 | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [authentik](../providers/authentik.md) | 📘 | ? | ? | ? | ? | 📘 | ◇ | ◇ | ? | ? | ? |
+| [AWS Cognito](../providers/cognito.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Cisco Duo Single Sign-On](../providers/duo.md) | 📘 | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Dex](../providers/dex.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [FusionAuth](../providers/fusionauth.md) | 📘 | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [GitLab](../providers/gitlab.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Google / Workspace](../providers/google.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [IBM Security Verify](../providers/ibm-verify.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [JumpCloud](../providers/jumpcloud.md) | 📘 | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Keycloak](../providers/keycloak.md) | 📘 | 📘 | ? | ? | ? | 📘 | 📘 | 📘 | ? | ? | ? |
+| [Microsoft Entra ID](../providers/entra-id.md) | 📘 | ? | ? | ? | ? | ? | ◇ | ◇ | ? | 📘 | 📘 |
+| [Okta](../providers/okta.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ◇ | 📘 | 📘 |
+| [OneLogin](../providers/onelogin.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Oracle Identity Cloud / OCI IAM](../providers/oracle-idcs.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Ping Identity](../providers/ping.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Pocket ID](../providers/pocketid.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Apple](../providers/apple.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [WSO2 Identity Server](../providers/wso2.md) | 📘 | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [ZITADEL](../providers/zitadel.md) | 📘 | 📘 | ? | ? | ? | 📘 | ? | ? | ? | ? | ? |
+| [LinkedIn](../providers/linkedin.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Slack](../providers/slack.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [Yahoo](../providers/yahoo.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
+| [ORCID](../providers/orcid.md) | 📘 | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
 
 ## Verified security comparison
 
-No provider is currently placed on a security frontier. The comparison will use only security features for which both
-the plugin has a verified standards claim and the provider has retained live evidence. It will show the Pareto frontier
-instead of inventing a numeric score that hides trade-offs.
+The comparison uses only security features for which the plugin has a verified standards claim and the provider has
+retained live evidence. Vendor adaptations do not become standard-conformant green cells. The result is a Pareto
+frontier instead of a numeric score that hides trade-offs.
 
 Security dimensions reserved for that comparison: PKCE S256, PAR, Authorization issuer, Token revocation, Front-channel logout, Back-channel logout, Shared Signals, MFA evidence, Phishing-resistant evidence.
+
+Current result: no provider is ranked because no security dimension has passed the normative gate.
 
 ## How a cell becomes green
 

@@ -72,6 +72,10 @@ def validate_requirement(standard, requirement):
     if requirement["strength"] not in REQUIREMENT_STRENGTH:
         raise CatalogError(f"{requirement['id']}: invalid normative strength")
     evidence = requirement["evidence"]
+    if not requirement["applicable"]:
+        if not requirement.get("rationale"):
+            raise CatalogError(f"{requirement['id']}: non-applicability needs a rationale")
+        return
     if requirement["applicable"]:
         if requirement["strength"] in {"must", "must_not"} and not {"positive", "negative"} <= evidence.keys():
             raise CatalogError(f"{requirement['id']}: mandatory requirement needs positive and negative evidence")
@@ -79,12 +83,22 @@ def validate_requirement(standard, requirement):
             {"positive", "negative"} <= evidence.keys() or requirement.get("deviation")
         ):
             raise CatalogError(f"{requirement['id']}: recommendation needs evidence or an explicit deviation")
-        if requirement["strength"] == "may" and requirement.get("claimed") and not evidence:
-            raise CatalogError(f"{requirement['id']}: claimed optional behaviour needs evidence")
+        if requirement["strength"] == "may" and requirement.get("claimed") and not {"positive", "negative"} <= evidence.keys():
+            raise CatalogError(f"{requirement['id']}: claimed optional behaviour needs positive and negative evidence")
+    for direction, references in evidence.items():
+        if direction not in {"positive", "negative"} or not isinstance(references, list) or not references:
+            raise CatalogError(f"{requirement['id']}: invalid {direction} evidence")
+        for reference in references:
+            if not isinstance(reference, dict) or not {"path", "contains"} <= reference.keys():
+                raise CatalogError(f"{requirement['id']}: evidence must name a path and exact test marker")
+            path = ROOT / reference["path"]
+            if not path.is_file() or reference["contains"] not in path.read_text(encoding="utf-8"):
+                raise CatalogError(f"{requirement['id']}: evidence marker is not present in {reference['path']}")
 
 
 def validate_standards(data):
     ids = unique(data["standards"], "standard")
+    requirement_ids = set()
     for standard in data["standards"]:
         if standard["implementation"] not in IMPLEMENTATION:
             raise CatalogError(f"{standard['id']}: invalid implementation status")
@@ -93,10 +107,16 @@ def validate_standards(data):
         requirements = standard.get("requirements", [])
         unique(requirements, f"requirement in {standard['id']}")
         for requirement in requirements:
+            if requirement["id"] in requirement_ids:
+                raise CatalogError(f"duplicate global requirement id: {requirement['id']}")
+            requirement_ids.add(requirement["id"])
             validate_requirement(standard, requirement)
         if standard["claim"] == "verified":
             if not standard["audit_complete"] or not requirements:
                 raise CatalogError(f"{standard['id']}: verified requires a complete, non-empty normative inventory")
+            review = standard.get("source_review", {})
+            if not {"specification_revision", "reviewed_on", "profile", "sections"} <= review.keys():
+                raise CatalogError(f"{standard['id']}: verified requires a pinned source and applicability review")
             if any(requirement["applicable"] and not requirement["evidence"] for requirement in requirements):
                 raise CatalogError(f"{standard['id']}: verified has an applicable requirement without evidence")
         if standard["audit_complete"] and not requirements:
@@ -114,6 +134,10 @@ def configured_profiles():
 
 def validate_providers(data, standard_ids):
     feature_ids = unique(data["features"], "feature")
+    if set(data["capability_defaults"]) != feature_ids:
+        raise CatalogError("capability defaults must name every feature exactly once")
+    if any(status not in EVIDENCE for status in data["capability_defaults"].values()):
+        raise CatalogError("capability defaults contain an invalid evidence status")
     for feature in data["features"]:
         if feature["standard"] is not None and feature["standard"] not in standard_ids:
             raise CatalogError(f"{feature['id']}: unknown standard {feature['standard']}")
@@ -123,7 +147,8 @@ def validate_providers(data, standard_ids):
         extra = provider_ids - configured_profiles()
         raise CatalogError(f"provider catalog differs from code; missing={sorted(missing)}, extra={sorted(extra)}")
     for provider in data["providers"]:
-        if not (ROOT / provider["guide"]).is_file():
+        guide_path = ROOT / provider["guide"]
+        if not guide_path.is_file():
             raise CatalogError(f"{provider['id']}: guide does not exist")
         unknown = set(provider["capabilities"]) - feature_ids
         if unknown:
@@ -131,10 +156,52 @@ def validate_providers(data, standard_ids):
         for feature_id, status in provider["capabilities"].items():
             if status not in EVIDENCE:
                 raise CatalogError(f"{provider['id']}/{feature_id}: invalid evidence status {status}")
+            if status in {"documented", "conditional"} and "http" not in guide_path.read_text(encoding="utf-8"):
+                raise CatalogError(f"{provider['id']}/{feature_id}: documented status needs an external source in its guide")
+            if status in {"live", "adapter"}:
+                records = [record for record in provider.get("live_evidence", []) if record["feature"] == feature_id]
+                if not records:
+                    raise CatalogError(f"{provider['id']}/{feature_id}: live status needs a retained evidence record")
+                for record in records:
+                    if not {"tested_on", "provider_revision", "artifact"} <= record.keys():
+                        raise CatalogError(f"{provider['id']}/{feature_id}: incomplete live evidence record")
+                    if not (ROOT / record["artifact"]).is_file():
+                        raise CatalogError(f"{provider['id']}/{feature_id}: evidence artifact does not exist")
+                if status == "adapter" and not provider.get("adaptations", {}).get(feature_id):
+                    raise CatalogError(f"{provider['id']}/{feature_id}: adapter status must name the deviation")
 
 
-def cell(provider, feature_id):
-    return EVIDENCE_SYMBOL[provider["capabilities"].get(feature_id, "unknown")]
+def cell(defaults, provider, feature_id):
+    return EVIDENCE_SYMBOL[provider["capabilities"].get(feature_id, defaults[feature_id])]
+
+
+def resolved_status(providers, provider, feature_id):
+    return provider["capabilities"].get(feature_id, providers["capability_defaults"][feature_id])
+
+
+def security_frontier(standards, providers):
+    claims = {standard["id"]: standard["claim"] for standard in standards["standards"]}
+    dimensions = [
+        feature for feature in providers["features"]
+        if feature["security"] and feature["standard"] and claims[feature["standard"]] == "verified"
+    ]
+    if not dimensions:
+        return dimensions, []
+    supported = {
+        provider["id"]: {
+            feature["id"] for feature in dimensions
+            if resolved_status(providers, provider, feature["id"]) == "live"
+        }
+        for provider in providers["providers"]
+        if resolved_status(providers, provider, "login") == "live"
+    }
+    supported = {provider_id: values for provider_id, values in supported.items() if values}
+    frontier = []
+    for provider_id, values in supported.items():
+        dominated = any(values < other for other_id, other in supported.items() if other_id != provider_id)
+        if not dominated:
+            frontier.append(provider_id)
+    return dimensions, frontier
 
 
 def render(standards, providers):
@@ -179,25 +246,36 @@ def render(standards, providers):
         "|---|" + "---:|" * len(features),
     ]
     for provider in providers["providers"]:
-        guide = "../../" + provider["guide"]
+        guide = "../" + str(pathlib.PurePosixPath(provider["guide"]).relative_to("docs"))
         lines.append(
             f"| [{provider['title']}]({guide}) | "
-            + " | ".join(cell(provider, feature["id"]) for feature in features)
+            + " | ".join(cell(providers["capability_defaults"], provider, feature["id"]) for feature in features)
             + " |"
         )
 
     security_features = [feature for feature in features if feature["security"]]
+    verified_dimensions, frontier = security_frontier(standards, providers)
     lines += [
         "",
         "## Verified security comparison",
         "",
-        "No provider is currently placed on a security frontier. The comparison will use only security features for which both",
-        "the plugin has a verified standards claim and the provider has retained live evidence. It will show the Pareto frontier",
-        "instead of inventing a numeric score that hides trade-offs.",
+        "The comparison uses only security features for which the plugin has a verified standards claim and the provider has",
+        "retained live evidence. Vendor adaptations do not become standard-conformant green cells. The result is a Pareto",
+        "frontier instead of a numeric score that hides trade-offs.",
         "",
         "Security dimensions reserved for that comparison: "
         + ", ".join(feature["title"] for feature in security_features)
         + ".",
+        "",
+    ]
+    if not verified_dimensions:
+        lines.append("Current result: no provider is ranked because no security dimension has passed the normative gate.")
+    elif not frontier:
+        lines.append("Current result: no provider has retained live login and security evidence on the verified dimensions.")
+    else:
+        provider_titles = {provider["id"]: provider["title"] for provider in providers["providers"]}
+        lines.append("Current Pareto frontier: " + ", ".join(provider_titles[item] for item in frontier) + ".")
+    lines += [
         "",
         "## How a cell becomes green",
         "",

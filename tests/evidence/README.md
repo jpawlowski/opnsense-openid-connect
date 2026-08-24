@@ -13,3 +13,10 @@ it before committing it nevertheless.
 
 Do not hand-edit a result to make it pass. Regenerate it with the documented
 installed-integration or browser-E2E command.
+
+Provider interoperability cells have an additional contract in
+`tests/providers/capabilities.json`: a `live` or `adapter` cell must name a test
+date, the provider version or hosted-service revision, and a retained artifact
+in this directory. An adapter result must also name the provider deviation. A
+result remains a dated historical fact until newer contradictory evidence
+explicitly replaces it; it does not silently certify later provider revisions.

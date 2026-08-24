@@ -2,6 +2,12 @@
 
 ## Supported standards profile
 
+“Supported” in this section describes intended implementation scope, not a
+completed conformance claim. The generated [standards and provider capability
+matrix](provider-capabilities.md) is the publication authority: it remains
+unverified until the complete applicable normative inventory and its evidence
+pass the repository gate.
+
 The implementation targets these normative parts:
 
 - OpenID Connect Core 1.0 Authorization Code flow, ID Token validation and

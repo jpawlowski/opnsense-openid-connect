@@ -161,7 +161,7 @@
     {
       "id": "shared-signals",
       "title": "OpenID Shared Signals Framework 1.0",
-      "reference": "https://openid.net/specs/openid-sharedsignals-framework-1_0.html",
+      "reference": "https://openid.net/specs/openid-sharedsignals-framework-1_0-final.html",
       "scope": "Push-based stream receiver",
       "implementation": "partial",
       "claim": "unverified",
@@ -171,7 +171,7 @@
     {
       "id": "caep",
       "title": "OpenID Continuous Access Evaluation Profile 1.0",
-      "reference": "https://openid.net/specs/openid-caep-1_0.html",
+      "reference": "https://openid.net/specs/openid-caep-1_0-final.html",
       "scope": "Selected session-affecting events received over Shared Signals",
       "implementation": "partial",
       "claim": "unverified",
@@ -181,7 +181,7 @@
     {
       "id": "risc",
       "title": "OpenID RISC Profile 1.0",
-      "reference": "https://openid.net/specs/openid-risc-profile-1_0.html",
+      "reference": "https://openid.net/specs/openid-risc-1_0-final.html",
       "scope": "Selected account-risk events received over Shared Signals",
       "implementation": "partial",
       "claim": "unverified",
@@ -396,6 +396,167 @@
       "claim": "not_applicable",
       "audit_complete": false,
       "note": "The plugin treats access tokens as opaque credentials and is not the protected resource server."
+    },
+    {
+      "id": "oauth-form-post",
+      "title": "OAuth 2.0 Form Post Response Mode",
+      "reference": "https://openid.net/specs/oauth-v2-form-post-response-mode-1_0.html",
+      "scope": "RP receiving an authorization response by cross-origin form POST",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Implemented for providers such as Apple; requirement-level evidence is incomplete."
+    },
+    {
+      "id": "jws",
+      "title": "JSON Web Signature (RFC 7515)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7515.html",
+      "scope": "RP verification of signed ID, logout and security-event tokens",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Signature verification uses the platform cryptographic runtime; the applicable validation inventory is incomplete."
+    },
+    {
+      "id": "jwk",
+      "title": "JSON Web Key (RFC 7517)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7517.html",
+      "scope": "RP selection and validation of provider signing keys",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Provider JWKS consumption is implemented; the normative evidence inventory is incomplete."
+    },
+    {
+      "id": "jwa",
+      "title": "JSON Web Algorithms (RFC 7518)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7518.html",
+      "scope": "Allow-listed asymmetric algorithms used for JWS verification",
+      "implementation": "partial",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "RS, PS and ES verification are supported; symmetric signing and unused algorithm families are deliberately excluded."
+    },
+    {
+      "id": "jwt",
+      "title": "JSON Web Token (RFC 7519)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7519.html",
+      "scope": "RP processing of signed protocol tokens",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "JWT parsing and claim validation are implemented; cross-profile normative evidence is incomplete."
+    },
+    {
+      "id": "jwe",
+      "title": "JSON Web Encryption (RFC 7516)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7516.html",
+      "scope": "Encrypted ID Tokens, UserInfo or request objects",
+      "implementation": "not_planned",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "TLS protects transport and the RP accepts only signed protocol tokens; decryption would add private-key custody and algorithm surface.",
+      "reconsider_when": "A target provider requires encrypted OIDC messages and reviewed decryption-key lifecycle support exists."
+    },
+    {
+      "id": "oidc-core-implicit",
+      "title": "OpenID Connect Core 1.0 — Implicit Flow",
+      "reference": "https://openid.net/specs/openid-connect-core-1_0.html#ImplicitFlowAuth",
+      "scope": "Tokens returned through the browser authorization response",
+      "implementation": "not_planned",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "The code flow keeps tokens out of browser URLs and is the profile recommended by current OAuth security guidance."
+    },
+    {
+      "id": "oidc-core-hybrid",
+      "title": "OpenID Connect Core 1.0 — Hybrid Flow",
+      "reference": "https://openid.net/specs/openid-connect-core-1_0.html#HybridFlowAuth",
+      "scope": "Code and tokens returned through the authorization response",
+      "implementation": "not_planned",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "The server-side code flow supplies the needed login result without exposing tokens through the browser."
+    },
+    {
+      "id": "oauth-password-grant",
+      "title": "OAuth 2.0 Resource Owner Password Credentials Grant (RFC 6749 section 4.3)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc6749.html#section-4.3",
+      "scope": "RP collecting a provider password",
+      "implementation": "not_planned",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "The firewall must never collect the identity-provider password; RFC 9700 prohibits this grant."
+    },
+    {
+      "id": "oauth-client-credentials",
+      "title": "OAuth 2.0 Client Credentials Grant (RFC 6749 section 4.4)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc6749.html#section-4.4",
+      "scope": "Machine identity without an end-user",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The plugin authenticates a human WebGUI session."
+    },
+    {
+      "id": "oauth-resource-indicators",
+      "title": "OAuth 2.0 Resource Indicators (RFC 8707)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc8707.html",
+      "scope": "Selecting a protected-resource audience",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The login flow consumes identity information and does not select among downstream resource servers."
+    },
+    {
+      "id": "refeds-mfa",
+      "title": "REFEDS Multi-Factor Authentication Profile",
+      "reference": "https://refeds.org/profile/mfa",
+      "scope": "RP requesting and validating a common MFA authentication context",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "The context is supported together with method evidence; profile-level evidence is incomplete."
+    },
+    {
+      "id": "eap",
+      "title": "OpenID Connect Extended Authentication Profile (EAP) ACR Values 1.0",
+      "reference": "https://openid.net/specs/openid-connect-eap-acr-values-1_0.html",
+      "scope": "RP requesting phishing-resistant authentication contexts",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "The phr and phrh contexts are supported together with method evidence; normative evidence is incomplete."
+    },
+    {
+      "id": "amr-values",
+      "title": "Authentication Method Reference Values (RFC 8176)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc8176.html",
+      "scope": "RP interpretation of bounded signed authentication-method evidence",
+      "implementation": "partial",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "A bounded subset is used as supporting evidence for configured authentication strength; normative evidence is incomplete."
+    },
+    {
+      "id": "security-event-token",
+      "title": "Security Event Token (RFC 8417)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc8417.html",
+      "scope": "RP verification of signed Shared Signals security events",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Signed SET validation is implemented for the bounded receiver profile; normative evidence is incomplete."
+    },
+    {
+      "id": "set-push",
+      "title": "Push-Based Security Event Token Delivery (RFC 8935)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc8935.html",
+      "scope": "Push delivery to the RP Shared Signals receiver",
+      "implementation": "implemented",
+      "claim": "unverified",
+      "audit_complete": false,
+      "note": "Authenticated push delivery and explicit response handling are implemented; normative evidence is incomplete."
     }
   ]
 }

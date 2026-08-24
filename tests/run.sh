@@ -21,6 +21,7 @@ python3 -m json.tool .codex/hooks.json >/dev/null
 for f in packaging/watch/openid-connect-watch packaging/hooks/* tests/run.sh tests/e2e/*.sh; do sh -n "$f"; done
 python3 tests/e2e/check.py
 python3 tests/update-capability-matrix.py --check
+python3 tests/capability-matrix.py
 echo 'all files parse'
 
 echo

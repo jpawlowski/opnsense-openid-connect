@@ -13,6 +13,18 @@ report untouched; CI already presents the failure. The report contains only
 positive security properties whose complete evidence requirement is met. It
 has no finding backlog, audit IDs or test-count dashboard.
 
+The separate standards and provider matrix has a stricter, normative gate:
+
+    python3 tests/update-capability-matrix.py --check
+
+Its source catalogs are `tests/standards/catalog.json` and
+`tests/providers/capabilities.json`. A standard can be marked verified only
+after the exact RP profile and specification revision are pinned, every
+applicable normative requirement has a stable ID, and each mandatory or claimed
+behaviour points to both an accepting and refusing test marker. Recommendations
+need the same evidence or an explicit reviewed deviation. The validator also
+requires every provider profile and matrix dimension to be represented.
+
 Installed and browser evidence is optional but required for statements that
 cannot be proven on the host alone. Keep a sanitized result under
 `tests/evidence/*.json`, or pass it explicitly with a repeatable
@@ -84,6 +96,12 @@ copyright line it looks for is read from `LICENSE` rather than written out.
 
 That is also the stronger check. It catches whatever a future author leaves
 behind, not only what this one happened to think of.
+
+**`tests/capability-matrix.py`** attacks the publication gate itself. It proves
+that an empty normative inventory, one-sided mandatory evidence, a live provider
+claim without a dated retained artifact and an unnamed vendor adaptation are
+all refused. It also proves that a pinned complete fixture with two-sided test
+markers is the only shape that can become green.
 
 ## What is deliberately not covered
 
