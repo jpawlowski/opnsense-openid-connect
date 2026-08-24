@@ -15,7 +15,7 @@ final class DpopKeyStore
 {
     public const ROTATE_AFTER = 7776000;
     public const RETAIN_RETIRED_FOR = 31968000;
-    public const MAX_RETIRED_KEYS = 4;
+    public const MAX_RETIRED_KEYS = 5;
 
     private readonly string $binding;
     private readonly string $directory;
@@ -33,7 +33,6 @@ final class DpopKeyStore
     public static function forSettings(OpenIDConnect $settings): self
     {
         return new self(json_encode([
-            $settings->applicationCode(),
             $settings->issuerUrl(),
             $settings->clientId(),
         ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));

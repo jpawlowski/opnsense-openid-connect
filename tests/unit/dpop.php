@@ -134,6 +134,44 @@ touch($orphanPath, 1700000000 - DpopKeyStore::RETAIN_RETIRED_FOR - 1);
 DpopKeyStore::pruneUnused([], null, 1700000000);
 Checks::that('an unused provider key is removed only after the grant-retention window',
     is_file($orphanPath), false);
+Checks::that(
+    'editing the local application code keeps the provider proof-key store',
+    DpopKeyStore::forSettings(dpopSettings('route-before'))->bindingId(),
+    DpopKeyStore::forSettings(dpopSettings('route-after'))->bindingId()
+);
+
+$rotationGeneration = 0;
+$rotationGenerator = static function (int $created) use (&$rotationGeneration): array {
+    $rotationGeneration++;
+    $public = [
+        'kty' => 'EC',
+        'crv' => 'P-256',
+        'x' => JwtVerifier::base64UrlEncode(hash('sha256', 'rotation-x-' . $rotationGeneration, true)),
+        'y' => JwtVerifier::base64UrlEncode(hash('sha256', 'rotation-y-' . $rotationGeneration, true)),
+    ];
+    return [
+        'id' => DpopProof::thumbprint($public),
+        'created' => $created,
+        'private_key' => 'not-loaded-by-this-rotation-test',
+        'public_jwk' => $public,
+    ];
+};
+$rotationStore = new DpopKeyStore('rotation-retention', null, $rotationGenerator);
+$rotationState = ['version' => 1, 'active' => $rotationGenerator(0), 'retired' => []];
+$oldestRotationKey = $rotationState['active']['id'];
+for ($rotation = 1; $rotation <= 5; $rotation++) {
+    $rotationState = inspect(
+        $rotationStore,
+        'rotatedState',
+        $rotationState,
+        $rotation * DpopKeyStore::ROTATE_AFTER
+    );
+}
+Checks::that(
+    'five rotations retain the oldest key through the stated grant window',
+    in_array($oldestRotationKey, array_column($rotationState['retired'], 'id'), true),
+    true
+);
 
 Checks::group('DPoP discovery and authorization-code binding');
 
@@ -143,6 +181,7 @@ $authorizationParty = new RelyingParty(
     dpopSettings('dpop-authorization'),
     $authorizationController,
     new HttpClient(fn() => dpopAnswer(dpopMetadata())),
+    null,
     $dpopProof
 );
 $authorizationUrl = $authorizationParty->authorizationUrl('dpop', '/');
@@ -190,6 +229,7 @@ $parParty = new RelyingParty(
         $parBody = (string)$body;
         return dpopAnswer(['request_uri' => 'urn:example:request', 'expires_in' => 60], 201);
     }),
+    null,
     $dpopProof
 );
 $parParty->authorizationUrl('dpop-par', '/');
@@ -211,6 +251,7 @@ $tokenParty = new RelyingParty(
             ? dpopAnswer(['error' => 'use_dpop_nonce'], 400, ['dpop-nonce' => 'token-nonce'])
             : dpopAnswer(['access_token' => 'dpop-access', 'token_type' => 'DPoP']);
     }),
+    null,
     $dpopProof
 );
 $dpopMetadataProperty = new ReflectionProperty(RelyingParty::class, 'metadata');
@@ -230,6 +271,7 @@ $downgradeParty = new RelyingParty(
     dpopSettings('dpop-downgrade'),
     new Controller(new Request('https', 'firewall.example.net'), new Session()),
     new HttpClient(fn() => dpopAnswer(['access_token' => 'bearer-access', 'token_type' => 'Bearer'])),
+    null,
     $dpopProof
 );
 $dpopMetadataProperty->setValue($downgradeParty, ProviderMetadata::fromArray(dpopMetadata()));
@@ -263,6 +305,7 @@ $userinfoParty = new RelyingParty(
             ])
             : dpopAnswer(['sub' => 'stable-subject']);
     }),
+    null,
     $dpopProof
 );
 $dpopMetadataProperty->setValue($userinfoParty, ProviderMetadata::fromArray(dpopMetadata()));
@@ -291,6 +334,7 @@ $duplicateNonceParty = new RelyingParty(
         400,
         ['dpop-nonce' => ['first', 'second']]
     )),
+    null,
     $dpopProof
 );
 $dpopMetadataProperty->setValue($duplicateNonceParty, ProviderMetadata::fromArray(dpopMetadata()));
@@ -304,6 +348,7 @@ $missingNonceParty = new RelyingParty(
     dpopSettings('dpop-missing-challenge-nonce'),
     new Controller(new Request('https', 'firewall.example.net'), new Session()),
     new HttpClient(fn() => dpopAnswer(['error' => 'use_dpop_nonce'], 400)),
+    null,
     $dpopProof
 );
 $dpopMetadataProperty->setValue($missingNonceParty, ProviderMetadata::fromArray(dpopMetadata()));
@@ -323,6 +368,7 @@ $revocationParty = new RelyingParty(
         $revocationBody = (string)$body;
         return dpopAnswer([], 204);
     }),
+    null,
     $dpopProof
 );
 $dpopMetadataProperty->setValue($revocationParty, ProviderMetadata::fromArray(dpopMetadata()));
