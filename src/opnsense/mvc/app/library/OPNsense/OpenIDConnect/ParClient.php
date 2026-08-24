@@ -94,16 +94,7 @@ final class ParClient
     /** @param array<string,string> $fields @param string[] $headers */
     private function authenticate(ProviderMetadata $metadata, array &$fields, array &$headers): void
     {
-        $method = $this->settings->tokenAuthMethod();
-        if ($method === null) {
-            $advertised = $metadata->get('token_endpoint_auth_methods_supported', ['client_secret_basic']);
-            foreach (['client_secret_basic', 'client_secret_post'] as $candidate) {
-                if (is_array($advertised) && in_array($candidate, $advertised, true)) {
-                    $method = $candidate;
-                    break;
-                }
-            }
-        }
+        $method = $metadata->tokenEndpointAuthMethod($this->settings->tokenAuthMethod());
         if ($method === 'client_secret_basic') {
             $credentials = urlencode($this->settings->clientId()) . ':' . urlencode($this->settings->clientSecret());
             $headers[] = 'Authorization: Basic ' . base64_encode($credentials);

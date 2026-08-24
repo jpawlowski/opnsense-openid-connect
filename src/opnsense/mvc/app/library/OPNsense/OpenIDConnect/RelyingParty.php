@@ -39,6 +39,7 @@ class RelyingParty
     private JwtVerifier $verifier;
     private string $redirectUri;
     private ?ProviderMetadata $metadata = null;
+    private ?string $tokenAuthMethod = null;
     /** @var array<string,mixed> */
     private array $tokens = [];
     /** @var array<string,mixed> */
@@ -118,16 +119,10 @@ class RelyingParty
     {
         $metadata = $this->discoverMetadata();
         $this->metadata = $metadata;
-        $pkceMethods = $metadata->get('code_challenge_methods_supported', []);
-        if (is_array($pkceMethods) && $pkceMethods !== [] && !in_array('S256', $pkceMethods, true)) {
-            throw new ProtocolException('The provider explicitly advertises no PKCE S256 support');
-        }
-        $responseModes = $metadata->get('response_modes_supported', []);
-        if (is_array($responseModes) && $responseModes !== []
-            && !in_array($this->settings->responseMode(), $responseModes, true)) {
-            throw new ProtocolException('The selected authorization response mode is not advertised');
-        }
-        $formPost = $this->settings->responseMode() === 'form_post';
+        $responseMode = $this->settings->responseMode();
+        $metadata->assertAuthorizationCapabilities($responseMode);
+        $this->tokenAuthMethod = $metadata->tokenEndpointAuthMethod($this->settings->tokenAuthMethod());
+        $formPost = $responseMode === 'form_post';
         $state = ($formPost ? 'p.' : '') . self::randomValue(32);
         $nonce = self::randomValue(32);
         $verifier = self::randomValue(64);
@@ -144,6 +139,7 @@ class RelyingParty
             'redirect_uri' => $this->redirectUri,
             'nonce' => $nonce,
             'code_verifier' => $verifier,
+            'token_auth_method' => $this->tokenAuthMethod,
             'metadata' => $metadata->toArray(),
         ];
         if ($authenticationRequirement !== null) {
@@ -161,7 +157,7 @@ class RelyingParty
         ];
         /* max_age=0 is meaningful: OIDC Core defines it as active re-authentication. */
         $parameters['max_age'] = (string)$this->settings->maximumAuthenticationAge();
-        if ($this->settings->responseMode() === 'form_post') {
+        if ($responseMode === 'form_post') {
             $parameters['response_mode'] = 'form_post';
         }
         if ($authenticationRequirement !== null) {
@@ -215,7 +211,7 @@ class RelyingParty
             'exchange prepared for exact issuer %s, callback %s, PKCE S256, response mode %s%s',
             $metadata->issuer(),
             $this->redirectUri,
-            $this->settings->responseMode(),
+            $responseMode,
             $usedPar ? ', pushed authorization request' : ''
         ));
         return $authorizationUrl;
@@ -281,6 +277,11 @@ class RelyingParty
             || !hash_equals($this->redirectUri, (string)$transaction['redirect_uri'])) {
             throw new ProtocolException('The login transaction no longer matches this provider');
         }
+        $frozenAuthMethod = $transaction['token_auth_method'] ?? null;
+        if (!is_string($frozenAuthMethod)) {
+            throw new ProtocolException('The login transaction carries no client authentication method');
+        }
+        $this->tokenAuthMethod = $this->metadata->tokenEndpointAuthMethod($frozenAuthMethod);
         $frozenRequirement = null;
         if (array_key_exists('authentication_requirement', $transaction)) {
             if (!is_array($transaction['authentication_requirement'])) {
@@ -383,27 +384,11 @@ class RelyingParty
         return $tokens;
     }
 
-    private function tokenAuthMethod(): string
-    {
-        $configured = $this->settings->tokenAuthMethod();
-        $advertised = $this->metadata->get('token_endpoint_auth_methods_supported', ['client_secret_basic']);
-        $advertised = is_array($advertised) ? $advertised : [];
-        if ($configured !== null) {
-            return $configured;
-        }
-        foreach (['client_secret_basic', 'client_secret_post'] as $method) {
-            if (in_array($method, $advertised, true)) {
-                return $method;
-            }
-        }
-
-        throw new ProtocolException('The provider offers no supported token endpoint authentication method');
-    }
-
     /** @param array<string,string> $fields @param string[] $headers */
-    private function authenticateClient(array &$fields, array &$headers): void
+    private function authenticateClient(array &$fields, array &$headers, ?string $method = null): void
     {
-        $method = $this->tokenAuthMethod();
+        $method ??= $this->tokenAuthMethod
+            ?? $this->metadata?->tokenEndpointAuthMethod($this->settings->tokenAuthMethod());
         if ($method === 'client_secret_basic') {
             $credentials = urlencode($this->settings->clientId()) . ':' . urlencode($this->settings->clientSecret());
             $headers[] = 'Authorization: Basic ' . base64_encode($credentials);
@@ -518,7 +503,7 @@ class RelyingParty
             $fields['token_type_hint'] = $hint;
         }
         $headers = [];
-        $this->authenticateClient($fields, $headers);
+        $this->authenticateClient($fields, $headers, $this->metadata->revocationEndpointAuthMethod());
         $response = $this->http->postForm($endpoint, $fields, 262144, $headers);
         if (!in_array($response->status, [200, 204], true)) {
             throw new ProtocolException(sprintf('Token revocation returned HTTP %d', $response->status));
