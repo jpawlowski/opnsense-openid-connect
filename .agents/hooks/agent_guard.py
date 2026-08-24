@@ -6,6 +6,7 @@
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shlex
@@ -156,10 +157,40 @@ def event_command(event):
     return str(tool_input.get("command") or tool_input.get("cmd") or "")
 
 
+def _git_config(*arguments):
+    result = subprocess.run(
+        ("git", "config", *arguments), cwd=REPOSITORY_ROOT, check=False, capture_output=True, text=True,
+    )
+    return result.stdout.splitlines() if result.returncode == 0 else []
+
+
+def _configured_git_helper(command, arguments):
+    disabled = {"", "0", "false", "no", "off"}
+    fsmonitor = _git_config("--get-all", "core.fsmonitor")
+    if any(value.strip().lower() not in disabled for value in fsmonitor):
+        return True
+
+    no_pager = "--no-pager" in arguments
+    pagers = _git_config("--get-all", f"pager.{command}") or _git_config("--get-all", "core.pager")
+    if not no_pager and any(value.strip().lower() not in disabled for value in pagers):
+        return True
+
+    if command in ("diff", "log", "show"):
+        external = _git_config("--get-all", "diff.external")
+        if (os.environ.get("GIT_EXTERNAL_DIFF") or external) and "--no-ext-diff" not in arguments:
+            return True
+        textconv = _git_config("--get-regexp", r"^diff\..*\.textconv$")
+        if textconv and "--no-textconv" not in arguments:
+            return True
+    return False
+
+
 def _read_only_git(arguments):
     if not arguments:
         return False
-    command, rest = arguments[0], arguments[1:]
+    command, rest = _git_subcommand(arguments)
+    if not command or _configured_git_helper(command, arguments):
+        return False
     if command in READ_ONLY_GIT:
         executable = {"--ext-diff", "--textconv"}
         if command == "grep":
@@ -292,6 +323,8 @@ def _shell_hazard(command):
     escaped = False
     for value in command:
         if escaped:
+            if value in "\r\n":
+                return "control"
             escaped = False
             continue
         if value == "\\" and quote != "'":

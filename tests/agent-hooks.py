@@ -390,6 +390,8 @@ def main():
     check("searches are read-only", guard_module.is_read_only_shell("rg worktree AGENTS.md"), True)
     check("a newline cannot append a mutating command to a read-only search",
           guard_module.is_read_only_shell("rg worktree AGENTS.md\nrm tracked-file"), False)
+    check("an escaped newline cannot manufacture an executable option",
+          guard_module.is_read_only_shell("rg --pre\\\n=rm worktree tracked-file"), False)
     check("ripgrep preprocessors are not read-only",
           guard_module.is_read_only_shell("rg --pre=rm worktree tracked-file"), False)
     check("shell expansion cannot manufacture a ripgrep preprocessor option",
@@ -404,11 +406,12 @@ def main():
           guard_module.is_read_only_shell("rg --hostname-bin sh worktree AGENTS.md"), False)
     check("environment overrides cannot alter an allow-listed program",
           guard_module.is_read_only_shell("RIPGREP_CONFIG_PATH=config rg worktree AGENTS.md"), False)
-    check("Git status is read-only", guard_module.is_read_only_shell("git status --short"), True)
+    check("Git status is read-only with external pagers disabled",
+          guard_module.is_read_only_shell("git --no-pager status --short"), True)
     check("remote inspection must explicitly avoid querying the transport",
           guard_module.is_read_only_shell("git remote show origin"), False)
     check("remote inspection with no query is read-only",
-          guard_module.is_read_only_shell("git remote show -n origin"), True)
+          guard_module.is_read_only_shell("git --no-pager remote show -n origin"), True)
     check("a path-qualified look-alike Git executable is not trusted",
           guard_module.is_read_only_shell("/tmp/git status --short"), False)
     check("Git grep cannot launch a pager command",
@@ -534,6 +537,20 @@ def main():
         subprocess.run(("git", "commit", "-q", "-m", "test: seed"), cwd=control, check=True)
         subprocess.run(("git", "worktree", "add", "-q", "-b", "codex/test", str(linked)),
                        cwd=control, check=True)
+
+        original_repository_root = guard_module.REPOSITORY_ROOT
+        guard_module.REPOSITORY_ROOT = control
+        subprocess.run(("git", "config", "core.fsmonitor", "/tmp/untrusted-fsmonitor"), cwd=control, check=True)
+        check("a configured fsmonitor makes Git status unsafe in the control checkout",
+              guard_module.is_read_only_shell("git --no-pager status --short"), False)
+        subprocess.run(("git", "config", "core.fsmonitor", "false"), cwd=control, check=True)
+        subprocess.run(("git", "config", "diff.external", "/tmp/untrusted-diff"), cwd=control, check=True)
+        check("a configured external diff helper is not read-only",
+              guard_module.is_read_only_shell("git --no-pager diff"), False)
+        check("an explicitly disabled external diff remains read-only",
+              guard_module.is_read_only_shell("git --no-pager diff --no-ext-diff"), True)
+        subprocess.run(("git", "config", "--unset", "diff.external"), cwd=control, check=True)
+        guard_module.REPOSITORY_ROOT = original_repository_root
 
         check("the primary checkout is recognized", guard_module.is_primary_worktree(control), True)
         check("a linked worktree is isolated", guard_module.is_primary_worktree(linked), False)
