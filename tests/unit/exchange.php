@@ -24,7 +24,15 @@ function metadata(array $extra = []): array
         'subject_types_supported' => ['public'],
         'id_token_signing_alg_values_supported' => ['RS256'],
         'token_endpoint_auth_methods_supported' => ['client_secret_basic'],
+        'code_challenge_methods_supported' => ['S256'],
     ];
+}
+
+function metadataWithout(string $name): array
+{
+    $values = metadata();
+    unset($values[$name]);
+    return $values;
 }
 
 function jsonAnswer(array $value, int $status = 200, array $headers = []): array
@@ -44,6 +52,52 @@ $http = new HttpClient(fn() => jsonAnswer(metadata()));
 $discovered = ProviderMetadata::discover('https://id.example.net', $http);
 Checks::that('the exact configured issuer is retained', $discovered->issuer(), 'https://id.example.net');
 Checks::that('the authorization endpoint is read from discovery', $discovered->authorizationEndpoint(), 'https://id.example.net/authorize');
+Checks::that('query response mode uses the RFC 8414 omission default', (function () use ($discovered): bool {
+    $discovered->assertAuthorizationCapabilities('query');
+    return true;
+})(), true);
+Checks::that('an explicitly advertised form_post response mode is accepted', (function (): bool {
+    ProviderMetadata::fromArray(metadata(['response_modes_supported' => ['form_post']]))
+        ->assertAuthorizationCapabilities('form_post');
+    return true;
+})(), true);
+Checks::that('token endpoint authentication uses the RFC 8414 omission default',
+    ProviderMetadata::fromArray(metadataWithout('token_endpoint_auth_methods_supported'))
+        ->tokenEndpointAuthMethod(), 'client_secret_basic');
+Checks::that('revocation authentication is negotiated independently from token authentication',
+    ProviderMetadata::fromArray(metadata([
+        'revocation_endpoint_auth_methods_supported' => ['client_secret_post'],
+    ]))->revocationEndpointAuthMethod(), 'client_secret_post');
+Checks::that('unknown metadata extensions remain safely ignorable',
+    ProviderMetadata::fromArray(metadata(['future_extension' => ['nested' => true]]))->issuer(),
+    'https://id.example.net');
+Checks::throws(
+    'form_post cannot override the RFC 8414 omission default',
+    fn() => $discovered->assertAuthorizationCapabilities('form_post'),
+    'response mode'
+);
+Checks::throws(
+    'configured client authentication must be advertised',
+    fn() => $discovered->tokenEndpointAuthMethod('client_secret_post'),
+    'not advertised'
+);
+Checks::throws(
+    'unsupported token authentication capabilities fail before an exchange',
+    fn() => ProviderMetadata::fromArray(metadata([
+        'token_endpoint_auth_methods_supported' => ['private_key_jwt'],
+    ]))->tokenEndpointAuthMethod(),
+    'no supported client authentication method'
+);
+Checks::throws(
+    'an empty advertised capability list is malformed rather than an omission default',
+    fn() => ProviderMetadata::fromArray(metadata(['response_modes_supported' => []])),
+    'invalid response_modes_supported'
+);
+Checks::throws(
+    'an explicit null capability is malformed rather than an omission default',
+    fn() => ProviderMetadata::fromArray(metadata(['code_challenge_methods_supported' => null])),
+    'invalid code_challenge_methods_supported'
+);
 
 Checks::group('Validated provider cache');
 $cacheIssuer = 'https://cache.example.net';
@@ -386,6 +440,30 @@ Checks::that(
     '/'
 );
 
+$revocationRequest = [];
+$revocationParty = new RelyingParty(
+    $endpointSettings,
+    $endpointController,
+    new HttpClient(
+        function (string $method, string $url, ?string $body, array $headers) use (&$revocationRequest): array {
+            $revocationRequest = compact('method', 'url', 'body', 'headers');
+            return jsonAnswer([], 200);
+        }
+    )
+);
+$metadataProperty->setValue($revocationParty, ProviderMetadata::fromArray(metadata([
+    'revocation_endpoint' => 'https://id.example.net/revoke',
+    'revocation_endpoint_auth_methods_supported' => ['client_secret_post'],
+])));
+$revocationParty->revokeToken('refresh-token', 'refresh_token');
+parse_str((string)$revocationRequest['body'], $revocationFields);
+Checks::that('revocation uses its own advertised client authentication capability', [
+    $revocationRequest['url'],
+    $revocationFields['client_secret'] ?? null,
+    count(array_filter($revocationRequest['headers'], static fn(string $header): bool =>
+        str_starts_with($header, 'Authorization:'))),
+], ['https://id.example.net/revoke', 'secret', 0]);
+
 Checks::group('Login transactions, PKCE and mix-up protection');
 
 $settings = connector([
@@ -456,6 +534,49 @@ Checks::throws(
     ))->begin('authentik', '/'),
     'PKCE S256'
 );
+Checks::throws(
+    'omitted PKCE metadata means that the provider does not support PKCE',
+    fn() => (new RelyingParty(
+        $settings,
+        new Controller(new Request('https', 'firewall.example.net'), new Session()),
+        new HttpClient(fn() => jsonAnswer(metadataWithout('code_challenge_methods_supported')))
+    ))->begin('authentik', '/'),
+    'PKCE S256'
+);
+
+$formPostSettings = connector([
+    'openidconnect_client_id' => 'form-post-client',
+    'openidconnect_client_secret' => 'secret',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_app_code' => 'form-post',
+    'openidconnect_response_mode' => 'form_post',
+]);
+Checks::throws(
+    'form_post is refused when Discovery relies on the query-and-fragment default',
+    fn() => (new RelyingParty(
+        $formPostSettings,
+        new Controller(new Request('https', 'firewall.example.net'), new Session()),
+        new HttpClient(fn() => jsonAnswer(metadata()))
+    ))->begin('form-post', '/'),
+    'response mode'
+);
+
+$postAuthSettings = connector([
+    'openidconnect_client_id' => 'post-client',
+    'openidconnect_client_secret' => 'post-secret',
+    'openidconnect_token_auth' => 'client_secret_post',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_app_code' => 'post-auth',
+]);
+Checks::throws(
+    'a configured token authentication method is refused before redirect when not advertised',
+    fn() => (new RelyingParty(
+        $postAuthSettings,
+        new Controller(new Request('https', 'firewall.example.net'), new Session()),
+        new HttpClient(fn() => jsonAnswer(metadata()))
+    ))->begin('post-auth', '/'),
+    'not advertised'
+);
 
 $parRequest = [];
 $parSession = new Session();
@@ -516,6 +637,7 @@ $parPostSettings = connector([
         if ($method === 'GET') {
             return jsonAnswer(metadata([
                 'pushed_authorization_request_endpoint' => 'https://id.example.net/par',
+                'token_endpoint_auth_methods_supported' => ['client_secret_post'],
             ]));
         }
         $parPostRequest = compact('body', 'headers');
@@ -658,6 +780,8 @@ foreach ([
 
 $transaction = RelyingParty::consumeTransaction($session, ['state' => $parameters['state']], 'authentik-main');
 Checks::that('the exact discovery issuer is frozen into the transaction', $transaction['issuer'], 'https://id.example.net');
+Checks::that('the negotiated token authentication method is frozen into the transaction',
+    $transaction['token_auth_method'], 'client_secret_basic');
 Checks::that('the intended local destination is retained server-side', $transaction['target'], '/ui/dashboard');
 Checks::that('an ordinary authorization transaction is marked as a login', $transaction['purpose'], 'login');
 Checks::throws(
