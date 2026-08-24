@@ -1145,9 +1145,17 @@
             "negative": [
               {
                 "path": "tests/unit/client-authentication.php",
-                "test": "RFC9700-2.5-ASYMMETRIC-CLIENT-AUTH negative: static-secret fallback requires provider incompatibility"
+                "test": "RFC9700-2.5-ASYMMETRIC-CLIENT-AUTH negative: provider incompatibility permits static-secret fallback"
+              },
+              {
+                "path": "tests/unit/client-authentication.php",
+                "test": "RFC9700-2.5-ASYMMETRIC-CLIENT-AUTH negative: a missing certificate permits static-secret fallback"
               }
             ]
+          },
+          "deviation": {
+            "reviewed_on": "2026-08-24",
+            "rationale": "Follow the provider prefers private_key_jwt whenever a compatible signing certificate is configured. It retains static-secret authentication when no certificate is configured or the provider does not advertise a compatible asymmetric method, preserving existing confidential-client deployments; selecting private_key_jwt explicitly makes the certificate mandatory."
           }
         },
         {

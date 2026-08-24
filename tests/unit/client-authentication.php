@@ -159,10 +159,38 @@ $secretFallbackHeaders = [];
     $secretFallbackHeaders
 );
 Checks::that(
-    'RFC9700-2.5-ASYMMETRIC-CLIENT-AUTH negative: static-secret fallback requires provider incompatibility',
+    'RFC9700-2.5-ASYMMETRIC-CLIENT-AUTH negative: provider incompatibility permits static-secret fallback',
     [
         isset($secretFallbackFields['client_assertion']),
         count(array_filter($secretFallbackHeaders, static fn(string $header): bool =>
+            str_starts_with($header, 'Authorization: Basic '))),
+    ],
+    [false, 1]
+);
+
+$missingCertificateSettings = connector([
+    'openidconnect_client_id' => 'fallback-client',
+    'openidconnect_client_secret' => 'fallback-secret',
+]);
+$missingCertificateFields = [];
+$missingCertificateHeaders = [];
+(new ClientAuthenticator(
+    $missingCertificateSettings,
+    testClientAssertion($missingCertificateSettings)
+))->authenticate(
+    clientAuthenticationMetadata([
+        'token_endpoint_auth_methods_supported' => ['private_key_jwt', 'client_secret_basic'],
+    ]),
+    'https://id.example.net/token',
+    ClientAuthenticator::TOKEN,
+    $missingCertificateFields,
+    $missingCertificateHeaders
+);
+Checks::that(
+    'RFC9700-2.5-ASYMMETRIC-CLIENT-AUTH negative: a missing certificate permits static-secret fallback',
+    [
+        isset($missingCertificateFields['client_assertion']),
+        count(array_filter($missingCertificateHeaders, static fn(string $header): bool =>
             str_starts_with($header, 'Authorization: Basic '))),
     ],
     [false, 1]
