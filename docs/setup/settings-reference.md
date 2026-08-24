@@ -17,6 +17,7 @@ defaults below.
 | Exact issuer URL | may be empty only while disabled | copy the provider's exact `issuer`, including path and trailing slash, before enabling; a pasted URL ending in `/.well-known/openid-configuration` is accepted and stored without that suffix, while named profiles retain a documented significant trailing slash |
 | Client ID / Client Secret | may be empty only while disabled | enter the confidential web application's credentials before enabling |
 | Authentication method | profile preset, normally Follow the provider | the application was explicitly configured for Basic or POST and the profile does not already enforce a documented requirement |
+| Pushed authorization requests | Automatic with availability fallback | use Required when authorization parameters must never pass through the browser, or Disabled for a provider whose optional PAR path is intentionally unreachable; a provider requirement always wins |
 | Username claim | `preferred_username` | the provider guide specifies `email`, a vendor claim or a custom mapping |
 | Claims source | Automatic | all required claims must come only from the ID Token, or UserInfo is explicitly required |
 | Authorization response mode | Query | Apple with requested user scopes requires Form POST |
@@ -73,6 +74,7 @@ prevents a typo from delegating every firewall privilege.
 | Trace the exchange | Off | diagnosing one failed exchange; turn it off afterward |
 | Redirect the Log Out menu entry | Off | Lobby > Log Out should also begin provider logout |
 | Return here after logout | Off | the displayed post-logout URI is registered at the provider |
+| Provider logout notifications | Both | accept only Back-Channel, only Front-Channel, or neither; disabling new logins does not disable notifications for existing sessions |
 | Login button style | full-width button | the standard OPNsense link appearance is preferred |
 | Login button wording | the localized OPNsense login sentence for Generic and installation-specific providers; the familiar short provider name for fixed global services | omit the sentence and show only an installation-specific provider label, or deliberately use one exact custom full text |
 | Provider label on login button | Descriptive name; available for Generic, self-hosted and tenant-specific profiles | the name users should see differs from the technical authentication-server name; it remains compatible with the localized OPNsense sentence |
@@ -90,7 +92,10 @@ authentication-server entries when distinct Microsoft audiences need distinct
 buttons; both still use the familiar `Microsoft` label.
 
 **Test discovery**, **Test sign-in**, **Download provider setup** and **Open
-setup guide** are actions, not stored settings. None runs during Save. Test sign-in becomes
+setup guide** are actions, not stored settings. None runs during Save. Test
+discovery live-fetches Discovery and JWKS from OPNsense and uses the current
+unsaved client values for an authenticated PAR check when applicable. The
+browser does not need to reach Discovery. Test sign-in becomes
 available after the server has first been saved and may be used while the
 provider remains disabled; it validates a real browser flow without changing
 the WebGUI session or local identity state. The provider may retain its own SSO
@@ -100,10 +105,20 @@ download and its independently reopenable guide are offered only where an
 official, safely repeatable import format is implemented; see [provider
 onboarding files](provider-onboarding.md).
 
-When Discovery advertises a valid PAR endpoint, the plugin automatically pushes
-the complete authorization request there using the configured client
-authentication method. The browser then receives only `client_id` and the
-returned `request_uri`. PAR has no setting and no failure fallback.
+In Automatic mode, the first temporary PAR availability failure falls back to a
+normal browser authorization request and opens a provider-bound circuit. Later
+logins bypass PAR immediately while the minutely scheduled recovery job sends
+authenticated test PAR requests in the background. Success restores PAR. DNS,
+connection and timeout failures, HTTP 429/5xx and explicitly temporary OAuth
+errors may open this fallback; TLS, client authentication and protocol errors
+never do. Required mode has no fallback. Disabled mode is rejected when
+Discovery says `require_pushed_authorization_requests=true`.
+
+Validated OIDC and SSF Discovery and JWKS responses use `Cache-Control`, ETag and
+`304 Not Modified`. Without an explicit lifetime they are fresh for one hour.
+Bounded stale use is at most 24 hours for Discovery and one hour for an already
+known signing key; `no-store` and `must-revalidate` are honoured. An unknown key
+causes one throttled live refresh and then fails closed.
 
 Changing a provider from public to pairwise subjects, changing its sector or
 recreating its pairwise salt can change `sub`. Existing issuer/subject bindings
@@ -121,5 +136,8 @@ privileges, which remain explicit local choices. See the
 [admission policy guide](admission-policy.md).
 
 Back-channel and front-channel logout are notifications from the provider to
-OPNsense. “Return here after logout” is the opposite direction: it asks the
+OPNsense. Both are accepted by default so a provider which supports an alternate
+delivery has both available. OPNsense cannot itself turn a failed inbound
+Back-Channel request into Front-Channel delivery; that retry decision belongs to
+the provider. “Return here after logout” is the opposite direction: it asks the
 provider to send the user's browser back after an OPNsense-initiated logout.

@@ -158,6 +158,29 @@ Checks::that(
     'client_secret_post'
 );
 Checks::that('token auth, nonsense value', connector(['openidconnect_token_auth' => 'wobble'])->tokenAuthMethod(), null);
+Checks::that('PAR uses availability-aware automatic mode by default', connector([])->parMode(), 'auto');
+Checks::that('PAR can be required', connector(['openidconnect_par_mode' => 'required'])->parMode(), 'required');
+Checks::that('an unknown PAR mode falls back to automatic', connector([
+    'openidconnect_par_mode' => 'sometimes',
+])->parMode(), 'auto');
+Checks::that('both provider logout notification channels are accepted by default', [
+    connector([])->acceptsBackchannelLogout(),
+    connector([])->acceptsFrontchannelLogout(),
+], [true, true]);
+Checks::that('logout notification channels can be limited independently', [
+    connector(['openidconnect_logout_notifications' => 'backchannel'])->acceptsFrontchannelLogout(),
+    connector(['openidconnect_logout_notifications' => 'frontchannel'])->acceptsBackchannelLogout(),
+    connector(['openidconnect_logout_notifications' => 'off'])->acceptsBackchannelLogout(),
+], [false, false, false]);
+$newProtocolOptions = connector([])->getConfigurationOptions();
+Checks::that('the form displays automatic PAR as its compatibility default',
+    $newProtocolOptions['openidconnect_par_mode']['default'], 'auto');
+Checks::that('the form displays both logout notification channels as its compatibility default',
+    $newProtocolOptions['openidconnect_logout_notifications']['default'], 'both');
+Checks::that('the form refuses an unknown PAR mode',
+    count($newProtocolOptions['openidconnect_par_mode']['validate']('sometimes')), 1);
+Checks::that('the form refuses an unknown logout notification mode',
+    count($newProtocolOptions['openidconnect_logout_notifications']['validate']('sometimes')), 1);
 Checks::that('account selection is off unless asked for', connector([])->selectAccount(), false);
 Checks::that('account selection can be requested', connector([
     'openidconnect_select_account' => '1',

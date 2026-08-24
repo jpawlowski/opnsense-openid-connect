@@ -173,6 +173,32 @@ Use Authorization Code, PKCE `S256`, asymmetric token signing and exact redirect
 addresses. Do not use wildcard redirects. Public clients without a secret and
 encrypted ID Tokens are outside this plugin's supported profile.
 
+### Network directions and required reachability
+
+OPNsense cannot operate as a fully isolated relying party. Even when validated
+Discovery and signing keys are cached, every new Authorization Code login needs
+the Token endpoint from OPNsense. The browser alone reaching the provider is not
+enough.
+
+| Path | Direction | Needed when | Checked by |
+|---|---|---|---|
+| Login page, callback | Browser → OPNsense | every login | Test sign-in |
+| Authorization endpoint | Browser → IdP | every login | Test sign-in |
+| Discovery | OPNsense → IdP | configuration and metadata refresh | Test discovery, live |
+| JWKS signing keys | OPNsense → IdP | token/logout/SSF signature validation | Test discovery, live |
+| PAR endpoint | OPNsense → IdP | PAR is offered and not disabled | Test discovery, authenticated live request |
+| Token endpoint | OPNsense → IdP | every completed login | Test sign-in |
+| UserInfo endpoint | OPNsense → IdP | selected or missing claims require it | Test sign-in |
+| Revocation endpoint | OPNsense → IdP | best-effort provider-aware logout | real logout |
+| End-session endpoint | Browser → IdP | RP-initiated provider logout | real logout |
+| Back-channel logout | IdP → OPNsense | that notification channel is registered | provider logout |
+| Front-channel logout | IdP → browser → OPNsense | that notification channel is registered | provider logout |
+| Shared Signals push | transmitter → OPNsense | SSF is enabled | Test Shared Signals plus a real event |
+
+There is no generic OIDC ping endpoint. A TCP or unauthenticated HTTP probe would
+not prove TLS trust, client authentication or protocol compatibility. Endpoint-
+native tests are used instead.
+
 ## 4. Check Discovery
 
 Saving and **Test discovery** are deliberately independent. You may save a
@@ -180,13 +206,22 @@ disabled draft even while its provider is unreachable or the Discovery test
 fails, return later, and continue editing it. Saving checks local field syntax
 and security boundaries only; it never contacts the provider.
 
-Select **Test discovery** before offering the server on the login page. Exact
-issuer matching is a security boundary: enter the `issuer` value returned by
-the provider, not the Discovery document URL or an individual endpoint.
+Select **Test discovery** before offering the server on the login page. It makes
+fresh server-side requests for Discovery and JWKS and, when configured, an
+authenticated PAR request using the current form values. The PAR `request_uri`
+is discarded and no login transaction is created. The browser does not fetch or
+need the Discovery URL. Exact issuer matching is a security boundary: enter the
+`issuer` value returned by the provider, not an individual endpoint.
 
 Resolve a failed check at the provider or in the entered value. A named profile
 supplies compatible defaults and clearer diagnostics, but never turns off a
 protocol check.
+
+The status badges on a saved server distinguish fresh, bounded stale, missing,
+bypassed and failed paths. Discovery may remain usable for at most 24 hours and
+an already known signing key for at most one hour beyond freshness, unless the
+provider forbids stale use through its HTTP cache policy. This can bridge an
+outage but cannot replace the mandatory Token endpoint or admit an unknown key.
 
 After the server has been saved, **Test sign-in** performs the complete browser
 flow even while **Offer on the login page** remains disabled. It checks the

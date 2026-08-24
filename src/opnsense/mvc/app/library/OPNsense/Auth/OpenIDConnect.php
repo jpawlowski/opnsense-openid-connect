@@ -61,6 +61,8 @@ class OpenIDConnect extends Base implements IAuthConnector
 
     /** how this firewall authenticates itself at the token endpoint */
     public const TOKEN_AUTH_METHODS = ['client_secret_basic', 'client_secret_post'];
+    public const PAR_MODES = ['auto', 'required', 'disabled'];
+    public const LOGOUT_NOTIFICATION_MODES = ['both', 'backchannel', 'frontchannel', 'off'];
 
     /** when an e-mail address may stand in for the username claim */
     public const EMAIL_MATCHING = ['verified', 'always', 'off'];
@@ -264,6 +266,24 @@ class OpenIDConnect extends Base implements IAuthConnector
                 ],
                 'validate' => fn($value) => in_array($value, array_merge(self::TOKEN_AUTH_METHODS, ['']), true)
                     ? [] : [gettext('Unknown authentication method.')],
+            ],
+            'openidconnect_par_mode' => [
+                'name' => gettext('Pushed authorization requests'),
+                'help' => gettext(
+                    'Automatic uses PAR when Discovery offers it and temporarily bypasses an unavailable optional ' .
+                    'endpoint while a background check recovers it. Required fails the login instead. Disabled ' .
+                    'sends the authorization parameters through the browser and cannot override a provider which ' .
+                    'requires PAR.'
+                ),
+                'type' => 'dropdown',
+                'default' => 'auto',
+                'options' => [
+                    'auto' => gettext('Automatic with availability fallback'),
+                    'required' => gettext('Required'),
+                    'disabled' => gettext('Disabled'),
+                ],
+                'validate' => fn($value) => in_array($value ?: 'auto', self::PAR_MODES, true)
+                    ? [] : [gettext('Unknown pushed authorization request mode.')],
             ],
             'openidconnect_username_claim' => [
                 'name' => gettext('Username claim'),
@@ -617,6 +637,25 @@ class OpenIDConnect extends Base implements IAuthConnector
                 ),
                 'type' => 'checkbox',
                 'validate' => fn($value) => [],
+            ],
+            'openidconnect_logout_notifications' => [
+                'name' => gettext('Provider logout notifications'),
+                'help' => gettext(
+                    'Both accepts signed server-to-server Back-Channel Logout and browser-based Front-Channel ' .
+                    'Logout. This lets a provider use either registered channel, but the provider decides whether ' .
+                    'it retries a failed delivery through the other one. Existing sessions remain reachable here ' .
+                    'even when this provider is no longer offered for new logins.'
+                ),
+                'type' => 'dropdown',
+                'default' => 'both',
+                'options' => [
+                    'both' => gettext('Both'),
+                    'backchannel' => gettext('Back-channel only'),
+                    'frontchannel' => gettext('Front-channel only'),
+                    'off' => gettext('Off'),
+                ],
+                'validate' => fn($value) => in_array($value ?: 'both', self::LOGOUT_NOTIFICATION_MODES, true)
+                    ? [] : [gettext('Unknown provider logout notification mode.')],
             ],
             'openidconnect_ssf_enabled' => [
                 'name' => gettext('Receive Shared Signals'),
@@ -1138,9 +1177,13 @@ class OpenIDConnect extends Base implements IAuthConnector
             'statusInformation' => gettext('Information'),
             'statusFailed' => gettext('Failed'),
             'testHelp' => gettext(
-                'Optional preflight: saving never runs Discovery and does not require a successful test. ' .
-                'Keep the provider disabled while its settings are incomplete or the test still fails.'
+                'Live server-side preflight of Discovery, JWKS and, when configured, authenticated PAR. ' .
+                'The browser does not need the Discovery URL; Test sign-in checks its authorization path. ' .
+                'Saving remains independent of this test.'
             ),
+            'healthLabel' => gettext('Connection health'),
+            'healthLoading' => gettext('Loading connection health...'),
+            'healthUnavailable' => gettext('Connection health unavailable.'),
             'signInTestLabel' => gettext('Test sign-in'),
             'signInTestHelp' => gettext(
                 'Runs the real browser flow and validates PKCE, the code exchange, ID Token and configured ' .
@@ -3244,6 +3287,30 @@ class OpenIDConnect extends Base implements IAuthConnector
     public function redirectsLogoutMenu(): bool
     {
         return $this->flag('openidconnect_logout_menu');
+    }
+
+    public function parMode(): string
+    {
+        return $this->choice('openidconnect_par_mode', self::PAR_MODES, 'auto');
+    }
+
+    public function logoutNotificationMode(): string
+    {
+        return $this->choice(
+            'openidconnect_logout_notifications',
+            self::LOGOUT_NOTIFICATION_MODES,
+            'both'
+        );
+    }
+
+    public function acceptsBackchannelLogout(): bool
+    {
+        return in_array($this->logoutNotificationMode(), ['both', 'backchannel'], true);
+    }
+
+    public function acceptsFrontchannelLogout(): bool
+    {
+        return in_array($this->logoutNotificationMode(), ['both', 'frontchannel'], true);
     }
 
     public function returnsAfterLogout(): bool

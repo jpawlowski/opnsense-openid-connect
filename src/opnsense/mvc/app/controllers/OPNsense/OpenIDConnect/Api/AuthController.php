@@ -129,7 +129,8 @@ class AuthController extends ApiControllerBase
     {
         $settings = $this->settingsForApplicationCode($applicationCode);
         $logoutToken = $this->request->getPost('logout_token', null, null);
-        if ($settings === null || !is_string($logoutToken) || $logoutToken === ''
+        if ($settings === null || !$settings->acceptsBackchannelLogout()
+            || !is_string($logoutToken) || $logoutToken === ''
             || strlen($logoutToken) > JwtVerifier::MAX_JWT_BYTES) {
             return $this->refuse(400, 'Bad Request', 'The logout request was not accepted.');
         }
@@ -184,7 +185,8 @@ class AuthController extends ApiControllerBase
         $settings = $this->settingsForApplicationCode($applicationCode);
         $issuer = $this->request->get('iss', null);
         $sid = $this->request->get('sid', null);
-        if ($settings === null || !is_string($issuer) || !is_string($sid)
+        if ($settings === null || !$settings->acceptsFrontchannelLogout()
+            || !is_string($issuer) || !is_string($sid)
             || $issuer === '' || $sid === '' || strlen($sid) > 255
             || ($settings->discoveryIssuerTemplate() === null
                 ? !hash_equals($settings->issuerUrl(), $issuer)

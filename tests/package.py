@@ -35,6 +35,7 @@ REQUIRED_KEYS = [
 ]
 
 EXECUTABLES = {
+    "/usr/local/sbin/openid-connect-refresh",
     "/usr/local/sbin/openid-connect-watch",
 }
 
@@ -225,10 +226,14 @@ def main():
 
     group("The nightly run, and what is left behind when it goes")
     check("the watchdog is installed", "/usr/local/sbin/openid-connect-watch" in contents)
+    check("the provider refresh worker is installed", "/usr/local/sbin/openid-connect-refresh" in contents)
     check("and something starts it", "/usr/local/etc/cron.d/openid-connect.cron" in contents)
     cron = contents.get("/usr/local/etc/cron.d/openid-connect.cron", b"").decode()
     check("nightly, as root, saying nothing when there is nothing to say",
           "root\t/usr/local/sbin/openid-connect-watch --check >/dev/null 2>&1" in cron)
+    check("provider recovery runs every minute outside the browser path",
+          "*\t*\t*\t*\t*\troot\t/usr/bin/lockf -t 0 /var/run/openid-connect-refresh.lock "
+          "/usr/local/sbin/openid-connect-refresh >/dev/null 2>&1" in cron)
     check("it does not rely on periodic, which nothing in OPNsense uses",
           [n for n in contents if "/periodic/" in n], [])
     # pkg removes what it installed; the anchor is written at runtime under /var/db
@@ -241,6 +246,8 @@ def main():
           "/var/lib/php/tmp/opnsense_acl_cache.json" in deinstall)
     check("uninstalling takes the watchdog's anchor with it",
           "/var/db/openid-connect" in deinstall)
+    check("uninstalling takes provider cache and circuit state with it",
+          "/var/db/openid-connect/cache /var/db/openid-connect/runtime" in deinstall)
     check("uninstalling takes the OIDC session index with it",
           "/var/lib/php/sessions/.openidconnect-sessions" in deinstall)
     check("uninstalling takes the logout replay index with it",

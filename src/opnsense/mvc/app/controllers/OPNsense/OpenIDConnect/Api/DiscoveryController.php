@@ -10,7 +10,11 @@ namespace OPNsense\OpenIDConnect\Api;
 use OPNsense\Auth\OpenIDConnect;
 use OPNsense\OpenIDConnect\HttpClient;
 use OPNsense\OpenIDConnect\JwtVerifier;
+use OPNsense\OpenIDConnect\ParClient;
 use OPNsense\OpenIDConnect\ProviderMetadata;
+use OPNsense\OpenIDConnect\ProviderRuntimeState;
+use OPNsense\OpenIDConnect\ProviderUnavailableException;
+use OPNsense\OpenIDConnect\RelyingParty;
 
 /** Authenticated, CSRF-protected preflight of an issuer's discovery metadata. */
 class DiscoveryController extends PrivateApiControllerBase
@@ -30,7 +34,9 @@ class DiscoveryController extends PrivateApiControllerBase
                     ? 'https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0'
                     : 'https://login.microsoftonline.com/{tenantid}/v2.0')
                 : null;
-            $metadata = ProviderMetadata::discover($given, new HttpClient(), $template);
+            $http = new HttpClient();
+            /* This explicit diagnostic must not let an old cache hide a broken live path. */
+            $metadata = ProviderMetadata::discover($given, $http, $template, true, false);
             $responseMode = (string)$this->request->getPost('response_mode', null, 'query');
             $tokenAuth = (string)$this->request->getPost('token_auth', null, '');
             $claimsSource = (string)$this->request->getPost('claims_source', null, 'auto');
@@ -46,16 +52,42 @@ class DiscoveryController extends PrivateApiControllerBase
                 $tokenAuth,
                 $claimsSource
             );
+            try {
+                $keyCount = (new JwtVerifier($http))->probeKeySet($metadata->jwksUri());
+                $checks[] = $this->check(
+                    gettext('Signing keys (OPNsense → IdP)'),
+                    sprintf(gettext('%d usable key(s)'), $keyCount),
+                    'success',
+                    gettext('The JWKS endpoint was fetched live and contains supported signing material.')
+                );
+            } catch (\Throwable $e) {
+                $checks[] = $this->check(
+                    gettext('Signing keys (OPNsense → IdP)'),
+                    gettext('Live check failed'),
+                    'error',
+                    $e->getMessage()
+                );
+            }
+
+            $settings = $this->currentSettings($given);
+            $checks[] = $this->parCheck($settings, $metadata, $http);
             $warnings = count(array_filter(
                 $checks,
                 static fn(array $check): bool => $check['status'] === 'warning'
             ));
+            $errors = count(array_filter(
+                $checks,
+                static fn(array $check): bool => $check['status'] === 'error'
+            ));
+            $overall = $errors > 0 ? 'error' : ($warnings > 0 ? 'warning' : 'success');
             return [
                 'status' => 'ok',
-                'overall' => $warnings === 0 ? 'success' : 'warning',
-                'headline' => $warnings === 0
-                    ? gettext('Discovery document accepted')
-                    : sprintf(gettext('Discovery document accepted with %d warning(s)'), $warnings),
+                'overall' => $overall,
+                'headline' => $errors > 0
+                    ? sprintf(gettext('Server connectivity has %d failure(s)'), $errors)
+                    : ($warnings === 0
+                        ? gettext('Server connectivity accepted')
+                        : sprintf(gettext('Server connectivity accepted with %d warning(s)'), $warnings)),
                 'checks' => $checks,
                 /* Keep a plain-text representation for API clients predating the status table. */
                 'summary' => implode("\n", array_map(
@@ -104,10 +136,10 @@ class DiscoveryController extends PrivateApiControllerBase
 
         $checks = [
             $this->check(
-                gettext('Exact issuer'),
+                gettext('Discovery (OPNsense → IdP)'),
                 $metadata->issuer(),
                 'success',
-                gettext('The issuer and Discovery document match exactly.')
+                gettext('The document was fetched live and its issuer matches exactly.')
             ),
             $this->check(
                 gettext('Provider profile'),
@@ -116,19 +148,19 @@ class DiscoveryController extends PrivateApiControllerBase
                 gettext('Provider-specific defaults never relax protocol validation.')
             ),
             $this->check(
-                gettext('Authorization endpoint'),
+                gettext('Authorization endpoint (Browser → IdP)'),
                 $metadata->authorizationEndpoint(),
-                'success',
-                gettext('A valid HTTPS authorization endpoint is available.')
+                'info',
+                gettext('Discovery advertises this browser path; Test sign-in exercises it.')
             ),
             $this->check(
-                gettext('Token endpoint'),
+                gettext('Token endpoint (OPNsense → IdP)'),
                 $metadata->tokenEndpoint(),
-                'success',
-                gettext('A valid HTTPS token endpoint is available.')
+                'info',
+                gettext('Discovery advertises this mandatory server path; Test sign-in exercises it with a code.')
             ),
             $this->check(
-                gettext('UserInfo endpoint'),
+                gettext('UserInfo endpoint (OPNsense → IdP)'),
                 $userInfo ?? gettext('Not offered'),
                 $userInfo !== null ? 'success' : ($claimsSource === 'userinfo' ? 'warning' : 'info'),
                 $userInfo !== null
@@ -159,15 +191,17 @@ class DiscoveryController extends PrivateApiControllerBase
                 $pkceAdvertised ? 'success' : 'warning',
                 $pkceAdvertised
                     ? gettext('The provider explicitly advertises the required S256 method.')
-                    : gettext('This client still sends PKCE S256; the provider must accept it despite omitting metadata.')
+                    : gettext(
+                        'This client still sends PKCE S256; the provider must accept it despite omitting metadata.'
+                    )
             ),
             $this->check(
-                gettext('Pushed authorization requests'),
+                gettext('PAR metadata'),
                 $parEndpoint ?? gettext('Not offered'),
-                $parEndpoint === null ? 'info' : 'success',
+                'info',
                 $parEndpoint === null
-                    ? gettext('Authorization parameters will be sent through the browser.')
-                    : gettext('PAR will be used automatically so authorization parameters stay server-side.')
+                    ? gettext('Discovery offers no PAR endpoint.')
+                    : gettext('The separate PAR row below performs an authenticated live request.')
             ),
         ];
 
@@ -211,7 +245,7 @@ class DiscoveryController extends PrivateApiControllerBase
                 : gettext('The distinct callback and frozen metadata still protect this provider from mix-up.')
         );
         $checks[] = $this->check(
-            gettext('Provider sign-out'),
+            gettext('Provider sign-out (Browser → IdP)'),
             $metadata->endSessionEndpoint() === null ? gettext('Not offered') : gettext('Offered'),
             'info',
             $metadata->endSessionEndpoint() === null
@@ -219,7 +253,7 @@ class DiscoveryController extends PrivateApiControllerBase
                 : gettext('RP-initiated provider sign-out is available.')
         );
         $checks[] = $this->check(
-            gettext('Token revocation'),
+            gettext('Token revocation (OPNsense → IdP)'),
             $metadata->revocationEndpoint() === null ? gettext('Not offered') : gettext('Offered'),
             'info',
             $metadata->revocationEndpoint() === null
@@ -237,6 +271,106 @@ class DiscoveryController extends PrivateApiControllerBase
         }
 
         return $checks;
+    }
+
+    private function currentSettings(string $issuer): OpenIDConnect
+    {
+        $fields = [
+            'openidconnect_app_code', 'openidconnect_provider_profile', 'openidconnect_microsoft_audience',
+            'openidconnect_client_id', 'openidconnect_client_secret', 'openidconnect_token_auth',
+            'openidconnect_par_mode', 'openidconnect_scopes', 'openidconnect_response_mode',
+            'openidconnect_max_age', 'openidconnect_select_account', 'openidconnect_required_authentication',
+            'openidconnect_acr_request', 'openidconnect_acr_values', 'openidconnect_amr_values',
+            'openidconnect_entra_auth_context', 'openidconnect_origin_policy', 'openidconnect_redirect_urls',
+            'openidconnect_tls_offloading',
+        ];
+        $values = ['type' => OpenIDConnect::TYPE, 'openidconnect_provider_url' => $issuer];
+        foreach ($fields as $field) {
+            $values[$field] = (string)$this->request->getPost($field, null, '');
+        }
+        $settings = new OpenIDConnect();
+        $settings->setProperties($values);
+        return $settings;
+    }
+
+    /** @return array{label:string,value:string,status:string,note:string} */
+    private function parCheck(OpenIDConnect $settings, ProviderMetadata $metadata, HttpClient $http): array
+    {
+        $mode = $settings->parMode();
+        $endpoint = $metadata->pushedAuthorizationRequestEndpoint();
+        $required = $metadata->requiresPushedAuthorizationRequests();
+        if ($mode === 'disabled') {
+            return $this->check(
+                gettext('PAR endpoint (OPNsense → IdP)'),
+                $required ? gettext('Required by provider') : gettext('Skipped by setting'),
+                $required ? 'error' : 'info',
+                $required
+                    ? gettext('The provider requires PAR, so it cannot be disabled.')
+                    : gettext('No PAR request was sent because PAR is disabled.')
+            );
+        }
+        if ($endpoint === null) {
+            return $this->check(
+                gettext('PAR endpoint (OPNsense → IdP)'),
+                gettext('Not offered'),
+                $mode === 'required' ? 'error' : 'info',
+                $mode === 'required'
+                    ? gettext('PAR is required locally but Discovery offers no endpoint.')
+                    : gettext('Automatic mode uses a normal browser authorization request.')
+            );
+        }
+        if ($settings->clientId() === '' || $settings->clientSecret() === '') {
+            return $this->check(
+                gettext('PAR endpoint (OPNsense → IdP)'),
+                gettext('Not tested'),
+                'warning',
+                gettext('Enter Client ID and Client Secret to run the authenticated live PAR check.')
+            );
+        }
+        $redirectUri = RelyingParty::acceptedRedirectUri($settings, $this->request);
+        if ($redirectUri === null) {
+            return $this->check(
+                gettext('PAR endpoint (OPNsense → IdP)'),
+                gettext('Not tested'),
+                'error',
+                gettext('The current WebGUI origin is not accepted by these form values.')
+            );
+        }
+        $key = ProviderRuntimeState::parKey($settings, $metadata);
+        try {
+            (new ParClient($settings, $http))->probe($metadata, $redirectUri);
+            ProviderRuntimeState::parAvailable($key);
+            return $this->check(
+                gettext('PAR endpoint (OPNsense → IdP)'),
+                gettext('Live authenticated request accepted'),
+                'success',
+                gettext('The returned request URI was deliberately discarded; no browser transaction was created.')
+            );
+        } catch (ProviderUnavailableException $e) {
+            if ($mode === 'auto' && !$required) {
+                ProviderRuntimeState::parUnavailable($key, $e->retryAfter());
+                return $this->check(
+                    gettext('PAR endpoint (OPNsense → IdP)'),
+                    gettext('Temporarily unavailable; bypass active'),
+                    'warning',
+                    gettext('New logins use the browser authorization request while recovery runs in the background.')
+                );
+            }
+            return $this->check(
+                gettext('PAR endpoint (OPNsense → IdP)'),
+                gettext('Live check failed'),
+                'error',
+                $e->getMessage()
+            );
+        } catch (\Throwable $e) {
+            ProviderRuntimeState::parHardFailure($key);
+            return $this->check(
+                gettext('PAR endpoint (OPNsense → IdP)'),
+                gettext('Live check failed'),
+                'error',
+                $e->getMessage()
+            );
+        }
     }
 
     /** @return array{label:string,value:string,status:string,note:string} */

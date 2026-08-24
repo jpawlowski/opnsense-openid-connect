@@ -17,10 +17,28 @@ final class SharedSignalsMetadata
     {
     }
 
-    public static function discover(string $issuer, HttpClient $http): self
+    public static function discover(
+        string $issuer,
+        HttpClient $http,
+        bool $force = false,
+        bool $allowStaleOnFailure = true
+    ): self
     {
         $url = self::discoveryUrl($issuer);
-        $response = $http->get($url, self::MAX_BYTES);
+        $response = $http->getCached(
+            $url,
+            self::MAX_BYTES,
+            'ssf-discovery',
+            86400,
+            $force,
+            $allowStaleOnFailure,
+            static function (HttpResponse $candidate) use ($issuer): void {
+                if ($candidate->contentType !== 'application/json') {
+                    throw new ProtocolException('Shared Signals discovery did not return application/json');
+                }
+                self::validated($issuer, $candidate->jsonObject());
+            }
+        );
         if ($response->status !== 200) {
             throw new ProtocolException(sprintf('Shared Signals discovery returned HTTP %d', $response->status));
         }

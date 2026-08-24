@@ -22,9 +22,39 @@ class HttpClient
     /** @var callable|null test transport */
     private $transport;
 
-    public function __construct(?callable $transport = null)
+    public function __construct(?callable $transport = null, private readonly bool $cacheTestTransport = false)
     {
         $this->transport = $transport;
+    }
+
+    public function getCached(
+        string $url,
+        int $maxBytes,
+        string $namespace,
+        int $maximumStale,
+        bool $force = false,
+        bool $allowStaleOnFailure = true,
+        ?callable $validator = null
+    ): HttpResponse {
+        if ($this->transport !== null && !$this->cacheTestTransport) {
+            return $this->get($url, $maxBytes);
+        }
+        return ProviderCache::get(
+            $this,
+            $url,
+            $maxBytes,
+            $namespace,
+            $maximumStale,
+            $force,
+            $allowStaleOnFailure,
+            $validator
+        );
+    }
+
+    public function claimCacheRefresh(string $namespace, string $url): bool
+    {
+        return $this->transport !== null && !$this->cacheTestTransport
+            ? true : ProviderCache::claimRefresh($namespace, $url);
     }
 
     public function get(string $url, int $maxBytes, array $headers = []): HttpResponse
@@ -62,7 +92,8 @@ class HttpClient
             $response = $this->requestOnce($method, $current, $body, $headers, $maxBytes);
             if (!is_int($response['status']) || $response['status'] < 0 || $response['status'] > 599
                 || !is_string($response['body']) || strlen($response['body']) > $maxBytes
-                || !is_string($response['content_type']) || !is_string($response['location'])) {
+                || !is_string($response['content_type']) || !is_string($response['location'])
+                || !is_array($response['headers'] ?? [])) {
                 throw new ProtocolException('The provider returned an invalid or oversized HTTP response');
             }
 
@@ -71,7 +102,8 @@ class HttpClient
                     $response['status'],
                     $response['content_type'],
                     $response['body'],
-                    $current
+                    $current,
+                    $response['headers']
                 );
             }
             if ($redirects >= self::MAX_REDIRECTS) {
@@ -119,11 +151,12 @@ class HttpClient
                 throw new ProtocolException('The test transport returned no response');
             }
 
-            return $answer + ['status' => 0, 'content_type' => '', 'body' => '', 'location' => ''];
+            return $answer + ['status' => 0, 'content_type' => '', 'body' => '', 'location' => '', 'headers' => []];
         }
 
         $received = '';
         $location = '';
+        $responseHeaders = [];
         $handle = curl_init($url);
         curl_setopt_array($handle, [
             CURLOPT_CUSTOMREQUEST => $method,
@@ -136,9 +169,19 @@ class HttpClient
             CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_USERAGENT => 'OPNsense-OpenID-Connect/1.0',
             CURLOPT_HTTPHEADER => array_merge(['Accept: application/json'], $headers),
-            CURLOPT_HEADERFUNCTION => static function ($handle, string $line) use (&$location): int {
-                if (stripos($line, 'Location:') === 0) {
-                    $location = trim(substr($line, strlen('Location:')));
+            CURLOPT_HEADERFUNCTION => static function ($handle, string $line) use (&$location, &$responseHeaders): int {
+                $separator = strpos($line, ':');
+                if ($separator !== false) {
+                    $name = strtolower(trim(substr($line, 0, $separator)));
+                    $value = trim(substr($line, $separator + 1));
+                    if ($name === 'location') {
+                        $location = $value;
+                    }
+                    if (in_array($name, [
+                        'cache-control', 'etag', 'expires', 'date', 'age', 'retry-after',
+                    ], true)) {
+                        $responseHeaders[$name] = $value;
+                    }
                 }
 
                 return strlen($line);
@@ -160,14 +203,33 @@ class HttpClient
         $status = (int)curl_getinfo($handle, CURLINFO_HTTP_CODE);
         $contentType = strtolower(trim(explode(';', (string)curl_getinfo($handle, CURLINFO_CONTENT_TYPE))[0]));
         $problem = curl_error($handle);
+        $problemCode = curl_errno($handle);
         unset($handle);
 
         if ($ok === false) {
             $reason = strlen($received) >= $maxBytes ? 'response exceeded its size limit' : $problem;
-            throw new ProtocolException('The provider request failed: ' . ($reason ?: 'network error'));
+            $message = 'The provider request failed: ' . ($reason ?: 'network error');
+            $temporary = [
+                CURLE_COULDNT_RESOLVE_HOST,
+                CURLE_COULDNT_CONNECT,
+                CURLE_OPERATION_TIMEDOUT,
+                CURLE_SEND_ERROR,
+                CURLE_RECV_ERROR,
+                CURLE_GOT_NOTHING,
+            ];
+            if (in_array($problemCode, $temporary, true)) {
+                throw new ProviderUnavailableException($message);
+            }
+            throw new ProtocolException($message);
         }
 
-        return ['status' => $status, 'content_type' => $contentType, 'body' => $received, 'location' => $location];
+        return [
+            'status' => $status,
+            'content_type' => $contentType,
+            'body' => $received,
+            'location' => $location,
+            'headers' => $responseHeaders,
+        ];
     }
 
     public static function assertHttpsUrl(string $url): void

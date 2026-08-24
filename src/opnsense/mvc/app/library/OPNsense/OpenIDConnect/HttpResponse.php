@@ -14,8 +14,27 @@ final class HttpResponse
         public readonly int $status,
         public readonly string $contentType,
         public readonly string $body,
-        public readonly string $url
+        public readonly string $url,
+        /** @var array<string,string> lower-case response header names */
+        public readonly array $headers = [],
+        public readonly string $source = 'live'
     ) {
+    }
+
+    public function retryAfterSeconds(?int $now = null): ?int
+    {
+        $value = trim((string)($this->headers['retry-after'] ?? ''));
+        if ($value === '') {
+            return null;
+        }
+        if (ctype_digit($value)) {
+            return min(3600, (int)$value);
+        }
+        $timestamp = strtotime($value);
+        if ($timestamp === false) {
+            return null;
+        }
+        return min(3600, max(0, $timestamp - ($now ?? time())));
     }
 
     /** @return array<mixed> */

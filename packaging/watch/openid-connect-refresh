@@ -1,0 +1,118 @@
+#!/usr/local/bin/php -q
+<?php
+
+/*
+ * Copyright (C) 2026 Julian Pawlowski
+ * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
+ */
+
+use OPNsense\Auth\OpenIDConnect;
+use OPNsense\Core\Config;
+use OPNsense\OpenIDConnect\HttpClient;
+use OPNsense\OpenIDConnect\JwtVerifier;
+use OPNsense\OpenIDConnect\ParClient;
+use OPNsense\OpenIDConnect\ProviderCache;
+use OPNsense\OpenIDConnect\ProviderMetadata;
+use OPNsense\OpenIDConnect\ProviderRuntimeState;
+use OPNsense\OpenIDConnect\ProviderUnavailableException;
+use OPNsense\OpenIDConnect\RelyingParty;
+use OPNsense\OpenIDConnect\SharedSignalsMetadata;
+
+require_once('script/load_phalcon.php');
+
+/** @return array<string,string> */
+function oidcSettings(object $server): array
+{
+    $values = [];
+    foreach ($server as $name => $value) {
+        $values[(string)$name] = (string)$value;
+    }
+    return $values;
+}
+
+function oidcRefreshDue(string $namespace, string $url): bool
+{
+    $status = ProviderCache::status($namespace, $url);
+    return !is_int($status['fresh_until']) || $status['fresh_until'] <= time() + 300;
+}
+
+$http = new HttpClient();
+foreach (Config::getInstance()->object()->system->authserver ?? [] as $server) {
+    if ((string)($server->type ?? '') !== OpenIDConnect::TYPE) {
+        continue;
+    }
+    $settings = new OpenIDConnect();
+    $settings->setProperties(oidcSettings($server));
+    if ($settings->issuerUrl() === '') {
+        continue;
+    }
+    try {
+        [, $discoveryUrl] = ProviderMetadata::locations($settings->issuerUrl());
+        $metadata = ProviderMetadata::discover(
+            $settings->issuerUrl(),
+            $http,
+            $settings->discoveryIssuerTemplate(),
+            oidcRefreshDue('oidc-discovery', $discoveryUrl),
+            true
+        );
+        $jwksStatus = ProviderCache::status('oidc-jwks', $metadata->jwksUri());
+        if (!is_int($jwksStatus['fresh_until']) || $jwksStatus['fresh_until'] <= time() + 300) {
+            try {
+                (new JwtVerifier($http))->probeKeySet($metadata->jwksUri());
+            } catch (Throwable $error) {
+                syslog(LOG_NOTICE, 'OIDC: background signing-key refresh could not complete');
+            }
+        }
+
+        $parEndpoint = $metadata->pushedAuthorizationRequestEndpoint();
+        if ($parEndpoint !== null && $settings->parMode() === 'auto'
+            && !$metadata->requiresPushedAuthorizationRequests()) {
+            $key = ProviderRuntimeState::parKey($settings, $metadata);
+            if (ProviderRuntimeState::parMayProbe($key)) {
+                $origins = $settings->effectiveWebGuiOrigins();
+                if ($origins === [] || $settings->clientId() === '' || $settings->clientSecret() === '') {
+                    ProviderRuntimeState::parHardFailure($key);
+                } else {
+                    try {
+                        (new ParClient($settings, $http))->probe(
+                            $metadata,
+                            $origins[0] . RelyingParty::callbackPath($settings->applicationCode())
+                        );
+                        ProviderRuntimeState::parAvailable($key);
+                        syslog(LOG_NOTICE, 'OIDC: background PAR probe restored the pushed authorization path');
+                    } catch (ProviderUnavailableException $error) {
+                        ProviderRuntimeState::parUnavailable($key, $error->retryAfter());
+                    } catch (Throwable $error) {
+                        ProviderRuntimeState::parHardFailure($key);
+                        syslog(LOG_NOTICE, 'OIDC: background PAR probe found a configuration or protocol error');
+                    }
+                }
+            }
+        }
+    } catch (Throwable $error) {
+        syslog(LOG_NOTICE, 'OIDC: background provider metadata refresh could not complete');
+    }
+
+    if (!$settings->receivesSharedSignals() || $settings->sharedSignalsIssuer() === '') {
+        continue;
+    }
+    try {
+        $ssfUrl = SharedSignalsMetadata::discoveryUrl($settings->sharedSignalsIssuer());
+        $ssf = SharedSignalsMetadata::discover(
+            $settings->sharedSignalsIssuer(),
+            $http,
+            oidcRefreshDue('ssf-discovery', $ssfUrl),
+            true
+        );
+        $ssfKeys = ProviderCache::status('ssf-jwks', $ssf->jwksUri());
+        if (!is_int($ssfKeys['fresh_until']) || $ssfKeys['fresh_until'] <= time() + 300) {
+            try {
+                (new JwtVerifier($http, 'ssf-jwks'))->probeKeySet($ssf->jwksUri());
+            } catch (Throwable $error) {
+                syslog(LOG_NOTICE, 'OIDC: background Shared Signals signing-key refresh could not complete');
+            }
+        }
+    } catch (Throwable $error) {
+        syslog(LOG_NOTICE, 'OIDC: background Shared Signals metadata refresh could not complete');
+    }
+}

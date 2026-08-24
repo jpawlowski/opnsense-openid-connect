@@ -27,13 +27,14 @@ function metadata(array $extra = []): array
     ];
 }
 
-function jsonAnswer(array $value, int $status = 200): array
+function jsonAnswer(array $value, int $status = 200, array $headers = []): array
 {
     return [
         'status' => $status,
         'content_type' => 'application/json',
         'body' => json_encode($value, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
         'location' => '',
+        'headers' => $headers,
     ];
 }
 
@@ -43,6 +44,117 @@ $http = new HttpClient(fn() => jsonAnswer(metadata()));
 $discovered = ProviderMetadata::discover('https://id.example.net', $http);
 Checks::that('the exact configured issuer is retained', $discovered->issuer(), 'https://id.example.net');
 Checks::that('the authorization endpoint is read from discovery', $discovered->authorizationEndpoint(), 'https://id.example.net/authorize');
+
+Checks::group('Validated provider cache');
+$cacheIssuer = 'https://cache.example.net';
+$cacheUrl = $cacheIssuer . ProviderMetadata::DISCOVERY_SUFFIX;
+$cacheCalls = 0;
+$cacheHttp = new HttpClient(function () use (&$cacheCalls, $cacheIssuer): array {
+    $cacheCalls++;
+    return jsonAnswer(metadata(['issuer' => $cacheIssuer]), 200, [
+        'cache-control' => 'public, max-age=600',
+        'etag' => '"metadata-one"',
+    ]);
+}, true);
+ProviderMetadata::discover($cacheIssuer, $cacheHttp);
+ProviderMetadata::discover($cacheIssuer, $cacheHttp);
+Checks::that('fresh validated Discovery is reused without another network wait', $cacheCalls, 1);
+$cachePath = constant('OPENIDCONNECT_TEST_CACHE_DIRECTORY')
+    . '/oidc-discovery-' . hash('sha256', $cacheUrl) . '.json';
+Checks::that('cached public metadata is private to the service account', decoct(fileperms($cachePath) & 0777), '600');
+
+$etagSeen = false;
+$etagHttp = new HttpClient(function (
+    string $method,
+    string $url,
+    ?string $body,
+    array $headers
+) use (&$etagSeen): array {
+    $etagSeen = in_array('If-None-Match: "metadata-one"', $headers, true);
+    return ['status' => 304, 'content_type' => '', 'body' => '', 'location' => '', 'headers' => []];
+}, true);
+ProviderMetadata::discover($cacheIssuer, $etagHttp, null, true);
+Checks::that('an expired or forced cache entry is revalidated with its ETag', $etagSeen, true);
+
+$acceptedCache = (string)file_get_contents($cachePath);
+Checks::throws(
+    'invalid live Discovery never replaces the previously validated cache entry',
+    fn() => ProviderMetadata::discover(
+        $cacheIssuer,
+        new HttpClient(fn() => jsonAnswer(metadata(['issuer' => 'https://attacker.example.net'])), true),
+        null,
+        true
+    ),
+    'exactly match'
+);
+Checks::that('the accepted Discovery cache survives a rejected refresh',
+    (string)file_get_contents($cachePath), $acceptedCache);
+
+$cacheEntry = json_decode((string)file_get_contents($cachePath), true, 16, JSON_THROW_ON_ERROR);
+$cacheEntry['fresh_until'] = time() - 1;
+$cacheEntry['stale_until'] = time() + 600;
+file_put_contents($cachePath, json_encode($cacheEntry, JSON_THROW_ON_ERROR));
+$stale = new HttpClient(
+    fn() => throw new OPNsense\OpenIDConnect\ProviderUnavailableException('temporary network failure'),
+    true
+);
+$staleResponse = $stale->getCached($cacheUrl, ProviderMetadata::MAX_BYTES, 'oidc-discovery', 86400);
+Checks::that('temporary failure may use still-bounded stale Discovery', $staleResponse->source, 'cache-stale');
+
+$noStoreCalls = 0;
+$noStoreUrl = 'https://no-store.example.net/metadata';
+$noStoreHttp = new HttpClient(function () use (&$noStoreCalls): array {
+    $noStoreCalls++;
+    return jsonAnswer(['value' => true], 200, ['cache-control' => 'no-store']);
+}, true);
+$noStoreHttp->getCached($noStoreUrl, 1024, 'oidc-discovery', 86400);
+$noStoreHttp->getCached($noStoreUrl, 1024, 'oidc-discovery', 86400);
+Checks::that('no-store responses are never persisted', $noStoreCalls, 2);
+
+$noCacheCalls = 0;
+$noCacheUrl = 'https://no-cache.example.net/metadata';
+$noCacheHttp = new HttpClient(function () use (&$noCacheCalls): array {
+    $noCacheCalls++;
+    return jsonAnswer(['value' => true], 200, ['cache-control' => 'no-cache', 'etag' => '"always-check"']);
+}, true);
+$noCacheHttp->getCached($noCacheUrl, 1024, 'oidc-discovery', 86400);
+$noCacheHttp->getCached($noCacheUrl, 1024, 'oidc-discovery', 86400);
+Checks::that('no-cache responses are revalidated before every use', $noCacheCalls, 2);
+
+$sharedUrl = 'https://shared-cache.example.net/metadata';
+$sharedHttp = new HttpClient(fn() => jsonAnswer(['value' => true], 200, [
+    'cache-control' => 'max-age=600, s-maxage=120',
+    'age' => '30',
+]), true);
+$sharedHttp->getCached($sharedUrl, 1024, 'oidc-discovery', 86400);
+$sharedPath = constant('OPENIDCONNECT_TEST_CACHE_DIRECTORY')
+    . '/oidc-discovery-' . hash('sha256', $sharedUrl) . '.json';
+$sharedEntry = json_decode((string)file_get_contents($sharedPath), true, 16, JSON_THROW_ON_ERROR);
+$sharedRemaining = (int)$sharedEntry['fresh_until'] - time();
+Checks::that('shared-cache freshness prefers s-maxage and subtracts Age',
+    $sharedRemaining >= 88 && $sharedRemaining <= 90, true);
+
+$revalidateUrl = 'https://must-revalidate.example.net/metadata';
+$revalidateLive = new HttpClient(fn() => jsonAnswer(
+    ['value' => true],
+    200,
+    ['cache-control' => 'max-age=60, must-revalidate']
+), true);
+$revalidateLive->getCached($revalidateUrl, 1024, 'oidc-discovery', 86400);
+$revalidatePath = constant('OPENIDCONNECT_TEST_CACHE_DIRECTORY')
+    . '/oidc-discovery-' . hash('sha256', $revalidateUrl) . '.json';
+$revalidateEntry = json_decode((string)file_get_contents($revalidatePath), true, 16, JSON_THROW_ON_ERROR);
+$revalidateEntry['fresh_until'] = time() - 1;
+$revalidateEntry['stale_until'] = time() + 600;
+file_put_contents($revalidatePath, json_encode($revalidateEntry, JSON_THROW_ON_ERROR));
+Checks::throws(
+    'must-revalidate is never served stale after a network failure',
+    fn() => (new HttpClient(
+        fn() => throw new OPNsense\OpenIDConnect\ProviderUnavailableException('temporary network failure'),
+        true
+    ))->getCached($revalidateUrl, 1024, 'oidc-discovery', 86400),
+    'temporary network failure'
+);
 
 $microsoftTemplate = 'https://login.microsoftonline.com/{tenantid}/v2.0';
 $microsoftDiscovery = metadata(['issuer' => $microsoftTemplate]);
@@ -456,6 +568,79 @@ Checks::throws(
         'authentik-main'
     ),
     'pending login'
+);
+
+$fallbackSettings = connector([
+    'openidconnect_client_id' => 'fallback-client',
+    'openidconnect_client_secret' => 'fallback-secret',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_app_code' => 'par-fallback',
+    'openidconnect_par_mode' => 'auto',
+]);
+$fallbackPosts = 0;
+$fallbackTransport = function (string $method) use (&$fallbackPosts): array {
+    if ($method === 'GET') {
+        return jsonAnswer(metadata(['pushed_authorization_request_endpoint' => 'https://id.example.net/par']));
+    }
+    $fallbackPosts++;
+    throw new OPNsense\OpenIDConnect\ProviderUnavailableException('PAR timed out');
+};
+$fallbackController = new Controller(new Request('https', 'firewall.example.net'), new Session());
+(new RelyingParty($fallbackSettings, $fallbackController, new HttpClient($fallbackTransport)))
+    ->begin('fallback', '/');
+parse_str((string)parse_url($fallbackController->response->redirectedTo, PHP_URL_QUERY), $fallbackParameters);
+Checks::that('automatic PAR falls back only after a temporary availability failure', [
+    $fallbackPosts,
+    $fallbackParameters['response_type'] ?? null,
+    isset($fallbackParameters['request_uri']),
+], [1, 'code', false]);
+$secondFallback = new Controller(new Request('https', 'firewall.example.net'), new Session());
+(new RelyingParty($fallbackSettings, $secondFallback, new HttpClient($fallbackTransport)))
+    ->begin('fallback', '/');
+Checks::that('a remembered PAR bypass removes the timeout from later logins', $fallbackPosts, 1);
+
+$requiredPar = connector([
+    'openidconnect_client_id' => 'required-client',
+    'openidconnect_client_secret' => 'required-secret',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_app_code' => 'par-required',
+    'openidconnect_par_mode' => 'required',
+]);
+Checks::throws(
+    'required PAR never turns a provider outage into a browser authorization request',
+    fn() => (new RelyingParty(
+        $requiredPar,
+        new Controller(new Request('https', 'firewall.example.net'), new Session()),
+        new HttpClient($fallbackTransport)
+    ))->begin('required', '/'),
+    'timed out'
+);
+
+$disabledPar = connector([
+    'openidconnect_client_id' => 'disabled-client',
+    'openidconnect_client_secret' => 'disabled-secret',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_app_code' => 'par-disabled',
+    'openidconnect_par_mode' => 'disabled',
+]);
+$disabledController = new Controller(new Request('https', 'firewall.example.net'), new Session());
+(new RelyingParty($disabledPar, $disabledController, new HttpClient(fn() => jsonAnswer(metadata([
+    'pushed_authorization_request_endpoint' => 'https://id.example.net/par',
+])))))->begin('disabled', '/');
+parse_str((string)parse_url($disabledController->response->redirectedTo, PHP_URL_QUERY), $disabledParameters);
+Checks::that('disabled PAR deliberately uses the complete browser authorization request',
+    $disabledParameters['response_type'] ?? null, 'code');
+Checks::throws(
+    'a local disabled setting cannot override provider-required PAR',
+    fn() => (new RelyingParty(
+        $disabledPar,
+        new Controller(new Request('https', 'firewall.example.net'), new Session()),
+        new HttpClient(fn() => jsonAnswer(metadata([
+            'pushed_authorization_request_endpoint' => 'https://id.example.net/par',
+            'require_pushed_authorization_requests' => true,
+        ])))
+    ))->begin('disabled', '/'),
+    'requires pushed authorization requests'
 );
 
 foreach ([

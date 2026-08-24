@@ -87,7 +87,7 @@ class SsfController extends ApiControllerBase
         }
 
         try {
-            $event = (new SecurityEventVerifier(new JwtVerifier(new HttpClient())))->verify(
+            $event = (new SecurityEventVerifier(new JwtVerifier(new HttpClient(), 'ssf-jwks')))->verify(
                 $set,
                 $metadata,
                 $settings->sharedSignalsAudience(),
