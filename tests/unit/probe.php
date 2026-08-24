@@ -100,6 +100,14 @@ Checks::that('the provider profile is current-form policy', $draftSemantics['Pro
 Checks::that('authorization is an unexecuted browser path', $draftSemantics['Authorization endpoint'], [
     'browser,idp', 'not-tested',
 ]);
+Checks::that('an advertised authorization endpoint passes readiness without pretending it was called',
+    array_values(array_filter(
+        $draftChecks,
+        static fn(array $check): bool => $check['label'] === 'Authorization endpoint'
+    ))[0]['status'], 'success');
+Checks::that('an incomplete registration is explicitly left untested', $draftSemantics['Authorization registration'], [
+    'opnsense,idp', 'not-tested',
+]);
 Checks::that('the token endpoint is an unexecuted server path', $draftSemantics['Token endpoint'], [
     'opnsense,idp', 'not-tested',
 ]);
@@ -119,9 +127,24 @@ Checks::that('PKCE policy is evaluated locally', $draftSemantics['PKCE'], ['opns
 Checks::that('DPoP negotiation is evaluated locally', $draftSemantics['DPoP sender constraint'], [
     'opnsense', 'metadata',
 ]);
-Checks::that('PAR availability comes from metadata', $draftSemantics['PAR metadata'], [
-    'opnsense,idp', 'metadata',
+$authentikDraft = ProviderProbe::settings([
+    'openidconnect_provider_url' => $issuer,
+    'openidconnect_provider_profile' => 'authentik',
 ]);
+$authentikChecks = inspect(
+    new ProviderProbe(new HttpClient(static fn(): array => [])),
+    'metadataChecks',
+    $authentikDraft,
+    ProviderMetadata::fromArray($provider)
+);
+$authentikDpop = array_values(array_filter(
+    $authentikChecks,
+    static fn(array $check): bool => $check['label'] === 'DPoP sender constraint'
+))[0];
+Checks::that('authentik reports its documented ID Token binding instead of claiming DPoP access tokens', [
+    $authentikDpop['status'],
+    str_contains($authentikDpop['note'], 'ID Token'),
+], ['success', true]);
 Checks::that('response mode follows the provider response path', $draftSemantics['Authorization response mode'], [
     'idp,browser,opnsense', 'metadata',
 ]);
@@ -165,6 +188,31 @@ Checks::that(
     $withoutUserInfoRows[0]['verification'],
     'not-tested'
 );
+$withoutUserInfoCapability = array_values(array_filter(
+    $withoutUserInfoChecks,
+    static fn(array $check): bool => $check['label'] === 'UserInfo endpoint'
+))[0];
+Checks::that('an optional capability absent from Discovery is separated from readiness', [
+    $withoutUserInfoCapability['status'],
+    $withoutUserInfoCapability['section'] ?? '',
+], ['success', 'unsupported']);
+
+$providerWithoutPkce = $provider;
+unset($providerWithoutPkce['code_challenge_methods_supported']);
+$withoutPkceChecks = inspect(
+    new ProviderProbe(new HttpClient(static fn(): array => [])),
+    'metadataChecks',
+    $draft,
+    ProviderMetadata::fromArray($providerWithoutPkce)
+);
+$withoutPkce = array_values(array_filter(
+    $withoutPkceChecks,
+    static fn(array $check): bool => $check['label'] === 'PKCE'
+))[0];
+Checks::that('a missing mandatory capability fails readiness instead of moving to the optional section', [
+    $withoutPkce['status'],
+    $withoutPkce['section'] ?? '',
+], ['error', '']);
 
 $requestObjectDraft = ProviderProbe::settings([
     'openidconnect_provider_url' => $issuer,
@@ -204,7 +252,7 @@ $mismatchedPrivateKeyRow = array_values(array_filter(
 Checks::that('diagnostics refuse a selected key incompatible with the provider algorithm', [
     $mismatchedPrivateKeyRow['status'],
     $mismatchedPrivateKeyRow['note'],
-], ['warning', 'no shared test algorithm']);
+], ['error', 'no shared test algorithm']);
 $matchingPrivateKeyChecks = inspect(
     $privateKeyProbe,
     'metadataChecks',

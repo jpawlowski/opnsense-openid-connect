@@ -25,6 +25,7 @@ origin list is needed only for an intentional restriction or unusual proxy.
 | Authorization response mode | Query |
 | Scopes | `openid,email,profile` |
 | Authentication method | Follow the provider |
+| Redirect the Log Out menu entry | On |
 
 ### Roles
 
@@ -43,10 +44,12 @@ be treated as OPNsense privileges.
 
 For the first login, keep **Match by e-mail address** at **Only a verified
 address**, **Maximum authentication age** at **14400 seconds (four hours)**, account creation off, root
-access off, **Group claim** empty, tracing off, and both optional logout switches
+access off, **Group claim** empty, tracing off, **Redirect the Log Out menu
+entry** on, **Return here after logout** off, and provider logout notifications
 off. The table above contains the provider profile values to enter or verify.
 Change another setting only for the documented reason in the [complete settings
 reference](../setup/settings-reference.md).
 
 References: [ZITADEL login/OIDC](https://zitadel.com/docs/guides/integrate/login/login-users),
-[retrieve roles](https://zitadel.com/docs/guides/integrate/retrieve-user-roles).
+[retrieve roles](https://zitadel.com/docs/guides/integrate/retrieve-user-roles),
+and [OIDC endpoints](https://zitadel.com/docs/apis/openidoauth/endpoints).

@@ -28,8 +28,15 @@ opens the authentik steps without downloading another Blueprint.
 In authentik open **Admin interface > Customization > Blueprints > Import**, use
 **File upload**, review the YAML and import it. The Blueprint creates a
 confidential OAuth2/OpenID provider and linked application, exact Authorization
-and optional Post Logout redirects, the three standard scope mappings and an
-asymmetric signing key. authentik generates the Client ID and Client Secret.
+and optional Post Logout redirects, the standard OpenID and profile mappings, a
+dedicated verified e-mail mapping and an asymmetric signing key. authentik
+generates the Client ID and Client Secret.
+
+The dedicated `email` mapping sends `email_verified=true` only when the
+authentik user's custom `email_verified` attribute is the JSON boolean `true`.
+It sends `false` when that attribute is absent, false or another type. Populate
+the attribute only from a directory or enrollment flow that actually verified
+control of the current address; do not set it merely because an address exists.
 
 A green import result means authentik validated and immediately applied the
 file. This one-time **Import** operation deliberately does **not** create a
@@ -57,6 +64,14 @@ OPNsense's local account and privilege checks remain an additional boundary.
 It already selects authentik's per-provider issuer mode and hashed user-ID
 subject mode, so the OPNsense **Pairwise subject sector** setting is not needed
 for this generated Blueprint and does not alter it.
+
+**Required authentication** is limited to **Provider policy only** for the
+authentik profile. authentik can enforce MFA, WebAuthn and Passkeys in a selected
+authentication flow and reports authentication methods, but its retained
+documentation does not establish the request-bound `acr` plus `amr` evidence
+pair this plugin requires for either stronger tier. The Blueprint therefore
+does not invent claims or treat an authenticator stage as portable evidence.
+Generation and login both refuse a manually injected stronger setting.
 
 The remaining sections describe every field and are also the fallback when a
 custom authentik flow, signing key or policy assignment is required.
@@ -109,6 +124,20 @@ type:
 
 Assign the authentik application only to users or groups who should be able to
 reach this firewall.
+
+When creating the provider manually, replace authentik's standard `email`
+mapping with a custom scope mapping equivalent to the generated Blueprint:
+
+```python
+verified = request.user.attributes.get("email_verified", False)
+return {
+    "email": request.user.email,
+    "email_verified": verified is True,
+}
+```
+
+The strict boolean check deliberately treats missing values and strings such as
+`"true"` as unverified.
 
 ### 3. Configure one authentik logout method
 
@@ -179,16 +208,23 @@ login:
 | Match by e-mail address | Only a verified address | avoids first-binding takeover through an unverified address |
 | Scopes | `openid,email,profile` | sufficient for sign-in and the standard identity claims |
 | Pairwise subject sector | Off | the generated provider already uses per-provider issuer and hashed user-ID subject modes |
+| Required authentication | Provider policy only | no compatible end-to-end context-and-method procedure is retained for this profile |
 | Maximum authentication age | `14400` | require the authentik authentication used for a new OPNsense login to be no older than four hours; `0` requests active authentication every time and does not shorten an established OPNsense session |
 | Create an account on first login | Off | firewall accounts should normally be pre-created |
 | Allow the built-in root account | Off | preserves a local recovery account outside the IdP |
 | Group claim | Empty | keeps OPNsense privilege membership local for the first test |
 | Trace the exchange | Off | enable only briefly while diagnosing |
+| Redirect the Log Out menu entry | On | ends the local session first and then initiates authentik logout |
 
-**Redirect the Log Out menu entry** and **Return here after logout** are also off
-by default. Enable the first when the OPNsense logout menu should initiate
-provider logout. Enable the second only after the Post Logout entry described
-above exists in authentik.
+authentik 2026.8 also documents the `bound_key` scope for a key-bound ID Token.
+Its access token remains Bearer, so this profile does not request that extension
+or mistake it for RFC 9449 sender-constrained access tokens. Keycloak's separately
+documented DPoP access-token path remains enabled automatically.
+
+**Return here after logout** remains off by default. Enable it only after the
+Post Logout entry described above exists in authentik. The logout-menu
+recommendation remains editable when ending the wider authentik SSO session is
+not wanted for this firewall.
 
 ## Groups and advanced notes
 

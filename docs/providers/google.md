@@ -39,6 +39,11 @@ For a Workspace-only firewall, enforce organization access in Google and
 pre-create/bind local accounts; the `hd` claim is a login hint/tenant signal and
 is not used here as an authorization rule.
 
+Automatic matching remains selectable when Workspace access and the relevant
+claim have been assessed. **Create an account on first login** is unavailable:
+the OPNsense form cannot prove that the Google client is Internal or that every
+presented identity belongs to the intended organization.
+
 Google's discovery/API reference notes a legacy non-HTTPS issuer value that old
 integrations may encounter. This plugin accepts only the exact modern HTTPS
 issuer from discovery and will not add a legacy exception.

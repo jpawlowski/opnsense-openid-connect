@@ -200,6 +200,18 @@ Checks::that(
 );
 
 directory($ok);
+Checks::that(
+    'a public provider profile cannot create an account even from stale enabled configuration',
+    connector([
+        'openidconnect_provider_profile' => 'google',
+        'openidconnect_bootstrap_mode' => 'username',
+        'openidconnect_create_users' => '1',
+    ])->localAccountFor(claims(['preferred_username' => 'anna'])),
+    null
+);
+Checks::that('the public-provider refusal never asks configd to create an account', Recorder::$backendCalls, []);
+
+directory($ok);
 Directory::$creationOutput = "\nWarning: Undefined variable in add_user.php\n" . json_encode([
     'status' => 'ok',
     'uid' => '1002',
@@ -302,6 +314,10 @@ Checks::that('the identity manager lists issuer, subject and resolved local acco
     $managedBindings[0]['account'] ?? '',
     $managedBindings[0]['canonical'] ?? false,
 ], [$issuer, 'manual-subject', 'mikah', true]);
+Checks::that('an already bound local account is absent from new-binding choices',
+    array_column($manager->approvableAccounts(), 'name'), ['anna']);
+Checks::that('a second identity cannot be assigned to the same local account',
+    $manager->createSubjectBinding($issuer, 'another-subject', (string)Directory::$users[0]->uid), false);
 Checks::that('the manually bound exact subject signs in under strict admission',
     $manager->localAccountFor(claims(['sub' => 'manual-subject']), $issuer), 'mikah');
 Checks::that('the same issuer and subject cannot be rebound silently to another account',

@@ -62,6 +62,21 @@ the signed Query and signed Form POST response modes. Select one only after the
 provider application has been configured for a supported asymmetric response
 signature; encrypted responses are outside this plugin's profile.
 
+## Optional authentication-strength enforcement
+
+Use **Required authentication** only when the provider documentation establishes
+the complete chain for this exact client. For **Multi-factor authentication**,
+the provider must honor the requested REFEDS MFA context and return that `acr`
+plus `mfa` in the signed ID Token's `amr` array. For **Phishing-resistant
+authentication**, it must honor `phr` or `phrh` and return a matching registered
+method such as `fido`, `pop`, `hwk` or `swk` in `amr`.
+
+Configure the provider's policy, authentication flow and token mapper first.
+Then select the tier in OPNsense and run **Test sign-in**. If the provider uses
+different documented context or method values, enter those exact values in the
+advanced fields. Keep **Provider policy only** when the provider merely performs
+MFA but does not bind the request, enforcement and signed evidence together.
+
 ## Defaults and remaining settings
 
 For the first login, keep **Match by e-mail address** at **Only a verified

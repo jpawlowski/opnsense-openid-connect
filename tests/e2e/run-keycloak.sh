@@ -55,14 +55,13 @@ E2E_KEYCLOAK_REALM="opnsense-e2e-${run_id}"
 E2E_KEYCLOAK_ADMIN_USERNAME="e2e-admin-${run_id}"
 E2E_KEYCLOAK_ADMIN_PASSWORD=$(openssl rand -base64 32 | tr -d '\n')
 E2E_KEYCLOAK_CLIENT_ID="opnsense-e2e-${run_id}"
-E2E_KEYCLOAK_CLIENT_SECRET=$(openssl rand -base64 36 | tr -d '\n')
 E2E_TEST_USERNAME="oidc-e2e-${run_id}"
 E2E_TEST_PASSWORD=$(openssl rand -base64 32 | tr -d '\n')
 E2E_SERVER_NAME="Keycloak E2E ${run_id}"
 E2E_APPLICATION_CODE="e2e-${run_id}"
 
 export E2E_OPNSENSE_USERNAME E2E_KEYCLOAK_REALM E2E_KEYCLOAK_ADMIN_USERNAME
-export E2E_KEYCLOAK_ADMIN_PASSWORD E2E_KEYCLOAK_CLIENT_ID E2E_KEYCLOAK_CLIENT_SECRET
+export E2E_KEYCLOAK_ADMIN_PASSWORD E2E_KEYCLOAK_CLIENT_ID
 export E2E_TEST_USERNAME E2E_TEST_PASSWORD E2E_SERVER_NAME E2E_APPLICATION_CODE
 
 url_parts=$(node -e \
@@ -128,12 +127,6 @@ jq -n \
   --arg admin "$E2E_KEYCLOAK_ADMIN_USERNAME" \
   --arg username "$E2E_TEST_USERNAME" \
   --arg password "$E2E_TEST_PASSWORD" \
-  --arg client "$E2E_KEYCLOAK_CLIENT_ID" \
-  --arg secret "$E2E_KEYCLOAK_CLIENT_SECRET" \
-  --arg callback "${opnsense_origin}/api/openidconnect/auth/callback/${E2E_APPLICATION_CODE}" \
-  --arg origin "$opnsense_origin" \
-  --arg backchannel "${E2E_BACKCHANNEL_URL}/api/openidconnect/auth/backchannel/${E2E_APPLICATION_CODE}" \
-  --arg frontchannel "${opnsense_origin}/api/openidconnect/auth/frontchannel/${E2E_APPLICATION_CODE}" \
   '{
     realm: $realm,
     enabled: true,
@@ -145,29 +138,6 @@ jq -n \
       lastName: "E2E",
       enabled: true,
       credentials: [{type: "password", value: $password, temporary: false}]
-    }],
-    clients: [{
-      clientId: $client,
-      name: "OPNsense OIDC E2E",
-      protocol: "openid-connect",
-      enabled: true,
-      publicClient: false,
-      secret: $secret,
-      standardFlowEnabled: true,
-      directAccessGrantsEnabled: false,
-      implicitFlowEnabled: false,
-      frontchannelLogout: false,
-      redirectUris: [$callback],
-      webOrigins: [$origin],
-      attributes: {
-        "pkce.code.challenge.method": "S256",
-        "dpop.bound.access.tokens": "true",
-        "post.logout.redirect.uris": ($origin + "/*"),
-        "backchannel.logout.url": $backchannel,
-        "backchannel.logout.session.required": "true",
-        "frontchannel.logout.url": $frontchannel,
-        "frontchannel.logout.session.required": "true"
-      }
     }]
   }' \
   > "$work_dir/realm.json"

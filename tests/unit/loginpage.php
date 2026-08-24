@@ -117,6 +117,11 @@ $targeted = inspect($container, 'entryMarkup', connector([
 Checks::that('custom-rendered wording preserves the local page target core normally adds',
     str_contains($targeted, 'redir=%2Fui%2Fdashboard'), true);
 unset($_GET['url']);
+Checks::that(
+    'a missing local page target leaves the login address unchanged',
+    inspect($container, 'withLocalTarget', $loginUri),
+    $loginUri
+);
 
 $tinted = inspect($container, 'entryMarkup', connector(['openidconnect_icon_url' => '/mark.svg']), 'x', $loginUri);
 Checks::that('a single colour icon is drawn as a mask', str_contains($tinted, 'mask: url("/mark.svg")'), true);

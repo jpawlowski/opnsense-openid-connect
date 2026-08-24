@@ -72,9 +72,10 @@ async function provisionAuthentik(blueprintPath) {
   const user = await checkedJson(await api.post(`${providerApiOrigin}/api/v3/core/users/`, {
     data: {
       username: state.username, name: 'OIDC E2E', email: `${state.username}@example.com`,
-      is_active: true, type: 'internal', path: 'users',
+      attributes: { email_verified: true }, is_active: true, type: 'internal', path: 'users',
     },
   }), 'authentik user creation');
+  state.user_pk = user.pk;
   await checked(await api.post(`${providerApiOrigin}/api/v3/core/users/${user.pk}/set_password/`, {
     data: { password: state.password },
   }), 'authentik password creation');
@@ -192,7 +193,7 @@ async function configureServer(page) {
   ));
   await page.getByRole('button', { name: 'Test discovery' }).click();
   expect((await discovery).ok()).toBeTruthy();
-  await expect(page.getByRole('dialog').locator('.oidc-discovery-result .alert-success')).toBeVisible();
+  await expect(page.getByRole('dialog').locator('.oidc-probe-summary .label-success')).toBeVisible();
   await page.getByRole('dialog').getByRole('button', { name: '×' }).click();
   await page.locator('input[name="openidconnect_enabled"]').check();
   await page.getByRole('button', { name: 'Save' }).click();
@@ -214,6 +215,55 @@ async function passwordLogin(page) {
   await expect(password).toBeVisible();
   await password.fill(state.password);
   await action.click();
+}
+
+async function setAuthentikEmailVerification(mode) {
+  const api = await apiContext({ Authorization: `Bearer ${state.admin_token}` });
+  const attributes = mode === 'missing' ? {} : { email_verified: mode === 'true' };
+  await checked(await api.patch(`${providerApiOrigin}/api/v3/core/users/${state.user_pk}/`, {
+    data: { attributes },
+  }), `authentik e-mail verification update (${mode})`);
+  await api.dispose();
+}
+
+async function testAuthentikEmailVerification(page, expected) {
+  await page.goto(`${origin}/system_authservers.php`);
+  await page.getByRole('row', { name: new RegExp(state.server_name) })
+    .getByRole('link', { name: 'Edit' }).click();
+  await page.getByRole('button', { name: 'Test sign-in' }).click();
+  let arrival = 'waiting';
+  await expect.poll(async () => {
+    if (await page.getByRole('heading', { name: 'Sign-in test succeeded' }).count()) {
+      arrival = 'result';
+    } else if (new URL(page.url()).origin === providerOrigin) {
+      arrival = 'provider';
+    } else if (new URL(page.url()).pathname === callbackPath
+      && await page.locator('body').getByText(/OpenID Connect could not complete this request/).count()) {
+      arrival = 'error';
+    }
+    return arrival;
+  }).not.toBe('waiting');
+  if (arrival === 'error') {
+    throw new Error(`Test sign-in callback failed: ${await page.locator('body').innerText()}`);
+  }
+  if (arrival === 'provider') {
+    await passwordLogin(page);
+    await expect.poll(async () => {
+      if (await page.getByRole('heading', { name: 'Sign-in test succeeded' }).count()) return 'result';
+      if (new URL(page.url()).pathname === callbackPath
+        && await page.locator('body').getByText(/OpenID Connect could not complete this request/).count()) {
+        return 'error';
+      }
+      return 'waiting';
+    }).not.toBe('waiting');
+    if (await page.locator('body').getByText(/OpenID Connect could not complete this request/).count()) {
+      throw new Error(`Test sign-in callback failed: ${await page.locator('body').innerText()}`);
+    }
+  }
+  await expect(page.getByRole('heading', { name: 'Sign-in test succeeded' })).toBeVisible();
+  await expect(page.getByRole('row', { name: /E-mail verification claim/ })).toContainText(expected);
+  await page.getByRole('link', { name: 'Return to authentication servers' }).click();
+  await expect(page.locator('input[name="name"]')).toHaveValue(state.server_name);
 }
 
 async function providerLogin(page) {
@@ -251,6 +301,14 @@ test(`real OPNsense login through ${state.provider}`, async ({ browser }) => {
   const adminPage = await admin.newPage();
   await localLogin(adminPage);
   await configureServer(adminPage);
+  if (state.provider === 'authentik') {
+    await testAuthentikEmailVerification(adminPage, 'true');
+    await setAuthentikEmailVerification('false');
+    await testAuthentikEmailVerification(adminPage, 'false');
+    await setAuthentikEmailVerification('missing');
+    await testAuthentikEmailVerification(adminPage, 'false');
+    await setAuthentikEmailVerification('true');
+  }
 
   const localFallback = await browser.newContext({ ignoreHTTPSErrors: true });
   await localLogin(await localFallback.newPage());

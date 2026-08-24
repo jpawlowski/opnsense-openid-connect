@@ -50,6 +50,7 @@ require __DIR__ . '/harness.php';
 
 /* the code under test, in dependency order */
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProtocolException.php';
+require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ClientAuthenticationException.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderUnavailableException.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/AuthenticationRequirement.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/Auth/OpenIDConnect.php';
@@ -78,11 +79,13 @@ require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/Transactio
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/WebGuiAccess.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderRuntimeState.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ParClient.php';
+require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/AuthorizationPreflight.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderProbe.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RelyingParty.php';
 require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/PrivateApiControllerBase.php';
 require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/DiscoveryController.php';
 require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/HealthController.php';
+require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/TestController.php';
 require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/AuthController.php';
 require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/SsfController.php';
 

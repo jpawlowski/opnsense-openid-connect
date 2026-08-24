@@ -71,7 +71,11 @@ function decodedDpop(string $proof): array
     ];
 }
 
-function dpopSettings(string $applicationCode, string $clientId = 'dpop-client'): OPNsense\Auth\OpenIDConnect
+function dpopSettings(
+    string $applicationCode,
+    string $clientId = 'dpop-client',
+    string $profile = 'general'
+): OPNsense\Auth\OpenIDConnect
 {
     return connector([
         'openidconnect_client_id' => $clientId,
@@ -79,6 +83,7 @@ function dpopSettings(string $applicationCode, string $clientId = 'dpop-client')
         'openidconnect_provider_url' => 'https://dpop.example.net',
         'openidconnect_redirect_urls' => 'https://firewall.example.net',
         'openidconnect_app_code' => $applicationCode,
+        'openidconnect_provider_profile' => $profile,
     ]);
 }
 
@@ -89,8 +94,21 @@ $dpopJwk = [
     'y' => 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
 ];
 $dpopProof = DpopProof::forTesting($dpopJwk, static fn(string $input): string => str_repeat("\x01", 64));
+$paddedDpopJwk = $dpopJwk;
+$paddedDpopJwk['x'] .= '=';
+$paddedDpopJwk['y'] .= '=';
+$paddedDpopProof = DpopProof::forTesting(
+    $paddedDpopJwk,
+    static fn(string $input): string => str_repeat("\x01", 64)
+);
 
 Checks::group('RFC 9449 DPoP proofs');
+
+Checks::that(
+    'the padded JWK form emitted by OPNsense phpseclib is canonicalized',
+    [$paddedDpopProof->publicKey(), $paddedDpopProof->keyId()],
+    [$dpopJwk, $dpopProof->keyId()]
+);
 
 $firstProof = decodedDpop($dpopProof->proof(
     'post',
@@ -239,6 +257,17 @@ $bearerUrl = (new RelyingParty(
 parse_str((string)parse_url($bearerUrl, PHP_URL_QUERY), $bearerParameters);
 Checks::that('DPoP is not guessed when Discovery does not advertise it',
     array_key_exists('dpop_jkt', $bearerParameters), false);
+$authentikUrl = (new RelyingParty(
+    dpopSettings('authentik-key-binding', 'authentik-client', 'authentik'),
+    new Controller(new Request('https', 'firewall.example.net'), new Session()),
+    new HttpClient(fn() => dpopAnswer(dpopMetadata()))
+))->authorizationUrl('authentik', '/');
+parse_str((string)parse_url($authentikUrl, PHP_URL_QUERY), $authentikParameters);
+Checks::that(
+    'authentik key-bound ID Token metadata is not mistaken for a DPoP access-token profile',
+    array_key_exists('dpop_jkt', $authentikParameters),
+    false
+);
 Checks::throws(
     'malformed DPoP algorithm metadata is refused',
     fn() => ProviderMetadata::fromArray(dpopMetadata(['dpop_signing_alg_values_supported' => ['ES256', 1]])),
