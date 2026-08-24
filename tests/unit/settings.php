@@ -301,21 +301,79 @@ Checks::that('every selectable provider has exactly one preset', array_keys($pro
 $completePresetFields = [
     'openidconnect_provider_url',
     'openidconnect_token_auth',
+    'openidconnect_par_mode',
     'openidconnect_username_claim',
+    'openidconnect_group_claim',
     'openidconnect_claims_source',
     'openidconnect_response_mode',
+    'openidconnect_required_authentication',
+    'openidconnect_acr_request',
+    'openidconnect_acr_values',
+    'openidconnect_amr_values',
+    'openidconnect_entra_auth_context',
+    'openidconnect_microsoft_audience',
     'openidconnect_email_match',
     'openidconnect_scopes',
+    'openidconnect_select_account',
     'openidconnect_bootstrap_mode',
+    'openidconnect_logout_menu',
+    'openidconnect_logout_redirect',
+    'openidconnect_logout_notifications',
+    'openidconnect_ssf_enabled',
     'openidconnect_button_text_mode',
     'openidconnect_button_provider_label',
     'openidconnect_button_custom_text',
     'openidconnect_icon_url',
     'openidconnect_icon_mode',
 ];
+$installationSpecificFields = [
+    '__openidconnect_form',
+    'openidconnect_enabled',
+    'openidconnect_app_code',
+    'openidconnect_provider_profile',
+    'openidconnect_client_id',
+    'openidconnect_client_secret',
+    'openidconnect_origin_policy',
+    'openidconnect_tls_offloading',
+    'openidconnect_redirect_urls',
+    'openidconnect_sector_origin',
+    'openidconnect_max_age',
+    'openidconnect_create_users',
+    'openidconnect_default_groups',
+    'openidconnect_allow_root',
+    'openidconnect_assignable_groups',
+    'openidconnect_allow_all_groups',
+    'openidconnect_debug',
+    'openidconnect_ssf_issuer',
+    'openidconnect_ssf_audience',
+    'openidconnect_ssf_push_secret',
+    'openidconnect_button_style',
+    'openidconnect_icon_svg',
+];
+$classifiedSettingFields = array_merge($completePresetFields, $installationSpecificFields);
+$configuredSettingFields = array_keys($newProtocolOptions);
+sort($classifiedSettingFields);
+sort($configuredSettingFields);
+Checks::that(
+    'every form setting is consciously provider-dependent or installation-specific',
+    $classifiedSettingFields,
+    $configuredSettingFields
+);
 Checks::that('every provider preset covers every provider-dependent field', array_values(array_filter(
     array_keys($profilePresets),
     static fn($profile) => array_keys($profilePresets[$profile]['values']) !== $completePresetFields
+)), []);
+$knownPresetClassifications = ['fixed', 'recommended', 'editable', 'hidden', 'unsupported'];
+Checks::that('every provider preset explicitly classifies every provider-dependent field', array_values(array_filter(
+    array_keys($profilePresets),
+    static fn($profile) => array_keys($profilePresets[$profile]['classifications']) !== $completePresetFields
+)), []);
+Checks::that('every provider field classification is understood by the settings form', array_values(array_filter(
+    array_keys($profilePresets),
+    static fn($profile) => array_diff(
+        $profilePresets[$profile]['classifications'],
+        $knownPresetClassifications
+    ) !== []
 )), []);
 Checks::that('every locked field has a concrete value', array_values(array_filter(
     array_keys($profilePresets),
@@ -323,6 +381,41 @@ Checks::that('every locked field has a concrete value', array_values(array_filte
         $profilePresets[$profile]['locked'],
         static fn($field) => ($profilePresets[$profile]['values'][$field] ?? '') === ''
     ) !== []
+)), []);
+Checks::that('fixed classifications and server-enforced locks cannot drift apart', array_values(array_filter(
+    array_keys($profilePresets),
+    static function ($profile) use ($profilePresets): bool {
+        $classified = array_keys(array_filter(
+            $profilePresets[$profile]['classifications'],
+            static fn($classification) => $classification === 'fixed'
+        ));
+        return array_diff($classified, $profilePresets[$profile]['locked']) !== []
+            || array_diff($profilePresets[$profile]['locked'], $classified) !== [];
+    }
+)), []);
+Checks::that('provider presets keep authentication enforcement opt-in', array_values(array_filter(
+    array_keys($profilePresets),
+    static fn($profile) => $profilePresets[$profile]['values']['openidconnect_required_authentication'] !== ''
+)), []);
+Checks::that('provider presets use discovery-driven PAR unless the administrator decides otherwise', array_values(array_filter(
+    array_keys($profilePresets),
+    static fn($profile) => $profilePresets[$profile]['values']['openidconnect_par_mode'] !== 'auto'
+)), []);
+$expectedLogoutNotifications = array_fill_keys(array_keys($profilePresets), 'off');
+$expectedLogoutNotifications['general'] = 'both';
+$expectedLogoutNotifications['authentik'] = 'backchannel';
+$expectedLogoutNotifications['keycloak'] = 'backchannel';
+Checks::that('only reviewed provider profiles recommend a logout notification channel', array_map(
+    static fn($preset) => $preset['values']['openidconnect_logout_notifications'],
+    $profilePresets
+), $expectedLogoutNotifications);
+Checks::that('only Entra exposes its tenant audience and authentication context controls', array_values(array_filter(
+    array_keys($profilePresets),
+    static fn($profile) => $profile === 'entra'
+        ? $profilePresets[$profile]['classifications']['openidconnect_microsoft_audience'] === 'hidden'
+            || $profilePresets[$profile]['classifications']['openidconnect_entra_auth_context'] === 'hidden'
+        : $profilePresets[$profile]['classifications']['openidconnect_microsoft_audience'] !== 'hidden'
+            || $profilePresets[$profile]['classifications']['openidconnect_entra_auth_context'] !== 'hidden'
 )), []);
 $fixedButtonLabels = OpenIDConnect::fixedProviderButtonLabels();
 Checks::that('only globally fixed public services have an internal button label', $fixedButtonLabels, [

@@ -1,7 +1,8 @@
 # Provider profiles and defaults
 
 A named profile is more than a label. Selecting it applies a complete starting
-point to every provider-dependent setting. The form distinguishes three cases:
+point to every provider-dependent setting. Every such field is explicitly
+classified, so adding a setting cannot silently inherit an unrelated old default:
 
 - **Fixed by the selected provider profile** is read-only. The provider's public
   service does not allow a different value, so the relying party also enforces it
@@ -9,6 +10,12 @@ point to every provider-dependent setting. The form distinguishes three cases:
 - **Recommended by the selected provider profile; editable** is the documented,
   interoperable default. Change it for a tenant mapping or provider option that
   deliberately differs.
+- **Available for this provider; no provider-specific default** is an operator
+  choice. The safe starting value is filled, but the profile makes no capability
+  claim for it.
+- **Used only by another provider profile** stays out of the applicable flow.
+- **Not supported by the selected provider profile** is reserved for a retained
+  provider incompatibility, rather than merely missing evidence.
 - **Enter the value issued by this provider** cannot be inferred from a product
   name. The field shows the expected issuer shape but remains empty in a draft.
 
@@ -24,7 +31,7 @@ provider.
 
 Client ID and Client Secret are always specific to an application registration
 and are therefore never invented. WebGUI addresses, group delegation, root access,
-debugging and logout policy remain installation policy. Button wording is also
+debugging and outbound logout remain installation policy. Button wording is also
 installation policy for Generic, self-hosted and tenant-specific providers. The
 fixed global Apple, Google, Microsoft, LinkedIn, ORCID, Slack and Yahoo services
 instead use their familiar short public label and hide wording controls that would
@@ -37,12 +44,17 @@ Unless the table below says otherwise, every named profile starts with:
 | Setting | Starting value |
 |---|---|
 | Authentication method | Follow the provider's Discovery metadata |
+| Pushed authorization requests | Automatic with availability fallback |
 | Username claim | `preferred_username` |
 | Claims source | Automatic |
 | Authorization response mode | Query |
 | Match by e-mail address | Only a verified address |
 | Scopes | `openid,email,profile` |
 | Required authentication | Provider policy only; no additional ID Token strength requirement |
+| Always show account selection | Off |
+| Redirect the Log Out menu entry / Return here after logout | Off |
+| Provider logout notifications | Off unless a retained provider guide reviews a channel |
+| Receive Shared Signals | Off; transmitter details are always installation-specific |
 | Admission policy | Administrator approval |
 | Login button wording | localized OPNsense sentence; an empty provider label follows Descriptive name |
 
@@ -64,7 +76,7 @@ the whole visible string and is intentionally literal rather than translated.
 |---|---|---|
 | Auth0 | enter tenant or custom-domain issuer, including its published trailing slash | shared defaults |
 | Authelia | enter configured public issuer | shared defaults |
-| authentik | enter application issuer ending `/application/o/<slug>/` | shared defaults |
+| authentik | enter application issuer ending `/application/o/<slug>/` | prefer Back-channel logout notifications; its guide documents the Front-channel alternative |
 | AWS Cognito | enter region and user-pool issuer | username claim `cognito:username` |
 | Cisco Duo Single Sign-On | enter the per-application issuer | username `email`; require UserInfo |
 | Dex | enter configured issuer | shared defaults; add `groups` only when group mapping is intended |
@@ -73,10 +85,10 @@ the whole visible string and is intentionally literal rather than translated.
 | Google / Google Workspace | fixed `https://accounts.google.com` | username `email`; ID Token only |
 | IBM Security Verify | enter tenant issuer | shared defaults; adjust the claim only when explicitly mapped differently |
 | JumpCloud | enter the exact regional issuer | shared defaults |
-| Keycloak | enter realm issuer | shared defaults |
+| Keycloak | enter realm issuer | prefer Back-channel logout notifications; its guide documents the Front-channel alternative |
 | LinkedIn | fixed `https://www.linkedin.com/oauth` | username `email`; ID Token only; fixed `client_secret_post` |
-| Microsoft Entra ID / Microsoft account | enter one tenant's v2 issuer; broader audience modes manage their authority automatically | ID Token only; a required authentication policy additionally needs one tenant and its configured `c1`-`c25` Conditional Access context |
-| Okta | enter organization or custom authorization-server issuer | MFA uses `urn:okta:loa:2fa:any`; phishing-resistant authentication uses `phr`/`phrh` when deliberately enabled |
+| Microsoft Entra ID / Microsoft account | enter one tenant's v2 issuer; broader audience modes manage their authority automatically | ID Token only; tenant audience recommended; a required authentication policy additionally needs its configured `c1`-`c25` Conditional Access context |
+| Okta | enter organization or custom authorization-server issuer | MFA uses `urn:okta:loa:2fa:any`; phishing-resistant authentication uses `phr`/`phrh` when deliberately enabled; optional Shared Signals stays off until its separate stream is configured |
 | OneLogin | enter exact v2 issuer | shared defaults |
 | ORCID | fixed `https://orcid.org` | username `sub`; ID Token only; fixed `client_secret_post`; fixed sole scope `openid` |
 | Oracle Identity Cloud / OCI IAM | enter identity-domain issuer | shared defaults; adjust the claim only when explicitly mapped differently |

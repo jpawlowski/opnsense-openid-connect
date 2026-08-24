@@ -1011,34 +1011,81 @@ class OpenIDConnect extends Base implements IAuthConnector
      * deliberately defaults to approval for named providers: this makes a first login
      * useful without ever admitting an unknown identity to the WebGUI.
      *
-     * @return array<string,array{values:array<string,string>,locked:string[],placeholders:array<string,string>}>
+     * @return array<string,array{
+     *     values:array<string,string>,
+     *     locked:string[],
+     *     classifications:array<string,string>,
+     *     placeholders:array<string,string>
+     * }>
      */
     public static function providerProfilePresets(): array
     {
         $generic = [
             'openidconnect_provider_url' => '',
             'openidconnect_token_auth' => '',
+            'openidconnect_par_mode' => 'auto',
             'openidconnect_username_claim' => 'preferred_username',
+            'openidconnect_group_claim' => '',
             'openidconnect_claims_source' => 'auto',
             'openidconnect_response_mode' => 'query',
+            'openidconnect_required_authentication' => '',
+            'openidconnect_acr_request' => '',
+            'openidconnect_acr_values' => '',
+            'openidconnect_amr_values' => '',
+            'openidconnect_entra_auth_context' => '',
+            'openidconnect_microsoft_audience' => 'tenant',
             'openidconnect_email_match' => 'verified',
             'openidconnect_scopes' => 'openid,email,profile',
+            'openidconnect_select_account' => '0',
             'openidconnect_bootstrap_mode' => 'strict',
+            'openidconnect_logout_menu' => '0',
+            'openidconnect_logout_redirect' => '0',
+            'openidconnect_logout_notifications' => 'both',
+            'openidconnect_ssf_enabled' => '0',
             'openidconnect_button_text_mode' => 'localized',
             'openidconnect_button_provider_label' => '',
             'openidconnect_button_custom_text' => '',
             'openidconnect_icon_url' => static::providerIconUrl('general'),
             'openidconnect_icon_mode' => 'monochrome',
         ];
-        $named = array_replace($generic, ['openidconnect_bootstrap_mode' => 'approval']);
+        $named = array_replace($generic, [
+            'openidconnect_bootstrap_mode' => 'approval',
+            'openidconnect_logout_notifications' => 'off',
+        ]);
+        $genericClassifications = array_fill_keys(array_keys($generic), 'editable');
+        $genericClassifications['openidconnect_entra_auth_context'] = 'hidden';
+        $genericClassifications['openidconnect_microsoft_audience'] = 'hidden';
+        $namedClassifications = array_fill_keys(array_keys($named), 'recommended');
+        foreach ([
+            'openidconnect_group_claim',
+            'openidconnect_required_authentication',
+            'openidconnect_acr_request',
+            'openidconnect_acr_values',
+            'openidconnect_amr_values',
+            'openidconnect_select_account',
+            'openidconnect_logout_menu',
+            'openidconnect_logout_redirect',
+            'openidconnect_logout_notifications',
+            'openidconnect_ssf_enabled',
+        ] as $field) {
+            $namedClassifications[$field] = 'editable';
+        }
+        $namedClassifications['openidconnect_entra_auth_context'] = 'hidden';
+        $namedClassifications['openidconnect_microsoft_audience'] = 'hidden';
         $make = static function (
             array $values = [],
             array $locked = [],
-            string $issuerPlaceholder = 'https://id.example.com'
-        ) use ($named): array {
+            string $issuerPlaceholder = 'https://id.example.com',
+            array $classifications = []
+        ) use ($named, $namedClassifications): array {
+            $selectedClassifications = array_replace($namedClassifications, $classifications);
+            foreach ($locked as $field) {
+                $selectedClassifications[$field] = 'fixed';
+            }
             return [
                 'values' => array_replace($named, $values),
                 'locked' => $locked,
+                'classifications' => $selectedClassifications,
                 'placeholders' => ['openidconnect_provider_url' => $issuerPlaceholder],
             ];
         };
@@ -1047,11 +1094,17 @@ class OpenIDConnect extends Base implements IAuthConnector
             'general' => [
                 'values' => $generic,
                 'locked' => [],
+                'classifications' => $genericClassifications,
                 'placeholders' => ['openidconnect_provider_url' => 'https://id.example.com'],
             ],
             'auth0' => $make([], [], 'https://{tenant}.{region}.auth0.com/'),
             'authelia' => $make([], [], 'https://auth.example.com'),
-            'authentik' => $make([], [], 'https://auth.example.com/application/o/opnsense/'),
+            'authentik' => $make(
+                ['openidconnect_logout_notifications' => 'backchannel'],
+                [],
+                'https://auth.example.com/application/o/opnsense/',
+                ['openidconnect_logout_notifications' => 'recommended']
+            ),
             'cognito' => $make(
                 ['openidconnect_username_claim' => 'cognito:username'],
                 [],
@@ -1079,11 +1132,22 @@ class OpenIDConnect extends Base implements IAuthConnector
             ),
             'ibm_verify' => $make([], [], 'https://{tenant}.verify.ibm.com/oidc/endpoint/default'),
             'jumpcloud' => $make([], [], 'https://oauth.id.{region}jumpcloud.com/'),
-            'keycloak' => $make([], [], 'https://id.example.com/realms/opnsense'),
+            'keycloak' => $make(
+                ['openidconnect_logout_notifications' => 'backchannel'],
+                [],
+                'https://id.example.com/realms/opnsense',
+                ['openidconnect_logout_notifications' => 'recommended']
+            ),
             'entra' => $make(
                 ['openidconnect_claims_source' => 'id_token'],
                 [],
-                'https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000/v2.0'
+                'https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000/v2.0',
+                [
+                    'openidconnect_acr_request' => 'hidden',
+                    'openidconnect_acr_values' => 'hidden',
+                    'openidconnect_entra_auth_context' => 'editable',
+                    'openidconnect_microsoft_audience' => 'recommended',
+                ]
             ),
             'okta' => $make([], [], 'https://{yourOktaDomain}/oauth2/default'),
             'onelogin' => $make([], [], 'https://{subdomain}.onelogin.com/oidc/2'),
@@ -1155,6 +1219,8 @@ class OpenIDConnect extends Base implements IAuthConnector
                     'openidconnect_button_text_mode',
                     'openidconnect_button_provider_label',
                 ])));
+                $preset['classifications']['openidconnect_button_text_mode'] = 'fixed';
+                $preset['classifications']['openidconnect_button_provider_label'] = 'fixed';
             }
         }
         unset($preset);
@@ -1278,6 +1344,9 @@ class OpenIDConnect extends Base implements IAuthConnector
             ),
             'profileFixedLabel' => gettext('Fixed by the selected provider profile'),
             'profileRecommendedLabel' => gettext('Recommended by the selected provider profile; editable'),
+            'profileEditableLabel' => gettext('Available for this provider; no provider-specific default'),
+            'profileHiddenLabel' => gettext('Used only by another provider profile'),
+            'profileUnsupportedLabel' => gettext('Not supported by the selected provider profile'),
             'profileRequiredLabel' => gettext('Enter the value issued by this provider'),
             'profileRestoreLabel' => gettext('Restore profile defaults'),
             'testLabel' => gettext('Test discovery'),
@@ -2973,7 +3042,14 @@ class OpenIDConnect extends Base implements IAuthConnector
         return $this->choice('openidconnect_provider_profile', self::PROVIDER_PROFILES, 'general');
     }
 
-    /** @return array{values:array<string,string>,locked:string[],placeholders:array<string,string>} */
+    /**
+     * @return array{
+     *     values:array<string,string>,
+     *     locked:string[],
+     *     classifications:array<string,string>,
+     *     placeholders:array<string,string>
+     * }
+     */
     private function providerPreset(): array
     {
         $presets = static::providerProfilePresets();

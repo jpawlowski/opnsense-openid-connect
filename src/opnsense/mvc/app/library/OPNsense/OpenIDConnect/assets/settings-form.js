@@ -1744,6 +1744,10 @@
             if (!input) {
                 return;
             }
+            if (input.type === 'checkbox') {
+                $(input).prop('checked', value === '1').trigger('change');
+                return;
+            }
             $(input).val(value).attr('value', value).trigger('change');
 
             /* A list field is upgraded after this function first runs. Keep that visible
@@ -1797,25 +1801,39 @@
             var selected = preset();
             var locked = selected.locked || [];
             var values = selected.values || {};
+            var classifications = selected.classifications || {};
             var placeholders = selected.placeholders || {};
             Object.keys((presets.general || {}).values || values).forEach(function (name) {
                 var input = field(name);
                 if (!input) {
                     return;
                 }
-                var fixed = locked.indexOf(name) !== -1;
+                var classification = classifications[name]
+                    || (locked.indexOf(name) !== -1 ? 'fixed' : 'editable');
+                var fixed = classification === 'fixed';
                 setLocked(name, fixed);
-                $(input).attr('placeholder', placeholders[name] || '');
+                $(input).attr({
+                    placeholder: placeholders[name] || '',
+                    'data-oidc-profile-classification': classification
+                });
                 row(name).find('.oidc-profile-field-note').remove();
                 if (profile.value === 'general') {
                     return;
                 }
                 var value = values[name] || '';
-                var label = fixed
-                    ? (options.profileFixedLabel || 'Fixed by the selected provider profile')
-                    : (name === 'openidconnect_provider_url' && !value
-                        ? (options.profileRequiredLabel || 'Enter the value issued by this provider')
-                        : (options.profileRecommendedLabel || 'Recommended by the selected provider profile; editable'));
+                var labels = {
+                    fixed: options.profileFixedLabel || 'Fixed by the selected provider profile',
+                    recommended: options.profileRecommendedLabel
+                        || 'Recommended by the selected provider profile; editable',
+                    editable: options.profileEditableLabel
+                        || 'Available for this provider; no provider-specific default',
+                    hidden: options.profileHiddenLabel || 'Used only by another provider profile',
+                    unsupported: options.profileUnsupportedLabel
+                        || 'Not supported by the selected provider profile'
+                };
+                var label = name === 'openidconnect_provider_url' && !value
+                    ? (options.profileRequiredLabel || 'Enter the value issued by this provider')
+                    : (labels[classification] || labels.editable);
                 $('<span class="help-block small oidc-profile-field-note">')
                     .append($('<i class="fa fa-lock" aria-hidden="true">').toggle(fixed), ' ')
                     .append($('<span>').text(label))
