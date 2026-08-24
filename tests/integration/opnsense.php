@@ -13,6 +13,7 @@ use OPNsense\OpenIDConnect\HttpClient;
 use OPNsense\OpenIDConnect\JwtVerifier;
 use OPNsense\OpenIDConnect\PendingIdentityRegistry;
 use OPNsense\OpenIDConnect\ProviderMetadata;
+use OPNsense\OpenIDConnect\RequestObjectSigner;
 use OPNsense\OpenIDConnect\SessionRegistry;
 use OPNsense\OpenIDConnect\SecurityEventVerifier;
 use OPNsense\OpenIDConnect\SharedSignalsMetadata;
@@ -56,7 +57,7 @@ $library = '/usr/local/opnsense/mvc/app/library/OPNsense/OpenIDConnect/';
 foreach ([
     'ProtocolException', 'ProviderUnavailableException', 'SecurityEventException', 'HttpResponse', 'HttpClient',
     'ProviderCache', 'ProviderMetadata', 'ProviderRuntimeState',
-    'SharedSignalsMetadata', 'JwtVerifier', 'SecurityEventVerifier', 'PendingIdentityRegistry',
+    'SharedSignalsMetadata', 'JwtVerifier', 'RequestObjectSigner', 'SecurityEventVerifier', 'PendingIdentityRegistry',
     'SessionRegistry', 'TransactionRegistry', 'WebGuiAccess', 'ParClient',
 ] as $class) {
     require_once $library . $class . '.php';
@@ -223,7 +224,6 @@ $ecJwkExport = json_decode($ec->getPublicKey()->toString('JWK'), true, 16, JSON_
 $ecJwk = is_array($ecJwkExport['keys'][0] ?? null) ? $ecJwkExport['keys'][0] : $ecJwkExport;
 $ecSignature = $ec->withHash('sha256')->withSignatureFormat('IEEE')->sign($payload);
 $check($verifier->signature('ES256', $ecJwk, $payload, $ecSignature), 'ES256 IEEE signature through OPNsense phpseclib');
-
 $ed25519 = EC::createKey('Ed25519');
 $ed25519JwkExport = json_decode($ed25519->getPublicKey()->toString('JWK'), true, 16, JSON_THROW_ON_ERROR);
 $ed25519Jwk = is_array($ed25519JwkExport['keys'][0] ?? null) ? $ed25519JwkExport['keys'][0] : $ed25519JwkExport;
@@ -237,6 +237,44 @@ $tamperedEd25519Signature[0] = chr(ord($tamperedEd25519Signature[0]) ^ 1);
 $check(
     !$verifier->signature('EdDSA', $ed25519Jwk, $payload, $tamperedEd25519Signature),
     'Ed25519 refuses a changed signature through OPNsense phpseclib'
+);
+
+$requestSettings = new OpenIDConnect();
+$requestSettings->setProperties([
+    'openidconnect_client_id' => 'runtime-request-client',
+    'openidconnect_request_object_key' => 'runtime-request-key',
+]);
+$requestMetadata = ProviderMetadata::fromArray([
+    'issuer' => 'https://runtime.example.com',
+    'authorization_endpoint' => 'https://runtime.example.com/authorize',
+    'token_endpoint' => 'https://runtime.example.com/token',
+    'jwks_uri' => 'https://runtime.example.com/keys',
+    'response_types_supported' => ['code'],
+    'subject_types_supported' => ['public'],
+    'id_token_signing_alg_values_supported' => ['RS256'],
+    'request_object_signing_alg_values_supported' => ['RS256'],
+]);
+$requestSigner = new RequestObjectSigner(static fn(string $reference): array => [
+    'private_key' => $rsa->toString('PKCS8'),
+    'type' => 'RSA',
+    'bits' => 2048,
+    'curve' => '',
+]);
+$requestObject = $requestSigner->sign($requestSettings, $requestMetadata, [
+    'response_type' => 'code',
+    'client_id' => 'runtime-request-client',
+    'redirect_uri' => 'https://firewall.example.com/callback',
+    'scope' => 'openid',
+    'state' => JwtVerifier::base64UrlEncode(random_bytes(24)),
+]);
+[$requestHeader, $requestClaims, $requestSigningInput, $requestSignature] = JwtVerifier::decode($requestObject);
+$check(
+    $requestHeader['typ'] === 'oauth-authz-req+jwt'
+        && $requestHeader['kid'] === 'runtime-request-key'
+        && $requestClaims['aud'] === 'https://runtime.example.com'
+        && $rsa->getPublicKey()->withHash('sha256')->withPadding(RSA::SIGNATURE_PKCS1)
+            ->verify($requestSigningInput, $requestSignature),
+    'RFC 9101 Request Object signing through OPNsense phpseclib'
 );
 $validated('runtime-jws-crypto');
 

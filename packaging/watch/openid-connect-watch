@@ -75,6 +75,7 @@ TOUCHPOINTS="
 /usr/local/opnsense/mvc/app/library/OPNsense/Core/Backend.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Core/SanitizeFilter.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Core/Config.php
+/usr/local/opnsense/mvc/app/library/OPNsense/Trust/Store.php
 /usr/local/opnsense/mvc/app/controllers/OPNsense/Base/ApiControllerBase.php
 /usr/local/opnsense/mvc/app/models/OPNsense/Base/Menu/MenuItem.php
 /usr/local/opnsense/mvc/app/models/OPNsense/Auth/FieldTypes/UidField.php
@@ -88,6 +89,7 @@ TOUCHPOINTS="
 /usr/local/opnsense/scripts/auth/add_user.php
 /usr/local/opnsense/service/conf/actions.d/actions_auth.conf
 /usr/local/sbin/pluginctl
+/usr/local/share/phpseclib/Crypt/Common/AsymmetricKey.php
 /usr/local/share/phpseclib/Crypt/EC/Curves/Ed25519.php
 /usr/local/share/phpseclib/Crypt/EC/Formats/Keys/JWK.php
 /usr/local/share/phpseclib/Crypt/EC/PublicKey.php
