@@ -402,7 +402,7 @@ async function configureServer(page) {
   expectPrivateResponseHeaders(await draftDiscoveryResponsePromise);
   let dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('Enter Client ID and Client Secret');
-  await expect(dialog.locator('tr[data-verification="not-tested"]')).toBeVisible();
+  await expect(dialog.locator('tr[data-verification="not-tested"]').first()).toBeVisible();
   await dialog.getByRole('button', { name: '×' }).click();
 
   await page.locator('input[name="openidconnect_client_id"]').fill(process.env.E2E_KEYCLOAK_CLIENT_ID);
@@ -437,10 +437,10 @@ async function configureServer(page) {
   await expect(dialog).toContainText('Client configuration');
   await expect(dialog).toContainText('WebGUI transport');
   await expect(dialog).toContainText('Client credentials');
-  await expect(dialog.locator('tr[data-verification="live"]')).toBeVisible();
-  await expect(dialog.locator('tr[data-verification="metadata"]')).toBeVisible();
-  await expect(dialog.locator('tr[data-verification="configuration"]')).toBeVisible();
-  await expect(dialog.locator('tr[data-verification="not-tested"]')).toBeVisible();
+  await expect(dialog.locator('tr[data-verification="live"]').first()).toBeVisible();
+  await expect(dialog.locator('tr[data-verification="metadata"]').first()).toBeVisible();
+  await expect(dialog.locator('tr[data-verification="configuration"]').first()).toBeVisible();
+  await expect(dialog.locator('tr[data-verification="not-tested"]').first()).toBeVisible();
   await dialog.getByRole('button', { name: '×' }).click();
 
   const discoveryResponsePromise = page.waitForResponse(response => (
