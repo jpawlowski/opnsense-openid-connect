@@ -125,8 +125,9 @@ function classify(alert, response) {
     return ['expected', 'front-channel logout must be frameable by the provider'];
   }
   if (id === '10015' && response.cacheControl.includes('public')
-      && (path.includes('/auth/icon') || path.includes('/auth/builtinicon/'))) {
-    return ['expected', 'validated login icons are deliberately cacheable'];
+      && (path.includes('/auth/icon') || path.includes('/auth/builtinicon/')
+        || path === `${pluginRoot}auth/formscript`)) {
+    return ['expected', 'package-owned or validated static resources are deliberately cacheable'];
   }
   if (id === '10015' && response.cacheControl.includes('no-store')) {
     return ['expected', 'the private response explicitly forbids storage'];
@@ -173,6 +174,7 @@ const requiredClasses = [
   ['front-channel logout', path => path === `${pluginRoot}auth/frontchannel/${applicationCode}`],
   ['back-channel logout', path => path === `${pluginRoot}auth/backchannel/${applicationCode}`],
   ['cacheable icon', path => path === `${pluginRoot}auth/builtinicon/keycloak`],
+  ['settings form application', path => path === `${pluginRoot}auth/formscript`],
   ['icon refusal', path => path === `${pluginRoot}auth/builtinicon/unknown`
     || path === `${pluginRoot}auth/icon`],
   ['Discovery API', path => path === `${pluginRoot}discovery/probe`],

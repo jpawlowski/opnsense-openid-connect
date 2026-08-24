@@ -22,7 +22,9 @@ production.
 
 ORCID's Basic OpenID Provider profile exposes a stable ORCID identity but does
 not promise an e-mail claim. Use the exact subject shown by Test sign-in or the
-approval workflow rather than inventing an e-mail/username mapping.
+approval workflow rather than inventing an e-mail/username mapping. The profile
+offers only Strict or Administrator approval, and automatic local-account
+creation is unavailable for this global researcher population.
 
 References: [ORCID authenticated iD tutorial](https://info.orcid.org/documentation/api-tutorials/api-tutorial-get-and-authenticated-orcid-id/)
 [Public API client registration](https://info.orcid.org/documentation/integration-guide/registering-a-public-api-client/),

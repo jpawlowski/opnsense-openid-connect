@@ -57,13 +57,29 @@ class HttpClient
             ? true : ProviderCache::claimRefresh($namespace, $url);
     }
 
-    public function get(string $url, int $maxBytes, array $headers = []): HttpResponse
+    public function get(
+        string $url,
+        int $maxBytes,
+        array $headers = [],
+        ?ClientCertificate $clientCertificate = null
+    ): HttpResponse
     {
-        return $this->request('GET', $url, null, $headers, $maxBytes);
+        return $this->request('GET', $url, null, $headers, $maxBytes, $clientCertificate);
     }
 
-    public function postForm(string $url, array $fields, int $maxBytes, array $headers = []): HttpResponse
+    /** Return the provider's first answer so callers can inspect a front-channel redirect without following it. */
+    public function getFirstResponse(string $url, int $maxBytes, array $headers = []): HttpResponse
     {
+        return $this->request('GET', $url, null, $headers, $maxBytes, null, false);
+    }
+
+    public function postForm(
+        string $url,
+        array $fields,
+        int $maxBytes,
+        array $headers = [],
+        ?ClientCertificate $clientCertificate = null
+    ): HttpResponse {
         self::assertQueryParametersAbsent($url, $fields);
         $headers[] = 'Content-Type: application/x-www-form-urlencoded';
 
@@ -72,7 +88,8 @@ class HttpClient
             $url,
             http_build_query($fields, '', '&', PHP_QUERY_RFC3986),
             $headers,
-            $maxBytes
+            $maxBytes,
+            $clientCertificate
         );
     }
 
@@ -89,7 +106,9 @@ class HttpClient
         string $url,
         ?string $body,
         array $headers,
-        int $maxBytes
+        int $maxBytes,
+        ?ClientCertificate $clientCertificate = null,
+        bool $followRedirects = true
     ): HttpResponse {
         if ($maxBytes < 1) {
             throw new \InvalidArgumentException('A positive response limit is required');
@@ -98,7 +117,14 @@ class HttpClient
         $current = $url;
         for ($redirects = 0; ; $redirects++) {
             static::assertHttpsUrl($current);
-            $response = $this->requestOnce($method, $current, $body, $headers, $maxBytes);
+            $response = $this->requestOnce(
+                $method,
+                $current,
+                $body,
+                $headers,
+                $maxBytes,
+                $clientCertificate
+            );
             if (!is_int($response['status']) || $response['status'] < 0 || $response['status'] > 599
                 || !is_string($response['body']) || strlen($response['body']) > $maxBytes
                 || !is_string($response['content_type']) || !is_string($response['location'])
@@ -106,7 +132,10 @@ class HttpClient
                 throw new ProtocolException('The provider returned an invalid or oversized HTTP response');
             }
 
-            if (!in_array($response['status'], [301, 302, 303, 307, 308], true)) {
+            if ($response['location'] !== '') {
+                $response['headers']['location'] = $response['location'];
+            }
+            if (!$followRedirects || !in_array($response['status'], [301, 302, 303, 307, 308], true)) {
                 return new HttpResponse(
                     $response['status'],
                     $response['content_type'],
@@ -129,7 +158,7 @@ class HttpClient
              * redirects are also not part of the token/UserInfo protocols, so fail closed
              * instead of changing their method behind the caller's back.
              */
-            if ($method !== 'GET' || self::hasSensitiveHeader($headers)) {
+            if ($method !== 'GET' || self::hasSensitiveHeader($headers) || $clientCertificate !== null) {
                 throw new ProtocolException('A credential-bearing provider request may not be redirected');
             }
             $current = static::resolve($current, $location);
@@ -152,10 +181,18 @@ class HttpClient
         string $url,
         ?string $postBody,
         array $headers,
-        int $maxBytes
+        int $maxBytes,
+        ?ClientCertificate $clientCertificate = null
     ): array {
         if ($this->transport !== null) {
-            $answer = ($this->transport)($method, $url, $postBody, $headers, $maxBytes);
+            $answer = ($this->transport)(
+                $method,
+                $url,
+                $postBody,
+                $headers,
+                $maxBytes,
+                $clientCertificate
+            );
             if (!is_array($answer)) {
                 throw new ProtocolException('The test transport returned no response');
             }
@@ -167,7 +204,7 @@ class HttpClient
         $location = '';
         $responseHeaders = [];
         $handle = curl_init($url);
-        curl_setopt_array($handle, self::transportSecurityOptions() + [
+        $options = self::transportSecurityOptions() + [
             CURLOPT_CUSTOMREQUEST => $method,
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
@@ -206,7 +243,11 @@ class HttpClient
 
                 return strlen($chunk);
             },
-        ]);
+        ];
+        if ($clientCertificate !== null) {
+            $options += $clientCertificate->curlOptions();
+        }
+        curl_setopt_array($handle, $options);
         if ($postBody !== null) {
             curl_setopt($handle, CURLOPT_POSTFIELDS, $postBody);
         }

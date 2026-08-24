@@ -112,6 +112,7 @@ namespace OPNsense\Auth {
             self::$creationWorks = true;
             self::$creationOutput = null;
             \OPNsense\Core\Config::reset();
+            \OPNsense\Trust\Store::reset();
         }
 
         public static function add(array $fields): void
@@ -173,14 +174,21 @@ namespace OPNsense\Core {
             return $server;
         }
 
-        public function addCertificate(string $reference, string $description, bool $privateKey = true): void
+        public function addCertificate($certificate, string $description = '', bool $privateKey = true): object
         {
-            $this->root->cert[] = (object)[
-                'refid' => $reference,
-                'descr' => $description,
-                'prv' => $privateKey ? base64_encode('private key') : '',
-                'crt' => base64_encode('certificate'),
-            ];
+            if (is_string($certificate)) {
+                $certificate = [
+                    'refid' => $certificate,
+                    'descr' => $description,
+                    'prv' => $privateKey ? base64_encode('private key') : '',
+                    'crt' => base64_encode('certificate'),
+                ];
+            }
+            $certificate = (object)($certificate + [
+                'refid' => uniqid(), 'descr' => 'Test certificate', 'crt' => '', 'prv' => '',
+            ]);
+            $this->root->cert[] = $certificate;
+            return $certificate;
         }
 
         public function lock(): void
@@ -215,6 +223,36 @@ namespace OPNsense\Core {
             \OPNsense\Auth\Directory::add(['name' => (string)($params[0] ?? '')]);
 
             return \OPNsense\Auth\Directory::$creationOutput ?? json_encode(['status' => 'ok']);
+        }
+    }
+}
+
+namespace OPNsense\Trust {
+    /** Test-owned certificate records shaped like Trust\Store::getCertificate(). */
+    class Store
+    {
+        public static array $certificates = [];
+
+        public static function getCertificate($reference)
+        {
+            if (array_key_exists((string)$reference, self::$certificates)) {
+                return self::$certificates[(string)$reference];
+            }
+            foreach (\OPNsense\Core\Config::getInstance()->object()->cert ?? [] as $certificate) {
+                if ((string)($certificate->refid ?? '') !== (string)$reference) {
+                    continue;
+                }
+                return [
+                    'crt' => base64_decode((string)($certificate->crt ?? ''), true) ?: '',
+                    'prv' => base64_decode((string)($certificate->prv ?? ''), true) ?: '',
+                ];
+            }
+            return false;
+        }
+
+        public static function reset(): void
+        {
+            self::$certificates = [];
         }
     }
 }
@@ -399,6 +437,18 @@ namespace {
     if (!function_exists('config_read_array')) {
         function config_read_array(...$path): array
         {
+            if ($path === ['cert']) {
+                $answer = [];
+                foreach (\OPNsense\Trust\Store::$certificates as $reference => $certificate) {
+                    $answer[] = [
+                        'refid' => $reference,
+                        'descr' => (string)($certificate['descr'] ?? ''),
+                        'crt' => empty($certificate['crt']) ? '' : 'stored',
+                        'prv' => empty($certificate['prv']) ? '' : 'stored',
+                    ];
+                }
+                return $answer;
+            }
             if (array_slice($path, 0, 2) === ['virtualip', 'vip']) {
                 return OidcTestNetwork::$virtualIps;
             }

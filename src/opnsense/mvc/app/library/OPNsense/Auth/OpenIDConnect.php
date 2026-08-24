@@ -31,6 +31,8 @@ namespace OPNsense\Auth;
 use OPNsense\Core\Backend;
 use OPNsense\Core\Config;
 use OPNsense\OpenIDConnect\AuthenticationRequirement;
+use OPNsense\OpenIDConnect\ClientAssertion;
+use OPNsense\OpenIDConnect\ClientCertificate;
 use OPNsense\OpenIDConnect\PendingIdentityRegistry;
 use OPNsense\OpenIDConnect\ProviderMetadata;
 use OPNsense\OpenIDConnect\SharedSignalsClient;
@@ -62,7 +64,10 @@ class OpenIDConnect extends Base implements IAuthConnector
     public const ICON_MODES = ['monochrome', 'original'];
 
     /** how this firewall authenticates itself at the token endpoint */
-    public const TOKEN_AUTH_METHODS = ['client_secret_basic', 'client_secret_post'];
+    public const TOKEN_AUTH_METHODS = [
+        'tls_client_auth', 'self_signed_tls_client_auth', 'client_secret_basic', 'client_secret_post',
+        'private_key_jwt',
+    ];
     public const PAR_MODES = ['auto', 'required', 'disabled'];
     public const LOGOUT_NOTIFICATION_MODES = ['both', 'backchannel', 'frontchannel', 'off'];
     public const SSF_DELIVERY_METHODS = ['push', 'poll'];
@@ -93,6 +98,25 @@ class OpenIDConnect extends Base implements IAuthConnector
         'orcid' => 'ORCID',
         'slack' => 'Slack',
         'yahoo' => 'Yahoo',
+    ];
+
+    /** Global services for which this form cannot prove an organization-bounded account population. */
+    private const ACCOUNT_CREATION_BLOCKED_PROFILES = [
+        'apple', 'google', 'linkedin', 'orcid', 'slack', 'yahoo',
+    ];
+
+    /** Personal-account services which cannot be narrowed to an operator-controlled directory. */
+    private const AUTOMATIC_ADMISSION_BLOCKED_PROFILES = [
+        'apple', 'linkedin', 'orcid', 'yahoo',
+    ];
+
+    /** Authentication-strength tiers with a documented request, enforcement and signed-token evidence path. */
+    private const AUTHENTICATION_REQUIREMENT_CAPABILITIES = [
+        'general' => [AuthenticationRequirement::MULTI_FACTOR, AuthenticationRequirement::PHISHING_RESISTANT],
+        'auth0' => [AuthenticationRequirement::MULTI_FACTOR],
+        'keycloak' => [AuthenticationRequirement::MULTI_FACTOR, AuthenticationRequirement::PHISHING_RESISTANT],
+        'entra' => [AuthenticationRequirement::MULTI_FACTOR, AuthenticationRequirement::PHISHING_RESISTANT],
+        'okta' => [AuthenticationRequirement::MULTI_FACTOR, AuthenticationRequirement::PHISHING_RESISTANT],
     ];
 
     /** Require a fresh provider authentication after four hours by default. */
@@ -247,11 +271,62 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'name' => gettext('Client Secret'),
                 'help' => gettext(
                     'This firewall authenticates as a confidential client. Public clients, which have no ' .
-                    'secret, are not supported.'
+                    'credential, are not supported. A secret is unnecessary when mutual TLS or private-key JWT ' .
+                    'authentication is selected.'
                 ),
                 'type' => 'text',
-                'validate' => fn($value) => !empty(trim((string)$value)) || $this->allowsIncompleteDraft()
+                'validate' => fn($value) => !empty(trim((string)$value)) || !$this->clientSecretIsRequired()
+                    || $this->allowsIncompleteDraft()
                     ? [] : [gettext('A client secret is required.')],
+            ],
+            'openidconnect_signing_certificate' => [
+                'name' => gettext('Client signing certificate'),
+                'help' => gettext(
+                    'An OPNsense certificate with its private key, used only for private_key_jwt client ' .
+                    'authentication. Register its public certificate at the provider before selecting it; ' .
+                    'for rotation, register the replacement first and then change this selection.'
+                ),
+                'type' => 'dropdown',
+                'default' => '',
+                'options' => static::signingCertificateOptions(),
+                'validate' => fn($value) => $this->validateSigningCertificate($value),
+            ],
+            'openidconnect_client_certificate' => [
+                'name' => gettext('Client certificate'),
+                'help' => gettext(
+                    'Select a certificate with its private key from System > Trust > Certificates. Following ' .
+                    'the provider then negotiates only mutual-TLS authentication methods and never falls back ' .
+                    'to a client secret.'
+                ),
+                'type' => 'dropdown',
+                'default' => '',
+                'options' => static::clientCertificateOptions(),
+                'validate' => fn($value) => $this->validateClientCertificateRef($value, false),
+            ],
+            'openidconnect_retiring_client_certificate' => [
+                'name' => gettext('Retiring client certificate'),
+                'help' => gettext(
+                    'During rotation, keep the former certificate here until pending logins and retained ' .
+                    'certificate-bound tokens have expired. New exchanges always use the active certificate.'
+                ),
+                'type' => 'dropdown',
+                'default' => '',
+                'options' => static::clientCertificateOptions(),
+                'validate' => fn($value) => $this->validateClientCertificateRef($value, true),
+            ],
+            'openidconnect_certificate_bound_access_tokens' => [
+                'name' => gettext('Require certificate-bound access tokens'),
+                'help' => gettext(
+                    'Enable only when the provider client is registered for RFC 8705 certificate-bound ' .
+                    'tokens. Discovery must advertise support; UserInfo then uses the exact certificate from ' .
+                    'the token exchange.'
+                ),
+                'type' => 'checkbox',
+                'default' => '0',
+                'validate' => fn($value) => $this->flagValue($value)
+                    && $this->submittedText('openidconnect_client_certificate') === ''
+                    ? [gettext('Certificate-bound access tokens require a client certificate.')]
+                    : [],
             ],
             'openidconnect_token_auth' => [
                 'name' => gettext('Authentication method'),
@@ -264,11 +339,13 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'default' => '',
                 'options' => [
                     '' => gettext('Follow the provider'),
+                    'tls_client_auth' => gettext('Insist on mutual TLS (PKI certificate)'),
+                    'self_signed_tls_client_auth' => gettext('Insist on mutual TLS (self-signed certificate)'),
                     'client_secret_basic' => gettext('Insist on Basic (secret in the header)'),
                     'client_secret_post' => gettext('Insist on POST (secret in the body)'),
+                    'private_key_jwt' => gettext('Insist on private-key JWT (certificate signature)'),
                 ],
-                'validate' => fn($value) => in_array($value, array_merge(self::TOKEN_AUTH_METHODS, ['']), true)
-                    ? [] : [gettext('Unknown authentication method.')],
+                'validate' => fn($value) => $this->validateTokenAuthMethod($value),
             ],
             'openidconnect_par_mode' => [
                 'name' => gettext('Pushed authorization requests'),
@@ -562,7 +639,7 @@ class OpenIDConnect extends Base implements IAuthConnector
                     'service that should take on new users because an identity provider says so.'
                 ),
                 'type' => 'checkbox',
-                'validate' => fn($value) => [],
+                'validate' => fn($value) => $this->validateAutomaticAccountCreation($value),
             ],
             'openidconnect_bootstrap_mode' => [
                 'name' => gettext('Admission policy'),
@@ -581,8 +658,7 @@ class OpenIDConnect extends Base implements IAuthConnector
                     'verified_email' => gettext('Bootstrap by unique verified e-mail'),
                     'either' => gettext('Bootstrap by exact username or unique verified e-mail'),
                 ],
-                'validate' => fn($value) => in_array($value ?: 'strict', self::BOOTSTRAP_MODES, true)
-                    ? [] : [gettext('Unknown admission policy.')],
+                'validate' => fn($value) => $this->validateBootstrapMode($value),
             ],
             'openidconnect_default_groups' => [
                 'name' => gettext('Groups for a new account'),
@@ -1002,6 +1078,110 @@ class OpenIDConnect extends Base implements IAuthConnector
         return ['general' => gettext('Generic OpenID Connect')] + $named;
     }
 
+    /** @return array<string,string> OPNsense certificate refid to administrator-facing label */
+    private static function clientCertificateOptions(): array
+    {
+        $options = ['' => gettext('No client certificate')];
+        foreach (config_read_array('cert') as $certificate) {
+            if (!is_array($certificate) || empty($certificate['refid'])
+                || empty($certificate['crt']) || empty($certificate['prv'])) {
+                continue;
+            }
+            $reference = (string)$certificate['refid'];
+            $description = trim((string)($certificate['descr'] ?? ''));
+            $options[$reference] = $description === ''
+                ? $reference : sprintf('%s (%s)', $description, $reference);
+        }
+        return $options;
+    }
+
+    /** @return array<string,string> */
+    private static function signingCertificateOptions(): array
+    {
+        $options = ['' => gettext('None')];
+        try {
+            $certificates = Config::getInstance()->object()->cert ?? [];
+        } catch (\Throwable $e) {
+            return $options;
+        }
+        $available = [];
+        foreach ($certificates as $certificate) {
+            $reference = (string)($certificate->refid ?? '');
+            if (!preg_match('/^[0-9a-f]{13}$/D', $reference)
+                || trim((string)($certificate->crt ?? '')) === ''
+                || trim((string)($certificate->prv ?? '')) === '') {
+                continue;
+            }
+            $description = trim((string)($certificate->descr ?? ''));
+            $available[$reference] = $description !== '' ? $description : $reference;
+        }
+        natcasesort($available);
+        return $options + $available;
+    }
+
+    private function validateSigningCertificate($value): array
+    {
+        $reference = trim((string)$value);
+        if ($reference === '') {
+            $method = $this->submittedChoice('openidconnect_token_auth', self::TOKEN_AUTH_METHODS, '');
+            return $method !== 'private_key_jwt' || $this->allowsIncompleteDraft()
+                ? [] : [gettext('A client signing certificate is required for private-key JWT authentication.')];
+        }
+        if (!array_key_exists($reference, static::signingCertificateOptions())) {
+            return [gettext('Select an available certificate that has a private key.')];
+        }
+        try {
+            (new ClientAssertion($this))->assertCertificateUsable($reference, ClientAssertion::ALGORITHMS);
+        } catch (\Throwable $e) {
+            return [gettext('Select a usable RSA or supported elliptic-curve certificate with a private key.')];
+        }
+        return [];
+    }
+
+    private function validateClientCertificateRef($value, bool $retiring): array
+    {
+        $reference = trim((string)$value);
+        if ($reference === '') {
+            return [];
+        }
+        if (!array_key_exists($reference, static::clientCertificateOptions())) {
+            return [gettext('Choose an OPNsense certificate which includes its private key.')];
+        }
+        if ($retiring && $this->submittedText('openidconnect_client_certificate') === '') {
+            return [gettext('A retiring certificate requires a different active client certificate.')];
+        }
+        $other = $this->submittedText($retiring
+            ? 'openidconnect_client_certificate' : 'openidconnect_retiring_client_certificate');
+        if ($other !== '' && hash_equals($reference, $other)) {
+            return [gettext('The active and retiring client certificates must be different.')];
+        }
+        try {
+            ClientCertificate::load($reference);
+        } catch (\Throwable $e) {
+            return [gettext('The selected client certificate is invalid, expired, or does not match its private key.')];
+        }
+        return [];
+    }
+
+    private function validateTokenAuthMethod($value): array
+    {
+        $method = trim((string)$value);
+        if (!in_array($method, array_merge(self::TOKEN_AUTH_METHODS, ['']), true)) {
+            return [gettext('Unknown authentication method.')];
+        }
+        if (in_array($method, ['tls_client_auth', 'self_signed_tls_client_auth'], true)
+            && $this->submittedText('openidconnect_client_certificate') === ''
+            && !$this->allowsIncompleteDraft()) {
+            return [gettext('Mutual-TLS authentication requires a client certificate.')];
+        }
+        if ($method === 'private_key_jwt'
+            && $this->submittedText('openidconnect_signing_certificate') === ''
+            && !$this->allowsIncompleteDraft()) {
+            return [gettext('Private-key JWT authentication requires a client signing certificate.')];
+        }
+        return [];
+    }
+
     /**
      * Provider knowledge used by both the settings form and the relying party.
      *
@@ -1011,47 +1191,113 @@ class OpenIDConnect extends Base implements IAuthConnector
      * deliberately defaults to approval for named providers: this makes a first login
      * useful without ever admitting an unknown identity to the WebGUI.
      *
-     * @return array<string,array{values:array<string,string>,locked:string[],placeholders:array<string,string>}>
+     * @return array<string,array{
+     *     values:array<string,string>,
+     *     locked:string[],
+     *     classifications:array<string,string>,
+     *     placeholders:array<string,string>
+     * }>
      */
     public static function providerProfilePresets(): array
     {
         $generic = [
             'openidconnect_provider_url' => '',
             'openidconnect_token_auth' => '',
+            'openidconnect_par_mode' => 'auto',
             'openidconnect_username_claim' => 'preferred_username',
+            'openidconnect_group_claim' => '',
             'openidconnect_claims_source' => 'auto',
             'openidconnect_response_mode' => 'query',
+            'openidconnect_required_authentication' => '',
+            'openidconnect_acr_request' => '',
+            'openidconnect_acr_values' => '',
+            'openidconnect_amr_values' => '',
+            'openidconnect_entra_auth_context' => '',
+            'openidconnect_microsoft_audience' => 'tenant',
             'openidconnect_email_match' => 'verified',
             'openidconnect_scopes' => 'openid,email,profile',
+            'openidconnect_select_account' => '0',
             'openidconnect_bootstrap_mode' => 'strict',
+            'openidconnect_create_users' => '0',
+            'openidconnect_logout_menu' => '0',
+            'openidconnect_logout_redirect' => '0',
+            'openidconnect_logout_notifications' => 'both',
+            'openidconnect_ssf_enabled' => '0',
             'openidconnect_button_text_mode' => 'localized',
             'openidconnect_button_provider_label' => '',
             'openidconnect_button_custom_text' => '',
             'openidconnect_icon_url' => static::providerIconUrl('general'),
             'openidconnect_icon_mode' => 'monochrome',
         ];
-        $named = array_replace($generic, ['openidconnect_bootstrap_mode' => 'approval']);
+        $named = array_replace($generic, [
+            'openidconnect_bootstrap_mode' => 'approval',
+            'openidconnect_logout_notifications' => 'off',
+        ]);
+        $genericClassifications = array_fill_keys(array_keys($generic), 'editable');
+        $genericClassifications['openidconnect_entra_auth_context'] = 'hidden';
+        $genericClassifications['openidconnect_microsoft_audience'] = 'hidden';
+        $namedClassifications = array_fill_keys(array_keys($named), 'recommended');
+        foreach ([
+            'openidconnect_group_claim',
+            'openidconnect_required_authentication',
+            'openidconnect_acr_request',
+            'openidconnect_acr_values',
+            'openidconnect_amr_values',
+            'openidconnect_select_account',
+            'openidconnect_create_users',
+            'openidconnect_logout_menu',
+            'openidconnect_logout_redirect',
+            'openidconnect_logout_notifications',
+            'openidconnect_ssf_enabled',
+        ] as $field) {
+            $namedClassifications[$field] = 'editable';
+        }
+        $namedClassifications['openidconnect_entra_auth_context'] = 'hidden';
+        $namedClassifications['openidconnect_microsoft_audience'] = 'hidden';
         $make = static function (
             array $values = [],
             array $locked = [],
-            string $issuerPlaceholder = 'https://id.example.com'
-        ) use ($named): array {
+            string $issuerPlaceholder = 'https://id.example.com',
+            array $classifications = []
+        ) use ($named, $namedClassifications): array {
+            $selectedClassifications = array_replace($namedClassifications, $classifications);
+            foreach ($locked as $field) {
+                $selectedClassifications[$field] = 'fixed';
+            }
             return [
                 'values' => array_replace($named, $values),
                 'locked' => $locked,
+                'classifications' => $selectedClassifications,
                 'placeholders' => ['openidconnect_provider_url' => $issuerPlaceholder],
             ];
         };
+        $rpLogout = ['openidconnect_logout_menu' => '1'];
+        $rpLogoutClassification = ['openidconnect_logout_menu' => 'recommended'];
 
         $profiles = [
             'general' => [
                 'values' => $generic,
                 'locked' => [],
+                'classifications' => $genericClassifications,
                 'placeholders' => ['openidconnect_provider_url' => 'https://id.example.com'],
             ],
-            'auth0' => $make([], [], 'https://{tenant}.{region}.auth0.com/'),
+            'auth0' => $make(
+                $rpLogout,
+                [],
+                'https://{tenant}.{region}.auth0.com/',
+                $rpLogoutClassification
+            ),
             'authelia' => $make([], [], 'https://auth.example.com'),
-            'authentik' => $make([], [], 'https://auth.example.com/application/o/opnsense/'),
+            'authentik' => $make(
+                array_replace($rpLogout, [
+                    'openidconnect_logout_notifications' => 'backchannel',
+                ]),
+                [],
+                'https://auth.example.com/application/o/opnsense/',
+                array_replace($rpLogoutClassification, [
+                    'openidconnect_logout_notifications' => 'recommended',
+                ])
+            ),
             'cognito' => $make(
                 ['openidconnect_username_claim' => 'cognito:username'],
                 [],
@@ -1063,7 +1309,7 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'https://{host}.duosecurity.com/oidc/{integration-id}'
             ),
             'dex' => $make([], [], 'https://dex.example.com'),
-            'fusionauth' => $make([], [], 'https://auth.example.com'),
+            'fusionauth' => $make($rpLogout, [], 'https://auth.example.com', $rpLogoutClassification),
             'gitlab' => $make(
                 ['openidconnect_provider_url' => 'https://gitlab.com'],
                 [],
@@ -1077,19 +1323,50 @@ class OpenIDConnect extends Base implements IAuthConnector
                 ],
                 ['openidconnect_provider_url']
             ),
-            'ibm_verify' => $make([], [], 'https://{tenant}.verify.ibm.com/oidc/endpoint/default'),
-            'jumpcloud' => $make([], [], 'https://oauth.id.{region}jumpcloud.com/'),
-            'keycloak' => $make([], [], 'https://id.example.com/realms/opnsense'),
-            'entra' => $make(
-                ['openidconnect_claims_source' => 'id_token'],
+            'ibm_verify' => $make(
+                $rpLogout,
                 [],
-                'https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000/v2.0'
+                'https://{tenant}.verify.ibm.com/oidc/endpoint/default',
+                $rpLogoutClassification
             ),
-            'okta' => $make([], [], 'https://{yourOktaDomain}/oauth2/default'),
-            'onelogin' => $make([], [], 'https://{subdomain}.onelogin.com/oidc/2'),
-            'oracle_idcs' => $make([], [], 'https://{identity-domain}.identity.oraclecloud.com'),
-            'ping' => $make([], [], 'https://auth.example.com/as'),
-            'pocketid' => $make([], [], 'https://id.example.com'),
+            'jumpcloud' => $make([], [], 'https://oauth.id.{region}jumpcloud.com/'),
+            'keycloak' => $make(
+                array_replace($rpLogout, [
+                    'openidconnect_logout_notifications' => 'backchannel',
+                ]),
+                [],
+                'https://id.example.com/realms/opnsense',
+                array_replace($rpLogoutClassification, [
+                    'openidconnect_logout_notifications' => 'recommended',
+                ])
+            ),
+            'entra' => $make(
+                array_replace($rpLogout, ['openidconnect_claims_source' => 'id_token']),
+                [],
+                'https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000/v2.0',
+                [
+                    'openidconnect_acr_request' => 'hidden',
+                    'openidconnect_acr_values' => 'hidden',
+                    'openidconnect_entra_auth_context' => 'editable',
+                    'openidconnect_microsoft_audience' => 'recommended',
+                    'openidconnect_logout_menu' => 'recommended',
+                ]
+            ),
+            'okta' => $make($rpLogout, [], 'https://{yourOktaDomain}/oauth2/default', $rpLogoutClassification),
+            'onelogin' => $make(
+                $rpLogout,
+                [],
+                'https://{subdomain}.onelogin.com/oidc/2',
+                $rpLogoutClassification
+            ),
+            'oracle_idcs' => $make(
+                $rpLogout,
+                [],
+                'https://{identity-domain}.identity.oraclecloud.com',
+                $rpLogoutClassification
+            ),
+            'ping' => $make($rpLogout, [], 'https://auth.example.com/as', $rpLogoutClassification),
+            'pocketid' => $make($rpLogout, [], 'https://id.example.com', $rpLogoutClassification),
             'apple' => $make(
                 [
                     'openidconnect_provider_url' => 'https://appleid.apple.com',
@@ -1106,8 +1383,8 @@ class OpenIDConnect extends Base implements IAuthConnector
                     'openidconnect_response_mode',
                 ]
             ),
-            'wso2' => $make([], [], 'https://id.example.com/oauth2/token'),
-            'zitadel' => $make([], [], 'https://id.example.com'),
+            'wso2' => $make($rpLogout, [], 'https://id.example.com/oauth2/token', $rpLogoutClassification),
+            'zitadel' => $make($rpLogout, [], 'https://id.example.com', $rpLogoutClassification),
             'linkedin' => $make(
                 [
                     'openidconnect_provider_url' => 'https://www.linkedin.com/oauth',
@@ -1146,6 +1423,20 @@ class OpenIDConnect extends Base implements IAuthConnector
         ];
         foreach ($profiles as $profile => &$preset) {
             $preset['values']['openidconnect_icon_url'] = static::providerIconUrl($profile);
+            if (!isset(self::AUTHENTICATION_REQUIREMENT_CAPABILITIES[$profile])) {
+                $preset['values']['openidconnect_required_authentication'] = '';
+                $preset['values']['openidconnect_acr_request'] = '';
+                $preset['values']['openidconnect_acr_values'] = '';
+                $preset['values']['openidconnect_amr_values'] = '';
+                $preset['classifications']['openidconnect_required_authentication'] = 'unsupported';
+                $preset['classifications']['openidconnect_acr_request'] = 'hidden';
+                $preset['classifications']['openidconnect_acr_values'] = 'hidden';
+                $preset['classifications']['openidconnect_amr_values'] = 'hidden';
+            }
+            if (in_array($profile, self::ACCOUNT_CREATION_BLOCKED_PROFILES, true)) {
+                $preset['values']['openidconnect_create_users'] = '0';
+                $preset['classifications']['openidconnect_create_users'] = 'unsupported';
+            }
             if (isset(self::FIXED_PROVIDER_BUTTON_LABELS[$profile])) {
                 $preset['values']['openidconnect_button_text_mode'] = 'label_only';
                 $preset['values']['openidconnect_button_provider_label'] =
@@ -1155,6 +1446,8 @@ class OpenIDConnect extends Base implements IAuthConnector
                     'openidconnect_button_text_mode',
                     'openidconnect_button_provider_label',
                 ])));
+                $preset['classifications']['openidconnect_button_text_mode'] = 'fixed';
+                $preset['classifications']['openidconnect_button_provider_label'] = 'fixed';
             }
         }
         unset($preset);
@@ -1169,19 +1462,34 @@ class OpenIDConnect extends Base implements IAuthConnector
      */
     public static function authenticationRequirementPresets(): array
     {
+        $generic = [
+            AuthenticationRequirement::MULTI_FACTOR => [
+                'request' => AuthenticationRequirement::ESSENTIAL_CLAIM,
+                'acr' => 'https://refeds.org/profile/mfa',
+                'amr' => 'mfa,pwd,pin,kba,otp,hwk,sc,sms,swk,tel,pop,face,fpt,iris,retina,vbm',
+            ],
+            AuthenticationRequirement::PHISHING_RESISTANT => [
+                'request' => AuthenticationRequirement::ESSENTIAL_CLAIM,
+                'acr' => 'phr,phrh',
+                'amr' => 'pop,hwk,swk',
+            ],
+        ];
         return [
-            'general' => [
+            'general' => $generic,
+            'auth0' => [
                 AuthenticationRequirement::MULTI_FACTOR => [
-                    'request' => AuthenticationRequirement::ESSENTIAL_CLAIM,
-                    'acr' => 'https://refeds.org/profile/mfa',
-                    'amr' => 'mfa,pwd,pin,kba,otp,hwk,sc,sms,swk,tel,pop,face,fpt,iris,retina,vbm',
+                    'request' => AuthenticationRequirement::ACR_VALUES,
+                    'acr' => 'http://schemas.openid.net/pape/policies/2007/06/multi-factor',
+                    'amr' => 'mfa',
                 ],
+            ],
+            'keycloak' => array_replace($generic, [
                 AuthenticationRequirement::PHISHING_RESISTANT => [
                     'request' => AuthenticationRequirement::ESSENTIAL_CLAIM,
                     'acr' => 'phr,phrh',
-                    'amr' => 'pop,hwk,swk',
+                    'amr' => 'fido,pop,hwk,swk',
                 ],
-            ],
+            ]),
             'okta' => [
                 AuthenticationRequirement::MULTI_FACTOR => [
                     'request' => AuthenticationRequirement::ACR_VALUES,
@@ -1223,6 +1531,24 @@ class OpenIDConnect extends Base implements IAuthConnector
         return self::FIXED_PROVIDER_BUTTON_LABELS;
     }
 
+    /** @return string[] profiles whose public population cannot create local accounts automatically */
+    public static function accountCreationBlockedProfiles(): array
+    {
+        return self::ACCOUNT_CREATION_BLOCKED_PROFILES;
+    }
+
+    /** @return string[] profiles limited to strict or administrator-approved admission */
+    public static function automaticAdmissionBlockedProfiles(): array
+    {
+        return self::AUTOMATIC_ADMISSION_BLOCKED_PROFILES;
+    }
+
+    /** @return array<string,string[]> provider profiles and their documented authentication-strength tiers */
+    public static function authenticationRequirementCapabilities(): array
+    {
+        return self::AUTHENTICATION_REQUIREMENT_CAPABILITIES;
+    }
+
     /** Resolve a profile name to one package-owned SVG without accepting a filesystem path. */
     public static function providerIconPath(string $profile): ?string
     {
@@ -1262,7 +1588,31 @@ class OpenIDConnect extends Base implements IAuthConnector
             'sectorOffLabel' => gettext('Off'),
             'profilePresets' => static::providerProfilePresets(),
             'authenticationRequirementPresets' => static::authenticationRequirementPresets(),
+            'authenticationRequirementCapabilities' => static::authenticationRequirementCapabilities(),
             'fixedButtonProfiles' => array_keys(static::fixedProviderButtonLabels()),
+            'accountCreationBlockedProfiles' => static::accountCreationBlockedProfiles(),
+            'automaticAdmissionBlockedProfiles' => static::automaticAdmissionBlockedProfiles(),
+            'publicPopulationAccountCreationHelp' => gettext(
+                'Automatic local-account creation is unavailable for this public provider population. ' .
+                'Pre-create and bind the account, or use Administrator approval.'
+            ),
+            'publicPopulationAdmissionHelp' => gettext(
+                'This public provider population permits only Strict or Administrator approval. Automatic ' .
+                'username or e-mail admission could bind an unrelated external identity to this firewall.'
+            ),
+            'authenticationRequirementUnsupportedHelp' => gettext(
+                'This provider profile has no documented end-to-end authentication-strength setup compatible ' .
+                'with this plugin. Provider policy only is enforced.'
+            ),
+            'authenticationRequirementMicrosoftTenantHelp' => gettext(
+                'Required authentication is available only for one specific Entra tenant because Microsoft ' .
+                'authentication contexts c1-c25 have tenant-local meaning. Provider policy only is enforced ' .
+                'for this broader account audience.'
+            ),
+            'authenticationRequirementManualHelp' => gettext(
+                'This requirement needs the provider-side flow and signed-token evidence described in the ' .
+                'provider guide. Download provider setup does not create that flow.'
+            ),
             'configuredFields' => array_values(array_filter(
                 array_keys($this->settings),
                 static fn($name) => str_starts_with((string)$name, 'openidconnect_')
@@ -1278,6 +1628,9 @@ class OpenIDConnect extends Base implements IAuthConnector
             ),
             'profileFixedLabel' => gettext('Fixed by the selected provider profile'),
             'profileRecommendedLabel' => gettext('Recommended by the selected provider profile; editable'),
+            'profileEditableLabel' => gettext('Available for this provider; no provider-specific default'),
+            'profileHiddenLabel' => gettext('Used only by another provider profile'),
+            'profileUnsupportedLabel' => gettext('Not supported by the selected provider profile'),
             'profileRequiredLabel' => gettext('Enter the value issued by this provider'),
             'profileRestoreLabel' => gettext('Restore profile defaults'),
             'testLabel' => gettext('Test discovery'),
@@ -1288,49 +1641,85 @@ class OpenIDConnect extends Base implements IAuthConnector
             'resultLabel' => gettext('Result'),
             'statusLabel' => gettext('Status'),
             'statusPassed' => gettext('Passed'),
-            'statusWarning' => gettext('Warning'),
-            'statusInformation' => gettext('Information'),
+            'statusWarning' => gettext('Needs attention'),
+            'statusInformation' => gettext('Not checked'),
             'statusFailed' => gettext('Failed'),
+            'diagnosticsActionsHeading' => gettext('Test and diagnostics'),
+            'identityActionsHeading' => gettext('Identity management'),
+            'providerSetupActionsHeading' => gettext('Provider setup'),
+            'detailsLabel' => gettext('Show details'),
+            'hideDetailsLabel' => gettext('Hide details'),
+            'sourceLabel' => gettext('Source'),
+            'executionLabel' => gettext('Execution'),
+            'readinessHeading' => gettext('Readiness'),
+            'notOfferedHeading' => gettext('Not offered by the provider'),
+            'notOfferedHelp' => gettext(
+                'Optional capabilities absent from the live Discovery document. A capability required by the ' .
+                'current configuration remains under Readiness instead.'
+            ),
             'actors' => [
                 'opnsense' => gettext('OPNsense'),
                 'browser' => gettext('Browser'),
                 'idp' => gettext('IdP'),
             ],
             'actorFlowSeparator' => gettext('to'),
-            'verification' => [
-                'live' => gettext('Live request from OPNsense'),
-                'metadata' => gettext('Checked from live Discovery metadata'),
-                'configuration' => gettext('Checked against the current form'),
-                'not-tested' => gettext('Advertised; not exercised here'),
-                'skipped' => gettext('Skipped by configuration'),
+            'verificationSources' => [
+                'live' => gettext('Live provider response'),
+                'metadata' => gettext('Live Discovery document'),
+                'configuration' => gettext('Current form values'),
+                'not-tested' => gettext('Live Discovery document'),
+                'skipped' => gettext('Current configuration and the named covering check'),
+            ],
+            'verificationExecution' => [
+                'live' => gettext('A live request for this path was sent now.'),
+                'metadata' => gettext(
+                    'No separate endpoint call was needed; the advertised capability was validated against ' .
+                    'the current configuration.'
+                ),
+                'configuration' => gettext(
+                    'No provider call was needed; the current form values were validated locally.'
+                ),
+                'not-tested' => gettext(
+                    'The endpoint was not called because it needs an interactive browser sign-in, an ' .
+                    'authorization code, a token, or a logout session. Test sign-in covers the sign-in paths.'
+                ),
+                'skipped' => gettext(
+                    'No separate request was sent because another configured check covers this path.'
+                ),
             ],
             'testHelp' => gettext(
-                'Live server-side preflight of Discovery, JWKS and, when configured, authenticated PAR. ' .
-                'The browser does not need the Discovery URL; Test sign-in checks its authorization path. ' .
-                'Saving remains independent of this test.'
+                'Live server-side preflight of Discovery, JWKS, the public authorization registration and, ' .
+                'when configured, authenticated PAR. The browser does not need the Discovery URL; Test sign-in ' .
+                'still checks the complete authorization path. Saving remains independent of this test.'
             ),
             'healthTestLabel' => gettext('Connection health'),
             'healthTestingLabel' => gettext('Checking...'),
             'healthTestHelp' => gettext(
-                'Uses the current form values for live Discovery, JWKS and, when available, authenticated PAR. ' .
-                'Saving is not required; Test sign-in exercises the browser and token paths.'
+                'Uses the current form values for live Discovery, JWKS, a silent authorization-registration ' .
+                'check and, when available, authenticated PAR. Saving is not required; Test sign-in exercises ' .
+                'the browser and token paths.'
             ),
             'healthTestIncompleteHelp' => gettext(
-                'Enter Exact issuer URL, Client ID and Client Secret to check connection health. ' .
+                'Enter Exact issuer URL, Client ID and a configured client credential to check connection health. ' .
                 'Saving is not required.'
             ),
             'signInTestLabel' => gettext('Test sign-in'),
             'signInTestHelp' => gettext(
-                'Runs the real browser flow and validates PKCE, the code exchange, ID Token and configured ' .
-                'claims source. It does not change the current WebGUI session, local accounts, subject bindings ' .
-                'or groups. The identity provider may retain its own SSO session. The generic System > Access > ' .
-                'Tester supports username/password connectors only and cannot test OpenID Connect.'
+                'Checks the public client registration before leaving this form, then runs the real browser flow ' .
+                'and validates PKCE, the code exchange, ID Token and configured claims source. A rejected token ' .
+                'credential returns a dedicated result here. The test does not change the current WebGUI session, ' .
+                'local accounts, subject bindings or groups. The identity provider may retain its own SSO session. ' .
+                'The generic System > Access > Tester supports username/password connectors only.'
             ),
             'signInTestSaveHelp' => gettext(
                 'Save this authentication server first. Saving remains independent of both tests.'
             ),
+            'signInTestUnsavedHelp' => gettext(
+                'Save or revert all unsaved changes before testing sign-in. The test always uses the saved server.'
+            ),
             'signInTestIncompleteHelp' => gettext(
-                'Complete and save `Exact issuer URL`, `Client ID` and `Client Secret` before testing sign-in.'
+                'Complete and save `Exact issuer URL`, `Client ID` and the selected client credential before ' .
+                'testing sign-in.'
             ),
             'signInTestTransportHelp' => gettext(
                 'OpenID Connect sign-in is blocked until the WebGUI uses HTTPS or the saved trusted ' .
@@ -1365,6 +1754,7 @@ class OpenIDConnect extends Base implements IAuthConnector
             'bindingLegacy' => gettext('Legacy mapping; save an edit to normalize it'),
             'bindingSave' => gettext('Save binding'),
             'bindingCancel' => gettext('Cancel'),
+            'bindingBack' => gettext('Back to bound identities'),
             'bindingEditorNew' => gettext('Add an identity'),
             'bindingEditorEdit' => gettext('Edit identity binding'),
             'bindingValidation' => gettext(
@@ -1525,6 +1915,7 @@ class OpenIDConnect extends Base implements IAuthConnector
             'originPolicy' => $this->originPolicy(),
             'webGuiProtocol' => $this->nativeWebGuiUsesHttps() ? 'https' : 'http',
             'webGuiTransportReady' => $this->isWebGuiTransportReady(),
+            'signInTestReady' => $this->isSignInTestReady(),
             'tlsOffloadingBlocked' => gettext(
                 'OpenID Connect is blocked while the OPNsense WebGUI uses HTTP. Prefer native HTTPS. If one ' .
                 'trusted reverse proxy is the only route to this backend, enable the advanced TLS-offloading ' .
@@ -1589,10 +1980,17 @@ class OpenIDConnect extends Base implements IAuthConnector
                 ? get_themed_filename('/css/tokenize2.css') : '/ui/css/tokenize2.css',
         ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 
+        $scriptHash = @hash_file('sha256', $assets . 'settings-form.js');
+        $scriptVersion = is_string($scriptHash) ? substr($scriptHash, 0, 16) : 'missing';
+
         return '<style>.auth_openidconnect:has(#help_for_field_openidconnect___openidconnect_form){display:none !important}'
             . @file_get_contents($assets . 'settings-form.css') . '</style>'
             . '<script>window.__oidcForm = ' . $options . ';</script>'
-            . '<script>' . @file_get_contents($assets . 'settings-form.js') . '</script>';
+            // Keeping the growing form application inline eventually makes core's
+            // generated authentication-server page end before its submit button.
+            // A content-addressed same-origin resource keeps the per-server options
+            // inline while letting the static code load independently and cache safely.
+            . '<script src="/api/openidconnect/auth/formscript?v=' . $scriptVersion . '"></script>';
     }
 
     /* ------------------------------------------------------------ local accounts */
@@ -1727,13 +2125,20 @@ class OpenIDConnect extends Base implements IAuthConnector
     public function approvableAccounts(): array
     {
         $accounts = [];
+        $boundUids = [];
+        foreach ($this->subjectBindingRecords() as $binding) {
+            $boundUid = (string)($binding['uid'] ?? '');
+            if ($boundUid !== '') {
+                $boundUids[$boundUid] = true;
+            }
+        }
         foreach (Config::getInstance()->object()->system->user ?? [] as $user) {
             if (!$this->accountMayBeUsed($user)) {
                 continue;
             }
             $uid = (string)($user->uid ?? '');
             $name = (string)($user->name ?? '');
-            if ($uid !== '' && ctype_digit($uid) && $name !== '') {
+            if ($uid !== '' && ctype_digit($uid) && $name !== '' && !isset($boundUids[$uid])) {
                 $accounts[] = ['uid' => $uid, 'name' => $name];
             }
         }
@@ -1898,7 +2303,7 @@ class OpenIDConnect extends Base implements IAuthConnector
             || !is_string($record['issuer'] ?? null) || !is_string($record['subject'] ?? null)) {
             return false;
         }
-        if (!$this->persistBinding($record['issuer'], $record['subject'], $user)) {
+        if (!$this->createSubjectBinding($record['issuer'], $record['subject'], $uid)) {
             return false;
         }
         PendingIdentityRegistry::remove($requestId, $this->applicationCode());
@@ -2202,7 +2607,8 @@ class OpenIDConnect extends Base implements IAuthConnector
             $issuer,
             $subject,
             $right,
-            $canonical
+            $canonical,
+            $uid
         ): ?array {
             if ($bindingId !== '') {
                 $matches = array_keys(array_filter($lines, static fn(string $line): bool =>
@@ -2221,6 +2627,11 @@ class OpenIDConnect extends Base implements IAuthConnector
                 [$existingIssuer, $existingSubject] = $this->bindingIdentity($parts[0]);
                 if (hash_equals($issuer, $existingIssuer) && hash_equals($subject, $existingSubject)) {
                     return hash_equals($right, $parts[1]) ? $lines : null;
+                }
+                $existingUser = str_starts_with($parts[1], 'uid:')
+                    ? $this->userByUid(substr($parts[1], 4)) : $this->getUser($parts[1]);
+                if ($existingUser !== null && hash_equals($uid, (string)($existingUser->uid ?? ''))) {
+                    return null;
                 }
             }
             $lines[] = $canonical;
@@ -2416,6 +2827,11 @@ class OpenIDConnect extends Base implements IAuthConnector
         return !empty($this->settings[$key]);
     }
 
+    private function flagValue($value): bool
+    {
+        return !empty($value);
+    }
+
     private function choice(string $key, array $allowed, string $default): string
     {
         $value = $this->text($key);
@@ -2549,17 +2965,58 @@ class OpenIDConnect extends Base implements IAuthConnector
         if (!in_array($value, array_merge(self::REQUIRED_AUTHENTICATION, ['']), true)) {
             return [gettext('Unknown required authentication policy.')];
         }
-        if ($value !== '' && $this->submittedChoice(
+        if ($value === '') {
+            return [];
+        }
+        $profile = $this->submittedChoice(
             'openidconnect_provider_profile',
             self::PROVIDER_PROFILES,
             'general'
-        ) === 'entra' && $this->submittedChoice(
+        );
+        if (!static::providerSupportsAuthenticationRequirement($profile, $value)) {
+            return [gettext(
+                'The selected provider profile has no documented end-to-end setup for this authentication requirement.'
+            )];
+        }
+        if ($profile === 'entra' && $this->submittedChoice(
             'openidconnect_microsoft_audience',
             self::MICROSOFT_AUDIENCES,
             'tenant'
         ) !== 'tenant') {
             return [gettext(
                 'Microsoft authentication contexts require One specific Entra tenant because c1-c25 have tenant-local meaning.'
+            )];
+        }
+        return [];
+    }
+
+    private static function providerSupportsAuthenticationRequirement(string $profile, string $tier): bool
+    {
+        return in_array($tier, self::AUTHENTICATION_REQUIREMENT_CAPABILITIES[$profile] ?? [], true);
+    }
+
+    private function validateAutomaticAccountCreation($value): array
+    {
+        if (!static::settingFlag($value) || $this->submittedProviderAllowsAutomaticAccountCreation()) {
+            return [];
+        }
+        return [gettext(
+            'Automatic local-account creation is not available for this public provider population. ' .
+            'Pre-create and bind the account, or use Administrator approval.'
+        )];
+    }
+
+    private function validateBootstrapMode($value): array
+    {
+        $mode = trim((string)$value) ?: 'strict';
+        if (!in_array($mode, self::BOOTSTRAP_MODES, true)) {
+            return [gettext('Unknown admission policy.')];
+        }
+        if (in_array($mode, ['username', 'verified_email', 'either'], true)
+            && !$this->submittedProviderAllowsAutomaticAdmission()) {
+            return [gettext(
+                'Automatic admission is not available for this public provider population. ' .
+                'Select Strict or Administrator approval.'
             )];
         }
         return [];
@@ -2599,10 +3056,64 @@ class OpenIDConnect extends Base implements IAuthConnector
 
     private function submittedChoice(string $field, array $allowed, string $default): string
     {
-        $value = isset($_POST['type']) && (string)$_POST['type'] === self::TYPE
+        $value = $this->submittedText($field);
+        return in_array($value, $allowed, true) ? $value : $default;
+    }
+
+    private function submittedText(string $field): string
+    {
+        return isset($_POST['type']) && (string)$_POST['type'] === self::TYPE
             ? trim((string)($_POST[$field] ?? ''))
             : $this->text($field);
-        return in_array($value, $allowed, true) ? $value : $default;
+    }
+
+    private static function settingFlag($value): bool
+    {
+        return in_array(strtolower(trim((string)$value)), ['1', 'yes', 'true', 'on'], true);
+    }
+
+    private function submittedProviderAllowsAutomaticAccountCreation(): bool
+    {
+        return static::providerAllowsAutomaticAccountCreation(
+            $this->submittedChoice('openidconnect_provider_profile', self::PROVIDER_PROFILES, 'general'),
+            $this->submittedChoice('openidconnect_microsoft_audience', self::MICROSOFT_AUDIENCES, 'tenant'),
+            $this->submittedText('openidconnect_provider_url')
+        );
+    }
+
+    private function submittedProviderAllowsAutomaticAdmission(): bool
+    {
+        return static::providerAllowsAutomaticAdmission(
+            $this->submittedChoice('openidconnect_provider_profile', self::PROVIDER_PROFILES, 'general'),
+            $this->submittedChoice('openidconnect_microsoft_audience', self::MICROSOFT_AUDIENCES, 'tenant'),
+            $this->submittedText('openidconnect_provider_url')
+        );
+    }
+
+    private static function providerAllowsAutomaticAccountCreation(
+        string $profile,
+        string $microsoftAudience,
+        string $issuer
+    ): bool {
+        return !in_array($profile, self::ACCOUNT_CREATION_BLOCKED_PROFILES, true)
+            && !($profile === 'entra' && $microsoftAudience !== 'tenant')
+            && !static::isPublicGitLabIssuer($profile, $issuer);
+    }
+
+    private static function providerAllowsAutomaticAdmission(
+        string $profile,
+        string $microsoftAudience,
+        string $issuer
+    ): bool {
+        return !in_array($profile, self::AUTOMATIC_ADMISSION_BLOCKED_PROFILES, true)
+            && !($profile === 'entra' && $microsoftAudience !== 'tenant')
+            && !static::isPublicGitLabIssuer($profile, $issuer);
+    }
+
+    private static function isPublicGitLabIssuer(string $profile, string $issuer): bool
+    {
+        return $profile === 'gitlab'
+            && rtrim(ProviderMetadata::normalizeIssuerInput($issuer), '/') === 'https://gitlab.com';
     }
 
     private function submittedButtonTextMode(): string
@@ -2973,7 +3484,24 @@ class OpenIDConnect extends Base implements IAuthConnector
         return $this->choice('openidconnect_provider_profile', self::PROVIDER_PROFILES, 'general');
     }
 
-    /** @return array{values:array<string,string>,locked:string[],placeholders:array<string,string>} */
+    /** Whether this profile documents RFC 9449 sender-constrained access tokens. */
+    public function supportsDpopAccessTokens(): bool
+    {
+        /* authentik 2026.8 advertises the DPoP algorithm for its bound_key
+         * extension, which binds an ID Token while its access token remains Bearer.
+         * Treating that metadata as RFC 9449 access-token support would either fail
+         * authorization without the proprietary scope or accept a Bearer downgrade. */
+        return $this->providerProfile() !== 'authentik';
+    }
+
+    /**
+     * @return array{
+     *     values:array<string,string>,
+     *     locked:string[],
+     *     classifications:array<string,string>,
+     *     placeholders:array<string,string>
+     * }
+     */
     private function providerPreset(): array
     {
         $presets = static::providerProfilePresets();
@@ -3014,6 +3542,72 @@ class OpenIDConnect extends Base implements IAuthConnector
         return $this->text('openidconnect_client_secret');
     }
 
+    public function signingCertificate(): string
+    {
+        return $this->text('openidconnect_signing_certificate');
+    }
+
+    public function hasClientAuthenticationCredential(): bool
+    {
+        $method = $this->tokenAuthMethod();
+        if ($method === 'private_key_jwt') {
+            return $this->signingCertificate() !== '';
+        }
+        if (in_array($method, ['tls_client_auth', 'self_signed_tls_client_auth'], true)) {
+            return $this->clientCertificateRef() !== '';
+        }
+        if (in_array($method, ['client_secret_basic', 'client_secret_post'], true)) {
+            return $this->clientSecret() !== '';
+        }
+        return $this->clientCertificateRef() !== ''
+            || $this->signingCertificate() !== '' || $this->clientSecret() !== '';
+    }
+
+    /** @param string[] $advertised @return string[] */
+    public function clientAssertionAlgorithms(string $metadataField, array $advertised): array
+    {
+        if ($advertised !== []) {
+            return $advertised;
+        }
+        /* Entra omits the RFC 8414 list but documents PS256 for certificate credentials. */
+        return $this->providerProfile() === 'entra'
+            && $metadataField === 'token_endpoint_auth_signing_alg_values_supported' ? ['PS256'] : [];
+    }
+
+    public function clientCertificateRef(): string
+    {
+        return $this->text('openidconnect_client_certificate');
+    }
+
+    public function retiringClientCertificateRef(): string
+    {
+        return $this->text('openidconnect_retiring_client_certificate');
+    }
+
+    public function acceptsClientCertificateRef(string $reference): bool
+    {
+        return $reference !== '' && (
+            hash_equals($this->clientCertificateRef(), $reference)
+            || ($this->retiringClientCertificateRef() !== ''
+                && hash_equals($this->retiringClientCertificateRef(), $reference))
+        );
+    }
+
+    public function certificateBoundAccessTokens(): bool
+    {
+        return $this->flag('openidconnect_certificate_bound_access_tokens');
+    }
+
+    private function clientSecretIsRequired(): bool
+    {
+        $method = $this->submittedChoice('openidconnect_token_auth', self::TOKEN_AUTH_METHODS, '');
+        return !in_array($method, ['tls_client_auth', 'self_signed_tls_client_auth', 'private_key_jwt'], true)
+            && !($method === '' && (
+                $this->submittedText('openidconnect_client_certificate') !== ''
+                || $this->submittedText('openidconnect_signing_certificate') !== ''
+            ));
+    }
+
     public function requestObjectSigningKey(): string
     {
         $reference = $this->text('openidconnect_request_object_key');
@@ -3043,8 +3637,25 @@ class OpenIDConnect extends Base implements IAuthConnector
     /** A browser sign-in test always uses the saved confidential-client configuration. */
     public function isSignInTestReady(): bool
     {
-        return $this->isWebGuiTransportReady()
-            && $this->issuerUrl() !== '' && $this->clientId() !== '' && $this->clientSecret() !== '';
+        if (!$this->isWebGuiTransportReady() || $this->issuerUrl() === '' || $this->clientId() === '') {
+            return false;
+        }
+        if (!$this->hasClientAuthenticationCredential()) {
+            return false;
+        }
+        $method = $this->tokenAuthMethod();
+        $needsCertificate = $this->certificateBoundAccessTokens()
+            || in_array($method, ['tls_client_auth', 'self_signed_tls_client_auth'], true)
+            || ($method === null && $this->clientCertificateRef() !== '');
+        if (!$needsCertificate) {
+            return true;
+        }
+        try {
+            ClientCertificate::load($this->clientCertificateRef());
+            return true;
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
     /** Whether OPNsense itself is configured to serve the WebGUI over HTTPS. */
@@ -3142,9 +3753,13 @@ class OpenIDConnect extends Base implements IAuthConnector
         }
 
         $profile = $this->providerProfile();
+        if (!static::providerSupportsAuthenticationRequirement($profile, $tier)) {
+            throw new \OPNsense\OpenIDConnect\ProtocolException(
+                'The selected provider profile cannot enforce the configured authentication requirement'
+            );
+        }
         $presets = static::authenticationRequirementPresets();
-        $presetProfile = in_array($profile, ['okta', 'entra'], true) ? $profile : 'general';
-        $preset = $presets[$presetProfile][$tier];
+        $preset = $presets[$profile][$tier];
         $methods = static::splitList($this->rawText('openidconnect_amr_values'));
         if ($methods === []) {
             $methods = static::splitList($preset['amr']);
@@ -3186,14 +3801,14 @@ class OpenIDConnect extends Base implements IAuthConnector
     }
     public function bootstrapMode(): string
     {
-        if ($this->legacyBootstrapDefault() === 'either') {
-            return 'either';
-        }
-        return $this->choice(
+        $legacyDefault = $this->legacyBootstrapDefault();
+        $mode = $legacyDefault === 'either' ? 'either' : $this->choice(
             'openidconnect_bootstrap_mode',
             self::BOOTSTRAP_MODES,
-            $this->profileDefault('openidconnect_bootstrap_mode', $this->legacyBootstrapDefault())
+            $this->profileDefault('openidconnect_bootstrap_mode', $legacyDefault)
         );
+        return in_array($mode, ['username', 'verified_email', 'either'], true)
+            && !$this->allowsAutomaticAdmission() ? 'approval' : $mode;
     }
 
     /** Existing beta configurations predate the admission-policy field and matched either local identifier. */
@@ -3420,7 +4035,25 @@ class OpenIDConnect extends Base implements IAuthConnector
 
     public function createsUsers(): bool
     {
-        return $this->flag('openidconnect_create_users');
+        return $this->allowsAutomaticAccountCreation() && $this->flag('openidconnect_create_users');
+    }
+
+    public function allowsAutomaticAccountCreation(): bool
+    {
+        return static::providerAllowsAutomaticAccountCreation(
+            $this->providerProfile(),
+            $this->microsoftAudience(),
+            $this->issuerUrl()
+        );
+    }
+
+    public function allowsAutomaticAdmission(): bool
+    {
+        return static::providerAllowsAutomaticAdmission(
+            $this->providerProfile(),
+            $this->microsoftAudience(),
+            $this->issuerUrl()
+        );
     }
 
     /** @return string when an e-mail address may stand in for the username claim */

@@ -46,18 +46,20 @@ and [Page requirement](https://www.linkedin.com/help/linkedin/answer/a1667239),
 
 | Provider | Profile | Account population | Safe admission choice |
 |---|---|---|---|
-| Apple | Apple | personal Apple accounts | Administrator approval |
-| GitLab | GitLab.com, Self-Managed or Dedicated | personal GitLab.com accounts or a controlled instance population | Administrator approval for GitLab.com; controlled matching may suit a managed instance |
-| Google | Google / Google Workspace | personal and managed Workspace accounts | Administrator approval, or controlled Workspace username matching |
-| LinkedIn | LinkedIn | personal LinkedIn accounts | Administrator approval |
-| Microsoft | Microsoft Entra ID / Microsoft account | selectable tenant, all organizations, personal accounts, or both | Administrator approval for broad audiences; strict or controlled matching for one tenant |
-| ORCID | ORCID | researcher identities | Administrator approval; `sub` is the useful identifier |
-| Slack | Slack | members of Slack workspaces in which the app is usable | Administrator approval unless workspace and claims are independently restricted |
-| Yahoo | Yahoo | personal Yahoo accounts | Administrator approval |
+| Apple | Apple | personal Apple accounts | Strict or Administrator approval; account creation unavailable |
+| GitLab | GitLab.com, Self-Managed or Dedicated | personal GitLab.com accounts or a controlled instance population | Strict/Approval and no account creation on GitLab.com; assessed automatic choices on a managed instance |
+| Google | Google / Google Workspace | personal and managed Workspace accounts | Approval or controlled Workspace matching; account creation unavailable |
+| LinkedIn | LinkedIn | personal LinkedIn accounts | Strict or Administrator approval; account creation unavailable |
+| Microsoft | Microsoft Entra ID / Microsoft account | selectable tenant, all organizations, personal accounts, or both | Strict/Approval and no account creation for broad audiences; assessed automatic choices for one tenant |
+| ORCID | ORCID | researcher identities | Strict or Administrator approval; account creation unavailable; `sub` is the useful identifier |
+| Slack | Slack | members of Slack workspaces in which the app is usable | Approval or controlled workspace matching; account creation unavailable |
+| Yahoo | Yahoo | personal Yahoo accounts | Strict or Administrator approval; account creation unavailable |
 
 Apple Private Relay and every other unfamiliar first identity use the same
 [administrator approval workflow](../setup/admission-policy.md). Do not turn
-on automatic local-account creation simply to make a social login work.
+on automatic local-account creation simply to make a social login work. The
+form removes that choice where the selected provider population cannot safely
+support it.
 
 ## Excluded services
 

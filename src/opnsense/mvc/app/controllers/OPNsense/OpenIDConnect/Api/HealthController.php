@@ -31,7 +31,8 @@ class HealthController extends PrivateApiControllerBase
             $settings = ProviderProbe::settings($this->formValues());
             $redirectUri = RelyingParty::acceptedRedirectUri($settings, $this->request);
             $checks = ProviderProbe::healthReadiness($settings, $redirectUri);
-            if ($settings->issuerUrl() === '' || $settings->clientId() === '' || $settings->clientSecret() === '') {
+            if ($settings->issuerUrl() === '' || $settings->clientId() === ''
+                || !$settings->hasClientAuthenticationCredential()) {
                 return ProviderProbe::answer(
                     $checks,
                     gettext('Connection health accepted'),
@@ -39,7 +40,7 @@ class HealthController extends PrivateApiControllerBase
                     gettext('Connection health has %d failure(s)')
                 );
             }
-            $providerChecks = (new ProviderProbe(new HttpClient()))->checks($settings, $redirectUri);
+            $providerChecks = $this->providerProbe()->checks($settings, $redirectUri);
             $checks = array_merge($checks, $providerChecks);
             $par = end($providerChecks);
             if (is_array($par)) {
@@ -136,6 +137,11 @@ class HealthController extends PrivateApiControllerBase
         } catch (\Throwable $e) {
             return ['status' => 'error', 'message' => gettext('Connectivity status is unavailable.')];
         }
+    }
+
+    protected function providerProbe(): ProviderProbe
+    {
+        return new ProviderProbe(new HttpClient());
     }
 
     /** @return array<string,string> */

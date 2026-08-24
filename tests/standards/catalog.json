@@ -1135,10 +1135,27 @@
           "section": "Section 2.5",
           "strength": "should",
           "applicable": true,
-          "evidence": {},
+          "evidence": {
+            "positive": [
+              {
+                "path": "tests/unit/client-authentication.php",
+                "test": "RFC9700-2.5-ASYMMETRIC-CLIENT-AUTH positive: Follow the provider prefers an available private-key credential"
+              }
+            ],
+            "negative": [
+              {
+                "path": "tests/unit/client-authentication.php",
+                "test": "RFC9700-2.5-ASYMMETRIC-CLIENT-AUTH negative: provider incompatibility permits static-secret fallback"
+              },
+              {
+                "path": "tests/unit/client-authentication.php",
+                "test": "RFC9700-2.5-ASYMMETRIC-CLIENT-AUTH negative: a missing certificate permits static-secret fallback"
+              }
+            ]
+          },
           "deviation": {
             "reviewed_on": "2026-08-24",
-            "rationale": "The current profile authenticates its confidential client with a bounded static secret. Asymmetric client authentication remains deferred until OPNsense can provide reviewed per-provider private-key or certificate custody, rotation and deletion without weakening the local recovery path."
+            "rationale": "Follow the provider prefers private_key_jwt whenever a compatible signing certificate is configured. It retains static-secret authentication when no certificate is configured or the provider does not advertise a compatible asymmetric method, preserving existing confidential-client deployments; selecting private_key_jwt explicitly makes the certificate mandatory."
           }
         },
         {
@@ -1391,22 +1408,20 @@
       "title": "OAuth 2.0 Mutual-TLS Client Authentication and Certificate-Bound Tokens (RFC 8705)",
       "reference": "https://www.rfc-editor.org/rfc/rfc8705.html",
       "scope": "Token endpoint client authentication and sender-constrained tokens",
-      "implementation": "deferred",
-      "claim": "not_claimed",
+      "implementation": "implemented",
+      "claim": "unverified",
       "audit_complete": false,
-      "note": "Certificate lifecycle and a safely bounded HTTP client configuration are not yet available.",
-      "reconsider_when": "OPNsense can provide reviewed per-provider client-certificate custody and rotation."
+      "note": "PKI and self-signed mutual-TLS client authentication, endpoint aliases, OPNsense certificate selection and rotation, and certificate-bound UserInfo use are implemented; requirement-level interoperability evidence is incomplete."
     },
     {
       "id": "oauth-jwt-client-auth",
       "title": "JWT Profile for OAuth 2.0 Client Authentication (RFC 7523)",
       "reference": "https://www.rfc-editor.org/rfc/rfc7523.html",
       "scope": "private_key_jwt client authentication",
-      "implementation": "candidate",
-      "claim": "not_claimed",
+      "implementation": "implemented",
+      "claim": "unverified",
       "audit_complete": false,
-      "note": "Useful for providers that discourage static client secrets, but requires signing-key lifecycle design.",
-      "reconsider_when": "A reviewed signing-key storage and rotation design exists."
+      "note": "Implemented with OPNsense certificate custody and endpoint-specific metadata negotiation; the complete normative inventory remains unfinished."
     },
     {
       "id": "jar",
@@ -1446,7 +1461,7 @@
       "implementation": "implemented",
       "claim": "unverified",
       "audit_complete": false,
-      "note": "ES256 DPoP is negotiated from Discovery, authorization codes and protected requests are proof-key-bound, server nonces are retained without downgrade, and per-provider keys rotate with bounded retired generations. The complete normative inventory is not yet audited."
+      "note": "ES256 DPoP is negotiated for compatible documented access-token profiles from Discovery, authorization codes and protected requests are proof-key-bound, server nonces are retained without downgrade, and per-provider keys rotate with bounded retired generations. The complete normative inventory is not yet audited."
     },
     {
       "id": "ciba",
@@ -2012,11 +2027,10 @@
       "title": "Assertion Framework for OAuth 2.0 (RFC 7521)",
       "reference": "https://www.rfc-editor.org/rfc/rfc7521.html",
       "scope": "Assertion grants and client authentication",
-      "implementation": "candidate",
-      "claim": "not_claimed",
+      "implementation": "partial",
+      "claim": "unverified",
       "audit_complete": false,
-      "note": "Only its JWT client-authentication profile is a potential future fit; assertion grants are outside WebGUI login.",
-      "reconsider_when": "private_key_jwt key custody and rotation are implemented."
+      "note": "The RFC 7523 private_key_jwt client-authentication use is implemented; assertion grants remain outside WebGUI login."
     },
     {
       "id": "oauth-saml-assertion",

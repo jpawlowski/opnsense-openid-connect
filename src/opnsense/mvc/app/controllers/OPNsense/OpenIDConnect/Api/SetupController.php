@@ -26,7 +26,23 @@ class SetupController extends PrivateApiControllerBase
                 $origins,
                 $this->postedFlag('post_logout_redirect'),
                 (string)$this->request->getPost('logout_channel', null, 'backchannel'),
-                (string)$this->request->getPost('sector_origin', null, '')
+                (string)$this->request->getPost('sector_origin', null, ''),
+                [
+                    'openidconnect_scopes' =>
+                        (string)$this->request->getPost('openidconnect_scopes', null, ''),
+                    'openidconnect_username_claim' =>
+                        (string)$this->request->getPost('openidconnect_username_claim', null, ''),
+                    'openidconnect_group_claim' =>
+                        (string)$this->request->getPost('openidconnect_group_claim', null, ''),
+                    'openidconnect_required_authentication' =>
+                        (string)$this->request->getPost('openidconnect_required_authentication', null, ''),
+                    'openidconnect_acr_request' =>
+                        (string)$this->request->getPost('openidconnect_acr_request', null, ''),
+                    'openidconnect_acr_values' =>
+                        (string)$this->request->getPost('openidconnect_acr_values', null, ''),
+                    'openidconnect_amr_values' =>
+                        (string)$this->request->getPost('openidconnect_amr_values', null, ''),
+                ]
             );
             return ['status' => 'ok'] + $artifact;
         } catch (\Throwable $e) {

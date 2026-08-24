@@ -32,6 +32,7 @@ instead of assembling endpoint URLs from an older example.
 | Authorization response mode | Query |
 | Scopes | `openid,email,profile` |
 | Authentication method | Follow the provider |
+| Redirect the Log Out menu entry | On |
 
 If Oracle is configured for TLS client authentication or private-key JWT only,
 that client is outside this release. Select a secret-authenticated confidential
@@ -41,10 +42,12 @@ client using Basic or POST.
 
 For the first login, keep **Match by e-mail address** at **Only a verified
 address**, **Maximum authentication age** at **14400 seconds (four hours)**, account creation off, root
-access off, **Group claim** empty, tracing off, and both optional logout switches
+access off, **Group claim** empty, tracing off, **Redirect the Log Out menu
+entry** on, **Return here after logout** off, and provider logout notifications
 off. The table above contains the provider profile values to enter or verify.
 Change another setting only for the documented reason in the [complete settings
 reference](../setup/settings-reference.md).
 
 References: [add an Oracle confidential application](https://docs.oracle.com/en/cloud/paas/identity-cloud/uaids/add-confidential-application.html),
-[Oracle authorization-code grant](https://docs.oracle.com/en/cloud/paas/identity-cloud/idcsa/AuthCodeGT.html).
+[Oracle authorization-code grant](https://docs.oracle.com/en/cloud/paas/identity-cloud/idcsa/AuthCodeGT.html),
+and [OpenID Discovery](https://docs.oracle.com/en/cloud/paas/identity-cloud/rest-api/op-admin-v1-users-id-patch.html).

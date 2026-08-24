@@ -8,6 +8,7 @@
 use OPNsense\Mvc\Controller;
 use OPNsense\Mvc\Request;
 use OPNsense\Mvc\Session;
+use OPNsense\OpenIDConnect\ClientAuthenticator;
 use OPNsense\OpenIDConnect\DpopProof;
 use OPNsense\OpenIDConnect\DpopKeyStore;
 use OPNsense\OpenIDConnect\HttpClient;
@@ -70,7 +71,11 @@ function decodedDpop(string $proof): array
     ];
 }
 
-function dpopSettings(string $applicationCode, string $clientId = 'dpop-client'): OPNsense\Auth\OpenIDConnect
+function dpopSettings(
+    string $applicationCode,
+    string $clientId = 'dpop-client',
+    string $profile = 'general'
+): OPNsense\Auth\OpenIDConnect
 {
     return connector([
         'openidconnect_client_id' => $clientId,
@@ -78,6 +83,7 @@ function dpopSettings(string $applicationCode, string $clientId = 'dpop-client')
         'openidconnect_provider_url' => 'https://dpop.example.net',
         'openidconnect_redirect_urls' => 'https://firewall.example.net',
         'openidconnect_app_code' => $applicationCode,
+        'openidconnect_provider_profile' => $profile,
     ]);
 }
 
@@ -88,8 +94,21 @@ $dpopJwk = [
     'y' => 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
 ];
 $dpopProof = DpopProof::forTesting($dpopJwk, static fn(string $input): string => str_repeat("\x01", 64));
+$paddedDpopJwk = $dpopJwk;
+$paddedDpopJwk['x'] .= '=';
+$paddedDpopJwk['y'] .= '=';
+$paddedDpopProof = DpopProof::forTesting(
+    $paddedDpopJwk,
+    static fn(string $input): string => str_repeat("\x01", 64)
+);
 
 Checks::group('RFC 9449 DPoP proofs');
+
+Checks::that(
+    'the padded JWK form emitted by OPNsense phpseclib is canonicalized',
+    [$paddedDpopProof->publicKey(), $paddedDpopProof->keyId()],
+    [$dpopJwk, $dpopProof->keyId()]
+);
 
 $firstProof = decodedDpop($dpopProof->proof(
     'post',
@@ -238,6 +257,17 @@ $bearerUrl = (new RelyingParty(
 parse_str((string)parse_url($bearerUrl, PHP_URL_QUERY), $bearerParameters);
 Checks::that('DPoP is not guessed when Discovery does not advertise it',
     array_key_exists('dpop_jkt', $bearerParameters), false);
+$authentikUrl = (new RelyingParty(
+    dpopSettings('authentik-key-binding', 'authentik-client', 'authentik'),
+    new Controller(new Request('https', 'firewall.example.net'), new Session()),
+    new HttpClient(fn() => dpopAnswer(dpopMetadata()))
+))->authorizationUrl('authentik', '/');
+parse_str((string)parse_url($authentikUrl, PHP_URL_QUERY), $authentikParameters);
+Checks::that(
+    'authentik key-bound ID Token metadata is not mistaken for a DPoP access-token profile',
+    array_key_exists('dpop_jkt', $authentikParameters),
+    false
+);
 Checks::throws(
     'malformed DPoP algorithm metadata is refused',
     fn() => ProviderMetadata::fromArray(dpopMetadata(['dpop_signing_alg_values_supported' => ['ES256', 1]])),
@@ -293,6 +323,47 @@ Checks::that('the retry uses the server nonce', $tokenProofs[1]['claims']['nonce
 Checks::that('the retry never replays the challenged proof',
     $tokenProofs[0]['claims']['jti'] !== $tokenProofs[1]['claims']['jti'], true);
 Checks::that('a DPoP token type is accepted after a DPoP request', $issuedTokens['token_type'], 'DPoP');
+
+$combinedSettings = connector([
+    'openidconnect_client_id' => 'dpop-assertion-client',
+    'openidconnect_provider_url' => 'https://dpop.example.net',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_app_code' => 'dpop-assertion-retry',
+    'openidconnect_token_auth' => 'private_key_jwt',
+    'openidconnect_signing_certificate' => '0123456789abc',
+]);
+$combinedMetadata = ProviderMetadata::fromArray(dpopMetadata([
+    'token_endpoint_auth_methods_supported' => ['private_key_jwt'],
+    'token_endpoint_auth_signing_alg_values_supported' => ['RS256'],
+    'revocation_endpoint_auth_methods_supported' => ['private_key_jwt'],
+    'revocation_endpoint_auth_signing_alg_values_supported' => ['RS256'],
+]));
+$tokenAssertionIds = [];
+$tokenAssertionCalls = 0;
+$combinedTokenParty = new RelyingParty(
+    $combinedSettings,
+    new Controller(new Request('https', 'firewall.example.net'), new Session()),
+    new HttpClient(function ($method, $url, $body) use (&$tokenAssertionIds, &$tokenAssertionCalls): array {
+        parse_str((string)$body, $attemptFields);
+        [, $assertionClaims] = clientAssertionParts((string)($attemptFields['client_assertion'] ?? ''));
+        $tokenAssertionIds[] = $assertionClaims['jti'] ?? null;
+        $tokenAssertionCalls++;
+        return $tokenAssertionCalls === 1
+            ? dpopAnswer(['error' => 'use_dpop_nonce'], 400, ['dpop-nonce' => 'assertion-token-nonce'])
+            : dpopAnswer(['access_token' => 'combined-access', 'token_type' => 'DPoP']);
+    }),
+    null,
+    null,
+    $dpopProof,
+    new ClientAuthenticator($combinedSettings, testClientAssertion($combinedSettings))
+);
+$dpopMetadataProperty->setValue($combinedTokenParty, $combinedMetadata);
+inspect($combinedTokenParty, 'exchangeCode', 'combined-code', 'combined-verifier');
+Checks::that('a DPoP token nonce retry receives a fresh private-key JWT assertion', [
+    count($tokenAssertionIds),
+    $tokenAssertionIds[0] !== $tokenAssertionIds[1],
+], [2, true]);
+
 Checks::that(
     'a DPoP access token is serialized only as one token68 credential',
     inspect($tokenParty, 'dpopAuthorization', 'AZaz09-._~+/=='),
@@ -428,3 +499,32 @@ Checks::that('revocation carries a fresh POST proof for its exact endpoint', [
 ], ['POST', 'https://dpop.example.net/revoke']);
 Checks::that('a revocation proof does not pretend the body token is resource Authorization',
     array_key_exists('ath', $revocationProof['claims']), false);
+
+$revocationAssertionIds = [];
+$revocationAssertionCalls = 0;
+$combinedRevocationParty = new RelyingParty(
+    $combinedSettings,
+    new Controller(new Request('https', 'firewall.example.net'), new Session()),
+    new HttpClient(function ($method, $url, $body) use (
+        &$revocationAssertionIds,
+        &$revocationAssertionCalls
+    ): array {
+        parse_str((string)$body, $attemptFields);
+        [, $assertionClaims] = clientAssertionParts((string)($attemptFields['client_assertion'] ?? ''));
+        $revocationAssertionIds[] = $assertionClaims['jti'] ?? null;
+        $revocationAssertionCalls++;
+        return $revocationAssertionCalls === 1
+            ? dpopAnswer(['error' => 'use_dpop_nonce'], 400, ['dpop-nonce' => 'assertion-revocation-nonce'])
+            : dpopAnswer([], 204);
+    }),
+    null,
+    null,
+    $dpopProof,
+    new ClientAuthenticator($combinedSettings, testClientAssertion($combinedSettings))
+);
+$dpopMetadataProperty->setValue($combinedRevocationParty, $combinedMetadata);
+$combinedRevocationParty->revokeToken('combined-access', 'access_token');
+Checks::that('a DPoP revocation nonce retry receives a fresh private-key JWT assertion', [
+    count($revocationAssertionIds),
+    $revocationAssertionIds[0] !== $revocationAssertionIds[1],
+], [2, true]);

@@ -7,6 +7,29 @@
 
 use OPNsense\Auth\OpenIDConnect;
 
+/** @return array{refid:string,descr:string,crt:string,prv:string} */
+function signingCertificateFixture(string $reference, string $description, array $keyOptions): array
+{
+    $key = openssl_pkey_new($keyOptions);
+    if ($key === false) {
+        throw new RuntimeException('Could not create a settings-test private key');
+    }
+    $request = openssl_csr_new(['commonName' => 'OIDC settings test'], $key, ['digest_alg' => 'sha256']);
+    $certificate = $request === false ? false
+        : openssl_csr_sign($request, null, $key, 1, ['digest_alg' => 'sha256']);
+    if ($certificate === false
+        || !openssl_pkey_export($key, $privateKey)
+        || !openssl_x509_export($certificate, $publicCertificate)) {
+        throw new RuntimeException('Could not create a settings-test certificate');
+    }
+    return [
+        'refid' => $reference,
+        'descr' => $description,
+        'crt' => base64_encode($publicCertificate),
+        'prv' => base64_encode($privateKey),
+    ];
+}
+
 Checks::group('Reading a list out of a settings field');
 Checks::that('comma separated', OpenIDConnect::splitList('a,b,c'), ['a', 'b', 'c']);
 Checks::that('one per line', OpenIDConnect::splitList("a\nb\r\nc"), ['a', 'b', 'c']);
@@ -68,6 +91,11 @@ Checks::that(
 Checks::group('Defaults when a field is left empty');
 Checks::that('scopes', connector([])->scopes(), ['openid', 'email', 'profile']);
 Checks::that('scopes as configured', connector(['openidconnect_scopes' => 'openid,groups'])->scopes(), ['openid', 'groups']);
+Checks::that('a generic profile follows advertised RFC 9449 access-token support',
+    connector([])->supportsDpopAccessTokens(), true);
+Checks::that('authentik retains its documented key-bound ID Token and Bearer access-token profile', connector([
+    'openidconnect_provider_profile' => 'authentik',
+])->supportsDpopAccessTokens(), false);
 Checks::that('username claim', connector([])->usernameClaim(), 'preferred_username');
 Checks::that('button style', connector([])->buttonStyle(), 'button');
 Checks::that('button style, nonsense value', connector(['openidconnect_button_style' => 'wobble'])->buttonStyle(), 'button');
@@ -130,6 +158,56 @@ Checks::that('Okta MFA uses its documented ACR preset', $oktaMfa->toArray(), [
     'contexts' => ['urn:okta:loa:2fa:any'],
     'methods' => ['mfa'],
 ]);
+$auth0Mfa = connector([
+    'openidconnect_provider_profile' => 'auth0',
+    'openidconnect_required_authentication' => 'multi-factor',
+])->authenticationRequirement();
+Checks::that('Auth0 MFA uses its documented step-up evidence', $auth0Mfa->toArray(), [
+    'tier' => 'multi-factor',
+    'request_mode' => 'acr_values',
+    'contexts' => ['http://schemas.openid.net/pape/policies/2007/06/multi-factor'],
+    'methods' => ['mfa'],
+]);
+$keycloakMfa = connector([
+    'openidconnect_provider_profile' => 'keycloak',
+    'openidconnect_required_authentication' => 'multi-factor',
+])->authenticationRequirement();
+Checks::that('Keycloak manual setup uses the documented standards-oriented values', $keycloakMfa->toArray(), [
+    'tier' => 'multi-factor',
+    'request_mode' => 'essential_claim',
+    'contexts' => ['https://refeds.org/profile/mfa'],
+    'methods' => ['mfa', 'pwd', 'pin', 'kba', 'otp', 'hwk', 'sc', 'sms', 'swk', 'tel', 'pop', 'face', 'fpt',
+        'iris', 'retina', 'vbm'],
+]);
+$keycloakPhishingResistant = connector([
+    'openidconnect_provider_profile' => 'keycloak',
+    'openidconnect_required_authentication' => 'phishing-resistant',
+])->authenticationRequirement();
+Checks::that('Keycloak phishing-resistant setup accepts its documented WebAuthn method',
+    $keycloakPhishingResistant->toArray(), [
+        'tier' => 'phishing-resistant',
+        'request_mode' => 'essential_claim',
+        'contexts' => ['phr', 'phrh'],
+        'methods' => ['fido', 'pop', 'hwk', 'swk'],
+    ]);
+$keycloakPhishingResistant->assertSatisfied(['acr' => 'phr', 'amr' => ['fido']]);
+Checks::that('Keycloak WebAuthn evidence satisfies its phishing-resistant preset', true, true);
+Checks::throws(
+    'an unsupported named provider refuses a manually injected authentication requirement',
+    fn() => connector([
+        'openidconnect_provider_profile' => 'authentik',
+        'openidconnect_required_authentication' => 'multi-factor',
+    ])->authenticationRequirement(),
+    'cannot enforce'
+);
+Checks::throws(
+    'Auth0 cannot claim a phishing-resistant guarantee from its MFA-only profile',
+    fn() => connector([
+        'openidconnect_provider_profile' => 'auth0',
+        'openidconnect_required_authentication' => 'phishing-resistant',
+    ])->authenticationRequirement(),
+    'cannot enforce'
+);
 $customStrength = connector([
     'openidconnect_required_authentication' => 'phishing-resistant',
     'openidconnect_acr_request' => 'acr_values',
@@ -170,7 +248,59 @@ Checks::that(
     connector(['openidconnect_token_auth' => 'client_secret_post'])->tokenAuthMethod(),
     'client_secret_post'
 );
+Checks::that(
+    'private-key JWT client authentication can be selected',
+    connector(['openidconnect_token_auth' => 'private_key_jwt'])->tokenAuthMethod(),
+    'private_key_jwt'
+);
+Checks::that('the client signing certificate is empty by default', connector([])->signingCertificate(), '');
+Checks::that('Generic invents no assertion algorithm when Discovery omits it',
+    connector([])->clientAssertionAlgorithms('token_endpoint_auth_signing_alg_values_supported', []), []);
+Checks::that('Entra applies its documented PS256 certificate-credential profile', connector([
+    'openidconnect_provider_profile' => 'entra',
+])->clientAssertionAlgorithms('token_endpoint_auth_signing_alg_values_supported', []), ['PS256']);
 Checks::that('token auth, nonsense value', connector(['openidconnect_token_auth' => 'wobble'])->tokenAuthMethod(), null);
+installClientCertificate('settings-client', 'Settings client');
+installClientCertificate('settings-retiring', 'Settings retiring client');
+$certificateSettings = connector([
+    'openidconnect_client_id' => 'certificate-client',
+    'openidconnect_client_certificate' => 'settings-client',
+    'openidconnect_retiring_client_certificate' => 'settings-retiring',
+    'openidconnect_certificate_bound_access_tokens' => '1',
+    'openidconnect_token_auth' => 'tls_client_auth',
+]);
+$certificateOptions = $certificateSettings->getConfigurationOptions();
+Checks::that('the selected OPNsense client certificate has a typed accessor',
+    $certificateSettings->clientCertificateRef(), 'settings-client');
+Checks::that('the retiring OPNsense certificate has a typed accessor',
+    $certificateSettings->retiringClientCertificateRef(), 'settings-retiring');
+Checks::that('certificate-bound tokens are off unless explicitly requested',
+    connector([])->certificateBoundAccessTokens(), false);
+Checks::that('certificate-bound tokens can be required',
+    $certificateSettings->certificateBoundAccessTokens(), true);
+Checks::that('the form offers PKI mutual TLS as a client authentication method',
+    array_key_exists('tls_client_auth', $certificateOptions['openidconnect_token_auth']['options']), true);
+Checks::that('the form lists only OPNsense certificates with a private key',
+    array_key_exists('settings-client', $certificateOptions['openidconnect_client_certificate']['options']), true);
+Checks::that('an enabled mutual-TLS client needs no client secret',
+    $certificateOptions['openidconnect_client_secret']['validate'](''), []);
+Checks::that('a valid selected client certificate is accepted',
+    $certificateOptions['openidconnect_client_certificate']['validate']('settings-client'), []);
+Checks::that('the active certificate cannot also be the retiring certificate', count(
+    $certificateOptions['openidconnect_retiring_client_certificate']['validate']('settings-client')
+), 1);
+$missingCertificateOptions = connector([
+    'openidconnect_certificate_bound_access_tokens' => '1',
+])->getConfigurationOptions();
+Checks::that('certificate-bound tokens cannot be saved without a selected certificate', count(
+    $missingCertificateOptions['openidconnect_certificate_bound_access_tokens']['validate']('1')
+), 1);
+Checks::that('a complete mutual-TLS client can start a sign-in test', connector([
+    'openidconnect_provider_url' => 'https://id.example.net',
+    'openidconnect_client_id' => 'certificate-client',
+    'openidconnect_client_certificate' => 'settings-client',
+    'openidconnect_token_auth' => 'tls_client_auth',
+])->isSignInTestReady(), true);
 Checks::that('PAR uses availability-aware automatic mode by default', connector([])->parMode(), 'auto');
 Checks::that('PAR can be required', connector(['openidconnect_par_mode' => 'required'])->parMode(), 'required');
 Checks::that('an unknown PAR mode falls back to automatic', connector([
@@ -301,21 +431,89 @@ Checks::that('every selectable provider has exactly one preset', array_keys($pro
 $completePresetFields = [
     'openidconnect_provider_url',
     'openidconnect_token_auth',
+    'openidconnect_par_mode',
     'openidconnect_username_claim',
+    'openidconnect_group_claim',
     'openidconnect_claims_source',
     'openidconnect_response_mode',
+    'openidconnect_required_authentication',
+    'openidconnect_acr_request',
+    'openidconnect_acr_values',
+    'openidconnect_amr_values',
+    'openidconnect_entra_auth_context',
+    'openidconnect_microsoft_audience',
     'openidconnect_email_match',
     'openidconnect_scopes',
+    'openidconnect_select_account',
     'openidconnect_bootstrap_mode',
+    'openidconnect_create_users',
+    'openidconnect_logout_menu',
+    'openidconnect_logout_redirect',
+    'openidconnect_logout_notifications',
+    'openidconnect_ssf_enabled',
     'openidconnect_button_text_mode',
     'openidconnect_button_provider_label',
     'openidconnect_button_custom_text',
     'openidconnect_icon_url',
     'openidconnect_icon_mode',
 ];
+$installationSpecificFields = [
+    '__openidconnect_form',
+    'openidconnect_enabled',
+    'openidconnect_app_code',
+    'openidconnect_provider_profile',
+    'openidconnect_client_id',
+    'openidconnect_client_secret',
+    'openidconnect_signing_certificate',
+    'openidconnect_client_certificate',
+    'openidconnect_retiring_client_certificate',
+    'openidconnect_certificate_bound_access_tokens',
+    'openidconnect_request_object_key',
+    'openidconnect_origin_policy',
+    'openidconnect_tls_offloading',
+    'openidconnect_redirect_urls',
+    'openidconnect_sector_origin',
+    'openidconnect_max_age',
+    'openidconnect_default_groups',
+    'openidconnect_allow_root',
+    'openidconnect_assignable_groups',
+    'openidconnect_allow_all_groups',
+    'openidconnect_debug',
+    'openidconnect_ssf_issuer',
+    'openidconnect_ssf_audience',
+    'openidconnect_ssf_delivery_method',
+    'openidconnect_ssf_management_authorization',
+    'openidconnect_ssf_poll_endpoint',
+    'openidconnect_ssf_previous_push_secret',
+    'openidconnect_ssf_push_secret',
+    'openidconnect_ssf_stream_id',
+    'openidconnect_button_style',
+    'openidconnect_icon_svg',
+];
+$classifiedSettingFields = array_merge($completePresetFields, $installationSpecificFields);
+$configuredSettingFields = array_keys($newProtocolOptions);
+sort($classifiedSettingFields);
+sort($configuredSettingFields);
+Checks::that(
+    'every form setting is consciously provider-dependent or installation-specific',
+    $classifiedSettingFields,
+    $configuredSettingFields
+);
 Checks::that('every provider preset covers every provider-dependent field', array_values(array_filter(
     array_keys($profilePresets),
     static fn($profile) => array_keys($profilePresets[$profile]['values']) !== $completePresetFields
+)), []);
+$knownPresetClassifications = ['fixed', 'recommended', 'editable', 'hidden', 'unsupported'];
+Checks::that('every provider preset explicitly classifies every provider-dependent field', array_values(array_filter(
+    array_keys($profilePresets),
+    static fn($profile) => array_keys($profilePresets[$profile]['classifications']) !== $completePresetFields
+)), []);
+Checks::that('every provider field classification is understood by the settings form', array_values(array_filter(
+    array_keys($profilePresets),
+    static fn($profile) => array_diff(
+        $profilePresets[$profile]['classifications'],
+        $knownPresetClassifications
+    ) !== []
 )), []);
 Checks::that('every locked field has a concrete value', array_values(array_filter(
     array_keys($profilePresets),
@@ -323,6 +521,95 @@ Checks::that('every locked field has a concrete value', array_values(array_filte
         $profilePresets[$profile]['locked'],
         static fn($field) => ($profilePresets[$profile]['values'][$field] ?? '') === ''
     ) !== []
+)), []);
+Checks::that('fixed classifications and server-enforced locks cannot drift apart', array_values(array_filter(
+    array_keys($profilePresets),
+    static function ($profile) use ($profilePresets): bool {
+        $classified = array_keys(array_filter(
+            $profilePresets[$profile]['classifications'],
+            static fn($classification) => $classification === 'fixed'
+        ));
+        return array_diff($classified, $profilePresets[$profile]['locked']) !== []
+            || array_diff($profilePresets[$profile]['locked'], $classified) !== [];
+    }
+)), []);
+Checks::that('provider presets keep authentication enforcement opt-in', array_values(array_filter(
+    array_keys($profilePresets),
+    static fn($profile) => $profilePresets[$profile]['values']['openidconnect_required_authentication'] !== ''
+)), []);
+$authenticationCapabilities = OpenIDConnect::authenticationRequirementCapabilities();
+$providerCapabilityCatalog = json_decode(
+    file_get_contents(__DIR__ . '/../providers/capabilities.json'),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+);
+$supportedEvidence = ['live', 'adapter', 'documented', 'conditional'];
+$strengthFeatures = ['mfa' => 'multi-factor', 'phishing_resistant' => 'phishing-resistant'];
+$catalogAuthenticationCapabilities = [];
+foreach ($providerCapabilityCatalog['providers'] as $provider) {
+    foreach ($strengthFeatures as $feature => $requirement) {
+        $status = $provider['capabilities'][$feature]
+            ?? $providerCapabilityCatalog['capability_defaults'][$feature];
+        if (in_array($status, $supportedEvidence, true)) {
+            $catalogAuthenticationCapabilities[$provider['id']][] = $requirement;
+        }
+    }
+}
+Checks::that('only provider profiles with an end-to-end evidence path expose authentication requirements',
+    $authenticationCapabilities, $catalogAuthenticationCapabilities);
+Checks::that('profiles without a documented strength path classify the requirement as unsupported',
+    array_values(array_filter(
+        array_keys($profilePresets),
+        static fn($profile) => !isset($authenticationCapabilities[$profile])
+            && $profilePresets[$profile]['classifications']['openidconnect_required_authentication'] !== 'unsupported'
+    )), []);
+Checks::that('provider presets use discovery-driven PAR unless the administrator decides otherwise', array_values(array_filter(
+    array_keys($profilePresets),
+    static fn($profile) => $profilePresets[$profile]['values']['openidconnect_par_mode'] !== 'auto'
+)), []);
+$expectedLogoutNotifications = array_fill_keys(array_keys($profilePresets), 'off');
+$expectedLogoutNotifications['general'] = 'both';
+$expectedLogoutNotifications['authentik'] = 'backchannel';
+$expectedLogoutNotifications['keycloak'] = 'backchannel';
+Checks::that('only reviewed provider profiles recommend a logout notification channel', array_map(
+    static fn($preset) => $preset['values']['openidconnect_logout_notifications'],
+    $profilePresets
+), $expectedLogoutNotifications);
+$expectedLogoutMenu = array_fill_keys(array_keys($profilePresets), '0');
+foreach ([
+    'auth0',
+    'authentik',
+    'fusionauth',
+    'ibm_verify',
+    'keycloak',
+    'entra',
+    'okta',
+    'onelogin',
+    'oracle_idcs',
+    'ping',
+    'pocketid',
+    'wso2',
+    'zitadel',
+] as $profile) {
+    $expectedLogoutMenu[$profile] = '1';
+}
+Checks::that('documented compatible RP-initiated logout redirects the menu', array_map(
+    static fn($preset) => $preset['values']['openidconnect_logout_menu'],
+    $profilePresets
+), $expectedLogoutMenu);
+Checks::that('documented provider logout recommendations remain editable', array_values(array_filter(
+    array_keys(array_filter($expectedLogoutMenu, static fn($value) => $value === '1')),
+    static fn($profile) => $profilePresets[$profile]['classifications']['openidconnect_logout_menu']
+        !== 'recommended'
+)), []);
+Checks::that('only Entra exposes its tenant audience and authentication context controls', array_values(array_filter(
+    array_keys($profilePresets),
+    static fn($profile) => $profile === 'entra'
+        ? $profilePresets[$profile]['classifications']['openidconnect_microsoft_audience'] === 'hidden'
+            || $profilePresets[$profile]['classifications']['openidconnect_entra_auth_context'] === 'hidden'
+        : $profilePresets[$profile]['classifications']['openidconnect_microsoft_audience'] !== 'hidden'
+            || $profilePresets[$profile]['classifications']['openidconnect_entra_auth_context'] !== 'hidden'
 )), []);
 $fixedButtonLabels = OpenIDConnect::fixedProviderButtonLabels();
 Checks::that('only globally fixed public services have an internal button label', $fixedButtonLabels, [
@@ -411,6 +698,68 @@ Checks::that('named profiles safely queue an unknown first identity for approval
         'openidconnect_provider_profile' => $profile,
     ])->bootstrapMode() !== 'approval'
 )), []);
+$accountCreationBlockedProfiles = ['apple', 'google', 'linkedin', 'orcid', 'slack', 'yahoo'];
+Checks::that(
+    'global provider profiles expose no automatic local-account creation',
+    OpenIDConnect::accountCreationBlockedProfiles(),
+    $accountCreationBlockedProfiles
+);
+Checks::that('blocked account-creation profiles classify the setting as unsupported', array_values(array_filter(
+    $accountCreationBlockedProfiles,
+    static fn($profile) => $profilePresets[$profile]['values']['openidconnect_create_users'] !== '0'
+        || $profilePresets[$profile]['classifications']['openidconnect_create_users'] !== 'unsupported'
+)), []);
+Checks::that(
+    'personal global providers expose no automatic admission',
+    OpenIDConnect::automaticAdmissionBlockedProfiles(),
+    ['apple', 'linkedin', 'orcid', 'yahoo']
+);
+Checks::that('stale automatic admission fails closed to approval for a personal global provider', connector([
+    'openidconnect_provider_profile' => 'apple',
+    'openidconnect_bootstrap_mode' => 'either',
+])->bootstrapMode(), 'approval');
+Checks::that('strict admission remains available for a personal global provider', connector([
+    'openidconnect_provider_profile' => 'apple',
+    'openidconnect_bootstrap_mode' => 'strict',
+])->bootstrapMode(), 'strict');
+Checks::that('a Workspace-capable Google profile retains deliberate existing-account matching', connector([
+    'openidconnect_provider_profile' => 'google',
+    'openidconnect_bootstrap_mode' => 'verified_email',
+])->bootstrapMode(), 'verified_email');
+Checks::that('a global Google population can never create local accounts automatically', connector([
+    'openidconnect_provider_profile' => 'google',
+    'openidconnect_create_users' => '1',
+])->createsUsers(), false);
+Checks::that('GitLab.com fails closed to approval', connector([
+    'openidconnect_provider_profile' => 'gitlab',
+    'openidconnect_provider_url' => 'https://gitlab.com',
+    'openidconnect_bootstrap_mode' => 'username',
+])->bootstrapMode(), 'approval');
+Checks::that('self-managed GitLab may use a deliberately assessed bootstrap', connector([
+    'openidconnect_provider_profile' => 'gitlab',
+    'openidconnect_provider_url' => 'https://gitlab.example.net',
+    'openidconnect_bootstrap_mode' => 'username',
+])->bootstrapMode(), 'username');
+Checks::that('self-managed GitLab may deliberately create local accounts', connector([
+    'openidconnect_provider_profile' => 'gitlab',
+    'openidconnect_provider_url' => 'https://gitlab.example.net',
+    'openidconnect_create_users' => '1',
+])->createsUsers(), true);
+Checks::that('a broad Microsoft audience fails closed to approval', connector([
+    'openidconnect_provider_profile' => 'entra',
+    'openidconnect_microsoft_audience' => 'common',
+    'openidconnect_bootstrap_mode' => 'either',
+])->bootstrapMode(), 'approval');
+Checks::that('one Entra tenant may use deliberately assessed account creation', connector([
+    'openidconnect_provider_profile' => 'entra',
+    'openidconnect_microsoft_audience' => 'tenant',
+    'openidconnect_create_users' => '1',
+])->createsUsers(), true);
+Checks::that('a broad Microsoft audience cannot create local accounts automatically', connector([
+    'openidconnect_provider_profile' => 'entra',
+    'openidconnect_microsoft_audience' => 'organizations',
+    'openidconnect_create_users' => '1',
+])->createsUsers(), false);
 Checks::that('a fixed Google issuer cannot be replaced by stale configuration', connector([
     'openidconnect_provider_profile' => 'google',
     'openidconnect_provider_url' => 'https://wrong.example.net',
@@ -564,7 +913,63 @@ $discoveryUrlWithQuery = 'https://id.example.net/.well-known/openid-configuratio
 Checks::that('a discovery URL carrying a query is still refused', count($issuer($discoveryUrlWithQuery)), 1);
 
 $_POST['type'] = 'openidconnect';
+$_POST['openidconnect_provider_profile'] = 'apple';
+$populationOptions = (new OpenIDConnect())->getConfigurationOptions();
+$createUsers = $populationOptions['openidconnect_create_users']['validate'];
+$admission = $populationOptions['openidconnect_bootstrap_mode']['validate'];
+Checks::that('the form refuses account creation for a personal global provider', count($createUsers('yes')), 1);
+Checks::that('the form refuses automatic admission for a personal global provider', count($admission('username')), 1);
+Checks::that('the form retains administrator approval for a personal global provider', $admission('approval'), []);
+$_POST['openidconnect_provider_profile'] = 'google';
+Checks::that('the form refuses account creation for a potentially global Google population', count(
+    $createUsers('yes')
+), 1);
+Checks::that('the form permits assessed Google existing-account matching', $admission('verified_email'), []);
+$_POST['openidconnect_provider_profile'] = 'gitlab';
+$_POST['openidconnect_provider_url'] = 'https://gitlab.com';
+Checks::that('the form refuses account creation for GitLab.com', count($createUsers('yes')), 1);
+Checks::that('the form refuses automatic admission for GitLab.com', count($admission('either')), 1);
+$_POST['openidconnect_provider_url'] = 'https://gitlab.example.net';
+Checks::that('the form permits assessed account creation for self-managed GitLab', $createUsers('yes'), []);
+Checks::that('the form permits assessed automatic admission for self-managed GitLab', $admission('username'), []);
+$_POST['openidconnect_provider_profile'] = 'entra';
+$_POST['openidconnect_microsoft_audience'] = 'common';
+Checks::that('the form refuses account creation for a broad Microsoft audience', count($createUsers('yes')), 1);
+Checks::that('the form refuses automatic admission for a broad Microsoft audience', count(
+    $admission('verified_email')
+), 1);
+$_POST['openidconnect_microsoft_audience'] = 'tenant';
+Checks::that('the form permits assessed account creation for one Entra tenant', $createUsers('yes'), []);
+Checks::that('the form permits assessed automatic admission for one Entra tenant', $admission('username'), []);
+unset(
+    $_POST['type'],
+    $_POST['openidconnect_provider_profile'],
+    $_POST['openidconnect_provider_url'],
+    $_POST['openidconnect_microsoft_audience']
+);
+
+$_POST['type'] = 'openidconnect';
 $_POST['openidconnect_enabled'] = 'yes';
+\OPNsense\Core\Config::getInstance()->addCertificate(signingCertificateFixture(
+    '0123456789abc',
+    'OIDC signing key',
+    ['private_key_type' => OPENSSL_KEYTYPE_RSA, 'private_key_bits' => 2048]
+));
+\OPNsense\Core\Config::getInstance()->addCertificate(signingCertificateFixture(
+    '111111111111a',
+    'Weak RSA key',
+    ['private_key_type' => OPENSSL_KEYTYPE_RSA, 'private_key_bits' => 1024]
+));
+\OPNsense\Core\Config::getInstance()->addCertificate(signingCertificateFixture(
+    '222222222222b',
+    'Unsupported EC key',
+    ['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'secp224r1']
+));
+\OPNsense\Core\Config::getInstance()->addCertificate([
+    'refid' => 'abcdef0123456',
+    'descr' => 'Public certificate only',
+    'crt' => base64_encode('certificate'),
+]);
 $enabledOptions = (new OpenIDConnect())->getConfigurationOptions();
 Checks::that('an enabled server requires an issuer', count(
     $enabledOptions['openidconnect_provider_url']['validate']('')
@@ -575,13 +980,55 @@ Checks::that('an enabled server requires a client ID', count(
 Checks::that('an enabled server requires a client secret', count(
     $enabledOptions['openidconnect_client_secret']['validate']('')
 ), 1);
+Checks::that('only certificates with a private key are offered for client assertions',
+    array_keys($enabledOptions['openidconnect_signing_certificate']['options']), [
+        '', '0123456789abc', '222222222222b', '111111111111a',
+    ]);
+$_POST['openidconnect_token_auth'] = 'private_key_jwt';
+$_POST['openidconnect_signing_certificate'] = '0123456789abc';
+Checks::that('private-key JWT does not also require a client secret',
+    $enabledOptions['openidconnect_client_secret']['validate'](''), []);
+Checks::that('an available signing certificate is accepted',
+    $enabledOptions['openidconnect_signing_certificate']['validate']('0123456789abc'), []);
+Checks::that('a client signing certificate with a short RSA key is refused', count(
+    $enabledOptions['openidconnect_signing_certificate']['validate']('111111111111a')
+), 1);
+Checks::that('a client signing certificate with an unsupported EC curve is refused', count(
+    $enabledOptions['openidconnect_signing_certificate']['validate']('222222222222b')
+), 1);
+Checks::that('a certificate without its private key is refused', count(
+    $enabledOptions['openidconnect_signing_certificate']['validate']('abcdef0123456')
+), 1);
+$_POST['openidconnect_signing_certificate'] = '';
+Checks::that('an enabled private-key JWT client requires a signing certificate', count(
+    $enabledOptions['openidconnect_signing_certificate']['validate']('')
+), 1);
+unset($_POST['openidconnect_token_auth'], $_POST['openidconnect_signing_certificate']);
+$_POST['openidconnect_token_auth'] = 'tls_client_auth';
+Checks::that('an enabled mutual-TLS method requires a client certificate', count(
+    (new OpenIDConnect())->getConfigurationOptions()['openidconnect_token_auth']['validate']('tls_client_auth')
+), 1);
+$_POST['openidconnect_client_certificate'] = 'settings-client';
+$_POST['openidconnect_certificate_bound_access_tokens'] = '1';
+$submittedMtlsOptions = (new OpenIDConnect())->getConfigurationOptions();
+Checks::that('the fresh core form validator sees a submitted mutual-TLS credential',
+    $submittedMtlsOptions['openidconnect_client_secret']['validate'](''), []);
+Checks::that('the fresh core form validator sees the submitted certificate for bound tokens',
+    $submittedMtlsOptions['openidconnect_certificate_bound_access_tokens']['validate']('1'), []);
 Checks::that('an enabled server following OPNsense needs no duplicate address',
     $enabledOptions['openidconnect_redirect_urls']['validate'](''), []);
 $_POST['openidconnect_origin_policy'] = 'custom';
 Checks::that('an enabled server with a custom policy requires an address', count(
     $enabledOptions['openidconnect_redirect_urls']['validate']('')
 ), 1);
-unset($_POST['type'], $_POST['openidconnect_enabled'], $_POST['openidconnect_origin_policy']);
+unset(
+    $_POST['type'],
+    $_POST['openidconnect_enabled'],
+    $_POST['openidconnect_origin_policy'],
+    $_POST['openidconnect_token_auth'],
+    $_POST['openidconnect_client_certificate'],
+    $_POST['openidconnect_certificate_bound_access_tokens']
+);
 
 \OPNsense\Core\Config::reset();
 \OPNsense\Core\Config::getInstance()->object()->system->webgui = (object)['protocol' => 'http'];
@@ -625,6 +1072,13 @@ Checks::that('a complete confidential client can start a sign-in test', connecto
     'openidconnect_provider_url' => 'https://id.example.net',
     'openidconnect_client_id' => 'client-id',
     'openidconnect_client_secret' => 'secret',
+])->isSignInTestReady(), true);
+Checks::that('a private-key JWT client can start a sign-in test without a static secret', connector([
+    'openidconnect_provider_url' => 'https://id.example.net',
+    'openidconnect_client_id' => 'client-id',
+    'openidconnect_client_secret' => '',
+    'openidconnect_signing_certificate' => '0123456789abc',
+    'openidconnect_token_auth' => 'private_key_jwt',
 ])->isSignInTestReady(), true);
 Checks::that('a new server follows OPNsense WebGUI names',
     $draftOptions['openidconnect_origin_policy']['default'], 'opnsense');
@@ -793,6 +1247,18 @@ Checks::that(
 $_POST['openidconnect_enabled'] = '0';
 $_POST['openidconnect_microsoft_audience'] = 'tenant';
 Checks::that('a disabled Entra draft may leave its context incomplete', $entraContext(''), []);
+$_POST['openidconnect_provider_profile'] = 'authentik';
+Checks::that('the form refuses MFA for a profile without a documented evidence path', count(
+    $requiredAuthentication('multi-factor')
+), 1);
+$_POST['openidconnect_provider_profile'] = 'auth0';
+Checks::that('the form permits documented Auth0 MFA', $requiredAuthentication('multi-factor'), []);
+Checks::that('the form refuses an undocumented Auth0 phishing-resistant guarantee', count(
+    $requiredAuthentication('phishing-resistant')
+), 1);
+$_POST['openidconnect_provider_profile'] = 'keycloak';
+Checks::that('the form permits manually configured Keycloak phishing resistance',
+    $requiredAuthentication('phishing-resistant'), []);
 $_POST = $savedPost;
 
 $acrValues = validator('openidconnect_acr_values');

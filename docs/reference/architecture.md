@@ -162,13 +162,17 @@ flowchart TD
 |---|---|---|
 | `AuthController` | public protocol endpoints including the exact-origin pairwise-sector document, package-owned and safely proxied login icons, generic browser errors, audit records, session elevation/logout | decide JWT validity or account policy |
 | `RelyingParty` | authorization transaction, optional signed JAR, PAR and DPoP negotiation, code exchange, claim-source composition, logout/revocation requests | perform cryptography or grant privileges |
+| `ClientAuthenticator` | negotiate endpoint-specific Basic, POST or `private_key_jwt` authentication for direct provider requests | invent a provider algorithm or send more than one client credential |
+| `ClientAssertion` | load the selected OPNsense certificate and sign one short-lived, single-use assertion | retain private keys, reuse assertions or implement cryptographic primitives |
 | `RequestObjectSigner` | bounded RFC 9101 claims, provider/key algorithm selection and phpseclib signature | choose authorization policy, expose a private key or encrypt Request Objects |
 | `ProviderMetadata` | exact Discovery validation and immutable per-login metadata snapshot | guess provider endpoints |
+| `AuthorizationPreflight` | bounded, no-cookie `prompt=none` check of a public Client ID and exact callback before browser navigation | authenticate a user, send a client secret, follow a redirect or claim that the token path passed |
 | `DiscoveryController` / `HealthController` / `ProviderProbe` | authenticated, CSRF-protected diagnostics from current form values with explicit actor paths and verification methods | persist form values, return secrets or pretend an advertised browser/token path was exercised |
 | `TestController` | authenticated and CSRF-protected initiation of a saved provider's non-mutating browser test | accept an unsaved secret, grant a session or change local identity state |
 | `ApprovalController` | authenticated CRUD for durable bindings, explicit local-account creation and approval/denial of identities queued for one saved server; rechecks the core authentication-server, user-manager and read-only privileges | authenticate the identity, create a session, trust button visibility as authorization or choose a local account automatically |
 | `SetupController` / `ProviderSetup` | authenticated, no-secret provider import generation from an unfinished form | contact the provider, persist credentials or mutate either system |
 | `HttpClient` | the only provider network transport; HTTPS, TLS, limits and redirect policy | follow credentials through redirects |
+| `ClientAuthentication` / `ClientCertificate` | negotiate and freeze OAuth client authentication, resolve active/retiring OPNsense certificate objects and constrain RFC 8705 endpoint use | store another private-key copy or silently downgrade to a secret |
 | `JwtVerifier` | JWS and OIDC/logout claim validation using OPNsense phpseclib | accept token-selected keys or symmetric ID Token signatures |
 | `DpopProof` / `DpopKeyStore` | fresh RFC 9449 proofs plus mode-`0600` per-provider key rotation, retired generations and endpoint nonces | choose provider trust, send a bound token as Bearer or log proof/key material |
 | `AuthenticationRequirement` | freeze one requested MFA/phishing-resistant policy and validate its verified `acr`/`acrs` plus `amr` evidence | infer provider semantics or inspect an unverified token |
@@ -220,6 +224,11 @@ The exact endpoint matrix and the reasons for the two exceptions are recorded in
   indexes are mode `0600`; the logout indexes contain identifiers only, while
   the short-lived form-post index contains state, nonce, PKCE verifier and the
   validated metadata snapshot, but no token or client secret.
+- Mutual-TLS private keys remain in the OPNsense trust store and are handed to
+  cURL only as in-memory PEM blobs. A pending login freezes the selected
+  certificate reference and SHA-256 thumbprint; a session retains that
+  non-secret snapshot so rotation can use an explicitly retiring certificate
+  for its older grants.
 - phpseclib is an OPNsense runtime component. The plugin owns algorithm policy
   and claim validation; it does not implement RSA or elliptic-curve arithmetic.
 
@@ -259,17 +268,21 @@ verification subset; Ed25519 is the separately audited RFC 8037 subset.
   bounded mode-`0600` server-side index. They remain random-state-bound,
   single-use and expire after ten minutes without weakening the session cookie.
 - A sign-in test uses the same transaction, Discovery, PKCE, token and claim
-  validation path, marked server-side as test-only. Its callback reports the
-  verified identity but does not resolve or mutate a local account and does not
-  elevate or replace the initiating WebGUI session.
+  validation path, marked server-side as test-only. The form enables it only
+  while its saved connector and displayed values agree, and the transaction
+  retains that connector's exact edit target. Its callback reports the verified
+  identity but does not resolve or mutate a local account and does not elevate
+  or replace the initiating WebGUI session.
 - Validated Discovery and JWKS responses are shared through bounded, HTTP-aware
   mode-`0600` caches and refreshed outside the login path. The exact metadata
   snapshot used at login is still frozen into the transaction so endpoints
   cannot change halfway through it. Automatic PAR may bypass only a temporarily
   unavailable optional endpoint; the provider requirement and every TLS,
   authentication or protocol failure remain fail-closed.
-- A provider that advertises ES256 DPoP receives `dpop_jkt` in the authorization
-  request and a fresh proof at the token endpoint. The private P-256 key lives in
+- A compatible provider profile that advertises ES256 DPoP for sender-constrained
+  access tokens receives `dpop_jkt` in the authorization request and a fresh proof
+  at the token endpoint. authentik's separate key-bound ID Token extension is not
+  treated as that access-token profile. The private P-256 key lives in
   a per-provider mode-`0600` store, rotates every 90 days and retains at most five
   retired generations for 370 days so an existing grant keeps its exact key.
   The server-side login session freezes the opaque store binding as well as the
@@ -303,6 +316,10 @@ verification subset; Ed25519 is the separately audited RFC 8037 subset.
   transaction as issuer, nonce, PKCE and metadata. The callback refuses a
   configuration mismatch and validates only the signed ID Token before local
   account or session processing.
+- OAuth client authentication, certificate-bound-token intent and the exact
+  mTLS certificate thumbprint are frozen into the transaction. Rotation may
+  continue an older exchange only while its certificate is explicitly retained
+  as retiring; removing or replacing it fails closed.
 - The logout index contains PHP session ID, issuer, subject, provider `sid` and
   creation time and expiry. The logout replay index contains only a hash of
   issuer plus logout `jti`; the SSF replay index likewise stores only a bounded

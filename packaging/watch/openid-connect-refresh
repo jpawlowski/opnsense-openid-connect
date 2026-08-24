@@ -76,7 +76,8 @@ foreach (Config::getInstance()->object()->system->authserver ?? [] as $server) {
             $key = ProviderRuntimeState::parKey($settings, $metadata);
             if (ProviderRuntimeState::parMayProbe($key)) {
                 $origins = $settings->effectiveWebGuiOrigins();
-                if ($origins === [] || $settings->clientId() === '' || $settings->clientSecret() === '') {
+                if ($origins === [] || $settings->clientId() === ''
+                    || !$settings->hasClientAuthenticationCredential()) {
                     ProviderRuntimeState::parHardFailure($key);
                 } else {
                     try {

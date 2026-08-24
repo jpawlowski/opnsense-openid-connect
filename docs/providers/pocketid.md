@@ -25,6 +25,7 @@ origin list is needed only for an intentional restriction or unusual proxy.
 | Authorization response mode | Query |
 | Scopes | `openid,email,profile`; add `groups` for group mapping |
 | Authentication method | Follow the provider |
+| Redirect the Log Out menu entry | On |
 
 Pocket ID is passkey-oriented, but OPNsense only sees the resulting standard
 OIDC authentication. Keep HTTPS correct at the reverse proxy and do not follow
@@ -38,11 +39,13 @@ plugin. Use a manually registered confidential client.
 
 For the first login, keep **Match by e-mail address** at **Only a verified
 address**, **Maximum authentication age** at **14400 seconds (four hours)**, account creation off, root
-access off, **Group claim** empty, tracing off, and both optional logout switches
+access off, **Group claim** empty, tracing off, **Redirect the Log Out menu
+entry** on, **Return here after logout** off, and provider logout notifications
 off. The table above contains the provider profile values to enter or verify.
 Change another setting only for the documented reason in the [complete settings
 reference](../setup/settings-reference.md).
 
 References: [Pocket ID common OIDC issues](https://pocket-id.org/docs/troubleshooting/common-issues),
 [allowed groups](https://pocket-id.org/docs/configuration/allowed-groups),
-[Client ID Metadata Documents](https://pocket-id.org/docs/guides/client-id-metadata-documents).
+[Client ID Metadata Documents](https://pocket-id.org/docs/guides/client-id-metadata-documents),
+and [a documented Pocket ID logout integration](https://pocket-id.org/docs/client-examples/bookstack).

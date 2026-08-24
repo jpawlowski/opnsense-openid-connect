@@ -31,6 +31,22 @@ confidential client with a derived ID such as `opnsense-keycloak` and generates
 its secret. Copy the secret from the client's **Credentials** tab, and copy the
 realm's exact issuer into OPNsense.
 
+The import keeps Keycloak's `basic` client scope as a default because current
+Keycloak versions use it for the mandatory `sub` claim and the `auth_time`
+evidence required by OPNsense maximum-age validation. It links the standard
+`email` and `profile` client scopes only when the current OPNsense scope list
+requests them. Keycloak's `email` scope maps the user's **Email verified** state
+to `email_verified`; keep that state false until the realm's enrollment or
+directory process has actually verified control of the current address.
+The generated client also enables **DPoP Bound Access Tokens**. Keycloak
+advertises ES256 DPoP realm-wide, so OPNsense uses that path automatically and
+refuses a downgrade to an unbound Bearer token.
+
+When **Return here after logout** is selected before generation, the import
+also disables Keycloak's separate logout confirmation landing page. Otherwise
+Keycloak 26.5 and newer can hold the browser on **You are logged out** until a
+second click even though the exact post-logout redirect URI was accepted.
+
 For pairwise subjects, first choose **Pairwise subject sector** in OPNsense and
 save the server as a disabled draft. The generated import then adds Keycloak's
 built-in `oidc-sha256-pairwise-sub-mapper` with the displayed sector identifier
@@ -74,6 +90,7 @@ In the intended realm, go to **Clients > Create client** and use:
 | Standard flow | On |
 | Direct access grants | Off |
 | Implicit flow | Off |
+| DPoP Bound Access Tokens | On |
 | Valid redirect URIs | `https://firewall.example.com/api/openidconnect/auth/callback/keycloak` |
 | Web origins | `https://firewall.example.com` |
 | Valid post logout redirect URIs | `https://firewall.example.com/` only when OPNsense **Return here after logout** will be enabled |
@@ -87,6 +104,11 @@ the client's advanced OpenID Connect settings, set **Proof Key for Code Exchange
 Code Challenge Method** to `S256` if the installed Keycloak version exposes
 that control. OPNsense sends PKCE S256 on every request in either case.
 
+Under **Client scopes**, link `email` and `profile` as optional scopes when the
+OPNsense scope list requests them. The standard `email` scope emits
+`email_verified` from the user's **Email verified** state; do not replace it
+with a mapper that unconditionally reports true.
+
 Optional manual pairwise configuration uses Keycloak's **Pairwise subject
 identifier** protocol mapper. Select a stable OPNsense **Pairwise subject
 sector**, save the disabled draft, and configure the mapper's Sector Identifier
@@ -99,6 +121,42 @@ https://firewall.example.com/api/openidconnect/auth/sector/keycloak
 Leave Keycloak to generate the pairwise salt. The URI is intentionally public,
 contains only the client's exact callback URI array, and answers only through
 the selected origin.
+
+### Optional authentication-strength enforcement
+
+This is a manual realm configuration. The generated partial realm import stops
+when **Required authentication** is selected because a client import cannot
+safely create and bind the realm flow which enforces the claimed method. Import
+or create the client while **Provider policy only** is selected, then configure
+the flow before enabling the stronger requirement in OPNsense.
+
+1. Under **Authentication**, duplicate the realm's working Browser flow. Bind
+   the copy as this client's Browser flow override; do not change the realm-wide
+   flow merely for OPNsense.
+2. For **Multi-factor authentication**, require a second-factor execution in
+   the copied flow and give that successful execution the authenticator
+   reference value `mfa`. Configure a Level of Authentication condition which
+   the second factor satisfies.
+3. For **Phishing-resistant authentication**, instead require a WebAuthn
+   authenticator in a dedicated copied flow and give its successful execution
+   reference value `fido`. Do not leave OTP as an alternative in that flow.
+4. In the client's advanced OIDC settings map
+   `https://refeds.org/profile/mfa` to the enforced MFA level, or map `phr` and
+   optionally `phrh` to the enforced WebAuthn level. Set the corresponding
+   minimum ACR value so a weaker request cannot select a lower level.
+5. Ensure the realm's `acr` client scope and its ACR LoA Level mapper are linked
+   to the client. Add Keycloak's Authentication Method Reference mapper so the
+   successful execution reference is emitted as `amr` in the ID Token.
+6. Select the matching **Required authentication** tier in OPNsense and run
+   **Test sign-in**. Do not enable the login button unless the verified result
+   contains the requested `acr` and the expected `amr` value.
+
+The default OPNsense Keycloak values deliberately match those steps: MFA uses
+the REFEDS context plus `mfa`; phishing-resistant authentication accepts
+`phr`/`phrh` only together with a registered method such as `fido`. If the realm
+uses different documented exact strings, change **Accepted authentication
+contexts** and **Accepted authentication methods** to those values on both
+sides. Adding a mapper without the enforcing flow is never sufficient.
 
 ### 3. Configure one Keycloak logout channel
 
@@ -179,11 +237,12 @@ login:
 | Allow the built-in root account | Off | preserves a provider-independent recovery account |
 | Group claim | Empty | keeps WebGUI authorization local for the first test |
 | Trace the exchange | Off | enable only briefly while diagnosing; logs remain redacted |
+| Redirect the Log Out menu entry | On | ends the local session first and then initiates Keycloak logout |
 
-**Redirect the Log Out menu entry** and **Return here after logout** are off by
-default. Enable the first when the OPNsense Log Out entry should end the
-Keycloak SSO session. Enable the second only after the exact **Valid post logout
-redirect URI** above has been registered.
+**Return here after logout** remains off by default. Enable it only after the
+exact **Valid post logout redirect URI** above has been registered. The
+logout-menu recommendation remains editable when ending the wider Keycloak SSO
+session is not wanted for this firewall.
 
 Keycloak's [response-mode API](https://www.keycloak.org/docs-api/latest/javadocs/org/keycloak/protocol/oidc/utils/OIDCResponseMode.html)
 documents `QUERY_JWT` and `FORM_POST_JWT`. Use either only when signed JARM
@@ -210,7 +269,12 @@ The complete flow, including both logout alternatives, `form_post` and
 [browser-to-firewall test](../../tests/e2e/README.md) with an official Keycloak
 container and a real OPNsense WebGUI.
 
+References: [Keycloak step-up authentication](https://www.keycloak.org/docs/latest/server_admin/#_step-up-flow),
+[ACR to Level of Authentication mapping](https://www.keycloak.org/docs/latest/server_admin/#_oidc-auth-flows),
+and [Authentication Method Reference mapper](https://www.keycloak.org/docs/latest/server_admin/#adding-authentication-executions).
+
 For every remaining OPNsense field, see the [settings
 reference](../setup/settings-reference.md).
 
-Reference: [Keycloak Server Administration Guide](https://www.keycloak.org/docs/latest/server_admin/).
+References: [Keycloak Server Administration Guide](https://www.keycloak.org/docs/latest/server_admin/)
+and [Keycloak release notes for the `basic` client scope](https://www.keycloak.org/docs/latest/release_notes/).
