@@ -420,6 +420,8 @@ def main():
           guard_module.is_read_only_shell("RIPGREP_CONFIG_PATH=config rg worktree AGENTS.md"), False)
     check("Git status is read-only with external pagers disabled",
           guard_module.is_read_only_shell("git --no-pager status --short"), True)
+    check("Git inspection cannot inherit helpers from another repository through -C",
+          guard_module.is_read_only_shell("git -C /tmp/other --no-pager status --short"), False)
     check("a later paginate flag cannot re-enable a configured Git pager",
           guard_module.is_read_only_shell("git --no-pager --paginate log -1"), False)
     check("a subcommand patch flag is not mistaken for a global Git pager",
@@ -728,6 +730,26 @@ def main():
         })
         check("a reconciliation request for any other head remains blocked",
               "foreign pull-request head" in emitted[0]["hookSpecificOutput"]["permissionDecisionReason"], True)
+        hook.synchronize_repository = lambda repository, max_age, required=False: {
+            "base_main": "snapshot", "old_base": "snapshot", "base_name": "snapshot HEAD",
+            "warning": "remote freshness unavailable", "remote_available": False, "execution": "codex-cloud",
+        }
+        hook.observe_remote = lambda state, synchronization, **keywords: ("", "")
+        emitted.clear()
+        hook.guard({
+            "session_id": "writer-one", "tool_name": "Bash",
+            "tool_input": {"command": (
+                "git push https://github.com/jpawlowski/opnsense-openid-connect.git "
+                "HEAD:codex/test"
+            )},
+        })
+        check("a remote-less snapshot cannot publish through an explicit Git URL",
+              "no observable Git remote" in emitted[0]["hookSpecificOutput"]["permissionDecisionReason"], True)
+        emitted.clear()
+        hook.guard({"session_id": "writer-one", "tool_name": "Handoff", "tool_input": {}})
+        check("a remote-less snapshot can still hand its commit to an integrating agent",
+              ("permissionDecision" in emitted[0].get("hookSpecificOutput", {}), emitted[0].get("systemMessage")),
+              (False, "remote freshness unavailable"))
         guard_module.release_lease(linked, "writer-one")
 
     group("Issue claims are unique, race-safe and completely temporary")

@@ -165,6 +165,10 @@ def _git_config(*arguments):
 
 
 def _configured_git_helper(command, arguments, global_arguments):
+    if any(value == "-C" or value.startswith("-C") for value in global_arguments):
+        # A different repository has different pager, fsmonitor and diff
+        # configuration. The control-checkout allow-list never inspects it.
+        return True
     if any(
         value in ("-c", "--config-env") or value.startswith("-c") and value != "-c"
         or value.startswith("--config-env=")

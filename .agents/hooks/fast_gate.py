@@ -815,13 +815,20 @@ def guard(event):
         return
 
     reconciliation_sha = agent_guard.pull_reconciliation_sha(event)
-    uncached_remote = bool(reconciliation_sha) or agent_guard.requires_uncached_remote(event)
+    shell_publication = tool == "Bash" and agent_guard.requires_uncached_remote(event)
+    uncached_remote = bool(reconciliation_sha) or shell_publication or tool.lower() == "handoff"
     try:
         synchronization = synchronize_repository(
             REPOSITORY, 0 if uncached_remote else ACTIVE_FETCH_TTL, required=uncached_remote,
         )
     except RuntimeError as error:
         emit(agent_guard.blocked(str(error)))
+        return
+    if (reconciliation_sha or shell_publication) and not synchronization["remote_available"]:
+        emit(agent_guard.blocked(
+            "This isolated snapshot has no observable Git remote, so shell publication is blocked. Commit here "
+            "and use the cloud platform's existing-PR update or hand the commit to the integrating agent."
+        ))
         return
     state_path, _ = state_paths(event)
     state = load_state(state_path) or {
