@@ -503,11 +503,14 @@ class RelyingParty
         if ($this->metadata === null) {
             throw new ProtocolException('Provider metadata is not available for client authentication');
         }
-        return $this->clientAuthentication ??= ClientAuthentication::negotiate(
-            $this->settings,
-            $this->metadata,
-            $this->restoredClientAuthentication
-        );
+        if ($this->restoredClientAuthentication !== null) {
+            return $this->clientAuthentication ??= ClientAuthentication::restore(
+                $this->settings,
+                $this->metadata,
+                $this->restoredClientAuthentication
+            );
+        }
+        return $this->clientAuthentication ??= ClientAuthentication::negotiate($this->settings, $this->metadata);
     }
 
     private function claimsForAccount(?string $accessToken): object

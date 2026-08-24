@@ -649,6 +649,34 @@ Checks::that(
     $rotated->snapshot()['certificate_ref'],
     'mtls-old'
 );
+$logoutSettings = connector([
+    'openidconnect_client_id' => 'mtls-client',
+    'openidconnect_client_certificate' => 'mtls-new',
+    'openidconnect_retiring_client_certificate' => 'mtls-old',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+]);
+$restoredLogout = new RelyingParty(
+    $logoutSettings,
+    new Controller(new Request('https', 'firewall.example.net'), new Session()),
+    null,
+    null,
+    null,
+    $mtlsSnapshot
+);
+$mtlsMetadataProperty->setValue($restoredLogout, $mtlsMetadata);
+Checks::that(
+    'the logout path retains the certificate-bound token policy of the established session',
+    array_intersect_key($restoredLogout->getClientAuthenticationSnapshot(), [
+        'certificate_bound_access_tokens' => true,
+        'certificate_ref' => true,
+    ]),
+    ['certificate_bound_access_tokens' => true, 'certificate_ref' => 'mtls-old']
+);
+Checks::throws(
+    'a pending login still refuses a changed certificate-bound token policy',
+    fn() => ClientAuthentication::negotiate($logoutSettings, $mtlsMetadata, $mtlsSnapshot),
+    'authentication changed'
+);
 Checks::throws(
     'removing the retiring certificate refuses an in-flight authentication downgrade',
     fn() => ClientAuthentication::negotiate(connector([

@@ -26,6 +26,22 @@ final class ClientAuthentication
         ProviderMetadata $metadata,
         ?array $frozen = null
     ): self {
+        return self::fromState($settings, $metadata, $frozen, false);
+    }
+
+    /** @param array<string,mixed> $frozen trusted snapshot retained with an established session */
+    public static function restore(OpenIDConnect $settings, ProviderMetadata $metadata, array $frozen): self
+    {
+        return self::fromState($settings, $metadata, $frozen, true);
+    }
+
+    /** @param array<string,mixed>|null $frozen */
+    private static function fromState(
+        OpenIDConnect $settings,
+        ProviderMetadata $metadata,
+        ?array $frozen,
+        bool $restorePolicy
+    ): self {
         $frozenMethod = null;
         if ($frozen !== null) {
             if (!is_string($frozen['method'] ?? null)
@@ -42,7 +58,8 @@ final class ClientAuthentication
             $frozenMethod = $metadata->tokenEndpointAuthMethod($frozen['method']);
         }
         $method = $frozenMethod ?? self::selectedMethod($settings, $metadata);
-        $bound = $settings->certificateBoundAccessTokens();
+        $bound = $restorePolicy && $frozen !== null
+            ? $frozen['certificate_bound_access_tokens'] : $settings->certificateBoundAccessTokens();
         if ($bound && !$metadata->supportsCertificateBoundAccessTokens()) {
             throw new ProtocolException('The provider does not advertise certificate-bound access tokens');
         }
@@ -50,7 +67,7 @@ final class ClientAuthentication
         $reference = $settings->clientCertificateRef();
         $expectedThumbprint = null;
         if ($frozen !== null) {
-            if ($bound !== $frozen['certificate_bound_access_tokens']) {
+            if (!$restorePolicy && $bound !== $frozen['certificate_bound_access_tokens']) {
                 throw new ProtocolException('Client authentication changed while the login was pending');
             }
             $reference = $frozen['certificate_ref'];
