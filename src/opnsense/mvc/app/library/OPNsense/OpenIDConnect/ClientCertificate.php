@@ -45,6 +45,16 @@ final class ClientCertificate
             || $details['validFrom_time_t'] > $now || $details['validTo_time_t'] < $now) {
             throw new ProtocolException('The selected client certificate is not currently valid');
         }
+        $clientPurpose = false;
+        foreach ((array)($details['purposes'] ?? []) as $purpose) {
+            if (is_array($purpose) && ($purpose[2] ?? null) === 'sslclient') {
+                $clientPurpose = ($purpose[0] ?? false) === true;
+                break;
+            }
+        }
+        if (!$clientPurpose) {
+            throw new ProtocolException('The selected certificate cannot authenticate TLS clients');
+        }
         $digest = @openssl_x509_fingerprint($certificate, 'sha256', true);
         if (!is_string($digest) || strlen($digest) !== 32) {
             throw new ProtocolException('The selected client certificate cannot be fingerprinted');

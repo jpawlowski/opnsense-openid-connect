@@ -527,6 +527,12 @@ Checks::throws(
 Checks::group('Mutual-TLS client authentication and certificate-bound tokens');
 $oldStoredCertificate = installClientCertificate('mtls-old', 'Old OIDC certificate');
 installClientCertificate('mtls-new', 'New OIDC certificate');
+installClientCertificate('server-only', 'Server-only certificate', 'serverAuth');
+Checks::throws(
+    'a server-only certificate cannot be selected for mutual-TLS client authentication',
+    fn() => ClientCertificate::load('server-only'),
+    'cannot authenticate TLS clients'
+);
 $mtlsMetadata = ProviderMetadata::fromArray(metadata([
     'token_endpoint_auth_methods_supported' => [
         'tls_client_auth', 'self_signed_tls_client_auth', 'client_secret_basic',
