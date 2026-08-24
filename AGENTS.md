@@ -37,6 +37,7 @@ separation is not decoration — keep it.
     python3 packaging/release-notes.py --tag vX.Y.Z   what a release would say
     python3 packaging/commit-lint.py --range main..HEAD
     python3 .agents/hooks/fast_gate.py refresh        refresh remote main before publishing
+    python3 .agents/hooks/fast_gate.py reconcile-pr --sha SHA --strategy merge
     python3 packaging/contribution-lint.py --help     what an issue or PR may contain
 
 Installed integration and destructive browser E2E are deliberate manual runs;
@@ -47,21 +48,88 @@ file being edited.
 
 ## Parallel agent work
 
-Every concurrent local agent uses its own linked worktree and topic branch. No
-two local agents write the same worktree or branch. Cloud sessions already have
-an isolated checkout and must not create another linked worktree merely to
-satisfy this rule. One integrating agent owns a pull-request branch; supporting
-agents hand over commits or patches instead of editing or pushing that branch.
+The primary local checkout is an agent read-only control surface. Pure searches
+and inspection need neither a branch nor another worktree. Any implementation,
+build or test that may write files uses a dedicated worktree. A Codex-managed
+worktree may remain detached until its work needs a commit or pull request; a
+manual Codex, Claude or CLI worktree starts with its own topic branch. Cloud
+sessions already have an isolated checkout and must not add another worktree
+merely to satisfy this rule.
+
+Parallel subagents are read-only and mark their delegated prompt with
+`[read-only]`. Parallel writing happens in separate top-level tasks and
+worktrees. One integrating agent owns a pull-request branch; supporting agents
+hand over findings, commits or patches instead of editing or pushing that
+branch. The shared PreToolUse hook enforces the control checkout, one writer
+lease per worktree and the read-only subagent marker. For a manual worktree use:
+
+    python3 .agents/worktrees.py create task-slug --client codex
+    python3 .agents/worktrees.py list
+    python3 .agents/worktrees.py audit
+
+Before the first implementation write in a new task, search open issues and
+pull requests for the requested outcome. Reuse its issue, or create a focused
+issue when none exists, then acquire its exclusive public work claim:
+
+    python3 .agents/issues.py claim 123
+
+The claim first acquires a fixed per-issue label definition as an atomic
+cross-clone mutex, then publishes one temporary `wip:<epoch>-<random>` issue
+label and a matching machine-readable comment. A racing agent must stand down.
+When `Fixes #123` links the pull request, run
+`python3 .agents/issues.py linked 456`; this removes the comment and both label
+definitions. The pull request, branch and linked head ancestry then carry
+ownership, so no WIP label belongs on the pull request. Run
+`python3 .agents/issues.py release` when work stops before a pull request. Use
+`adopt-pr` only when the user explicitly asks to continue an existing pull
+request. The guard blocks implementation writes without one of these verified
+states.
 
 The shared startup hook identifies the canonical base from the `origin` fetch
 URL. A direct clone uses `origin/main`; a GitHub fork keeps `origin` for
 publishing and gains a push-disabled `upstream`, then uses `upstream/main`.
+In the read-only control checkout, prefix Git inspection with
+`GIT_OPTIONAL_LOCKS=0`; otherwise Git may refresh its index while reporting.
 It serializes fetches, keeps clean local `main` as a fast-forward mirror, and
-reports lag or path overlap without changing the topic branch. Before any push,
-pull-request update, or review handoff, run the explicit refresh command above.
-Start from the reported canonical ref, rebase an unpublished branch, do not
-routinely rewrite a published branch, and request a new review after a head
-change. Never push an automatic `main` synchronization to a contributor fork.
+checks the canonical ref at session start, at most every five minutes before a
+write, at turn stop, and unconditionally before publication. It reports lag and
+path overlap without changing the topic branch. Overlap with new canonical work
+blocks another write until the agent integrates it or records a reasoned
+deferral with the command reported by the hook. Before any push, pull-request
+update, review request or handoff, run the explicit refresh command above. Start
+from the reported canonical ref, rebase an unpublished branch, do not routinely
+rewrite a published branch, and request a new review after a head change. Never
+push an automatic `main` synchronization to a contributor fork.
+
+For a published branch the same event-driven check watches the pull request's
+remote head, checks, review decision, merge state and, when GitHub exposes them,
+unresolved review threads. It also reports open pull requests whose changed
+paths overlap the local work. A remote head not contained locally blocks
+further writing or publication until it is reconciled. The refusal reports the
+exact SHA; invoke the explicit `reconcile-pr` helper above with that full SHA to
+fetch and merge only the freshly verified head. When all local work is
+done and only CI, review, approval or merge remains, offer — but never create
+without explicit user consent — a read-only ten-minute monitor using
+`python3 .agents/hooks/fast_gate.py watch`. Report only state changes or action
+needed; the monitor never comments, requests review, pushes or merges.
+
+Worktree cleanup is a separate, conservative lifecycle. SessionEnd retains a
+dirty worktree or one waiting on an open pull request, and queues a clean
+finished worktree instead of trying to remove its own current directory. A
+later SessionStart may remove at most one registered candidate after a 24-hour
+grace period, but only when it has no live lease, tracked, untracked or ignored
+files, foreign pull-request head, open pull request, closed unmerged pull
+request or unknown GitHub state. Inspect and control the queue with:
+
+    python3 .agents/worktrees.py audit
+    python3 .agents/worktrees.py retire task-slug
+    python3 .agents/worktrees.py sweep
+
+Removing a worktree always retains its local branch. A later sweep may delete
+that branch only after a seven-day grace period and proof that it is contained
+in canonical `main` or is the exact head of a merged pull request. Remote
+branches are never deleted. Every final handoff reports whether cleanup was
+completed, queued, or blocked and why.
 
 Claude Code cloud sets `CLAUDE_CODE_REMOTE=true`. Codex cloud may use the
 repository-defined `AGENT_EXECUTION=codex-cloud`; GitHub Copilot cloud exposes
@@ -130,11 +198,15 @@ language matching, short-body limits, tone and authorship notice apply to every
 public message written in a contributor's name.
 
 Do not merge a pull request until Codex has reviewed its current head commit.
-P0, P1 and P2 findings block the merge until fixed or technically rebutted in
-their thread; P3 findings are answered or tracked. The integrating agent owns
-every review thread through completion. Before requesting another review, it
-records every existing thread's disposition and resolves every addressed
-thread; it never leaves that cleanup to the reviewer.
+P0 and P1 findings block the merge until fixed or technically rebutted in their
+thread. A P2 blocks only when it is independently reproducible and affects
+security, recoverability, worktree or issue ownership, remote or pull-request
+freshness, publication correctness, or cleanup safety; other P2 and all P3
+findings are answered and tracked. The integrating agent owns every review
+thread through completion. Before requesting another review, it records every
+existing thread's disposition and resolves every addressed thread; it never
+leaves that cleanup to the reviewer. Once a current-head review has no blocking
+finding, do not request another review merely to obtain zero suggestions.
 
 ## What this deliberately does not do
 

@@ -13,6 +13,30 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|apply_patch|Edit|Write|Agent|Task|Handoff",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.agents/hooks/fast_gate.py\" guard",
+            "statusMessage": "Checking worktree ownership and remote drift",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.agents/hooks/fast_gate.py\" subagent",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
@@ -31,7 +55,7 @@
           {
             "type": "command",
             "command": "python3 \"$(git rev-parse --show-toplevel)/.agents/hooks/fast_gate.py\" cleanup",
-            "timeout": 3
+            "timeout": 60
           }
         ]
       }

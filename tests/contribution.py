@@ -265,10 +265,14 @@ def main():
     contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     check("agent and contributor rules wait for a review of the current head",
           all("current head" in text.lower() for text in (contribution_skill, agents, contributing)), True)
-    check("high and medium Codex findings are explicitly merge-blocking",
-          all("P0, P1 and P2" in text for text in (contribution_skill, agents, contributing)), True)
+    check("Codex findings use one consistent risk-based merge threshold",
+          all("P0 and P1" in text and "P2" in text and "recoverability" in text
+              for text in (contribution_skill, agents, contributing)), True)
+    check("a clean current-head risk review is the explicit stopping point",
+          all("merely to obtain zero suggestions" in text
+              for text in (contribution_skill, agents, contributing)), True)
     check("one integrating agent owns review threads through completion",
-          all(re.search(r"owns\s+every review thread\s+through completion", text)
+          all(re.search(r"owns\s+every\s+review\s+thread\s+through\s+completion", text)
               for text in (contribution_skill, agents, contributing)), True)
     check("the agent closes old review threads before requesting another review",
           "Only after all existing threads have a disposition" in contribution_skill
@@ -282,6 +286,29 @@ def main():
     check("parallel agents refresh one shared remote view without automatic integration",
           all("origin/main" in text and "worktree" in text.lower()
               and ("never" in text.lower() or "without changing" in text.lower())
+              for text in (contribution_skill, agents, contributing)), True)
+    check("the primary checkout is read-only while managed detached worktrees remain valid",
+          all("read-only" in text.lower() and "detached" in text.lower()
+              for text in (contribution_skill, agents, contributing)), True)
+    check("parallel subagents stay read-only and writing moves to top-level tasks",
+          all("subagent" in text.lower() and "top-level" in text.lower()
+              for text in (contribution_skill, agents, contributing)), True)
+    check("agents observe canonical and pull-request drift without automatic integration",
+          all("remote head" in text.lower() and "overlap" in text.lower()
+              and "never" in text.lower() and "merge" in text.lower()
+              for text in (contribution_skill, agents, contributing)), True)
+    check("waiting monitors need consent and remain read-only",
+          all("ten-minute" in text.lower() and "explicit" in text.lower()
+              and "monitor" in text.lower() and "never" in text.lower()
+              for text in (contribution_skill, agents, contributing)), True)
+    check("finished agent work has a conservative event-driven cleanup lifecycle",
+          all("24-hour" in text and "seven-day" in text
+              and "ignored" in text and "remote branch" in text
+              and "never" in text and "audit" in text
+              for text in (re.sub(r"\s+", " ", value.lower())
+                           for value in (contribution_skill, agents, contributing))), True)
+    check("every final handoff reports its cleanup disposition",
+          all("cleanup" in text.lower() and ("handoff" in text.lower() or "audit" in text.lower())
               for text in (contribution_skill, agents, contributing)), True)
     check("cloud agents keep one existing pull request and never invent credentials",
           all("existing pull request" in text.lower()
@@ -297,10 +324,10 @@ def main():
               for text in (contribution_skill, contributing)), True)
     reuse_rules = [re.sub(r"\s+", " ", text) for text in (contribution_skill, contributing)]
     check("agents reuse a coherent issue and pull request before creating more",
-          all("merely to satisfy the issue-first rule" in text
+          all("placeholder" in text and "issue-first rule" in text
               and "continuous" in text and "independently" in text for text in reuse_rules), True)
     check("an ambiguous split returns to the user",
-          all(re.search(r"ask(?:s)? the user (?:before|once)", text) for text in reuse_rules), True)
+          all(re.search(r"ask(?:s)? the user (?:before|once)", text, re.I) for text in reuse_rules), True)
     check("agents ask once before broad work is split into a new session",
           "ask the user once" in contribution_skill
           and "new session" in contribution_skill
@@ -318,16 +345,24 @@ def main():
           and "suggestion for a maintainer" in contribution_skill, True)
     work_claim_rules = [re.sub(r"\s+", " ", text) for text in (contribution_skill, contributing)]
     check("active work is assigned when permission allows",
-          all("write access" in text and "assign" in text and re.search(r"work (?:starts|begins)", text)
+          all("assign" in text and "permit" in text
               for text in work_claim_rules), True)
     check("an unlinked start leaves a temporary work signal",
-          all("temporary comment" in text and "Development link" in text
+          all("temporary" in text and "wip:<epoch>-<random>" in text
               for text in work_claim_rules), True)
     check("only the author's own obsolete claim is deleted",
           all("delete" in text and "own" in text and "another" in text
               for text in work_claim_rules), True)
-    check("the agent work claim has a stable hidden marker",
-          "<!-- contribution-work-claim -->" in contribution_skill, True)
+    check("the agent work claim combines a timestamped signal with an atomic mutex",
+          "<!-- contribution-work-claim:<epoch>-<random> -->" in contribution_skill
+          and "fixed per-issue label definition" in contribution_skill
+          and "atomic" in contribution_skill, True)
+    check("the issue claim is cleaned completely rather than copied to the pull request",
+          all("label definition" in text and "pull request" in text and "do not" in text
+              for text in work_claim_rules), True)
+    check("new implementation sessions must search and claim before writing",
+          "Before the first implementation write in every new task" in contribution_skill
+          and "python3 .agents/issues.py claim N" in contribution_skill, True)
     rules_readme = (ROOT / ".github" / "rulesets" / "README.md").read_text(encoding="utf-8")
     json.loads((ROOT / ".github" / "rulesets" / "main.json").read_text(encoding="utf-8"))
     check("the strict ruleset import has a documented adjacent copyright exception",

@@ -16,9 +16,11 @@ a contribution or when the existing conversation is mixed.
 
 ## Issues before pull requests
 
-Reuse before creating. Search open issues and pull requests for the same
-user-requested outcome. Never open an issue merely to satisfy the issue-first
-rule. During one continuous user task, update the current issue's title and body
+Reuse before creating. Before the first implementation write in every new task,
+search open issues and pull requests for the same user-requested outcome. Reuse
+the matching issue; if none exists, create a focused issue for the actual work,
+never a placeholder merely to satisfy the issue-first rule. During one
+continuous user task, update the current issue's title and body
 and extend its active pull request when the added work can be understood,
 reviewed, and accepted or rejected as one change.
 
@@ -54,35 +56,60 @@ and length but does not close an issue or grant permission to start work.
 ## Claiming active work
 
 Before starting, inspect the issue's assignees, Development links, and recent
-comments. Coordinate instead of creating a second claim when somebody is
-already working on it. Claim work only when implementation begins now, not when
-it is merely planned for later.
+comments and `wip:*` labels. Coordinate instead of creating a second claim when
+somebody is already working on it. Claim work only when implementation begins
+now, not when it is merely planned for later. The write guard requires a local
+record of the public claim before it permits source, build or Git mutations.
 
-With write access, assign the publishing account to the issue when work starts.
-Without write access, do not attempt to change assignees. If no pull request is
-linked yet, also leave one concise temporary comment in the issue's language:
+Run `python3 .agents/issues.py claim N`. It requires label-management permission
+and first creates a fixed per-issue label definition through GitHub's atomic
+create operation. Only its owner proceeds to assign the publishing account,
+create the visible `wip:<epoch>-<random>` issue label, and publish the comment.
+This serializes claimants across clones even when one pauses mid-operation. An
+agent without that permission coordinates with a maintainer instead of starting
+unguarded work. Add `--language de` when the issue conversation is German. The
+hidden marker uses the same dynamic identifier:
 
-    <!-- contribution-work-claim -->
-    I am working on this now. This note will be removed when the pull request is linked.
+    <!-- contribution-work-claim:<epoch>-<random> -->
 
-An agent adds the required authorship notice as the final paragraph. Keep the
-comment URL or ID. As soon as the pull request's `Fixes #N` link appears, delete
-only that account's own marked comment; never delete another author's comment,
-even when it contains the marker. If work stops before a pull request exists,
-delete the claim and, when permitted, remove the self-assignment. A pull request
-opened immediately needs no temporary comment because its Development link is
-the work signal.
+The helper includes the issue-language work note and required authorship notice,
+then re-reads the issue under the atomic lock. A claimant that cannot acquire
+the fixed definition stops before it publishes anything.
+
+As soon as a pull request with `Fixes #N` is linked, run
+`python3 .agents/issues.py linked PR`. It deletes only this task's comment,
+removes its issue label, deletes both now-unused repository label definitions and
+retains a local state bound to the pull-request branch and linked head ancestry.
+Never delete another author's marker. The pull request and bound branch are the
+exclusive work signal from then on;
+do not put the WIP label on the pull request. If work stops before a pull request
+exists, run `python3 .agents/issues.py release` to remove the comment, label,
+label definition and, when permitted, self-assignment. Inspect and deliberately
+hand over an apparently stale timestamped claim; never steal it automatically.
+
+When the user explicitly asks to continue an existing pull request in its own
+branch, use `python3 .agents/issues.py adopt-pr PR`. Do not use adoption to evade
+the issue search or to join another task's active pull request.
 
 ## Pull requests
 
 ### Execution context and parallel local work
 
-Use one topic branch and one linked worktree per concurrent local agent session.
-Never let two local agents write the same worktree or branch. A cloud session
-already has an isolated checkout and does not create another worktree merely to
-satisfy this rule. When several agents support one pull request, exactly one
-agent owns its publishing branch; the others hand over focused commits or
-patches for that agent to integrate.
+Treat the primary local checkout as read-only for agents. Pure inspection needs
+no branch or extra worktree. Any implementation, build or test that may write
+uses a dedicated worktree. A Codex-managed worktree may remain detached until
+its work needs a commit or pull request; a manual Codex, Claude or CLI worktree
+starts with its own topic branch. A cloud session already has an isolated
+checkout and does not create another worktree merely to satisfy this rule.
+
+Parallel subagents are read-only and their delegated prompt begins with
+`[read-only]`. Run parallel implementations as separate top-level tasks in
+separate worktrees. When several agents support one pull request, exactly one
+agent owns its publishing branch; the others hand over findings, focused
+commits or patches for that agent to integrate. For a manual local task use:
+
+    python3 .agents/worktrees.py create task-slug --client codex
+    python3 .agents/worktrees.py list
 
 The startup hook compares the `origin` fetch URL with the canonical repository.
 For a direct clone, it treats `origin/main` as the source of truth and adds no
@@ -92,11 +119,22 @@ the hook creates `upstream` for the canonical repository with pushing disabled;
 `upstream` that points elsewhere. Resolve that name conflict deliberately.
 
 The hook serializes fetches across worktrees, refreshes the canonical base and
-the publishing remote at most once per interval, and fast-forwards clean local
-`main` only. It never changes an agent's topic branch or pushes canonical main
-to a fork. GitHub's Sync fork button is not required. Start new work from the
-reported canonical ref, not from a possibly stale fork `main`. If the hook
-reports lag or overlapping paths, integrate deliberately before publishing.
+the publishing remote at session start, at most every five minutes before a
+write, at turn stop, and unconditionally before publication. It fast-forwards
+clean local `main` only. It never changes an agent's topic branch or pushes
+canonical main to a fork. GitHub's Sync fork button is not required. Start new
+work from the reported canonical ref, not from a possibly stale fork `main`.
+Canonical progress without path overlap is informational. An overlap blocks
+the next write until the integrating agent compares it and either integrates it
+or records a reasoned deferral with the command reported by the hook.
+
+Once a branch has a pull request, the same event-driven observation follows its
+remote head, checks, review decision, merge state and, when GitHub exposes them,
+unresolved review threads. It also reports changed-path overlap with other open
+pull requests targeting `main`. A remote pull-request head not contained in the
+local branch blocks further writing or publication until reconciled. Never
+merge or rebase merely because the observer found drift; integrate deliberately
+when paths overlap, GitHub requires it, or a real conflict risk exists.
 
 Claude Code cloud identifies itself with `CLAUDE_CODE_REMOTE=true`. In Codex
 cloud, set the repository-defined `AGENT_EXECUTION=codex-cloud` in the cloud
@@ -128,6 +166,39 @@ Rebase an unpublished private branch onto the reported `origin/main` or
 canonical ref only when its changes are relevant or GitHub requires an
 up-to-date branch. Either operation changes the head and invalidates an earlier
 review.
+
+When no local action remains and only CI, review, approval or merge is pending,
+offer a temporary ten-minute monitor. Create it only after the user explicitly
+accepts. Its observation command is:
+
+    python3 .agents/hooks/fast_gate.py watch
+
+The monitor reports only a changed state or concrete action needed. It never
+writes code, comments, pushes, requests review or merges. A review finding, CI
+failure, conflict, foreign head, approval, merge or closed pull request ends the
+pure waiting phase and returns the task to the user or integrating agent. If the
+user does not accept monitoring, hand off the exact pending conditions and end
+the task.
+
+### Worktree retirement
+
+Treat cleanup as a separate, event-driven lifecycle; never add a scheduler.
+SessionEnd retains dirty work and work waiting on an open pull request. It
+queues a clean finished worktree because a task must not try to remove its own
+current directory. A later SessionStart may remove at most one registered
+candidate after a 24-hour grace period. Audit or operate the queue with:
+
+    python3 .agents/worktrees.py audit
+    python3 .agents/worktrees.py retire task-slug
+    python3 .agents/worktrees.py sweep
+
+Deletion is blocked by a live lease, tracked, untracked or ignored files, an
+open pull request, a closed unmerged pull request, a foreign head or unknown
+GitHub state. Worktree removal retains its local branch. Delete that branch only
+after a seven-day grace period and proof that canonical `main` contains it or
+that it is the exact head of a merged pull request. Never delete a remote branch.
+End every handoff with one cleanup status: completed, queued, or retained with
+the exact reason.
 
 ### Publishing
 
@@ -192,18 +263,21 @@ validation are complete. Before merging, wait for Codex to review the current
 head commit; compare the reviewed commit shown by Codex with the pull request's
 current head. A review of an older head does not count.
 
-Every P0, P1 and P2 finding blocks the merge until it is fixed or technically
-rebutted in its review thread. Answer or track every P3 finding. Do not dismiss
-or silently resolve a finding: document its disposition in the thread, then
-resolve it. The ruleset's required thread resolution is the hard backstop, but
-it does not replace waiting for a late review or checking the reviewed commit.
+Every P0 and P1 finding blocks the merge until it is fixed or technically
+rebutted in its review thread. Independently reproduce each P2: it blocks only
+when it affects security, recoverability, worktree or issue ownership, remote
+or pull-request freshness, publication correctness, or cleanup safety. Answer
+and track every other P2 and every P3. Do not dismiss or silently resolve a
+finding: document its disposition in the thread, then resolve it. The ruleset's
+required thread resolution is the hard backstop, but it does not replace
+waiting for a late review or checking the reviewed commit.
 
 The integrating agent that owns the publishing branch owns every review thread
 through completion; the reviewing agent does not. After each review:
 
 1. Inventory every unresolved thread, including outdated threads from earlier
    heads.
-2. Fix the finding, technically rebut it, or track it when the P3 rule permits.
+2. Fix the finding, technically rebut it, or track it when the P2/P3 rule permits.
 3. Push the change and run the relevant validation before claiming it is fixed.
 4. Reply in the thread with the disposition and, when applicable, the commit
    and validation that demonstrate it.
@@ -211,9 +285,11 @@ through completion; the reviewing agent does not. After each review:
    cleanup for the reviewer or silently resolve an unaddressed finding.
 
 Only after all existing threads have a disposition, all addressed threads are
-resolved, and no P0, P1 or P2 remains unaddressed may the integrating agent
+resolved, and no blocking finding remains unaddressed may the integrating agent
 request exactly one new review for the current head. A new Codex review is a
 separate snapshot; it does not update or close an earlier review's threads.
+Once that current-head review has no blocking finding, stop: do not request
+another review merely to obtain zero suggestions.
 
 ## Agent notice
 
