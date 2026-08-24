@@ -1498,6 +1498,30 @@ module.update_registry(repository, update)
     check("an atomic repository mutex admits only one concurrent coordination publisher",
           sorted(result for _owner, result in lock_results), ["acquired", "refused"])
 
+    original_acquire = publisher.acquire_coordination_lock
+    original_request = publisher.github_watch.github_request
+    publisher.acquire_coordination_lock = lambda _token: "test-owner"
+    publisher.github_watch.github_request = lambda *_arguments: (_ for _ in ()).throw(
+        ValueError("temporary ownership read failure")
+    )
+    release_warning = io.StringIO()
+    original_stderr = sys.stderr
+    retained_error = ""
+    try:
+        sys.stderr = release_warning
+        try:
+            with publisher.coordination_publication_lock("token"):
+                raise RuntimeError("partial publication failed")
+        except RuntimeError as error:
+            retained_error = str(error)
+    finally:
+        sys.stderr = original_stderr
+        publisher.acquire_coordination_lock = original_acquire
+        publisher.github_watch.github_request = original_request
+    check("a lock ownership read failure preserves the original publication error and warns about cleanup",
+          (retained_error, "lock needs inspection" in release_warning.getvalue()),
+          ("partial publication failed", True))
+
     resumable_record = {
         "id": "42-57-1787590800-a1b2c3", "order": [42, 57], "state": "final", "supersedes": [],
     }
@@ -1635,6 +1659,37 @@ module.update_registry(repository, update)
     check("fulfillment reaches and loads every recorded replacement target",
           (fulfillment_reads, fulfillment_publication),
           ([57, 63, 42], [([42, 57, 63], "57-63-order", [42, 57, 63])]))
+
+    closed_fulfillment = {
+        "id": "57-63-1787590804-123abc", "order": [57, 63], "state": "final",
+        "supersedes": ["42-57-order"], "targets": [57, 63, 42],
+    }
+    closed_final_body = coordination.render_final(
+        closed_fulfillment, "the shared path moved", "the replacement minimizes rework", "the contract changes",
+    )
+    closed_fulfilled_body = coordination.render_fulfilled(closed_fulfillment)
+    closed_fulfillment_comments = {
+        57: [{"id": 10, "created_at": "2026-08-24T14:10:00Z", "body": closed_fulfilled_body,
+              "author_association": "OWNER"}],
+        63: [{"id": 11, "created_at": "2026-08-24T14:10:01Z", "body": closed_fulfilled_body,
+              "author_association": "OWNER"}],
+        42: [{"id": 12, "created_at": "2026-08-24T14:10:02Z", "body": closed_final_body,
+              "author_association": "OWNER"}],
+    }
+    publisher.open_pulls = lambda _token: []
+    publisher.comment_sets = lambda _pulls, _token: {}
+    closed_fulfillment_reads = []
+    publisher.comments = lambda number, _token: (
+        closed_fulfillment_reads.append(number) or closed_fulfillment_comments[number]
+    )
+    closed_fulfillment_publications = []
+    publisher.publish_mirrored = lambda numbers, _body, identifier, _token, values: (
+        closed_fulfillment_publications.append((numbers, identifier, sorted(values))) or []
+    )
+    publisher.fulfill_locked(SimpleNamespace(id=closed_fulfillment["id"], language="en"), "token")
+    check("fulfillment resumes from closed fulfilled originals and reaches the remaining final target",
+          (closed_fulfillment_reads, closed_fulfillment_publications),
+          ([57, 63, 42], [([57, 63, 42], closed_fulfillment["id"], [42, 57, 63])]))
 
     group("Finished worktrees retire before local branches and never delete remote branches")
     cleanup = load_agent_module(

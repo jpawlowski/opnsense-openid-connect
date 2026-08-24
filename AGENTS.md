@@ -159,6 +159,9 @@ Any active record sharing even one participant joins the same transitive
 coordination group; its replacement must supersede the record and give every open
 PR in that connected group one complete order. Closed or merged former
 participants remain publication targets but never re-enter the new merge order.
+Fulfillment derives the original PRs from its ID and accepts matching fulfilled
+copies as recovery metadata, so it can finish old-only targets after every
+original PR has closed or already received its fulfilled marker.
 Only markers whose GitHub author association is
 owner, member or collaborator are authoritative. The helper prints its identifier
 before the first comment; if mirroring is interrupted, rerun the same command with
@@ -171,7 +174,9 @@ comments must be read, so the successor also retires that stranded marker.
 Recommendation and fulfillment each hold one atomic repository-label mutex from
 before their remote snapshot until every mirrored comment is complete. A
 concurrent publisher stands down and retries after release. Inspect and remove a
-lock left by a failed process deliberately; never steal it automatically.
+lock left by a failed process deliberately; never steal it automatically. A
+release read failure preserves the publication error and reports the retained
+lock for deliberate cleanup.
 
 The order controls merging, not current execution. A later PR may finish its
 implementation, review or protected operation but does not merge first or chase

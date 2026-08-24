@@ -105,7 +105,10 @@ def acquire_coordination_lock(token, owner=None):
 
 def release_coordination_lock(token, owner):
     label_path = f"labels/{quote(LOCK_LABEL, safe='')}"
-    label = github_watch.github_request(CANONICAL_REPOSITORY, label_path, token)
+    try:
+        label = github_watch.github_request(CANONICAL_REPOSITORY, label_path, token)
+    except (TypeError, ValueError) as error:
+        raise RuntimeError(f"GitHub coordination lock ownership could not be verified ({error})") from error
     if str(label.get("description") or "") != lock_description(owner):
         raise RuntimeError(
             f"repository lock {LOCK_LABEL} changed ownership; inspect it and do not remove it automatically"
@@ -204,7 +207,7 @@ def publication_targets(prs, active, replaced):
     return list(dict.fromkeys(targets))
 
 
-def resumed_publication(values_by_pull, identifier):
+def recorded_publication(values_by_pull, identifier):
     records = [
         record
         for values in values_by_pull.values()
@@ -213,12 +216,24 @@ def resumed_publication(values_by_pull, identifier):
     if not records:
         return None
     expected = records[0]
-    fields = ("order", "state", "supersedes", "targets")
+    fields = ("order", "supersedes", "targets")
     if any(any(record[field] != expected[field] for field in fields) for record in records[1:]):
         raise RuntimeError(f"coordination id {identifier} has inconsistent mirrored markers")
-    if expected["state"] != "final":
-        raise RuntimeError(f"coordination id {identifier} is already fulfilled")
     return expected
+
+
+def resumed_publication(values_by_pull, identifier):
+    record = recorded_publication(values_by_pull, identifier)
+    if record is None:
+        return None
+    states = {
+        value["state"]
+        for values in values_by_pull.values()
+        for _comment, value in matching_comments(values, identifier)
+    }
+    if states != {"final"}:
+        raise RuntimeError(f"coordination id {identifier} is already fulfilled")
+    return record
 
 
 def coordination_component(records, prs):
@@ -358,18 +373,14 @@ def fulfill(arguments):
 def fulfill_locked(arguments, token):
     pulls = open_pulls(token)
     values_by_pull = comment_sets(pulls, token)
-    records = [
-        record
-        for values in values_by_pull.values()
-        for _comment, record in matching_comments(values, arguments.id)
-        if record["state"] == "final"
-    ]
-    record = next(iter(records), None)
+    load_target_comments(values_by_pull, identifier_pull_requests(arguments.id), token)
+    record = recorded_publication(values_by_pull, arguments.id)
     if record is None:
-        raise RuntimeError("the coordination record is not active on an open pull request")
-    body = pr_coordination.render_fulfilled(record, language=arguments.language)
+        raise RuntimeError("the coordination record was not found on its original pull requests")
     targets = record.get("targets", record["order"])
     load_target_comments(values_by_pull, targets, token)
+    record = recorded_publication(values_by_pull, arguments.id)
+    body = pr_coordination.render_fulfilled(record, language=arguments.language)
     urls = publish_mirrored(targets, body, record["id"], token, values_by_pull)
     print(f"fulfilled coordination {record['id']}")
     for url in urls:

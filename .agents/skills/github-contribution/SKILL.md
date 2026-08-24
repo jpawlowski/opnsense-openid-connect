@@ -236,11 +236,15 @@ superseded IDs plus the complete target set from its already-published marker.
 If that marker's first target has closed, publish a new remaining-open-PR order
 with the partial ID in `--supersedes`. The ID directs the helper to read the
 closed PR and mirror the successor there, so reopening cannot revive it.
+Fulfillment also derives the original PRs from its ID and uses consistent
+fulfilled copies as recovery metadata, allowing it to complete an old-only
+target after every original PR has closed or already received fulfillment.
 Recommendation and fulfillment each acquire one atomic repository-label mutex
 before reading the remote coordination snapshot and retain it through all
 mirrored comments. A competing publisher stands down until release. If a failed
 process leaves the label behind, inspect its owner and remove it deliberately;
-never steal it automatically.
+never steal it automatically. If ownership cannot be read during release,
+preserve the publication failure and report the retained lock for inspection.
 Recommendation and fulfillment are public mutations: the guard requires a topic
 branch as well as an uncached remote observation before either command runs.
 
