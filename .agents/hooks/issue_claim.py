@@ -143,6 +143,20 @@ def marker_path(repository):
     return git_directory / "opnsense-agent-issue-claim"
 
 
+@contextmanager
+def worktree_claim_lock(repository):
+    # The shared registry lock protects one local file update, while a claim
+    # publishes several remote and local artifacts. Keep that whole transition
+    # exclusive for this worktree without serializing claims in other worktrees.
+    path = marker_path(repository).with_suffix(".lock")
+    with path.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def write_marker(repository, token):
     path = marker_path(repository)
     temporary = path.with_suffix(".tmp")
@@ -316,7 +330,7 @@ def _available_issue(issue):
         )
 
 
-def claim(repository, number, now=None, language="en"):
+def _claim(repository, number, now=None, language="en"):
     """Claim one open issue through an atomic label-definition lock."""
     existing = current_claim(repository)
     if existing and int(existing.get("issue", 0)) == int(number) and existing.get("status") == "active":
@@ -402,6 +416,12 @@ def claim(repository, number, now=None, language="en"):
                     ))
         raise
     return record
+
+
+def claim(repository, number, now=None, language="en"):
+    """Claim one open issue while serializing publication for this worktree."""
+    with worktree_claim_lock(repository):
+        return _claim(repository, number, now=now, language=language)
 
 
 def _closing_issue(body):
