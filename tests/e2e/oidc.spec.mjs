@@ -485,7 +485,9 @@ async function testSignIn(page, { expectNoLocalAccount = false } = {}) {
   }
 }
 
-async function providerLogin(page, { formPost = false } = {}) {
+async function providerLogin(page, { responseMode = 'query' } = {}) {
+  const formPost = responseMode.startsWith('form_post');
+  const jarm = responseMode.endsWith('.jwt');
   let callback = null;
   let authorization = null;
   page.on('request', request => {
@@ -520,7 +522,7 @@ async function providerLogin(page, { formPost = false } = {}) {
     expect(authorization.searchParams.get('code_challenge_method')).toBe('S256');
     expect(authorization.searchParams.get('state')).toBeTruthy();
     expect(authorization.searchParams.get('nonce')).toBeTruthy();
-    expect(authorization.searchParams.get('response_mode')).toBe(formPost ? 'form_post' : null);
+    expect(authorization.searchParams.get('response_mode')).toBe(responseMode === 'query' ? null : responseMode);
   }
 
   const providerUsername = page.getByRole('textbox', { name: 'Username' });
@@ -549,10 +551,14 @@ async function providerLogin(page, { formPost = false } = {}) {
   if (formPost) {
     expect(callback.method).toBe('POST');
     expect(callback.contentType).toContain('application/x-www-form-urlencoded');
-    expect(callback.body).toContain('code=');
-    expect(callback.body).toContain('state=');
+    expect(callback.body).toContain(jarm ? 'response=' : 'code=');
+    expect(callback.body.includes('state=')).toBe(!jarm);
   } else {
     expect(callback.method).toBe('GET');
+    const callbackUrl = new URL(callback.url);
+    expect(callbackUrl.searchParams.has('response')).toBe(jarm);
+    expect(callbackUrl.searchParams.has('code')).toBe(!jarm);
+    expect(callbackUrl.searchParams.has('state')).toBe(!jarm);
   }
   return callback.url;
 }
@@ -733,11 +739,27 @@ test('real OPNsense login, session binding and logout interoperability', async (
   await providerLogoutPage.close();
 
   await editServer(adminPage, async page => {
+    await selectNative(page.locator('select[name="openidconnect_response_mode"]'), 'query.jwt');
+  });
+  await testSignIn(adminPage);
+  await providerLogin(userPage, { responseMode: 'query.jwt' });
+  await userPage.getByRole('link', { name: /Logout/ }).click();
+  await expect(userPage).toHaveTitle(/Login/);
+
+  await editServer(adminPage, async page => {
+    await selectNative(page.locator('select[name="openidconnect_response_mode"]'), 'form_post.jwt');
+  });
+  await testSignIn(adminPage);
+  await providerLogin(userPage, { responseMode: 'form_post.jwt' });
+  await userPage.getByRole('link', { name: /Logout/ }).click();
+  await expect(userPage).toHaveTitle(/Login/);
+
+  await editServer(adminPage, async page => {
     await selectNative(page.locator('select[name="openidconnect_token_auth"]'), 'client_secret_post');
     await selectNative(page.locator('select[name="openidconnect_response_mode"]'), 'form_post');
   });
   await testSignIn(adminPage);
-  await providerLogin(userPage, { formPost: true });
+  await providerLogin(userPage, { responseMode: 'form_post' });
   await userPage.getByRole('link', { name: /Logout/ }).click();
   await expect(userPage).toHaveTitle(/Login/);
 

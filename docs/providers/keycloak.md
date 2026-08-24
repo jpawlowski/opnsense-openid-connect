@@ -170,7 +170,7 @@ login:
 | Authentication method | Follow the provider | current Keycloak Discovery advertises supported client-secret methods; force Basic or POST only for a known metadata mismatch |
 | Username claim | `preferred_username` | emitted by Keycloak's standard `profile` client scope |
 | Claims source | Automatic | accepts verified ID Token claims and asks UserInfo only for a configured missing claim |
-| Authorization response mode | Query | normal Authorization Code response; Form POST is also implemented but unnecessary for Keycloak |
+| Authorization response mode | Query | normal Authorization Code response; current Keycloak also documents signed Query and Form POST JARM modes when that protection is required |
 | Match by e-mail address | Only a verified address | prevents a first binding through an unverified address |
 | Scopes | `openid,email,profile` | sufficient for sign-in and the standard identity claims |
 | Pairwise subject sector | Off | select a stable accepted origin before client creation only when pairwise `sub` values are required |
@@ -184,6 +184,10 @@ login:
 default. Enable the first when the OPNsense Log Out entry should end the
 Keycloak SSO session. Enable the second only after the exact **Valid post logout
 redirect URI** above has been registered.
+
+Keycloak's [response-mode API](https://www.keycloak.org/docs-api/latest/javadocs/org/keycloak/protocol/oidc/utils/OIDCResponseMode.html)
+documents `QUERY_JWT` and `FORM_POST_JWT`. Use either only when signed JARM
+responses are deliberately required; Query remains the simpler default.
 
 ## Groups and advanced notes
 
