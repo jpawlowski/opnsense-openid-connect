@@ -210,6 +210,7 @@ been returned.
 | Public Shared Signals push success and error | same private policy; RFC 8935 success is empty `202`, validation errors are bounded JSON | deny-by-default CSP; no subject, token or claim value is reflected |
 | Sign-in-test and WebGUI-access-denied pages | same private policy; cross-site `form_post` results also remove the temporary session's `Set-Cookie` | self-contained HTML; only inline styling is allowed, with all other sources, framing, base-URL changes and form submission denied |
 | Front-channel logout | private policy | `default-src 'none'; frame-ancestors *` is an intentional exception because the provider must load this endpoint in an iframe |
+| Settings form application | public, one year, immutable | package-owned static JavaScript is addressed by its content hash; per-server values remain in the authenticated form page |
 | Successful package-owned or proxied login icon | `Cache-Control: public, max-age=86400`, `no-referrer`, `nosniff` | sandboxed image response; package assets are reviewed and self-contained; remote responses cannot execute as page markup |
 | Missing, failed or rejected login icon | `no-store`, `no-referrer`, `nosniff`, explicit plain-text type | sandboxed deny-by-default CSP with framing denied |
 | Authenticated Discovery, sign-in-test, provider-setup and identity-approval APIs | `no-store`, `Pragma: no-cache`, `no-referrer`, `nosniff` | JSON or download response; the headers are applied before core authentication and CSRF processing, so early `401`, `403` and redirects are covered too |

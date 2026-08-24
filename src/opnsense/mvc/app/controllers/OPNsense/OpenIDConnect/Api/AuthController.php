@@ -30,6 +30,7 @@ use OPNsense\OpenIDConnect\WebGuiAccess;
  *   /api/openidconnect/auth/logout    end here and at the provider
  *   /api/openidconnect/auth/icon      hand on a provider's logo for the login button
  *   /api/openidconnect/auth/builtinicon hand out a package-owned provider mark
+ *   /api/openidconnect/auth/formscript serve the static authentication-server form application
  *   /api/openidconnect/auth/sector    publish callback URIs for pairwise subjects
  *
  * These endpoints answer before anyone is logged in, so doAuth() declines the usual
@@ -63,7 +64,16 @@ class AuthController extends ApiControllerBase
      */
     public function beforeExecuteRoute($dispatcher)
     {
-        if (in_array($dispatcher->getActionName(), ['icon', 'builtinicon'], true)) {
+        if ($dispatcher->getActionName() === 'formscript') {
+            $this->response->setContentType('application/javascript', 'UTF-8');
+            $this->response->setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+            $this->response->setHeader('Referrer-Policy', 'no-referrer');
+            $this->response->setHeader('X-Content-Type-Options', 'nosniff');
+            $this->response->setHeader(
+                'Content-Security-Policy',
+                "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+            );
+        } elseif (in_array($dispatcher->getActionName(), ['icon', 'builtinicon'], true)) {
             /* Safe failure defaults; a validated image deliberately overrides type, policy and caching. */
             $this->response->setContentType('text/plain', 'UTF-8');
             $this->response->setHeader('Cache-Control', 'no-store');
@@ -93,6 +103,18 @@ class AuthController extends ApiControllerBase
         }
 
         return parent::beforeExecuteRoute($dispatcher);
+    }
+
+    /** Serve only package-owned static form code; per-server values stay in the authenticated page. */
+    public function formscriptAction()
+    {
+        $path = __DIR__ . '/../../../../library/OPNsense/OpenIDConnect/assets/settings-form.js';
+        $body = @file_get_contents($path);
+        if (!is_string($body)) {
+            $this->response->setStatusCode(404, 'Not Found');
+            return 'Not Found.';
+        }
+        return $body;
     }
 
     /** Publish the saved redirect URIs only through this server's exact configured sector origin. */

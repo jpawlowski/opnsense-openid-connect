@@ -1772,10 +1772,17 @@ class OpenIDConnect extends Base implements IAuthConnector
                 ? get_themed_filename('/css/tokenize2.css') : '/ui/css/tokenize2.css',
         ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 
+        $scriptHash = @hash_file('sha256', $assets . 'settings-form.js');
+        $scriptVersion = is_string($scriptHash) ? substr($scriptHash, 0, 16) : 'missing';
+
         return '<style>.auth_openidconnect:has(#help_for_field_openidconnect___openidconnect_form){display:none !important}'
             . @file_get_contents($assets . 'settings-form.css') . '</style>'
             . '<script>window.__oidcForm = ' . $options . ';</script>'
-            . '<script>' . @file_get_contents($assets . 'settings-form.js') . '</script>';
+            // Keeping the growing form application inline eventually makes core's
+            // generated authentication-server page end before its submit button.
+            // A content-addressed same-origin resource keeps the per-server options
+            // inline while letting the static code load independently and cache safely.
+            . '<script src="/api/openidconnect/auth/formscript?v=' . $scriptVersion . '"></script>';
     }
 
     /* ------------------------------------------------------------ local accounts */
