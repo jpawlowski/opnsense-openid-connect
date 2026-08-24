@@ -92,10 +92,10 @@
       "title": "OAuth 2.0 Authorization Server Metadata (RFC 8414)",
       "reference": "https://www.rfc-editor.org/rfc/rfc8414.html",
       "scope": "Metadata consumed through OIDC Discovery",
-      "implementation": "partial",
+      "implementation": "implemented",
       "claim": "unverified",
       "audit_complete": false,
-      "note": "Only metadata used by the OIDC RP is consumed."
+      "note": "The applicable confidential-web-RP metadata is inventoried, validated and negotiated; normative conformance evidence remains incomplete."
     },
     {
       "id": "jwt-bcp",

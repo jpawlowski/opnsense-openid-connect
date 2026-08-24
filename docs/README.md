@@ -20,6 +20,7 @@ at their profile defaults.
 ## Design and review
 
 - [Architecture and trust boundaries](reference/architecture.md)
+- [Authorization-server metadata profile](reference/authorization-server-metadata.md)
 - [Security, conformance, provider capabilities and validation evidence](reference/security-and-conformance.md)
 - [Comparison with the commercial OPNsense package](reference/commercial-comparison.md)
 

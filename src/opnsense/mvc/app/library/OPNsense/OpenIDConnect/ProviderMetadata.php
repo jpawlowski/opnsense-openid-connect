@@ -13,6 +13,8 @@ final class ProviderMetadata
     public const MAX_BYTES = 262144;
     public const DISCOVERY_SUFFIX = '/.well-known/openid-configuration';
 
+    private const CLIENT_AUTH_METHODS = ['client_secret_basic', 'client_secret_post'];
+
     private function __construct(private readonly array $values)
     {
     }
@@ -67,7 +69,7 @@ final class ProviderMetadata
             'userinfo_endpoint', 'end_session_endpoint', 'revocation_endpoint',
             'pushed_authorization_request_endpoint',
         ] as $optional) {
-            if (isset($values[$optional])) {
+            if (array_key_exists($optional, $values)) {
                 if (!is_string($values[$optional])) {
                     throw new ProtocolException(sprintf('Discovery carries an invalid %s', $optional));
                 }
@@ -90,25 +92,28 @@ final class ProviderMetadata
             'id_token_signing_alg_values_supported', 'userinfo_signing_alg_values_supported',
             'token_endpoint_auth_methods_supported', 'response_modes_supported',
             'code_challenge_methods_supported', 'grant_types_supported', 'scopes_supported',
+            'revocation_endpoint_auth_methods_supported',
         ] as $list) {
-            if (isset($values[$list])
-                && (!is_array($values[$list]) || !array_is_list($values[$list]) || count($values[$list]) > 128
+            if (array_key_exists($list, $values)
+                && (!is_array($values[$list]) || !array_is_list($values[$list]) || $values[$list] === []
+                    || count($values[$list]) > 128
                     || array_filter($values[$list], 'is_string') !== $values[$list])) {
                 throw new ProtocolException(sprintf('Discovery carries an invalid %s', $list));
             }
         }
-        if (isset($values['grant_types_supported'])
+        if (array_key_exists('grant_types_supported', $values)
             && !in_array('authorization_code', $values['grant_types_supported'], true)) {
             throw new ProtocolException('The provider does not advertise the authorization code grant');
         }
-        if (isset($values['scopes_supported']) && !in_array('openid', $values['scopes_supported'], true)) {
+        if (array_key_exists('scopes_supported', $values)
+            && !in_array('openid', $values['scopes_supported'], true)) {
             throw new ProtocolException('The provider does not advertise the openid scope');
         }
-        if (isset($values['authorization_response_iss_parameter_supported'])
+        if (array_key_exists('authorization_response_iss_parameter_supported', $values)
             && !is_bool($values['authorization_response_iss_parameter_supported'])) {
             throw new ProtocolException('Discovery carries an invalid authorization response issuer flag');
         }
-        if (isset($values['require_pushed_authorization_requests'])
+        if (array_key_exists('require_pushed_authorization_requests', $values)
             && !is_bool($values['require_pushed_authorization_requests'])) {
             throw new ProtocolException('Discovery carries an invalid pushed authorization request requirement');
         }
@@ -210,6 +215,58 @@ final class ProviderMetadata
     public function authorizationResponseIssuerSupported(): bool
     {
         return ($this->values['authorization_response_iss_parameter_supported'] ?? false) === true;
+    }
+
+    /** Refuse a browser redirect before relying on an absent or contradictory capability. */
+    public function assertAuthorizationCapabilities(string $responseMode): void
+    {
+        $pkceMethods = $this->values['code_challenge_methods_supported'] ?? [];
+        if (!in_array('S256', $pkceMethods, true)) {
+            throw new ProtocolException('The provider does not advertise PKCE S256 support');
+        }
+
+        /* RFC 8414 defaults an omitted response-mode list to query and fragment only. */
+        $responseModes = $this->values['response_modes_supported'] ?? ['query', 'fragment'];
+        if (!in_array($responseMode, $responseModes, true)) {
+            throw new ProtocolException('The selected authorization response mode is not advertised');
+        }
+    }
+
+    public function tokenEndpointAuthMethod(?string $configured = null): string
+    {
+        return $this->clientAuthMethod('token_endpoint_auth_methods_supported', $configured);
+    }
+
+    public function revocationEndpointAuthMethod(): string
+    {
+        return $this->clientAuthMethod('revocation_endpoint_auth_methods_supported');
+    }
+
+    private function clientAuthMethod(string $metadataName, ?string $configured = null): string
+    {
+        /* RFC 8414 defines client_secret_basic as the omission default for both endpoints. */
+        $advertised = $this->values[$metadataName] ?? ['client_secret_basic'];
+        $endpoint = $metadataName === 'token_endpoint_auth_methods_supported' ? 'token' : 'revocation';
+        if ($configured !== null) {
+            if (!in_array($configured, self::CLIENT_AUTH_METHODS, true)
+                || !in_array($configured, $advertised, true)) {
+                throw new ProtocolException(sprintf(
+                    'The selected client authentication method is not advertised for the %s endpoint',
+                    $endpoint
+                ));
+            }
+            return $configured;
+        }
+        foreach (self::CLIENT_AUTH_METHODS as $method) {
+            if (in_array($method, $advertised, true)) {
+                return $method;
+            }
+        }
+
+        throw new ProtocolException(sprintf(
+            'The provider offers no supported client authentication method for the %s endpoint',
+            $endpoint
+        ));
     }
 
     public function toArray(): array
