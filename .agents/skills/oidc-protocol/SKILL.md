@@ -11,8 +11,8 @@ client and no Composer dependency to update. Keep protocol policy locally
 reviewable and leave cryptographic arithmetic to OPNsense's phpseclib runtime.
 
 Before changing behavior, read `docs/reference/architecture.md` and the relevant
-part of `docs/reference/security.md`. Identify the trust boundary and component
-that owns the decision:
+part of `docs/reference/security-and-conformance.md`. Identify the trust boundary
+and component that owns the decision:
 
 - `RelyingParty` owns authorization transactions, code exchange, claim-source
   composition, and provider logout or revocation requests.
