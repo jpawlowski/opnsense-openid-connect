@@ -21,7 +21,7 @@ Check these first:
 - The browser trusts or has accepted the WebGUI certificate.
 - The provider allows Authorization Code, PKCE `S256` and the selected response
   mode.
-- **Authentication method** matches the method accepted by the provider's
+- **Authentication method** and selected secret or signing certificate match the method accepted by the provider's
   application.
 - The username and optional group claims exist in the selected claims source.
 - OPNsense and the provider have correct time.

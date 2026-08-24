@@ -13,6 +13,7 @@ use OPNsense\Auth\OpenIDConnect;
 final class ParClient
 {
     public const MAX_BYTES = 262144;
+    private ClientAuthenticator $clientAuthenticator;
     private bool $credentialsExercised = false;
     private RequestObjectSigner $requestObjectSigner;
 
@@ -20,9 +21,11 @@ final class ParClient
         private readonly OpenIDConnect $settings,
         private readonly HttpClient $http,
         private ?ClientAuthentication $clientAuthentication = null,
-        ?RequestObjectSigner $requestObjectSigner = null
+        ?RequestObjectSigner $requestObjectSigner = null,
+        ?ClientAuthenticator $clientAuthenticator = null
     ) {
         $this->requestObjectSigner = $requestObjectSigner ?? new RequestObjectSigner();
+        $this->clientAuthenticator = $clientAuthenticator ?? new ClientAuthenticator($settings);
     }
 
     /** @param array<string,string> $parameters */
@@ -31,8 +34,16 @@ final class ParClient
         $this->credentialsExercised = false;
         $headers = ['Accept: application/json'];
         $authentication = $this->authentication($metadata);
-        $authentication->authenticate($this->settings, $parameters, $headers);
         $endpoint = $authentication->endpoint($metadata, 'pushed_authorization_request_endpoint') ?? $endpoint;
+        $this->clientAuthenticator->authenticate(
+            $metadata,
+            $endpoint,
+            ClientAuthenticator::TOKEN,
+            $parameters,
+            $headers,
+            $metadata->issuer(),
+            $authentication->method()
+        );
         // A metadata refusal above never exposed the credentials to transport; from this point the authenticated
         // request is attempted even when the provider or network rejects it.
         $this->credentialsExercised = true;
@@ -130,6 +141,11 @@ final class ParClient
 
     private function authentication(ProviderMetadata $metadata): ClientAuthentication
     {
-        return $this->clientAuthentication ??= ClientAuthentication::negotiate($this->settings, $metadata);
+        return $this->clientAuthentication ??= ClientAuthentication::negotiate(
+            $this->settings,
+            $metadata,
+            null,
+            $this->clientAuthenticator
+        );
     }
 }

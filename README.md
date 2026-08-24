@@ -70,8 +70,10 @@ need to go deeper.
 ## Security without guesswork
 
 The plugin uses the Authorization Code flow, PKCE, exact issuer validation,
-asymmetric token signatures and one-time login transactions. Optional features
-such as signed JWT-secured authorization requests (JAR), signed JARM
+asymmetric token signatures and one-time login transactions. A selected
+OPNsense signing certificate can replace a static client secret through
+`private_key_jwt`. Optional features such as signed JWT-secured authorization
+requests (JAR), signed JARM
 authorization responses, mutual-TLS client authentication, certificate-bound
 access tokens, PAR, provider-initiated logout, MFA evidence and Shared Signals
 stream management or push/poll delivery remain subject to provider support.

@@ -60,6 +60,10 @@ HOST_CAPABILITIES = {
         "Whom a token was issued for",
     ),
     "provider-http-policy": ("Bounded HTTPS transport",),
+    "private-key-jwt-client-auth": (
+        "Private-key JWT client assertions",
+        "Endpoint client authentication",
+    ),
     "mutual-tls-policy": (
         "Mutual-TLS client authentication and certificate-bound tokens",
         "Bounded HTTPS transport",

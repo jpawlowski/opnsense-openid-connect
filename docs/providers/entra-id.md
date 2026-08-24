@@ -31,7 +31,9 @@ or consent for administrators.
 1. Create an app registration with the supported account type selected above.
 2. Under **Authentication**, add a **Web** redirect URI equal to the exact
    authorization redirect URI displayed by OPNsense.
-3. Create a client secret and copy its **Value** before leaving the page.
+3. Create a client secret and copy its **Value** before leaving the page, or
+   upload the public certificate from an OPNsense certificate object under
+   **Certificates & secrets > Certificates**.
 4. Optional for a tenant/workforce configuration: define app roles or filtered
    group claims and assign only intended firewall administrators.
 
@@ -76,6 +78,14 @@ Microsoft currently documents it as an Entra ID P1 capability.
 | Redirect the Log Out menu entry | On |
 | Required authentication | Provider policy only, unless the tenant context above is configured |
 | Admission policy | Strict/controlled username matching for one tenant; Administrator approval for broad or personal audiences |
+
+For certificate credentials, select the same OPNsense object as **Client
+signing certificate** and choose **Insist on private-key JWT**. Entra documents
+PS256 and the X.509 SHA-256 thumbprint header for this credential. Its current
+Discovery document advertises `private_key_jwt` but omits the signing-algorithm
+list required by RFC 8414, so only the Microsoft profile applies the documented
+PS256 fallback; Generic does not guess. Register a replacement certificate in
+Entra before changing the OPNsense selection.
 
 Tenant-independent Microsoft Discovery publishes the issuer template
 `https://login.microsoftonline.com/{tenantid}/v2.0`. The plugin handles this

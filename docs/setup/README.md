@@ -137,12 +137,13 @@ tiers. Other named profiles enforce **Provider policy only**; a crafted form or
 manual `config.xml` value is refused at login rather than silently trusted.
 
 While the server remains disabled, the exact **Issuer URL**, **Client ID** and
-**Client Secret** may be empty so either side can be prepared first. Before
-enabling login, the three provider values are required; a selected custom address
-policy additionally requires at least one exact HTTPS origin. Follow mode needs
-no duplicated origin entry when OPNsense itself serves HTTPS. With an HTTP
-WebGUI, enabling also requires the complete trusted TLS-offloading exception
-described above.
+client credential may be empty so either side can be prepared first. Before
+enabling login, enter the issuer and Client ID plus either a **Client Secret**
+or a registered **Client signing certificate**. A selected custom address policy
+additionally requires at least one exact HTTPS origin. Follow mode needs no
+duplicated origin entry when OPNsense itself serves HTTPS. With an HTTP WebGUI,
+enabling also requires the complete trusted TLS-offloading exception described
+above.
 
 The endpoint reference constructs the addresses from the WebGUI origin and
 application code. With origin `https://firewall.example.com` and application code

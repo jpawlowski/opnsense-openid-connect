@@ -421,7 +421,7 @@
         var names = [
             'openidconnect_provider_url', 'openidconnect_app_code', 'openidconnect_provider_profile',
             'openidconnect_microsoft_audience', 'openidconnect_client_id', 'openidconnect_client_secret',
-            'openidconnect_token_auth', 'openidconnect_client_certificate',
+            'openidconnect_signing_certificate', 'openidconnect_token_auth', 'openidconnect_client_certificate',
             'openidconnect_retiring_client_certificate', 'openidconnect_certificate_bound_access_tokens',
             'openidconnect_par_mode', 'openidconnect_request_object_key',
             'openidconnect_scopes',
@@ -447,14 +447,18 @@
         var method = (field('openidconnect_token_auth') || {}).value || '';
         var secret = (field('openidconnect_client_secret') || {}).value || '';
         var certificate = (field('openidconnect_client_certificate') || {}).value || '';
+        var signingCertificate = (field('openidconnect_signing_certificate') || {}).value || '';
         var boundInput = field('openidconnect_certificate_bound_access_tokens');
         var bound = boundInput ? $(boundInput).is(':checked') : false;
         var tlsMethod = method === 'tls_client_auth' || method === 'self_signed_tls_client_auth';
         var needsCertificate = bound || tlsMethod || (method === '' && certificate.trim() !== '');
+        var needsSigningCertificate = method === 'private_key_jwt'
+            || (method === '' && certificate.trim() === '' && signingCertificate.trim() !== '');
         var needsSecret = method === 'client_secret_basic' || method === 'client_secret_post'
-            || (method === '' && certificate.trim() === '');
+            || (method === '' && certificate.trim() === '' && signingCertificate.trim() === '');
         return issuer.trim() !== '' && clientId.trim() !== ''
             && (!needsCertificate || certificate.trim() !== '')
+            && (!needsSigningCertificate || signingCertificate.trim() !== '')
             && (!needsSecret || secret.trim() !== '');
     }
 
@@ -512,7 +516,7 @@
         }
         var readinessFields = [
             'openidconnect_provider_url', 'openidconnect_client_id', 'openidconnect_client_secret',
-            'openidconnect_client_certificate', 'openidconnect_token_auth',
+            'openidconnect_client_certificate', 'openidconnect_signing_certificate', 'openidconnect_token_auth',
             'openidconnect_certificate_bound_access_tokens'
         ];
         var running = false;

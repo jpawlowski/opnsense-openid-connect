@@ -174,14 +174,21 @@ namespace OPNsense\Core {
             return $server;
         }
 
-        public function addCertificate(string $reference, string $description, bool $privateKey = true): void
+        public function addCertificate($certificate, string $description = '', bool $privateKey = true): object
         {
-            $this->root->cert[] = (object)[
-                'refid' => $reference,
-                'descr' => $description,
-                'prv' => $privateKey ? base64_encode('private key') : '',
-                'crt' => base64_encode('certificate'),
-            ];
+            if (is_string($certificate)) {
+                $certificate = [
+                    'refid' => $certificate,
+                    'descr' => $description,
+                    'prv' => $privateKey ? base64_encode('private key') : '',
+                    'crt' => base64_encode('certificate'),
+                ];
+            }
+            $certificate = (object)($certificate + [
+                'refid' => uniqid(), 'descr' => 'Test certificate', 'crt' => '', 'prv' => '',
+            ]);
+            $this->root->cert[] = $certificate;
+            return $certificate;
         }
 
         public function lock(): void
@@ -228,7 +235,19 @@ namespace OPNsense\Trust {
 
         public static function getCertificate($reference)
         {
-            return self::$certificates[(string)$reference] ?? false;
+            if (array_key_exists((string)$reference, self::$certificates)) {
+                return self::$certificates[(string)$reference];
+            }
+            foreach (\OPNsense\Core\Config::getInstance()->object()->cert ?? [] as $certificate) {
+                if ((string)($certificate->refid ?? '') !== (string)$reference) {
+                    continue;
+                }
+                return [
+                    'crt' => base64_decode((string)($certificate->crt ?? ''), true) ?: '',
+                    'prv' => base64_decode((string)($certificate->prv ?? ''), true) ?: '',
+                ];
+            }
+            return false;
         }
 
         public static function reset(): void

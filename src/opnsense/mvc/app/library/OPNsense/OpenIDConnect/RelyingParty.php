@@ -46,6 +46,7 @@ class RelyingParty
     private $response;
     private HttpClient $http;
     private JwtVerifier $verifier;
+    private ClientAuthenticator $clientAuthenticator;
     private DpopKeyStore $dpopStore;
     private ?DpopProof $dpop;
     private RequestObjectSigner $requestObjectSigner;
@@ -67,7 +68,7 @@ class RelyingParty
         ?JwtVerifier $verifier = null,
         ?RequestObjectSigner $requestObjectSigner = null,
         ?DpopProof $dpop = null,
-        ?array $restoredClientAuthentication = null
+        ClientAuthenticator|array|null $clientAuthenticatorOrRestoredState = null
     ) {
         $this->settings = $settings;
         $this->session = $controller->session;
@@ -75,10 +76,13 @@ class RelyingParty
         $this->response = $controller->response;
         $this->http = $http ?? new HttpClient();
         $this->verifier = $verifier ?? new JwtVerifier($this->http);
+        $this->clientAuthenticator = $clientAuthenticatorOrRestoredState instanceof ClientAuthenticator
+            ? $clientAuthenticatorOrRestoredState : new ClientAuthenticator($settings);
         $this->dpopStore = DpopKeyStore::forSettings($settings);
         $this->dpop = $dpop;
         $this->requestObjectSigner = $requestObjectSigner ?? new RequestObjectSigner();
-        $this->restoredClientAuthentication = $restoredClientAuthentication;
+        $this->restoredClientAuthentication = is_array($clientAuthenticatorOrRestoredState)
+            ? $clientAuthenticatorOrRestoredState : null;
 
         $redirect = static::acceptedRedirectUri($settings, $controller->request);
         if ($redirect === null) {
@@ -157,7 +161,12 @@ class RelyingParty
         $verifier = self::randomValue(64);
         $challenge = JwtVerifier::base64UrlEncode(hash('sha256', $verifier, true));
         $authenticationRequirement = $this->settings->authenticationRequirement();
-        $this->clientAuthentication = ClientAuthentication::negotiate($this->settings, $metadata);
+        $this->clientAuthentication = ClientAuthentication::negotiate(
+            $this->settings,
+            $metadata,
+            null,
+            $this->clientAuthenticator
+        );
         $this->tokenAuthMethod = $this->clientAuthentication->method();
         if ($this->clientAuthentication->snapshot()['certificate_bound_access_tokens']) {
             /* One access token has one sender constraint: prefer the explicitly configured certificate binding. */
@@ -290,7 +299,13 @@ class RelyingParty
         string $endpoint,
         array $parameters
     ): string {
-        $requestUri = (new ParClient($this->settings, $this->http, $this->clientAuthentication))->push(
+        $requestUri = (new ParClient(
+            $this->settings,
+            $this->http,
+            $this->clientAuthentication,
+            $this->requestObjectSigner,
+            $this->clientAuthenticator
+        ))->push(
             $metadata,
             $endpoint,
             $parameters
@@ -350,7 +365,8 @@ class RelyingParty
         $this->clientAuthentication = ClientAuthentication::negotiate(
             $this->settings,
             $this->metadata,
-            $transaction['client_authentication']
+            $transaction['client_authentication'],
+            $this->clientAuthenticator
         );
         if (!hash_equals($this->clientAuthentication->method(), $frozenAuthMethod)) {
             throw new ProtocolException('The pending login carries inconsistent client authentication state');
@@ -457,13 +473,41 @@ class RelyingParty
             'code_verifier' => $verifier,
         ];
         $headers = ['Accept: application/json'];
-        $this->authenticateClient($fields, $headers);
-
         $endpoint = (string)$this->clientAuthentication()->endpoint($this->metadata, 'token_endpoint');
         $certificate = $this->clientAuthentication()->certificate();
-        $response = $this->dpop === null
-            ? $this->http->postForm($endpoint, $fields, self::TOKEN_MAX_BYTES, $headers, $certificate)
-            : $this->dpopRequest('POST', $endpoint, $fields, $headers, self::TOKEN_MAX_BYTES, null, false, $certificate);
+        $authenticate = function (array &$attemptFields, array &$attemptHeaders) use ($endpoint): void {
+            $this->clientAuthenticator->authenticate(
+                $this->metadata,
+                $endpoint,
+                ClientAuthenticator::TOKEN,
+                $attemptFields,
+                $attemptHeaders,
+                null,
+                $this->tokenAuthMethod
+            );
+        };
+        if ($this->dpop === null) {
+            $authenticate($fields, $headers);
+            $response = $this->http->postForm(
+                $endpoint,
+                $fields,
+                self::TOKEN_MAX_BYTES,
+                $headers,
+                $certificate
+            );
+        } else {
+            $response = $this->dpopRequest(
+                'POST',
+                $endpoint,
+                $fields,
+                $headers,
+                self::TOKEN_MAX_BYTES,
+                null,
+                false,
+                $certificate,
+                $authenticate
+            );
+        }
         if ($response->status !== 200) {
             $this->throwTokenEndpointError($response);
         }
@@ -556,12 +600,6 @@ class RelyingParty
         return is_string($error) && preg_match('/^[A-Za-z0-9_.-]{1,80}$/D', $error) ? $error : null;
     }
 
-    /** @param array<string,string> $fields @param string[] $headers */
-    private function authenticateClient(array &$fields, array &$headers, ?string $method = null): void
-    {
-        $this->clientAuthentication()->authenticate($this->settings, $fields, $headers, $method);
-    }
-
     private function clientAuthentication(): ClientAuthentication
     {
         if ($this->metadata === null) {
@@ -571,10 +609,16 @@ class RelyingParty
             return $this->clientAuthentication ??= ClientAuthentication::restore(
                 $this->settings,
                 $this->metadata,
-                $this->restoredClientAuthentication
+                $this->restoredClientAuthentication,
+                $this->clientAuthenticator
             );
         }
-        return $this->clientAuthentication ??= ClientAuthentication::negotiate($this->settings, $this->metadata);
+        return $this->clientAuthentication ??= ClientAuthentication::negotiate(
+            $this->settings,
+            $this->metadata,
+            null,
+            $this->clientAuthenticator
+        );
     }
 
     private function claimsForAccount(?string $accessToken): object
@@ -712,15 +756,35 @@ class RelyingParty
             $fields['token_type_hint'] = $hint;
         }
         $headers = [];
-        $this->authenticateClient(
-            $fields,
-            $headers,
-            $this->clientAuthentication()->revocationMethod($this->metadata)
-        );
         $certificate = $this->clientAuthentication()->certificate();
-        $response = $this->dpop === null
-            ? $this->http->postForm($endpoint, $fields, 262144, $headers, $certificate)
-            : $this->dpopRequest('POST', $endpoint, $fields, $headers, 262144, null, false, $certificate);
+        $method = $this->clientAuthentication()->revocationMethod($this->metadata);
+        $authenticate = function (array &$attemptFields, array &$attemptHeaders) use ($endpoint, $method): void {
+            $this->clientAuthenticator->authenticate(
+                $this->metadata,
+                $endpoint,
+                ClientAuthenticator::REVOCATION,
+                $attemptFields,
+                $attemptHeaders,
+                null,
+                $method
+            );
+        };
+        if ($this->dpop === null) {
+            $authenticate($fields, $headers);
+            $response = $this->http->postForm($endpoint, $fields, 262144, $headers, $certificate);
+        } else {
+            $response = $this->dpopRequest(
+                'POST',
+                $endpoint,
+                $fields,
+                $headers,
+                262144,
+                null,
+                false,
+                $certificate,
+                $authenticate
+            );
+        }
         if (!in_array($response->status, [200, 204], true)) {
             throw new ProtocolException(sprintf('Token revocation returned HTTP %d', $response->status));
         }
@@ -820,6 +884,7 @@ class RelyingParty
      * whether the RFC's single nonce retry is warranted.
      *
      * @param array<string,string>|null $fields @param string[] $headers
+     * @param callable(array<string,string>&,string[]&):void|null $prepareRequest
      */
     private function dpopRequest(
         string $method,
@@ -829,22 +894,36 @@ class RelyingParty
         int $maxBytes,
         ?string $accessToken = null,
         bool $resource = false,
-        ?ClientCertificate $clientCertificate = null
+        ?ClientCertificate $clientCertificate = null,
+        ?callable $prepareRequest = null
     ): HttpResponse {
         if ($this->dpop === null) {
             throw new \LogicException('A DPoP request requires a proof key');
         }
         for ($attempt = 0; $attempt < 2; $attempt++) {
+            $attemptFields = $fields;
             $attemptHeaders = $headers;
+            if ($prepareRequest !== null) {
+                if ($attemptFields === null) {
+                    throw new \LogicException('A prepared DPoP request requires form fields');
+                }
+                $prepareRequest($attemptFields, $attemptHeaders);
+            }
             $attemptHeaders[] = 'DPoP: ' . $this->dpop->proof(
                 $method,
                 $endpoint,
                 $accessToken,
                 $this->dpopStore->nonce($endpoint)
             );
-            $response = $fields === null
+            $response = $attemptFields === null
                 ? $this->http->get($endpoint, $maxBytes, $attemptHeaders, $clientCertificate)
-                : $this->http->postForm($endpoint, $fields, $maxBytes, $attemptHeaders, $clientCertificate);
+                : $this->http->postForm(
+                    $endpoint,
+                    $attemptFields,
+                    $maxBytes,
+                    $attemptHeaders,
+                    $clientCertificate
+                );
             $receivedNonce = $this->dpopStore->acceptNonce($endpoint, $response);
             if (!$this->isDpopNonceChallenge($response, $resource)) {
                 return $response;

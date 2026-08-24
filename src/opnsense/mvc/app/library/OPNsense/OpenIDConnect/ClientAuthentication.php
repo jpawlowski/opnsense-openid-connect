@@ -17,22 +17,29 @@ final class ClientAuthentication
     private function __construct(
         private readonly string $method,
         private readonly ?ClientCertificate $certificate,
-        private readonly bool $certificateBoundAccessTokens
+        private readonly bool $certificateBoundAccessTokens,
+        private readonly ClientAuthenticator $authenticator
     ) {
     }
 
     public static function negotiate(
         OpenIDConnect $settings,
         ProviderMetadata $metadata,
-        ?array $frozen = null
+        ?array $frozen = null,
+        ?ClientAuthenticator $authenticator = null
     ): self {
-        return self::fromState($settings, $metadata, $frozen, false);
+        return self::fromState($settings, $metadata, $frozen, false, $authenticator);
     }
 
     /** @param array<string,mixed> $frozen trusted snapshot retained with an established session */
-    public static function restore(OpenIDConnect $settings, ProviderMetadata $metadata, array $frozen): self
+    public static function restore(
+        OpenIDConnect $settings,
+        ProviderMetadata $metadata,
+        array $frozen,
+        ?ClientAuthenticator $authenticator = null
+    ): self
     {
-        return self::fromState($settings, $metadata, $frozen, true);
+        return self::fromState($settings, $metadata, $frozen, true, $authenticator);
     }
 
     /** @param array<string,mixed>|null $frozen */
@@ -40,7 +47,8 @@ final class ClientAuthentication
         OpenIDConnect $settings,
         ProviderMetadata $metadata,
         ?array $frozen,
-        bool $restorePolicy
+        bool $restorePolicy,
+        ?ClientAuthenticator $authenticator
     ): self {
         $frozenMethod = null;
         if ($frozen !== null) {
@@ -57,7 +65,7 @@ final class ClientAuthentication
              */
             $frozenMethod = $metadata->tokenEndpointAuthMethod($frozen['method']);
         }
-        $method = $frozenMethod ?? self::selectedMethod($settings, $metadata);
+        $method = $frozenMethod ?? self::selectedMethod($settings, $metadata, $authenticator);
         $bound = $restorePolicy && $frozen !== null
             ? $frozen['certificate_bound_access_tokens'] : $settings->certificateBoundAccessTokens();
         if ($bound && !$metadata->supportsCertificateBoundAccessTokens()) {
@@ -90,26 +98,23 @@ final class ClientAuthentication
             throw new ProtocolException('The login client certificate changed while the login was pending');
         }
 
-        return new self($method, $needsCertificate ? $certificate : null, $bound);
+        return new self(
+            $method,
+            $needsCertificate ? $certificate : null,
+            $bound,
+            $authenticator ?? new ClientAuthenticator($settings)
+        );
     }
 
-    private static function selectedMethod(OpenIDConnect $settings, ProviderMetadata $metadata): string
+    private static function selectedMethod(
+        OpenIDConnect $settings,
+        ProviderMetadata $metadata,
+        ?ClientAuthenticator $authenticator
+    ): string
     {
-        $configured = $settings->tokenAuthMethod();
-        if ($configured !== null) {
-            return $metadata->tokenEndpointAuthMethod($configured);
-        }
-        $advertised = $metadata->get('token_endpoint_auth_methods_supported', ['client_secret_basic']);
-        $advertised = is_array($advertised) ? $advertised : [];
-        $candidates = $settings->clientCertificateRef() === ''
-            ? ['client_secret_basic', 'client_secret_post'] : self::TLS_METHODS;
-        foreach ($candidates as $candidate) {
-            if (in_array($candidate, $advertised, true)) {
-                return $candidate;
-            }
-        }
-        throw new ProtocolException(
-            'The provider offers no supported client authentication method for the token endpoint'
+        return ($authenticator ?? new ClientAuthenticator($settings))->selectMethod(
+            $metadata,
+            ClientAuthenticator::TOKEN
         );
     }
 
@@ -149,12 +154,24 @@ final class ClientAuthentication
             ? [$this->method, ...array_values(array_diff(self::TLS_METHODS, [$this->method]))]
             : [
                 $this->method,
-                ...array_values(array_diff(['client_secret_basic', 'client_secret_post'], [$this->method])),
+                ...array_values(array_diff(
+                    ['private_key_jwt', 'client_secret_basic', 'client_secret_post'],
+                    [$this->method]
+                )),
                 ...($this->certificate === null ? [] : self::TLS_METHODS),
             ];
         foreach ($candidates as $candidate) {
-            if (is_array($advertised) && in_array($candidate, $advertised, true)) {
-                return $candidate;
+            if (!is_array($advertised) || !in_array($candidate, $advertised, true)) {
+                continue;
+            }
+            try {
+                return $this->authenticator->selectMethod(
+                    $metadata,
+                    ClientAuthenticator::REVOCATION,
+                    $candidate
+                );
+            } catch (ProtocolException $e) {
+                continue;
             }
         }
         throw new ProtocolException('The provider offers no usable revocation endpoint authentication method');
