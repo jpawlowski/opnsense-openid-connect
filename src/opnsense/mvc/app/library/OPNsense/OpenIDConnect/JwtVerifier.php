@@ -17,10 +17,33 @@ class JwtVerifier
         'RS256', 'RS384', 'RS512',
         'PS256', 'PS384', 'PS512',
         'ES256', 'ES384', 'ES512',
+        'EdDSA',
     ];
     public const MAX_JWT_BYTES = 1048576;
     public const MAX_JWKS_BYTES = 1048576;
     public const CLOCK_TOLERANCE = 60;
+    public const MIN_RSA_BITS = 2048;
+    public const MAX_RSA_BITS = 8192;
+
+    /**
+     * This is the complete asymmetric verification profile. Keeping the key
+     * type, curve, hash and signature size together prevents a new algorithm
+     * from silently inheriting another family's crypto parameters.
+     */
+    private const ALGORITHM_PROFILE = [
+        'RS256' => ['kty' => 'RSA', 'hash' => 'sha256'],
+        'RS384' => ['kty' => 'RSA', 'hash' => 'sha384'],
+        'RS512' => ['kty' => 'RSA', 'hash' => 'sha512'],
+        'PS256' => ['kty' => 'RSA', 'hash' => 'sha256'],
+        'PS384' => ['kty' => 'RSA', 'hash' => 'sha384'],
+        'PS512' => ['kty' => 'RSA', 'hash' => 'sha512'],
+        'ES256' => ['kty' => 'EC', 'hash' => 'sha256', 'curve' => 'P-256', 'coordinate_bytes' => 32],
+        'ES384' => ['kty' => 'EC', 'hash' => 'sha384', 'curve' => 'P-384', 'coordinate_bytes' => 48],
+        'ES512' => ['kty' => 'EC', 'hash' => 'sha512', 'curve' => 'P-521', 'coordinate_bytes' => 66],
+        'EdDSA' => ['kty' => 'OKP', 'hash' => 'sha512', 'curve' => 'Ed25519', 'coordinate_bytes' => 32],
+    ];
+
+    private const PRIVATE_JWK_MEMBERS = ['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k'];
 
     private static bool $autoloaderReady = false;
 
@@ -80,7 +103,7 @@ class JwtVerifier
             if (!is_string($claims['at_hash'])) {
                 throw new ProtocolException('The ID token carries an invalid access-token hash');
             }
-            $digest = hash('sha' . substr($algorithm, 2), $accessToken, true);
+            $digest = hash(self::ALGORITHM_PROFILE[$algorithm]['hash'], $accessToken, true);
             $expected = self::base64UrlEncode(substr($digest, 0, intdiv(strlen($digest), 2)));
             if (!hash_equals($expected, $claims['at_hash'])) {
                 throw new ProtocolException('The ID token access-token hash does not match');
@@ -157,6 +180,7 @@ class JwtVerifier
         $firstFailure = null;
         try {
             $key = self::selectKey($this->keys($jwksUri), $header, $algorithm);
+            self::assertSignatureShape($algorithm, $key, $signature);
             if ($this->verifySignature($algorithm, $key, $signingInput, $signature)) {
                 return $key;
             }
@@ -168,6 +192,7 @@ class JwtVerifier
             throw $firstFailure;
         }
         $key = self::selectKey($this->keys($jwksUri, true), $header, $algorithm);
+        self::assertSignatureShape($algorithm, $key, $signature);
         if (!$this->verifySignature($algorithm, $key, $signingInput, $signature)) {
             throw new ProtocolException($signatureFailure);
         }
@@ -216,13 +241,18 @@ class JwtVerifier
             throw new ProtocolException('The provider key set contains no usable bounded key list');
         }
         $usable = array_filter($keys, static function ($key): bool {
-            if (!is_array($key) || !in_array($key['kty'] ?? null, ['RSA', 'EC'], true)) {
+            if (!is_array($key)) {
                 return false;
             }
-            if (isset($key['use']) && $key['use'] !== 'sig') {
-                return false;
+            foreach (self::ALGORITHMS as $algorithm) {
+                try {
+                    self::assertKeyForAlgorithm($key, $algorithm);
+                    return true;
+                } catch (ProtocolException) {
+                    continue;
+                }
             }
-            return !isset($key['alg']) || in_array($key['alg'], self::ALGORITHMS, true);
+            return false;
         });
         if ($usable === []) {
             throw new ProtocolException('The provider key set contains no supported signing key');
@@ -383,7 +413,7 @@ class JwtVerifier
         if (count($keys) > 128) {
             throw new ProtocolException('The provider key set contains too many keys');
         }
-        $wantedType = str_starts_with($algorithm, 'ES') ? 'EC' : 'RSA';
+        $wantedType = self::ALGORITHM_PROFILE[$algorithm]['kty'];
         $matches = [];
         foreach ($keys as $key) {
             if (!is_array($key) || ($key['kty'] ?? null) !== $wantedType) {
@@ -392,20 +422,10 @@ class JwtVerifier
             if ($kid !== null && (!isset($key['kid']) || !is_string($key['kid']) || !hash_equals($kid, $key['kid']))) {
                 continue;
             }
-            if (isset($key['alg']) && $key['alg'] !== $algorithm) {
+            try {
+                self::assertKeyForAlgorithm($key, $algorithm);
+            } catch (ProtocolException) {
                 continue;
-            }
-            if (isset($key['use']) && $key['use'] !== 'sig') {
-                continue;
-            }
-            if (isset($key['key_ops']) && (!is_array($key['key_ops']) || !in_array('verify', $key['key_ops'], true))) {
-                continue;
-            }
-            if ($wantedType === 'EC') {
-                $curve = ['ES256' => 'P-256', 'ES384' => 'P-384', 'ES512' => 'P-521'][$algorithm];
-                if (($key['crv'] ?? null) !== $curve) {
-                    continue;
-                }
             }
             $matches[] = $key;
         }
@@ -423,12 +443,18 @@ class JwtVerifier
     {
         try {
             $key = PublicKeyLoader::load(json_encode($jwk, JSON_THROW_ON_ERROR));
-            $hash = 'sha' . substr($algorithm, 2);
+            $hash = self::ALGORITHM_PROFILE[$algorithm]['hash'];
             if (str_starts_with($algorithm, 'R') || str_starts_with($algorithm, 'P')) {
-                if (!method_exists($key, 'getLength') || $key->getLength() < 2048) {
-                    throw new ProtocolException('The provider RSA signing key is shorter than 2048 bits');
+                if (!method_exists($key, 'getLength')
+                    || $key->getLength() < self::MIN_RSA_BITS
+                    || $key->getLength() > self::MAX_RSA_BITS) {
+                    throw new ProtocolException('The provider RSA signing key is outside the supported size range');
                 }
             }
+            if ($algorithm === 'EdDSA') {
+                return $key->verify($payload, $signature);
+            }
+
             $key = $key->withHash($hash);
             if (str_starts_with($algorithm, 'PS')) {
                 $key = $key->withMGFHash($hash)
@@ -440,10 +466,148 @@ class JwtVerifier
                 $key = $key->withSignatureFormat('IEEE');
             }
 
-            return $key->verify($payload, $signature);
+            if (!str_starts_with($algorithm, 'PS')) {
+                return $key->verify($payload, $signature);
+            }
+
+            // OpenSSL's PSS verifier accepts any recoverable salt length on
+            // runtimes that offer its PSS mode. JWA fixes sLen to hLen, while
+            // phpseclib's PHP engine enforces the configured value exactly.
+            $previousEngine = RSA::getForcedEngine();
+            RSA::forceEngine('PHP');
+            try {
+                return $key->verify($payload, $signature);
+            } finally {
+                RSA::forceEngine($previousEngine);
+            }
         } catch (\Throwable $e) {
             throw new ProtocolException('The provider key could not be used', 0, $e);
         }
+    }
+
+    /** @param array<string,mixed> $jwk */
+    private static function assertKeyForAlgorithm(array $jwk, string $algorithm): void
+    {
+        $profile = self::ALGORITHM_PROFILE[$algorithm];
+        if (($jwk['kty'] ?? null) !== $profile['kty']) {
+            throw new ProtocolException('The provider key type does not match the JWT algorithm');
+        }
+        if (array_key_exists('kid', $jwk)
+            && (!is_string($jwk['kid']) || strlen($jwk['kid']) > 255 || preg_match('/[\x00-\x1f\x7f]/', $jwk['kid']))) {
+            throw new ProtocolException('The provider key identifier is invalid');
+        }
+        if (array_key_exists('alg', $jwk)
+            && (!is_string($jwk['alg']) || !hash_equals($algorithm, $jwk['alg']))) {
+            throw new ProtocolException('The provider key algorithm does not match the JWT algorithm');
+        }
+        if (array_key_exists('use', $jwk) && (!is_string($jwk['use']) || $jwk['use'] !== 'sig')) {
+            throw new ProtocolException('The provider key is not designated for signatures');
+        }
+        if (array_key_exists('key_ops', $jwk)) {
+            if (!is_array($jwk['key_ops']) || !array_is_list($jwk['key_ops'])
+                || array_filter($jwk['key_ops'], 'is_string') !== $jwk['key_ops']
+                || count(array_unique($jwk['key_ops'], SORT_STRING)) !== count($jwk['key_ops'])
+                || !in_array('verify', $jwk['key_ops'], true)
+                || array_diff($jwk['key_ops'], ['sign', 'verify']) !== []) {
+                throw new ProtocolException('The provider key operations do not permit signature verification');
+            }
+        }
+        foreach (self::PRIVATE_JWK_MEMBERS as $member) {
+            if (array_key_exists($member, $jwk)) {
+                throw new ProtocolException('The provider key set may contain public signing material only');
+            }
+        }
+
+        if ($profile['kty'] === 'RSA') {
+            self::assertRsaKey($jwk);
+            return;
+        }
+        self::assertCurveKey($jwk, $profile);
+    }
+
+    /** @param array<string,mixed> $jwk */
+    private static function assertRsaKey(array $jwk): void
+    {
+        $modulus = self::jwkBytes($jwk['n'] ?? null, 'RSA modulus');
+        $exponent = self::jwkBytes($jwk['e'] ?? null, 'RSA exponent');
+        if ($modulus[0] === "\0" || $exponent[0] === "\0") {
+            throw new ProtocolException('The provider RSA key does not use canonical unsigned integers');
+        }
+        $bits = (strlen($modulus) - 1) * 8 + self::byteBitLength(ord($modulus[0]));
+        if ($bits < self::MIN_RSA_BITS || $bits > self::MAX_RSA_BITS) {
+            throw new ProtocolException('The provider RSA signing key is outside the supported size range');
+        }
+        if (strlen($exponent) > 8
+            || self::compareUnsignedBytes($exponent, "\x01\x00\x01") < 0
+            || (ord($exponent[strlen($exponent) - 1]) & 1) !== 1) {
+            throw new ProtocolException('The provider RSA signing key uses an unsafe public exponent');
+        }
+    }
+
+    /** @param array<string,mixed> $jwk @param array<string,mixed> $profile */
+    private static function assertCurveKey(array $jwk, array $profile): void
+    {
+        if (($jwk['crv'] ?? null) !== $profile['curve']) {
+            throw new ProtocolException('The provider signing-key curve does not match the JWT algorithm');
+        }
+        $x = self::jwkBytes($jwk['x'] ?? null, 'curve x coordinate');
+        if (strlen($x) !== $profile['coordinate_bytes']) {
+            throw new ProtocolException('The provider signing key has an invalid curve coordinate size');
+        }
+        if ($profile['kty'] === 'OKP') {
+            if (isset($jwk['y'])) {
+                throw new ProtocolException('The provider Ed25519 key has an unexpected y coordinate');
+            }
+            return;
+        }
+        $y = self::jwkBytes($jwk['y'] ?? null, 'curve y coordinate');
+        if (strlen($y) !== $profile['coordinate_bytes']
+            || ($profile['curve'] === 'P-521' && (ord($x[0]) > 1 || ord($y[0]) > 1))) {
+            throw new ProtocolException('The provider signing key has an invalid curve coordinate size');
+        }
+    }
+
+    /** @param array<string,mixed> $jwk */
+    private static function assertSignatureShape(string $algorithm, array $jwk, string $signature): void
+    {
+        $profile = self::ALGORITHM_PROFILE[$algorithm];
+        $expected = $profile['kty'] === 'RSA'
+            ? strlen(self::jwkBytes($jwk['n'] ?? null, 'RSA modulus'))
+            : ($profile['kty'] === 'EC' ? 2 * $profile['coordinate_bytes'] : 64);
+        if (strlen($signature) !== $expected) {
+            throw new ProtocolException('The JWT signature length does not match its algorithm and key');
+        }
+    }
+
+    private static function jwkBytes(mixed $value, string $member): string
+    {
+        if (!is_string($value) || $value === '') {
+            throw new ProtocolException(sprintf('The provider key has no usable %s', $member));
+        }
+        try {
+            $decoded = self::base64UrlDecode($value);
+        } catch (ProtocolException $e) {
+            throw new ProtocolException(sprintf('The provider key has an invalid %s', $member), 0, $e);
+        }
+        if (self::base64UrlEncode($decoded) !== $value) {
+            throw new ProtocolException(sprintf('The provider key has a non-canonical %s', $member));
+        }
+        return $decoded;
+    }
+
+    private static function byteBitLength(int $value): int
+    {
+        $bits = 0;
+        while ($value > 0) {
+            $bits++;
+            $value >>= 1;
+        }
+        return $bits;
+    }
+
+    private static function compareUnsignedBytes(string $left, string $right): int
+    {
+        return strlen($left) <=> strlen($right) ?: strcmp($left, $right);
     }
 
     /** @return array<string,mixed> */

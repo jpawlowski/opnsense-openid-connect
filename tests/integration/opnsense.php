@@ -211,12 +211,33 @@ $check($verifier->signature('RS256', $rsaJwk, $payload, $rsaSignature), 'RS256 t
 $pssSignature = $rsa->withHash('sha256')->withMGFHash('sha256')->withSaltLength(32)
     ->withPadding(RSA::SIGNATURE_PSS)->sign($payload);
 $check($verifier->signature('PS256', $rsaJwk, $payload, $pssSignature), 'PS256 with exact salt policy');
+$wrongPssSignature = $rsa->withHash('sha256')->withMGFHash('sha256')->withSaltLength(20)
+    ->withPadding(RSA::SIGNATURE_PSS)->sign($payload);
+$check(
+    !$verifier->signature('PS256', $rsaJwk, $payload, $wrongPssSignature),
+    'PS256 refuses a signature with another salt length'
+);
 
 $ec = EC::createKey('secp256r1');
 $ecJwkExport = json_decode($ec->getPublicKey()->toString('JWK'), true, 16, JSON_THROW_ON_ERROR);
 $ecJwk = is_array($ecJwkExport['keys'][0] ?? null) ? $ecJwkExport['keys'][0] : $ecJwkExport;
 $ecSignature = $ec->withHash('sha256')->withSignatureFormat('IEEE')->sign($payload);
 $check($verifier->signature('ES256', $ecJwk, $payload, $ecSignature), 'ES256 IEEE signature through OPNsense phpseclib');
+
+$ed25519 = EC::createKey('Ed25519');
+$ed25519JwkExport = json_decode($ed25519->getPublicKey()->toString('JWK'), true, 16, JSON_THROW_ON_ERROR);
+$ed25519Jwk = is_array($ed25519JwkExport['keys'][0] ?? null) ? $ed25519JwkExport['keys'][0] : $ed25519JwkExport;
+$ed25519Signature = $ed25519->sign($payload);
+$check(
+    $verifier->signature('EdDSA', $ed25519Jwk, $payload, $ed25519Signature),
+    'EdDSA with Ed25519 through OPNsense phpseclib'
+);
+$tamperedEd25519Signature = $ed25519Signature;
+$tamperedEd25519Signature[0] = chr(ord($tamperedEd25519Signature[0]) ^ 1);
+$check(
+    !$verifier->signature('EdDSA', $ed25519Jwk, $payload, $tamperedEd25519Signature),
+    'Ed25519 refuses a changed signature through OPNsense phpseclib'
+);
 $validated('runtime-jws-crypto');
 
 $ssfIssuer = 'https://signals.runtime.example.com';

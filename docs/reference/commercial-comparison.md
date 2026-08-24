@@ -29,7 +29,7 @@ outside this project's explicit purpose.
 | Callback separation | unique application code per provider | application code per provider |
 | PKCE S256, nonce, state | always; documented and tested | not documented publicly |
 | Multi-issuer mix-up controls | distinct callbacks, frozen metadata, RFC 9207 when advertised | not documented publicly |
-| Signature algorithms/claim validation | explicit RSA/PSS/ECDSA and strict claim policy | not documented publicly |
+| Signature algorithms/claim validation | verified RS/PS/ES/Ed25519 profile and strict key/claim policy | not documented publicly |
 | Claims source | ID Token, UserInfo, or automatic | user identification from UserInfo is documented |
 | Stable local identity | persistent exact `(issuer, sub)` to numeric UID | name claim plus documented user creation/update; stable subject binding not documented |
 | Existing/JIT users | strict or administrator-approved admission, opt-in automatic matching/JIT, disabled/expired/root checks | create/update local users documented |

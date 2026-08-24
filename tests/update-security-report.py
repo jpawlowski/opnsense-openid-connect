@@ -53,6 +53,7 @@ HOST_CAPABILITIES = {
         "Login transactions, PKCE and mix-up protection",
     ),
     "jwt-claim-policy": (
+        "Asymmetric JWA verification profile",
         "ID token claim validation",
         "Whom a token was issued for",
     ),
