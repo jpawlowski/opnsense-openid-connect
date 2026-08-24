@@ -113,6 +113,24 @@ Checks::that('PKCE policy is evaluated locally', $draftSemantics['PKCE'], ['opns
 Checks::that('DPoP negotiation is evaluated locally', $draftSemantics['DPoP sender constraint'], [
     'opnsense', 'metadata',
 ]);
+$authentikDraft = ProviderProbe::settings([
+    'openidconnect_provider_url' => $issuer,
+    'openidconnect_provider_profile' => 'authentik',
+]);
+$authentikChecks = inspect(
+    new ProviderProbe(new HttpClient(static fn(): array => [])),
+    'metadataChecks',
+    $authentikDraft,
+    ProviderMetadata::fromArray($provider)
+);
+$authentikDpop = array_values(array_filter(
+    $authentikChecks,
+    static fn(array $check): bool => $check['label'] === 'DPoP sender constraint'
+))[0];
+Checks::that('authentik reports its documented ID Token binding instead of claiming DPoP access tokens', [
+    $authentikDpop['status'],
+    str_contains($authentikDpop['note'], 'ID Token'),
+], ['info', true]);
 Checks::that('PAR availability comes from metadata', $draftSemantics['PAR metadata'], [
     'opnsense,idp', 'metadata',
 ]);

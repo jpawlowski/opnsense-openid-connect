@@ -73,10 +73,13 @@ sign-in experience rather than a portable assurance level; Passkeys and FIDO2
 belong under phishing-resistant authentication.
 
 DPoP is negotiated protocol behavior rather than an administrator setting. If
+the selected provider profile documents RFC 9449 access-token support and
 Discovery advertises `ES256` in `dpop_signing_alg_values_supported`, the plugin
 binds the authorization code and access token to its per-provider proof key and
 refuses a Bearer downgrade. Providers that do not advertise DPoP continue to use
-Bearer access tokens.
+Bearer access tokens. authentik's documented `bound_key` profile binds an ID
+Token while retaining a Bearer access token, so it is not negotiated as this
+RFC 9449 access-token profile.
 
 The signed Query and signed Form POST choices request JARM. OPNsense then accepts
 only the `response` JWT, verifies an advertised supported asymmetric signature,

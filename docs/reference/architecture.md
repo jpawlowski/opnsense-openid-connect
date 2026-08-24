@@ -270,8 +270,10 @@ verification subset; Ed25519 is the separately audited RFC 8037 subset.
   cannot change halfway through it. Automatic PAR may bypass only a temporarily
   unavailable optional endpoint; the provider requirement and every TLS,
   authentication or protocol failure remain fail-closed.
-- A provider that advertises ES256 DPoP receives `dpop_jkt` in the authorization
-  request and a fresh proof at the token endpoint. The private P-256 key lives in
+- A compatible provider profile that advertises ES256 DPoP for sender-constrained
+  access tokens receives `dpop_jkt` in the authorization request and a fresh proof
+  at the token endpoint. authentik's separate key-bound ID Token extension is not
+  treated as that access-token profile. The private P-256 key lives in
   a per-provider mode-`0600` store, rotates every 90 days and retains at most five
   retired generations for 370 days so an existing grant keeps its exact key.
   The server-side login session freezes the opaque store binding as well as the

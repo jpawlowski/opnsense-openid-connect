@@ -68,6 +68,11 @@ Checks::that(
 Checks::group('Defaults when a field is left empty');
 Checks::that('scopes', connector([])->scopes(), ['openid', 'email', 'profile']);
 Checks::that('scopes as configured', connector(['openidconnect_scopes' => 'openid,groups'])->scopes(), ['openid', 'groups']);
+Checks::that('a generic profile follows advertised RFC 9449 access-token support',
+    connector([])->supportsDpopAccessTokens(), true);
+Checks::that('authentik retains its documented key-bound ID Token and Bearer access-token profile', connector([
+    'openidconnect_provider_profile' => 'authentik',
+])->supportsDpopAccessTokens(), false);
 Checks::that('username claim', connector([])->usernameClaim(), 'preferred_username');
 Checks::that('button style', connector([])->buttonStyle(), 'button');
 Checks::that('button style, nonsense value', connector(['openidconnect_button_style' => 'wobble'])->buttonStyle(), 'button');

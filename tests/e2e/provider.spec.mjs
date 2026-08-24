@@ -237,10 +237,29 @@ async function testAuthentikEmailVerification(page, expected) {
       arrival = 'result';
     } else if (new URL(page.url()).origin === providerOrigin) {
       arrival = 'provider';
+    } else if (new URL(page.url()).pathname === callbackPath
+      && await page.locator('body').getByText(/OpenID Connect could not complete this request/).count()) {
+      arrival = 'error';
     }
     return arrival;
   }).not.toBe('waiting');
-  if (arrival === 'provider') await passwordLogin(page);
+  if (arrival === 'error') {
+    throw new Error(`Test sign-in callback failed: ${await page.locator('body').innerText()}`);
+  }
+  if (arrival === 'provider') {
+    await passwordLogin(page);
+    await expect.poll(async () => {
+      if (await page.getByRole('heading', { name: 'Sign-in test succeeded' }).count()) return 'result';
+      if (new URL(page.url()).pathname === callbackPath
+        && await page.locator('body').getByText(/OpenID Connect could not complete this request/).count()) {
+        return 'error';
+      }
+      return 'waiting';
+    }).not.toBe('waiting');
+    if (await page.locator('body').getByText(/OpenID Connect could not complete this request/).count()) {
+      throw new Error(`Test sign-in callback failed: ${await page.locator('body').innerText()}`);
+    }
+  }
   await expect(page.getByRole('heading', { name: 'Sign-in test succeeded' })).toBeVisible();
   await expect(page.getByRole('row', { name: /E-mail verification claim/ })).toContainText(expected);
   await page.getByRole('link', { name: 'Return to authentication servers' }).click();

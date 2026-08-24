@@ -3258,6 +3258,16 @@ class OpenIDConnect extends Base implements IAuthConnector
         return $this->choice('openidconnect_provider_profile', self::PROVIDER_PROFILES, 'general');
     }
 
+    /** Whether this profile documents RFC 9449 sender-constrained access tokens. */
+    public function supportsDpopAccessTokens(): bool
+    {
+        /* authentik 2026.8 advertises the DPoP algorithm for its bound_key
+         * extension, which binds an ID Token while its access token remains Bearer.
+         * Treating that metadata as RFC 9449 access-token support would either fail
+         * authorization without the proprietary scope or accept a Bearer downgrade. */
+        return $this->providerProfile() !== 'authentik';
+    }
+
     /**
      * @return array{
      *     values:array<string,string>,

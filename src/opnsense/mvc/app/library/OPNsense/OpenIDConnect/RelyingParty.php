@@ -154,7 +154,7 @@ class RelyingParty
         $verifier = self::randomValue(64);
         $challenge = JwtVerifier::base64UrlEncode(hash('sha256', $verifier, true));
         $authenticationRequirement = $this->settings->authenticationRequirement();
-        if ($metadata->supportsDpop()) {
+        if ($this->negotiatesDpop($metadata)) {
             $this->dpop ??= $this->dpopStore->active();
         }
 
@@ -335,7 +335,7 @@ class RelyingParty
         }
         $this->tokenAuthMethod = $this->metadata->tokenEndpointAuthMethod($frozenAuthMethod);
         $dpopKey = $transaction['dpop_key'] ?? null;
-        if ($this->metadata->supportsDpop()) {
+        if ($this->negotiatesDpop($this->metadata)) {
             if (!is_string($dpopKey) || !preg_match('/^[A-Za-z0-9_-]{43}$/D', $dpopKey)) {
                 throw new ProtocolException('The login transaction carries no usable DPoP proof key');
             }
@@ -925,6 +925,11 @@ class RelyingParty
             'state', 'code', 'iss', 'error', 'error_description', 'error_uri', 'session_state',
             'access_token', 'id_token', 'token_type', 'expires_in',
         ]));
+    }
+
+    private function negotiatesDpop(ProviderMetadata $metadata): bool
+    {
+        return $metadata->supportsDpop() && $this->settings->supportsDpopAccessTokens();
     }
 
     private static function isJarmMode(string $responseMode): bool

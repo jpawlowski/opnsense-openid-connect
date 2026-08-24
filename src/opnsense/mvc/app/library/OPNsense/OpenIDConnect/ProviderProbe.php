@@ -240,7 +240,8 @@ final class ProviderProbe
             true
         );
         $dpopAlgorithms = $metadata->dpopSigningAlgorithms();
-        $dpopUsable = $metadata->supportsDpop();
+        $dpopAdvertised = $metadata->supportsDpop();
+        $dpopUsable = $dpopAdvertised && $settings->supportsDpopAccessTokens();
         $userInfo = $metadata->userInfoEndpoint();
         $parEndpoint = $metadata->pushedAuthorizationRequestEndpoint();
         $profile = $settings->providerProfile();
@@ -328,7 +329,12 @@ final class ProviderProbe
                 $dpopUsable ? 'success' : 'info',
                 $dpopUsable
                     ? gettext('ES256 is advertised; Test sign-in uses a proof-key-bound token flow.')
-                    : gettext('Bearer access tokens remain in use unless the provider advertises ES256 DPoP.'),
+                    : ($dpopAdvertised
+                        ? gettext(
+                            'This profile documents a different key-bound ID Token extension; its access ' .
+                            'token remains Bearer rather than being treated as RFC 9449 DPoP.'
+                        )
+                        : gettext('Bearer access tokens remain in use unless the provider advertises ES256 DPoP.')),
                 ['opnsense'],
                 'metadata'
             ),

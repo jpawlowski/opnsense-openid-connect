@@ -216,6 +216,11 @@ login:
 | Trace the exchange | Off | enable only briefly while diagnosing |
 | Redirect the Log Out menu entry | On | ends the local session first and then initiates authentik logout |
 
+authentik 2026.8 also documents the `bound_key` scope for a key-bound ID Token.
+Its access token remains Bearer, so this profile does not request that extension
+or mistake it for RFC 9449 sender-constrained access tokens. Keycloak's separately
+documented DPoP access-token path remains enabled automatically.
+
 **Return here after logout** remains off by default. Enable it only after the
 Post Logout entry described above exists in authentik. The logout-menu
 recommendation remains editable when ending the wider authentik SSO session is
