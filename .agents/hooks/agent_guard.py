@@ -182,7 +182,9 @@ def _configured_git_helper(command, arguments):
     pager_index = max(
         (index for index, value in enumerate(arguments) if value in ("--paginate", "-p")), default=-1,
     )
-    no_pager = no_pager_index > pager_index
+    if pager_index >= 0:
+        return True
+    no_pager = no_pager_index >= 0
     pagers = _git_config("--get-all", f"pager.{command}") or _git_config("--get-all", "core.pager")
     if not no_pager and any(value.strip().lower() not in disabled for value in pagers):
         return True
