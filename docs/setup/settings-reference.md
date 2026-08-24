@@ -18,6 +18,7 @@ defaults below.
 | Client ID / Client Secret | may be empty only while disabled | enter the confidential web application's credentials before enabling |
 | Authentication method | profile preset, normally Follow the provider | the application was explicitly configured for Basic or POST and the profile does not already enforce a documented requirement |
 | Pushed authorization requests | Automatic with availability fallback | use Required when authorization parameters must never pass through the browser, or Disabled for a provider whose optional PAR path is intentionally unreachable; a provider requirement always wins |
+| Request Object signing key | Disabled | select a dedicated OPNsense certificate only after its public key and displayed `kid` have been registered for this client at the provider; a provider requirement always wins |
 | Username claim | `preferred_username` | the provider guide specifies `email`, a vendor claim or a custom mapping |
 | Claims source | Automatic | all required claims must come only from the ID Token, or UserInfo is explicitly required |
 | Authorization response mode | Query | Apple with requested user scopes requires Form POST |
@@ -93,9 +94,10 @@ buttons; both still use the familiar `Microsoft` label.
 
 **Test discovery**, **Test sign-in**, **Download provider setup** and **Open
 setup guide** are actions, not stored settings. None runs during Save. Test
-discovery live-fetches Discovery and JWKS from OPNsense and uses the current
-unsaved client values for an authenticated PAR check when applicable. The
-browser does not need to reach Discovery. Test sign-in becomes
+discovery live-fetches Discovery and JWKS from OPNsense, checks the selected
+Request Object key and uses the current unsaved client values for an
+authenticated PAR check when applicable. The browser does not need to reach
+Discovery. Test sign-in becomes
 available after the server has first been saved and may be used while the
 provider remains disabled; it validates a real browser flow without changing
 the WebGUI session or local identity state. The provider may retain its own SSO
@@ -113,6 +115,22 @@ connection and timeout failures, HTTP 429/5xx and explicitly temporary OAuth
 errors may open this fallback; TLS, client authentication and protocol errors
 never do. Required mode has no fallback. Disabled mode is rejected when
 Discovery says `require_pushed_authorization_requests=true`.
+
+Selecting **Request Object signing key** protects every authorization parameter
+inside a signed RFC 9101 JWT. The browser receives only the matching Client ID
+and `request`; with PAR, the PAR endpoint receives those two values and the
+browser receives only its returned `request_uri`. Each Request Object binds the
+Client ID as `iss`, the exact Discovery issuer as `aud`, uses the provider's
+advertised compatible algorithm, expires after 60 seconds and carries a fresh
+`jti`. A provider advertising `require_signed_request_object=true` cannot be
+used until a key is selected. Encrypted JWE Request Objects are not supported.
+
+Use a certificate dedicated to Request Object signing. Its OPNsense reference
+is the JWS `kid`; register that exact value with the public key. To rotate, add
+and register a second certificate under its new `kid`, select it, run Test
+discovery and Test sign-in, and remove the former provider key only after the
+new login succeeds. Replacing or deleting the selected certificate before the
+provider is ready fails closed.
 
 Validated OIDC and SSF Discovery and JWKS responses use `Cache-Control`, ETag and
 `304 Not Modified`. Without an explicit lifetime they are fresh for one hour.

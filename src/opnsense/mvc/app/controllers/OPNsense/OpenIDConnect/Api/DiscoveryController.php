@@ -14,6 +14,7 @@ use OPNsense\OpenIDConnect\ParClient;
 use OPNsense\OpenIDConnect\ProviderMetadata;
 use OPNsense\OpenIDConnect\ProviderRuntimeState;
 use OPNsense\OpenIDConnect\ProviderUnavailableException;
+use OPNsense\OpenIDConnect\RequestObjectSigner;
 use OPNsense\OpenIDConnect\RelyingParty;
 
 /** Authenticated, CSRF-protected preflight of an issuer's discovery metadata. */
@@ -70,6 +71,7 @@ class DiscoveryController extends PrivateApiControllerBase
             }
 
             $settings = $this->currentSettings($given);
+            $checks[] = $this->requestObjectCheck($settings, $metadata);
             $checks[] = $this->parCheck($settings, $metadata, $http);
             $warnings = count(array_filter(
                 $checks,
@@ -278,7 +280,8 @@ class DiscoveryController extends PrivateApiControllerBase
         $fields = [
             'openidconnect_app_code', 'openidconnect_provider_profile', 'openidconnect_microsoft_audience',
             'openidconnect_client_id', 'openidconnect_client_secret', 'openidconnect_token_auth',
-            'openidconnect_par_mode', 'openidconnect_scopes', 'openidconnect_response_mode',
+            'openidconnect_par_mode', 'openidconnect_request_object_key', 'openidconnect_scopes',
+            'openidconnect_response_mode',
             'openidconnect_max_age', 'openidconnect_select_account', 'openidconnect_required_authentication',
             'openidconnect_acr_request', 'openidconnect_acr_values', 'openidconnect_amr_values',
             'openidconnect_entra_auth_context', 'openidconnect_origin_policy', 'openidconnect_redirect_urls',
@@ -291,6 +294,38 @@ class DiscoveryController extends PrivateApiControllerBase
         $settings = new OpenIDConnect();
         $settings->setProperties($values);
         return $settings;
+    }
+
+    /** @return array{label:string,value:string,status:string,note:string} */
+    private function requestObjectCheck(OpenIDConnect $settings, ProviderMetadata $metadata): array
+    {
+        $key = $settings->requestObjectSigningKey();
+        if ($key === '') {
+            return $this->check(
+                gettext('JWT-secured authorization request'),
+                $metadata->requiresSignedRequestObject() ? gettext('Required by provider') : gettext('Disabled'),
+                $metadata->requiresSignedRequestObject() ? 'error' : 'info',
+                $metadata->requiresSignedRequestObject()
+                    ? gettext('Select and register a Request Object signing key before sign-in.')
+                    : gettext('Select a registered OPNsense certificate to sign RFC 9101 Request Objects.')
+            );
+        }
+        try {
+            $algorithm = (new RequestObjectSigner())->selectedAlgorithm($settings, $metadata);
+            return $this->check(
+                gettext('JWT-secured authorization request'),
+                $algorithm,
+                'success',
+                sprintf(gettext('Request Objects use the selected certificate with kid %s.'), $key)
+            );
+        } catch (\Throwable $e) {
+            return $this->check(
+                gettext('JWT-secured authorization request'),
+                gettext('No compatible signing key'),
+                'error',
+                $e->getMessage()
+            );
+        }
     }
 
     /** @return array{label:string,value:string,status:string,note:string} */

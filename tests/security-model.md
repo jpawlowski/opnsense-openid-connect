@@ -7,6 +7,7 @@ Copyright (C) 2026 Julian Pawlowski. All rights reserved. BSD-2-Clause, see LICE
 | Threat | Control |
 |---|---|
 | forged/replayed callback | random server-bound state, nonce and PKCE; state consumed before processing; bounded one-time server index for `form_post` under SameSite=Lax; PAR keeps the complete request server-to-server when advertised |
+| authorization request tampering or replay | optional or provider-required RFC 9101 signature over every authorization parameter; exact client/issuer audience binding, explicit JWT type, registered key `kid`, 60-second expiry and fresh `jti`; outer request carries only the matching client ID and `request` or provider-issued PAR reference |
 | authorization-server mix-up | frozen exact issuer/endpoints, distinct callback per provider, RFC 9207 when advertised |
 | forged ID Token | asymmetric JWKS signature, algorithm allow-list, key metadata/curve/use checks, minimum 2048-bit RSA |
 | provider ignores or misinterprets a requested authentication strength | an enabled requirement needs exact signed `acr`/`acrs` context and bounded `amr` evidence frozen into the login transaction; missing or mismatched evidence is refused before account lookup |

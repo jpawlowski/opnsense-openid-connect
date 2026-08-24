@@ -479,7 +479,7 @@ class JwtVerifier
         return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
     }
 
-    private static function prepareAutoloader(): void
+    public static function prepareAutoloader(): void
     {
         if (self::$autoloaderReady) {
             return;
