@@ -41,7 +41,7 @@ confidential web client.
 | Exact issuer URL | the discovery document's exact `issuer` value |
 | Username claim | `preferred_username` |
 | Claims source | Automatic |
-| Authorization response mode | Query |
+| Authorization response mode | Query; use a signed JARM mode only when the provider advertises and is configured for it |
 | Scopes | `openid,email,profile` |
 | Authentication method | Follow the provider |
 | Pushed authorization requests | Automatic with availability fallback |
@@ -51,6 +51,11 @@ client authentication method with the metadata needed by that method, this
 confidential-client profile is not compatible.
 Do not choose a named provider merely to bypass a warning; named profiles never
 weaken protocol checks anyway.
+
+The [JARM specification](https://openid.net/specs/oauth-v2-jarm.html) defines
+the signed Query and signed Form POST response modes. Select one only after the
+provider application has been configured for a supported asymmetric response
+signature; encrypted responses are outside this plugin's profile.
 
 ## Defaults and remaining settings
 

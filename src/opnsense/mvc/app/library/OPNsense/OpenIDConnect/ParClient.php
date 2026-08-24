@@ -90,8 +90,8 @@ final class ParClient
             'code_challenge_method' => 'S256',
             'max_age' => (string)$this->settings->maximumAuthenticationAge(),
         ];
-        if ($this->settings->responseMode() === 'form_post') {
-            $parameters['response_mode'] = 'form_post';
+        if ($this->settings->responseMode() !== 'query') {
+            $parameters['response_mode'] = $this->settings->responseMode();
         }
         $requirement = $this->settings->authenticationRequirement();
         if ($requirement !== null) {
