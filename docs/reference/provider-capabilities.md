@@ -8,6 +8,10 @@ This report deliberately starts conservative. A feature is green only after the 
 complete inventory of all applicable normative requirements and the required positive and negative evidence. Existing
 implementation tests do not become standards claims merely because they pass.
 
+Catalog boundary (reviewed 2026-08-24): Published OpenID Connect, directly supporting JOSE/SET, and OAuth specifications that can affect a confidential server-side web RP; active framework drafts are included only when they materially describe this profile.
+Excluded families: Digital credentials, native/mobile identity, financial API resource access, transaction authorization and unrelated assertion ecosystems are represented by their applicable umbrella profile or excluded when they assign no meaningful role to this RP.
+Source indexes: [https://openid.net/developers/specs/](https://openid.net/developers/specs/), [https://oauth.net/specs/](https://oauth.net/specs/).
+
 Provider interoperability is a separate claim. A dated live result remains a historical result for the tested service
 revision; it does not expire automatically and does not silently prove later revisions.
 
@@ -69,6 +73,18 @@ revision; it does not expire automatically and does not silently prove later rev
 | [Authentication Method Reference Values (RFC 8176)](https://www.rfc-editor.org/rfc/rfc8176.html) | RP interpretation of bounded signed authentication-method evidence | Partial | 🟡 unverified | A bounded subset is used as supporting evidence for configured authentication strength; normative evidence is incomplete. |
 | [Security Event Token (RFC 8417)](https://www.rfc-editor.org/rfc/rfc8417.html) | RP verification of signed Shared Signals security events | Implemented | 🟡 unverified | Signed SET validation is implemented for the bounded receiver profile; normative evidence is incomplete. |
 | [Push-Based Security Event Token Delivery (RFC 8935)](https://www.rfc-editor.org/rfc/rfc8935.html) | Push delivery to the RP Shared Signals receiver | Implemented | 🟡 unverified | Authenticated push delivery and explicit response handling are implemented; normative evidence is incomplete. |
+| [OAuth 2.0 for Browser-Based Applications (RFC 10017)](https://www.rfc-editor.org/rfc/rfc10017.html) | JavaScript applications executing the OAuth client in a browser | N/A | N/A | The OAuth client and tokens remain server-side; the browser is not the OAuth client. |
+| [Best Current Practice for Security of Cross-Device Flows (RFC 10027)](https://www.rfc-editor.org/rfc/rfc10027.html) | Authorization split across two devices | N/A | N/A | The WebGUI login starts and completes in one browser session. |
+| [OAuth 2.0 Protected Resource Metadata (RFC 9728)](https://www.rfc-editor.org/rfc/rfc9728.html) | Protected-resource metadata discovery | N/A | N/A | The plugin is not an OAuth protected resource. |
+| [JWT Response for OAuth Token Introspection (RFC 9701)](https://www.rfc-editor.org/rfc/rfc9701.html) | Protected resource consuming token-introspection responses | N/A | N/A | The RP neither introspects tokens nor validates them as a protected resource. |
+| [OAuth 2.0 Step Up Authentication Challenge Protocol (RFC 9470)](https://www.rfc-editor.org/rfc/rfc9470.html) | Resource server demanding stronger authorization from an API client | N/A | N/A | Authentication strength is selected before WebGUI login; no downstream resource server issues step-up challenges. |
+| [JWK Thumbprint URI (RFC 9278)](https://www.rfc-editor.org/rfc/rfc9278.html) | URI identification of proof-of-possession keys | N/A | N/A | The current RP profile uses neither DPoP nor another JWK-thumbprint URI protocol field. |
+| [Proof-of-Possession Key Semantics for JWTs (RFC 7800)](https://www.rfc-editor.org/rfc/rfc7800.html) | JWT confirmation claims for proof-of-possession keys | N/A | N/A | The RP does not consume proof-of-possession access tokens. |
+| [Assertion Framework for OAuth 2.0 (RFC 7521)](https://www.rfc-editor.org/rfc/rfc7521.html) | Assertion grants and client authentication | Candidate | — not claimed | Only its JWT client-authentication profile is a potential future fit; assertion grants are outside WebGUI login. Reconsider: private_key_jwt key custody and rotation are implemented. |
+| [SAML 2.0 Profile for OAuth 2.0 Assertions (RFC 7522)](https://www.rfc-editor.org/rfc/rfc7522.html) | SAML assertion grant or client authentication | N/A | N/A | The provider boundary is OpenID Connect and does not accept SAML assertions. |
+| [OAuth 2.0 Threat Model and Security Considerations (RFC 6819)](https://www.rfc-editor.org/rfc/rfc6819.html) | Historic OAuth security guidance | N/A | N/A | RFC 9700 is the current Best Current Practice and explicitly updates the security baseline used by this profile. |
+| [IETF URN Sub-Namespace for OAuth (RFC 6755)](https://www.rfc-editor.org/rfc/rfc6755.html) | Registry namespace allocation | N/A | N/A | This registry document assigns no runtime behaviour to the RP. |
+| [OAuth 2.1 Authorization Framework (active IETF draft)](https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/) | Consolidated authorization-code profile for a confidential web client | Partial | — not claimed | The design already follows many consolidated security requirements, but the document remains an active draft and is not an RFC conformance target. Reconsider: The specification is published or a provider requires a pinned draft profile. |
 
 ## Provider interoperability matrix
 

@@ -39,6 +39,10 @@ def main():
     providers = matrix.read_json(matrix.PROVIDERS)
 
     group("A standards claim cannot outrun its normative evidence")
+    uncovered = copy.deepcopy(standards)
+    uncovered["coverage"].pop("boundary")
+    check("an unbounded standards list is rejected", refused(lambda: matrix.validate_standards(uncovered)), True)
+
     empty = copy.deepcopy(standards)
     empty["standards"][0]["claim"] = "verified"
     empty["standards"][0]["audit_complete"] = True

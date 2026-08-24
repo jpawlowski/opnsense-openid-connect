@@ -97,6 +97,11 @@ def validate_requirement(standard, requirement):
 
 
 def validate_standards(data):
+    coverage = data.get("coverage", {})
+    if not {"reviewed_on", "sources", "boundary", "excluded_families"} <= coverage.keys():
+        raise CatalogError("standards catalog must pin its coverage review and boundary")
+    if not isinstance(coverage["sources"], list) or len(coverage["sources"]) < 2:
+        raise CatalogError("standards catalog needs the OpenID and OAuth source indexes")
     ids = unique(data["standards"], "standard")
     requirement_ids = set()
     for standard in data["standards"]:
@@ -215,6 +220,10 @@ def render(standards, providers):
         "This report deliberately starts conservative. A feature is green only after the exact relying-party profile has a",
         "complete inventory of all applicable normative requirements and the required positive and negative evidence. Existing",
         "implementation tests do not become standards claims merely because they pass.",
+        "",
+        f"Catalog boundary (reviewed {standards['coverage']['reviewed_on']}): {standards['coverage']['boundary']}",
+        f"Excluded families: {standards['coverage']['excluded_families']}",
+        "Source indexes: " + ", ".join(f"[{source}]({source})" for source in standards["coverage"]["sources"]) + ".",
         "",
         "Provider interoperability is a separate claim. A dated live result remains a historical result for the tested service",
         "revision; it does not expire automatically and does not silently prove later revisions.",

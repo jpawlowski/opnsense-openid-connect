@@ -1,6 +1,15 @@
 {
   "copyright": "Copyright (C) 2026 Julian Pawlowski; BSD-2-Clause, see LICENSE at the repository root.",
   "schema_version": 1,
+  "coverage": {
+    "reviewed_on": "2026-08-24",
+    "sources": [
+      "https://openid.net/developers/specs/",
+      "https://oauth.net/specs/"
+    ],
+    "boundary": "Published OpenID Connect, directly supporting JOSE/SET, and OAuth specifications that can affect a confidential server-side web RP; active framework drafts are included only when they materially describe this profile.",
+    "excluded_families": "Digital credentials, native/mobile identity, financial API resource access, transaction authorization and unrelated assertion ecosystems are represented by their applicable umbrella profile or excluded when they assign no meaningful role to this RP."
+  },
   "claim_policy": {
     "verified": "Every applicable normative requirement for the stated RP profile is inventoried and has the required review and test evidence.",
     "unverified": "The implementation exists wholly or partly, but the normative inventory or its evidence is not complete.",
@@ -557,6 +566,128 @@
       "claim": "unverified",
       "audit_complete": false,
       "note": "Authenticated push delivery and explicit response handling are implemented; normative evidence is incomplete."
+    },
+    {
+      "id": "oauth-browser-apps",
+      "title": "OAuth 2.0 for Browser-Based Applications (RFC 10017)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc10017.html",
+      "scope": "JavaScript applications executing the OAuth client in a browser",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The OAuth client and tokens remain server-side; the browser is not the OAuth client."
+    },
+    {
+      "id": "oauth-cross-device-bcp",
+      "title": "Best Current Practice for Security of Cross-Device Flows (RFC 10027)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc10027.html",
+      "scope": "Authorization split across two devices",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The WebGUI login starts and completes in one browser session."
+    },
+    {
+      "id": "oauth-protected-resource-metadata",
+      "title": "OAuth 2.0 Protected Resource Metadata (RFC 9728)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc9728.html",
+      "scope": "Protected-resource metadata discovery",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The plugin is not an OAuth protected resource."
+    },
+    {
+      "id": "oauth-jwt-introspection-response",
+      "title": "JWT Response for OAuth Token Introspection (RFC 9701)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc9701.html",
+      "scope": "Protected resource consuming token-introspection responses",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The RP neither introspects tokens nor validates them as a protected resource."
+    },
+    {
+      "id": "oauth-step-up",
+      "title": "OAuth 2.0 Step Up Authentication Challenge Protocol (RFC 9470)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc9470.html",
+      "scope": "Resource server demanding stronger authorization from an API client",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "Authentication strength is selected before WebGUI login; no downstream resource server issues step-up challenges."
+    },
+    {
+      "id": "jwk-thumbprint-uri",
+      "title": "JWK Thumbprint URI (RFC 9278)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc9278.html",
+      "scope": "URI identification of proof-of-possession keys",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The current RP profile uses neither DPoP nor another JWK-thumbprint URI protocol field."
+    },
+    {
+      "id": "jwt-pop-key",
+      "title": "Proof-of-Possession Key Semantics for JWTs (RFC 7800)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7800.html",
+      "scope": "JWT confirmation claims for proof-of-possession keys",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The RP does not consume proof-of-possession access tokens."
+    },
+    {
+      "id": "oauth-assertion-framework",
+      "title": "Assertion Framework for OAuth 2.0 (RFC 7521)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7521.html",
+      "scope": "Assertion grants and client authentication",
+      "implementation": "candidate",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "Only its JWT client-authentication profile is a potential future fit; assertion grants are outside WebGUI login.",
+      "reconsider_when": "private_key_jwt key custody and rotation are implemented."
+    },
+    {
+      "id": "oauth-saml-assertion",
+      "title": "SAML 2.0 Profile for OAuth 2.0 Assertions (RFC 7522)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7522.html",
+      "scope": "SAML assertion grant or client authentication",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "The provider boundary is OpenID Connect and does not accept SAML assertions."
+    },
+    {
+      "id": "oauth-threat-model",
+      "title": "OAuth 2.0 Threat Model and Security Considerations (RFC 6819)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc6819.html",
+      "scope": "Historic OAuth security guidance",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "RFC 9700 is the current Best Current Practice and explicitly updates the security baseline used by this profile."
+    },
+    {
+      "id": "oauth-urn",
+      "title": "IETF URN Sub-Namespace for OAuth (RFC 6755)",
+      "reference": "https://www.rfc-editor.org/rfc/rfc6755.html",
+      "scope": "Registry namespace allocation",
+      "implementation": "not_applicable",
+      "claim": "not_applicable",
+      "audit_complete": false,
+      "note": "This registry document assigns no runtime behaviour to the RP."
+    },
+    {
+      "id": "oauth2-1-draft",
+      "title": "OAuth 2.1 Authorization Framework (active IETF draft)",
+      "reference": "https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/",
+      "scope": "Consolidated authorization-code profile for a confidential web client",
+      "implementation": "partial",
+      "claim": "not_claimed",
+      "audit_complete": false,
+      "note": "The design already follows many consolidated security requirements, but the document remains an active draft and is not an RFC conformance target.",
+      "reconsider_when": "The specification is published or a provider requires a pinned draft profile."
     }
   ]
 }
