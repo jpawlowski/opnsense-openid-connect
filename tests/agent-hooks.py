@@ -85,6 +85,11 @@ def main():
           all(".agents/hooks/fast_gate.py" in hook["bash"] for hook in copilot_hooks), True)
     check("Copilot receives the same bounded SessionStart timeout",
           copilot["hooks"]["SessionStart"][0]["timeoutSec"], start_timeout)
+    check("Copilot runs the same write guard before mutating tools",
+          (copilot["hooks"]["PreToolUse"][0]["bash"], copilot["hooks"]["PreToolUse"][0]["matcher"]),
+          ("python3 .agents/hooks/fast_gate.py guard", "Bash|Edit|Write|Agent|Task"))
+    check("Copilot applies the shared read-only subagent context",
+          copilot["hooks"]["SubagentStart"][0]["bash"], "python3 .agents/hooks/fast_gate.py subagent")
     check("Copilot receives the same bounded Stop timeout", copilot["hooks"]["Stop"][0]["timeoutSec"], 120)
     adapter_readme = (ROOT / ".github" / "hooks" / "README.md").read_text(encoding="utf-8")
     check("the strict Copilot adapter has an adjacent copyright exception",
@@ -92,6 +97,13 @@ def main():
 
     group("An agent task prepares its clone")
     hook = load_hook()
+    original_execution_context = hook.execution_context
+    hook.execution_context = lambda repository, environment=None: "copilot-cloud"
+    check("Copilot receives a native top-level guard decision",
+          hook.platform_output(hook.agent_guard.blocked("claim required")), {
+              "permissionDecision": "deny", "permissionDecisionReason": "claim required",
+          })
+    hook.execution_context = original_execution_context
     check("parallel sessions wait longer than two bounded fork fetches",
           hook.LOCK_TIMEOUT > hook.FETCH_TIMEOUT * 2, True)
     check("classifier scripts participate in the Stop fingerprint",
@@ -408,6 +420,10 @@ def main():
           guard_module.is_read_only_shell("RIPGREP_CONFIG_PATH=config rg worktree AGENTS.md"), False)
     check("Git status is read-only with external pagers disabled",
           guard_module.is_read_only_shell("git --no-pager status --short"), True)
+    check("command-line Git configuration cannot install a read helper",
+          guard_module.is_read_only_shell(
+              "git --no-pager -c core.fsmonitor=/tmp/helper status --short",
+          ), False)
     check("remote inspection must explicitly avoid querying the transport",
           guard_module.is_read_only_shell("git remote show origin"), False)
     check("remote inspection with no query is read-only",
@@ -686,8 +702,12 @@ def main():
             "closedByPullRequestsReferences": [], "url": "https://example.invalid/issues/36",
         }
         label_definitions = set()
+        issue_state = {"fail_after_comment": False, "comment_published": False}
 
         def issue_copy(_number):
+            if issue_state["fail_after_comment"] and issue_state["comment_published"]:
+                issue_state["fail_after_comment"] = False
+                raise RuntimeError("temporary issue verification failure")
             return json.loads(json.dumps(issue))
 
         def fake_gh(arguments, json_output=False):
@@ -718,10 +738,20 @@ def main():
             if arguments[:2] == ("issue", "comment"):
                 body = arguments[arguments.index("--body") + 1]
                 token = claim_module.CLAIM_PATTERN.search(body).group(1)
+                database_id = 9000 + len(issue["comments"]) + 1
                 issue["comments"].append({
                     "body": body, "id": f"comment-{token}",
-                    "url": f"https://example.invalid/comments/{token}", "createdAt": "2026-08-24T00:00:00Z",
+                    "databaseId": database_id,
+                    "url": f"https://example.invalid/issues/36#issuecomment-{database_id}",
+                    "createdAt": "2026-08-24T00:00:00Z",
                 })
+                issue_state["comment_published"] = True
+                return issue["comments"][-1]["url"]
+            if arguments[:3] == ("api", "-X", "DELETE"):
+                database_id = int(arguments[3].rsplit("/", 1)[1])
+                issue["comments"] = [
+                    value for value in issue["comments"] if value.get("databaseId") != database_id
+                ]
                 return ""
             if arguments[:2] == ("api", "graphql"):
                 comment_id = next(value.removeprefix("id=") for value in arguments if value.startswith("id="))
@@ -741,6 +771,15 @@ def main():
 
         claim_module._issue = issue_copy
         claim_module._gh = fake_gh
+        issue_state["fail_after_comment"] = True
+        try:
+            claim_module.claim(repository, 36, now=1_776_999_999)
+            verification_failed = False
+        except RuntimeError:
+            verification_failed = True
+        check("a failed verification removes its already-published claim comment",
+              (verification_failed, issue["comments"], issue["labels"], label_definitions),
+              (True, [], [], set()))
         claimed = claim_module.claim(repository, 36, now=1_777_000_000)
         check("the WIP label embeds the claim timestamp",
               claimed["label"].startswith("wip:1777000000-"), True)

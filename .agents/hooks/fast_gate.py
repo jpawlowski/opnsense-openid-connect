@@ -567,8 +567,24 @@ def messages(*values):
     return " ".join(value for value in values if value)
 
 
+def platform_output(value):
+    """Translate the shared Claude-compatible hook result for Copilot cloud."""
+    if execution_context(REPOSITORY) != "copilot-cloud" or not isinstance(value, dict):
+        return value
+    specific = value.get("hookSpecificOutput") or {}
+    if not isinstance(specific, dict):
+        return value
+    translated = {}
+    for key in ("permissionDecision", "permissionDecisionReason", "additionalContext"):
+        if specific.get(key):
+            translated[key] = specific[key]
+    if value.get("systemMessage") and not translated.get("additionalContext"):
+        translated["additionalContext"] = value["systemMessage"]
+    return translated or value
+
+
 def emit(value):
-    json.dump(value, sys.stdout)
+    json.dump(platform_output(value), sys.stdout)
     sys.stdout.write("\n")
 
 

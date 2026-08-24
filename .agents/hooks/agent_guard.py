@@ -165,6 +165,12 @@ def _git_config(*arguments):
 
 
 def _configured_git_helper(command, arguments):
+    if any(
+        value in ("-c", "--config-env") or value.startswith("-c") and value != "-c"
+        or value.startswith("--config-env=")
+        for value in arguments
+    ):
+        return True
     disabled = {"", "0", "false", "no", "off"}
     fsmonitor = _git_config("--get-all", "core.fsmonitor")
     if any(value.strip().lower() not in disabled for value in fsmonitor):

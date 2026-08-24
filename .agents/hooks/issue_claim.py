@@ -17,6 +17,7 @@ CLAIM_PREFIX = "wip:"
 LOCK_PREFIX = "wip-lock:issue-"
 CLAIM_COLOR = "5319e7"
 CLAIM_PATTERN = re.compile(r"<!-- contribution-work-claim:([a-z0-9-]+) -->")
+COMMENT_URL_PATTERN = re.compile(r"#issuecomment-(\d+)$")
 LEGACY_MARKER = "<!-- contribution-work-claim -->"
 CLAIM_TEXT = {
     "en": (
@@ -144,6 +145,9 @@ def _markers(issue):
 
 def _delete_comment(comment_id):
     if not comment_id:
+        return
+    if str(comment_id).isdigit():
+        _gh(("api", "-X", "DELETE", f"repos/{CANONICAL_REPOSITORY}/issues/comments/{comment_id}"))
         return
     try:
         _gh((
@@ -274,7 +278,11 @@ def claim(repository, number, now=None, language="en"):
             f"{work_note}\n\n"
             f"{notice}"
         )
-        _gh(("issue", "comment", str(number), "--repo", CANONICAL_REPOSITORY, "--body", body))
+        comment_output = _gh((
+            "issue", "comment", str(number), "--repo", CANONICAL_REPOSITORY, "--body", body,
+        ))
+        published_comment = COMMENT_URL_PATTERN.search(comment_output)
+        comment_id = published_comment.group(1) if published_comment else ""
         markers = _markers(_issue(number))
         ours = next((value for value in markers if value["token"] == token), None)
         if ours is None:
