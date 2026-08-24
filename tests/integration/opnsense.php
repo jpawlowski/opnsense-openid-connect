@@ -639,6 +639,13 @@ $check(
     $localizedCaption !== 'Login using Keycloak' && str_contains($localizedCaption, 'Keycloak'),
     'the custom full-width button reuses the installed OPNsense translation'
 );
+$localTarget = new ReflectionMethod(OpenIDConnectContainer::class, 'withLocalTarget');
+unset($_GET['url']);
+$check(
+    $localTarget->invoke(new OpenIDConnectContainer(), '/api/openidconnect/auth/login?provider=runtime')
+        === '/api/openidconnect/auth/login?provider=runtime',
+    'a missing core page target leaves the provider login address unchanged'
+);
 if (is_string($previousLocale) && $previousLocale !== '') {
     setlocale(LC_ALL, $previousLocale);
 }
