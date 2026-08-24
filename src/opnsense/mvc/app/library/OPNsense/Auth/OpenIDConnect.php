@@ -1304,12 +1304,12 @@ class OpenIDConnect extends Base implements IAuthConnector
             AuthenticationRequirement::MULTI_FACTOR => [
                 'request' => AuthenticationRequirement::ESSENTIAL_CLAIM,
                 'acr' => 'https://refeds.org/profile/mfa',
-                'amr' => 'mfa',
+                'amr' => 'mfa,pwd,pin,kba,otp,hwk,sc,sms,swk,tel,pop,face,fpt,iris,retina,vbm',
             ],
             AuthenticationRequirement::PHISHING_RESISTANT => [
                 'request' => AuthenticationRequirement::ESSENTIAL_CLAIM,
                 'acr' => 'phr,phrh',
-                'amr' => 'fido,pop,hwk,swk',
+                'amr' => 'pop,hwk,swk',
             ],
         ];
         return [

@@ -148,7 +148,8 @@ Checks::that('Keycloak manual setup uses the documented standards-oriented value
     'tier' => 'multi-factor',
     'request_mode' => 'essential_claim',
     'contexts' => ['https://refeds.org/profile/mfa'],
-    'methods' => ['mfa'],
+    'methods' => ['mfa', 'pwd', 'pin', 'kba', 'otp', 'hwk', 'sc', 'sms', 'swk', 'tel', 'pop', 'face', 'fpt',
+        'iris', 'retina', 'vbm'],
 ]);
 Checks::throws(
     'an unsupported named provider refuses a manually injected authentication requirement',
@@ -370,6 +371,7 @@ $installationSpecificFields = [
     'openidconnect_provider_profile',
     'openidconnect_client_id',
     'openidconnect_client_secret',
+    'openidconnect_request_object_key',
     'openidconnect_origin_policy',
     'openidconnect_tls_offloading',
     'openidconnect_redirect_urls',
