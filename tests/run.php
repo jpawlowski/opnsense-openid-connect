@@ -66,6 +66,7 @@ require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/Transactio
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/WebGuiAccess.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderRuntimeState.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ParClient.php';
+require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderProbe.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/RelyingParty.php';
 require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/AuthController.php';
 require $root . '/src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/SsfController.php';

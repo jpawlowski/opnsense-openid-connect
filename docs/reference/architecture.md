@@ -166,6 +166,7 @@ flowchart TD
 | `ClientAssertion` | load the selected OPNsense certificate and sign one short-lived, single-use assertion | retain private keys, reuse assertions or implement cryptographic primitives |
 | `RequestObjectSigner` | bounded RFC 9101 claims, provider/key algorithm selection and phpseclib signature | choose authorization policy, expose a private key or encrypt Request Objects |
 | `ProviderMetadata` | exact Discovery validation and immutable per-login metadata snapshot | guess provider endpoints |
+| `DiscoveryController` / `HealthController` / `ProviderProbe` | authenticated, CSRF-protected diagnostics from current form values with explicit actor paths and verification methods | persist form values, return secrets or pretend an advertised browser/token path was exercised |
 | `TestController` | authenticated and CSRF-protected initiation of a saved provider's non-mutating browser test | accept an unsaved secret, grant a session or change local identity state |
 | `ApprovalController` | authenticated CRUD for durable bindings, explicit local-account creation and approval/denial of identities queued for one saved server; rechecks the core authentication-server, user-manager and read-only privileges | authenticate the identity, create a session, trust button visibility as authorization or choose a local account automatically |
 | `SetupController` / `ProviderSetup` | authenticated, no-secret provider import generation from an unfinished form | contact the provider, persist credentials or mutate either system |

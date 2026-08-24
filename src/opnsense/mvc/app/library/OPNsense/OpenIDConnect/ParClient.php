@@ -14,6 +14,7 @@ final class ParClient
 {
     public const MAX_BYTES = 262144;
     private ClientAuthenticator $clientAuthenticator;
+    private bool $credentialsExercised = false;
     private RequestObjectSigner $requestObjectSigner;
 
     public function __construct(
@@ -29,6 +30,7 @@ final class ParClient
     /** @param array<string,string> $parameters */
     public function push(ProviderMetadata $metadata, string $endpoint, array $parameters): string
     {
+        $this->credentialsExercised = false;
         $headers = ['Accept: application/json'];
         $this->clientAuthenticator->authenticate(
             $metadata,
@@ -38,6 +40,9 @@ final class ParClient
             $headers,
             $metadata->issuer()
         );
+        // A metadata refusal above never exposed the credentials to transport; from this point the authenticated
+        // request is attempted even when the provider or network rejects it.
+        $this->credentialsExercised = true;
         $response = $this->http->postForm($endpoint, $parameters, self::MAX_BYTES, $headers);
         if ($response->status === 429 || $response->status >= 500) {
             throw new ProviderUnavailableException(
@@ -73,6 +78,11 @@ final class ParClient
             throw new ProtocolException('The pushed authorization request endpoint returned no valid expiry');
         }
         return $requestUri;
+    }
+
+    public function credentialsExercised(): bool
+    {
+        return $this->credentialsExercised;
     }
 
     public function probe(ProviderMetadata $metadata, string $redirectUri): void
