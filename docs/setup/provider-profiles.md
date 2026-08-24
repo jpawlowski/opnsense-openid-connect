@@ -76,9 +76,9 @@ the whole visible string and is intentionally literal rather than translated.
 
 | Profile | Issuer behaviour | Other preset differences |
 |---|---|---|
-| Auth0 | enter tenant or custom-domain issuer, including its published trailing slash | redirect the Log Out menu through documented provider logout; older tenants may need RP-initiated logout discovery enabled |
+| Auth0 | enter tenant or custom-domain issuer, including its published trailing slash | documented MFA step-up is available after installing the provider-side Action; redirect the Log Out menu through documented provider logout |
 | Authelia | enter configured public issuer | shared defaults |
-| authentik | enter application issuer ending `/application/o/<slug>/` | redirect the Log Out menu through provider logout; prefer Back-channel logout notifications; its guide documents the Front-channel alternative |
+| authentik | enter application issuer ending `/application/o/<slug>/` | Required authentication stays at Provider policy only; redirect the Log Out menu through provider logout; prefer Back-channel logout notifications |
 | AWS Cognito | enter region and user-pool issuer | username claim `cognito:username` |
 | Cisco Duo Single Sign-On | enter the per-application issuer | username `email`; require UserInfo |
 | Dex | enter configured issuer | shared defaults; add `groups` only when group mapping is intended |
@@ -87,7 +87,7 @@ the whole visible string and is intentionally literal rather than translated.
 | Google / Google Workspace | fixed `https://accounts.google.com` | username `email`; ID Token only; no automatic local-account creation because the form cannot prove an Internal Workspace audience |
 | IBM Security Verify | enter tenant issuer | redirect the Log Out menu through documented provider logout; adjust the claim only when explicitly mapped differently |
 | JumpCloud | enter the exact regional issuer | shared defaults |
-| Keycloak | enter realm issuer | redirect the Log Out menu through provider logout; prefer Back-channel logout notifications; its guide documents the Front-channel alternative |
+| Keycloak | enter realm issuer | stronger authentication requires the guide's manual realm flow and token mappers; generated setup does not create them; prefer Back-channel logout notifications |
 | LinkedIn | fixed `https://www.linkedin.com/oauth` | username `email`; ID Token only; fixed `client_secret_post`; only Strict/Approval and no automatic account creation |
 | Microsoft Entra ID / Microsoft account | enter one tenant's v2 issuer; broader audience modes manage their authority automatically | broad audiences permit only Strict/Approval and no automatic account creation; one tenant retains assessed automatic choices; redirect the Log Out menu through documented provider logout; ID Token only; tenant audience recommended |
 | Okta | enter organization or custom authorization-server issuer | redirect the Log Out menu through documented provider logout; MFA uses `urn:okta:loa:2fa:any`; phishing-resistant authentication uses `phr`/`phrh` when deliberately enabled; optional Shared Signals stays off until its separate stream is configured |

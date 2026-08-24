@@ -1607,9 +1607,13 @@
     function conditionalFields() {
         var admissionInput = field('openidconnect_bootstrap_mode');
         var creationInput = field('openidconnect_create_users');
+        var authenticationInput = field('openidconnect_required_authentication');
         var admissionNotice = $('<div class="help-block text-warning oidc-public-admission-boundary">').hide();
         var creationNotice = $('<div class="help-block text-warning oidc-public-creation-boundary">').hide();
+        var authenticationNotice = $('<div class="help-block text-warning oidc-authentication-requirement-boundary">')
+            .hide();
         row('openidconnect_bootstrap_mode').find('td').last().append(admissionNotice, creationNotice);
+        row('openidconnect_required_authentication').find('td').last().append(authenticationNotice);
 
         function populationBoundary(provider) {
             var audience = field('openidconnect_microsoft_audience').value || 'tenant';
@@ -1628,6 +1632,23 @@
             var groupClaim = (field('openidconnect_group_claim').value || '').trim() !== '';
             var provider = field('openidconnect_provider_profile').value || 'general';
             var boundary = populationBoundary(provider);
+            var authenticationCapabilities = (options.authenticationRequirementCapabilities || {})[provider] || [];
+            $(authenticationInput).find('option').each(function () {
+                $(this).prop('disabled', this.value !== ''
+                    && authenticationCapabilities.indexOf(this.value) === -1);
+            });
+            var authentication = authenticationInput.value || '';
+            if (authentication !== '' && authenticationCapabilities.indexOf(authentication) === -1) {
+                $(authenticationInput).val('');
+                authentication = '';
+            }
+            var authenticationUnsupported = authenticationCapabilities.length === 0;
+            var authenticationManual = provider === 'keycloak';
+            authenticationNotice.toggle(authenticationUnsupported || authenticationManual).text(
+                authenticationUnsupported
+                    ? (options.authenticationRequirementUnsupportedHelp || '')
+                    : (options.authenticationRequirementManualHelp || '')
+            );
             $(admissionInput).find('option').each(function () {
                 $(this).prop('disabled', boundary.admission
                     && ['username', 'verified_email', 'either'].indexOf(this.value) !== -1);
@@ -1650,7 +1671,6 @@
             creationNotice.toggle(boundary.creation).text(
                 boundary.creation ? (options.publicPopulationAccountCreationHelp || '') : ''
             );
-            var authentication = field('openidconnect_required_authentication').value || '';
             var authenticationRequired = authentication !== '';
             var buttonTextMode = field('openidconnect_button_text_mode').value || 'localized';
             var buttonTextCustomizable = (options.fixedButtonProfiles || []).indexOf(provider) === -1;
@@ -1710,7 +1730,7 @@
         }
 
         function selectedPreset() {
-            var provider = ['okta', 'entra'].indexOf(profile.value) !== -1 ? profile.value : 'general';
+            var provider = profile.value || 'general';
             return ((presets[provider] || {})[requirement.value || '']) || null;
         }
 

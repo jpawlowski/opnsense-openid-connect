@@ -130,6 +130,42 @@ Checks::that('Okta MFA uses its documented ACR preset', $oktaMfa->toArray(), [
     'contexts' => ['urn:okta:loa:2fa:any'],
     'methods' => ['mfa'],
 ]);
+$auth0Mfa = connector([
+    'openidconnect_provider_profile' => 'auth0',
+    'openidconnect_required_authentication' => 'multi-factor',
+])->authenticationRequirement();
+Checks::that('Auth0 MFA uses its documented step-up evidence', $auth0Mfa->toArray(), [
+    'tier' => 'multi-factor',
+    'request_mode' => 'acr_values',
+    'contexts' => ['http://schemas.openid.net/pape/policies/2007/06/multi-factor'],
+    'methods' => ['mfa'],
+]);
+$keycloakMfa = connector([
+    'openidconnect_provider_profile' => 'keycloak',
+    'openidconnect_required_authentication' => 'multi-factor',
+])->authenticationRequirement();
+Checks::that('Keycloak manual setup uses the documented standards-oriented values', $keycloakMfa->toArray(), [
+    'tier' => 'multi-factor',
+    'request_mode' => 'essential_claim',
+    'contexts' => ['https://refeds.org/profile/mfa'],
+    'methods' => ['mfa'],
+]);
+Checks::throws(
+    'an unsupported named provider refuses a manually injected authentication requirement',
+    fn() => connector([
+        'openidconnect_provider_profile' => 'authentik',
+        'openidconnect_required_authentication' => 'multi-factor',
+    ])->authenticationRequirement(),
+    'cannot enforce'
+);
+Checks::throws(
+    'Auth0 cannot claim a phishing-resistant guarantee from its MFA-only profile',
+    fn() => connector([
+        'openidconnect_provider_profile' => 'auth0',
+        'openidconnect_required_authentication' => 'phishing-resistant',
+    ])->authenticationRequirement(),
+    'cannot enforce'
+);
 $customStrength = connector([
     'openidconnect_required_authentication' => 'phishing-resistant',
     'openidconnect_acr_request' => 'acr_values',
@@ -397,6 +433,21 @@ Checks::that('provider presets keep authentication enforcement opt-in', array_va
     array_keys($profilePresets),
     static fn($profile) => $profilePresets[$profile]['values']['openidconnect_required_authentication'] !== ''
 )), []);
+$authenticationCapabilities = OpenIDConnect::authenticationRequirementCapabilities();
+Checks::that('only provider profiles with an end-to-end evidence path expose authentication requirements',
+    $authenticationCapabilities, [
+        'general' => ['multi-factor', 'phishing-resistant'],
+        'auth0' => ['multi-factor'],
+        'keycloak' => ['multi-factor', 'phishing-resistant'],
+        'entra' => ['multi-factor', 'phishing-resistant'],
+        'okta' => ['multi-factor', 'phishing-resistant'],
+    ]);
+Checks::that('profiles without a documented strength path classify the requirement as unsupported',
+    array_values(array_filter(
+        array_keys($profilePresets),
+        static fn($profile) => !isset($authenticationCapabilities[$profile])
+            && $profilePresets[$profile]['classifications']['openidconnect_required_authentication'] !== 'unsupported'
+    )), []);
 Checks::that('provider presets use discovery-driven PAR unless the administrator decides otherwise', array_values(array_filter(
     array_keys($profilePresets),
     static fn($profile) => $profilePresets[$profile]['values']['openidconnect_par_mode'] !== 'auto'
@@ -1011,6 +1062,18 @@ Checks::that(
 $_POST['openidconnect_enabled'] = '0';
 $_POST['openidconnect_microsoft_audience'] = 'tenant';
 Checks::that('a disabled Entra draft may leave its context incomplete', $entraContext(''), []);
+$_POST['openidconnect_provider_profile'] = 'authentik';
+Checks::that('the form refuses MFA for a profile without a documented evidence path', count(
+    $requiredAuthentication('multi-factor')
+), 1);
+$_POST['openidconnect_provider_profile'] = 'auth0';
+Checks::that('the form permits documented Auth0 MFA', $requiredAuthentication('multi-factor'), []);
+Checks::that('the form refuses an undocumented Auth0 phishing-resistant guarantee', count(
+    $requiredAuthentication('phishing-resistant')
+), 1);
+$_POST['openidconnect_provider_profile'] = 'keycloak';
+Checks::that('the form permits manually configured Keycloak phishing resistance',
+    $requiredAuthentication('phishing-resistant'), []);
 $_POST = $savedPost;
 
 $acrValues = validator('openidconnect_acr_values');

@@ -132,6 +132,7 @@ async function configureServer(page) {
   const iconField = page.locator('input[name="openidconnect_icon_url"]');
   const buttonTextMode = page.locator('select[name="openidconnect_button_text_mode"]');
   const admissionPolicy = page.locator('select[name="openidconnect_bootstrap_mode"]');
+  const requiredAuthentication = page.locator('select[name="openidconnect_required_authentication"]');
   const createUsers = page.locator('input[name="openidconnect_create_users"]');
   const buttonProviderLabel = page.locator('input[name="openidconnect_button_provider_label"]');
   const customButtonText = page.locator('input[name="openidconnect_button_custom_text"]');
@@ -156,6 +157,9 @@ async function configureServer(page) {
   await expect(createUsers.locator('xpath=ancestor::tr')).toBeHidden();
   await expect(page.locator('.oidc-public-admission-boundary')).toBeVisible();
   await expect(page.locator('.oidc-public-creation-boundary')).toBeVisible();
+  await expect(requiredAuthentication.locator('option[value="multi-factor"]')).toBeDisabled();
+  await expect(requiredAuthentication.locator('option[value="phishing-resistant"]')).toBeDisabled();
+  await expect(page.locator('.oidc-authentication-requirement-boundary')).toBeVisible();
   await expect(page.locator('input[name="openidconnect_scopes"]')).toHaveValue('openid,email,name');
   await expect(iconField).toHaveValue('/api/openidconnect/auth/builtinicon/apple');
   await expect(buttonTextMode).toBeDisabled();
@@ -172,6 +176,11 @@ async function configureServer(page) {
   await expect(issuerField).toHaveValue('https://orcid.org');
   await expect(page.locator('input[name="openidconnect_scopes"]')).toHaveValue('openid');
   await selectNative(providerProfile, 'keycloak');
+  await expect(requiredAuthentication.locator('option[value="multi-factor"]')).toBeEnabled();
+  await expect(requiredAuthentication.locator('option[value="phishing-resistant"]')).toBeEnabled();
+  await expect(page.locator('.oidc-authentication-requirement-boundary')).toContainText(
+    'provider-side flow'
+  );
   await expect(admissionPolicy.locator('option[value="username"]')).toBeEnabled();
   await selectNative(admissionPolicy, 'username');
   await expect(createUsers).toBeEnabled();
@@ -192,6 +201,9 @@ async function configureServer(page) {
   await expect(page.locator('select[name="openidconnect_token_auth"]')).toBeEnabled();
   await expect(issuerField).toHaveAttribute('placeholder', 'https://id.example.com/realms/opnsense');
   await selectNative(providerProfile, 'authentik');
+  await expect(requiredAuthentication.locator('option[value="multi-factor"]')).toBeDisabled();
+  await expect(requiredAuthentication.locator('option[value="phishing-resistant"]')).toBeDisabled();
+  await expect(requiredAuthentication).toHaveValue('');
   await issuerField.fill(
     'https://auth.example.com/application/o/firewall/.well-known/openid-configuration'
   );

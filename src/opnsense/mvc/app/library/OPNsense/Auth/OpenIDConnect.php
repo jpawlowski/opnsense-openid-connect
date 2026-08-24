@@ -105,6 +105,15 @@ class OpenIDConnect extends Base implements IAuthConnector
         'apple', 'linkedin', 'orcid', 'yahoo',
     ];
 
+    /** Authentication-strength tiers with a documented request, enforcement and signed-token evidence path. */
+    private const AUTHENTICATION_REQUIREMENT_CAPABILITIES = [
+        'general' => [AuthenticationRequirement::MULTI_FACTOR, AuthenticationRequirement::PHISHING_RESISTANT],
+        'auth0' => [AuthenticationRequirement::MULTI_FACTOR],
+        'keycloak' => [AuthenticationRequirement::MULTI_FACTOR, AuthenticationRequirement::PHISHING_RESISTANT],
+        'entra' => [AuthenticationRequirement::MULTI_FACTOR, AuthenticationRequirement::PHISHING_RESISTANT],
+        'okta' => [AuthenticationRequirement::MULTI_FACTOR, AuthenticationRequirement::PHISHING_RESISTANT],
+    ];
+
     /** Require a fresh provider authentication after four hours by default. */
     public const DEFAULT_MAX_AUTHENTICATION_AGE = 14400;
 
@@ -1252,6 +1261,16 @@ class OpenIDConnect extends Base implements IAuthConnector
         ];
         foreach ($profiles as $profile => &$preset) {
             $preset['values']['openidconnect_icon_url'] = static::providerIconUrl($profile);
+            if (!isset(self::AUTHENTICATION_REQUIREMENT_CAPABILITIES[$profile])) {
+                $preset['values']['openidconnect_required_authentication'] = '';
+                $preset['values']['openidconnect_acr_request'] = '';
+                $preset['values']['openidconnect_acr_values'] = '';
+                $preset['values']['openidconnect_amr_values'] = '';
+                $preset['classifications']['openidconnect_required_authentication'] = 'unsupported';
+                $preset['classifications']['openidconnect_acr_request'] = 'hidden';
+                $preset['classifications']['openidconnect_acr_values'] = 'hidden';
+                $preset['classifications']['openidconnect_amr_values'] = 'hidden';
+            }
             if (in_array($profile, self::ACCOUNT_CREATION_BLOCKED_PROFILES, true)) {
                 $preset['values']['openidconnect_create_users'] = '0';
                 $preset['classifications']['openidconnect_create_users'] = 'unsupported';
@@ -1281,19 +1300,28 @@ class OpenIDConnect extends Base implements IAuthConnector
      */
     public static function authenticationRequirementPresets(): array
     {
+        $generic = [
+            AuthenticationRequirement::MULTI_FACTOR => [
+                'request' => AuthenticationRequirement::ESSENTIAL_CLAIM,
+                'acr' => 'https://refeds.org/profile/mfa',
+                'amr' => 'mfa',
+            ],
+            AuthenticationRequirement::PHISHING_RESISTANT => [
+                'request' => AuthenticationRequirement::ESSENTIAL_CLAIM,
+                'acr' => 'phr,phrh',
+                'amr' => 'fido,pop,hwk,swk',
+            ],
+        ];
         return [
-            'general' => [
+            'general' => $generic,
+            'auth0' => [
                 AuthenticationRequirement::MULTI_FACTOR => [
-                    'request' => AuthenticationRequirement::ESSENTIAL_CLAIM,
-                    'acr' => 'https://refeds.org/profile/mfa',
-                    'amr' => 'mfa,pwd,pin,kba,otp,hwk,sc,sms,swk,tel,pop,face,fpt,iris,retina,vbm',
-                ],
-                AuthenticationRequirement::PHISHING_RESISTANT => [
-                    'request' => AuthenticationRequirement::ESSENTIAL_CLAIM,
-                    'acr' => 'phr,phrh',
-                    'amr' => 'pop,hwk,swk',
+                    'request' => AuthenticationRequirement::ACR_VALUES,
+                    'acr' => 'http://schemas.openid.net/pape/policies/2007/06/multi-factor',
+                    'amr' => 'mfa',
                 ],
             ],
+            'keycloak' => $generic,
             'okta' => [
                 AuthenticationRequirement::MULTI_FACTOR => [
                     'request' => AuthenticationRequirement::ACR_VALUES,
@@ -1347,6 +1375,12 @@ class OpenIDConnect extends Base implements IAuthConnector
         return self::AUTOMATIC_ADMISSION_BLOCKED_PROFILES;
     }
 
+    /** @return array<string,string[]> provider profiles and their documented authentication-strength tiers */
+    public static function authenticationRequirementCapabilities(): array
+    {
+        return self::AUTHENTICATION_REQUIREMENT_CAPABILITIES;
+    }
+
     /** Resolve a profile name to one package-owned SVG without accepting a filesystem path. */
     public static function providerIconPath(string $profile): ?string
     {
@@ -1386,6 +1420,7 @@ class OpenIDConnect extends Base implements IAuthConnector
             'sectorOffLabel' => gettext('Off'),
             'profilePresets' => static::providerProfilePresets(),
             'authenticationRequirementPresets' => static::authenticationRequirementPresets(),
+            'authenticationRequirementCapabilities' => static::authenticationRequirementCapabilities(),
             'fixedButtonProfiles' => array_keys(static::fixedProviderButtonLabels()),
             'accountCreationBlockedProfiles' => static::accountCreationBlockedProfiles(),
             'automaticAdmissionBlockedProfiles' => static::automaticAdmissionBlockedProfiles(),
@@ -1396,6 +1431,14 @@ class OpenIDConnect extends Base implements IAuthConnector
             'publicPopulationAdmissionHelp' => gettext(
                 'This public provider population permits only Strict or Administrator approval. Automatic ' .
                 'username or e-mail admission could bind an unrelated external identity to this firewall.'
+            ),
+            'authenticationRequirementUnsupportedHelp' => gettext(
+                'This provider profile has no documented end-to-end authentication-strength setup compatible ' .
+                'with this plugin. Provider policy only is enforced.'
+            ),
+            'authenticationRequirementManualHelp' => gettext(
+                'This requirement needs the provider-side flow and signed-token evidence described in the ' .
+                'provider guide. Download provider setup does not create that flow.'
             ),
             'configuredFields' => array_values(array_filter(
                 array_keys($this->settings),
@@ -2689,11 +2732,20 @@ class OpenIDConnect extends Base implements IAuthConnector
         if (!in_array($value, array_merge(self::REQUIRED_AUTHENTICATION, ['']), true)) {
             return [gettext('Unknown required authentication policy.')];
         }
-        if ($value !== '' && $this->submittedChoice(
+        if ($value === '') {
+            return [];
+        }
+        $profile = $this->submittedChoice(
             'openidconnect_provider_profile',
             self::PROVIDER_PROFILES,
             'general'
-        ) === 'entra' && $this->submittedChoice(
+        );
+        if (!static::providerSupportsAuthenticationRequirement($profile, $value)) {
+            return [gettext(
+                'The selected provider profile has no documented end-to-end setup for this authentication requirement.'
+            )];
+        }
+        if ($profile === 'entra' && $this->submittedChoice(
             'openidconnect_microsoft_audience',
             self::MICROSOFT_AUDIENCES,
             'tenant'
@@ -2703,6 +2755,11 @@ class OpenIDConnect extends Base implements IAuthConnector
             )];
         }
         return [];
+    }
+
+    private static function providerSupportsAuthenticationRequirement(string $profile, string $tier): bool
+    {
+        return in_array($tier, self::AUTHENTICATION_REQUIREMENT_CAPABILITIES[$profile] ?? [], true);
     }
 
     private function validateAutomaticAccountCreation($value): array
@@ -3370,9 +3427,13 @@ class OpenIDConnect extends Base implements IAuthConnector
         }
 
         $profile = $this->providerProfile();
+        if (!static::providerSupportsAuthenticationRequirement($profile, $tier)) {
+            throw new \OPNsense\OpenIDConnect\ProtocolException(
+                'The selected provider profile cannot enforce the configured authentication requirement'
+            );
+        }
         $presets = static::authenticationRequirementPresets();
-        $presetProfile = in_array($profile, ['okta', 'entra'], true) ? $profile : 'general';
-        $preset = $presets[$presetProfile][$tier];
+        $preset = $presets[$profile][$tier];
         $methods = static::splitList($this->rawText('openidconnect_amr_values'));
         if ($methods === []) {
             $methods = static::splitList($preset['amr']);

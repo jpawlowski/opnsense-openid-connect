@@ -22,8 +22,8 @@ defaults below.
 | Username claim | `preferred_username` | the provider guide specifies `email`, a vendor claim or a custom mapping |
 | Claims source | Automatic | all required claims must come only from the ID Token, or UserInfo is explicitly required |
 | Authorization response mode | Query | Apple with requested user scopes requires Form POST; select signed Query or signed Form POST only for a provider configured to return JARM |
-| Required authentication | Provider policy only; no additional `acr`/`amr` decision | require the verified ID Token to prove MFA or phishing-resistant authentication before local account and session processing |
-| Authentication context request | provider preset; essential `acr` for Generic and `acr_values` for Okta | the provider documents a different request form |
+| Required authentication | Provider policy only; stronger choices are unavailable unless the selected profile has a documented request, enforcement and signed-token evidence path | use documented Auth0 MFA, manual Keycloak setup, Okta, one Entra tenant, or the explicitly assessed Generic profile |
+| Authentication context request | provider preset; essential `acr` for Generic/Keycloak, `acr_values` for Auth0/Okta, and `acrs` for Entra | the provider guide documents a different request form for a Generic installation |
 | Accepted authentication contexts | requirement/provider preset | the provider uses an installation-specific, documented exact `acr` value |
 | Accepted authentication methods | requirement/provider preset | the provider documents different exact `amr` values; any configured value may satisfy the method check |
 | Microsoft authentication context | empty and shown only for Entra | choose the tenant Conditional Access context `c1`-`c25` that enforces this requirement |
@@ -84,6 +84,13 @@ exact issuer and client audience, time and the one-time transaction state, and
 only afterwards processes its code or provider error. Encrypted JARM responses
 are not supported. Register or enable the matching signed authorization-response
 algorithm at the provider before selecting either mode.
+
+Unsupported named profiles do not merely hide the setting. Save validation
+rejects a crafted value, and the login path refuses an older or manually edited
+configuration which still requests an unavailable tier. This prevents a token
+mapper that merely writes plausible `acr` or `amr` strings from being mistaken
+for provider-side enforcement. See the complete capability matrix in
+[provider profiles and defaults](provider-profiles.md).
 
 Shared Signals is independent of offering new logins. It only ends sessions
 previously created by the same saved authentication server and never changes a

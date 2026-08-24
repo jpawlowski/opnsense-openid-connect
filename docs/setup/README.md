@@ -130,6 +130,12 @@ authentication context or method evidence is missing. Provider-specific setup,
 especially Microsoft Entra Conditional Access, is described in its provider
 guide. Run **Test sign-in** before enabling such a requirement for normal login.
 
+Named profiles expose a stronger choice only when this project retains a
+complete provider-side procedure. Auth0 supports documented MFA, Keycloak needs
+manual realm-flow setup, and Okta and one Entra tenant support both available
+tiers. Other named profiles enforce **Provider policy only**; a crafted form or
+manual `config.xml` value is refused at login rather than silently trusted.
+
 While the server remains disabled, the exact **Issuer URL**, **Client ID** and
 **Client Secret** may be empty so either side can be prepared first. Before
 enabling login, the three provider values are required; a selected custom address

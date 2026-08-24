@@ -1226,6 +1226,30 @@ Checks::that(
 );
 Checks::that('Okta is not also sent a conflicting essential acr request', isset($oktaStrengthParameters['claims']), false);
 
+$auth0StrengthController = new Controller(new Request('https', 'firewall.example.net'), new Session());
+$auth0StrengthSettings = connector([
+    'openidconnect_provider_profile' => 'auth0',
+    'openidconnect_provider_url' => 'https://tenant.example.net/',
+    'openidconnect_client_id' => 'client-id',
+    'openidconnect_client_secret' => 'secret',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_app_code' => 'auth0-strong',
+    'openidconnect_required_authentication' => 'multi-factor',
+]);
+$auth0StrengthUrl = (new RelyingParty(
+    $auth0StrengthSettings,
+    $auth0StrengthController,
+    new HttpClient(fn() => jsonAnswer(metadata(['issuer' => 'https://tenant.example.net/'])))
+))->authorizationUrl('auth0', '/');
+parse_str((string)parse_url($auth0StrengthUrl, PHP_URL_QUERY), $auth0StrengthParameters);
+Checks::that(
+    'Auth0 receives the documented MFA step-up acr_values parameter',
+    $auth0StrengthParameters['acr_values'],
+    'http://schemas.openid.net/pape/policies/2007/06/multi-factor'
+);
+Checks::that('Auth0 is not also sent a conflicting essential acr request',
+    isset($auth0StrengthParameters['claims']), false);
+
 $entraStrengthController = new Controller(new Request('https', 'firewall.example.net'), new Session());
 $entraStrengthSettings = connector([
     'openidconnect_provider_profile' => 'entra',

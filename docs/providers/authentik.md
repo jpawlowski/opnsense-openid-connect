@@ -65,6 +65,14 @@ It already selects authentik's per-provider issuer mode and hashed user-ID
 subject mode, so the OPNsense **Pairwise subject sector** setting is not needed
 for this generated Blueprint and does not alter it.
 
+**Required authentication** is limited to **Provider policy only** for the
+authentik profile. authentik can enforce MFA, WebAuthn and Passkeys in a selected
+authentication flow and reports authentication methods, but its retained
+documentation does not establish the request-bound `acr` plus `amr` evidence
+pair this plugin requires for either stronger tier. The Blueprint therefore
+does not invent claims or treat an authenticator stage as portable evidence.
+Generation and login both refuse a manually injected stronger setting.
+
 The remaining sections describe every field and are also the fallback when a
 custom authentik flow, signing key or policy assignment is required.
 
@@ -200,6 +208,7 @@ login:
 | Match by e-mail address | Only a verified address | avoids first-binding takeover through an unverified address |
 | Scopes | `openid,email,profile` | sufficient for sign-in and the standard identity claims |
 | Pairwise subject sector | Off | the generated provider already uses per-provider issuer and hashed user-ID subject modes |
+| Required authentication | Provider policy only | no compatible end-to-end context-and-method procedure is retained for this profile |
 | Maximum authentication age | `14400` | require the authentik authentication used for a new OPNsense login to be no older than four hours; `0` requests active authentication every time and does not shorten an established OPNsense session |
 | Create an account on first login | Off | firewall accounts should normally be pre-created |
 | Allow the built-in root account | Off | preserves a local recovery account outside the IdP |

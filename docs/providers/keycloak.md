@@ -111,6 +111,42 @@ Leave Keycloak to generate the pairwise salt. The URI is intentionally public,
 contains only the client's exact callback URI array, and answers only through
 the selected origin.
 
+### Optional authentication-strength enforcement
+
+This is a manual realm configuration. The generated partial realm import stops
+when **Required authentication** is selected because a client import cannot
+safely create and bind the realm flow which enforces the claimed method. Import
+or create the client while **Provider policy only** is selected, then configure
+the flow before enabling the stronger requirement in OPNsense.
+
+1. Under **Authentication**, duplicate the realm's working Browser flow. Bind
+   the copy as this client's Browser flow override; do not change the realm-wide
+   flow merely for OPNsense.
+2. For **Multi-factor authentication**, require a second-factor execution in
+   the copied flow and give that successful execution the authenticator
+   reference value `mfa`. Configure a Level of Authentication condition which
+   the second factor satisfies.
+3. For **Phishing-resistant authentication**, instead require a WebAuthn
+   authenticator in a dedicated copied flow and give its successful execution
+   reference value `fido`. Do not leave OTP as an alternative in that flow.
+4. In the client's advanced OIDC settings map
+   `https://refeds.org/profile/mfa` to the enforced MFA level, or map `phr` and
+   optionally `phrh` to the enforced WebAuthn level. Set the corresponding
+   minimum ACR value so a weaker request cannot select a lower level.
+5. Ensure the realm's `acr` client scope and its ACR LoA Level mapper are linked
+   to the client. Add Keycloak's Authentication Method Reference mapper so the
+   successful execution reference is emitted as `amr` in the ID Token.
+6. Select the matching **Required authentication** tier in OPNsense and run
+   **Test sign-in**. Do not enable the login button unless the verified result
+   contains the requested `acr` and the expected `amr` value.
+
+The default OPNsense Keycloak values deliberately match those steps: MFA uses
+the REFEDS context plus `mfa`; phishing-resistant authentication accepts
+`phr`/`phrh` only together with a registered method such as `fido`. If the realm
+uses different documented exact strings, change **Accepted authentication
+contexts** and **Accepted authentication methods** to those values on both
+sides. Adding a mapper without the enforcing flow is never sufficient.
+
 ### 3. Configure one Keycloak logout channel
 
 Back-channel logout is the recommended default:
@@ -221,6 +257,10 @@ The complete flow, including both logout alternatives, `form_post` and
 `client_secret_post`, is exercised by this project's disposable
 [browser-to-firewall test](../../tests/e2e/README.md) with an official Keycloak
 container and a real OPNsense WebGUI.
+
+References: [Keycloak step-up authentication](https://www.keycloak.org/docs/latest/server_admin/#_step-up-flow),
+[ACR to Level of Authentication mapping](https://www.keycloak.org/docs/latest/server_admin/#_oidc-auth-flows),
+and [Authentication Method Reference mapper](https://www.keycloak.org/docs/latest/server_admin/#adding-authentication-executions).
 
 For every remaining OPNsense field, see the [settings
 reference](../setup/settings-reference.md).
