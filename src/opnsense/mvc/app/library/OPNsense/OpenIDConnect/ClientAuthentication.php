@@ -91,7 +91,9 @@ final class ClientAuthentication
                 return $candidate;
             }
         }
-        throw new ProtocolException('The provider offers no supported token endpoint authentication method');
+        throw new ProtocolException(
+            'The provider offers no supported client authentication method for the token endpoint'
+        );
     }
 
     /** @param array<string,string> $fields @param string[] $headers */
@@ -109,10 +111,12 @@ final class ClientAuthentication
             return;
         }
         if ($method === 'client_secret_post') {
+            $fields['client_id'] = $settings->clientId();
             $fields['client_secret'] = $settings->clientSecret();
             return;
         }
         if (in_array($method, self::TLS_METHODS, true) && $this->certificate !== null) {
+            $fields['client_id'] = $settings->clientId();
             return;
         }
         throw new ProtocolException('No supported token endpoint authentication method is available');
