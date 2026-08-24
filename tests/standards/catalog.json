@@ -52,20 +52,804 @@
       "title": "OAuth 2.0 Authorization Framework (RFC 6749)",
       "reference": "https://www.rfc-editor.org/rfc/rfc6749.html",
       "scope": "Confidential web client portions used by OIDC code flow",
-      "implementation": "partial",
-      "claim": "unverified",
-      "audit_complete": false,
-      "note": "Only the portions required by the OIDC web RP profile are in scope; other grants are listed separately."
+      "implementation": "implemented",
+      "claim": "verified",
+      "audit_complete": true,
+      "note": "Verified for a confidential server-side web client using only the authorization-code grant; authorization-server, resource-server and other-grant behavior is outside this claim.",
+      "source_review": {
+        "specification_revision": "RFC 6749, October 2012",
+        "reviewed_on": "2026-08-24",
+        "profile": "Confidential server-side OpenID Connect web client using the authorization-code grant; no implicit, password, client-credentials, extension or refresh-token grant",
+        "sections": [
+          "1-2.4",
+          "3-3.3",
+          "4-4.5",
+          "5-7.2",
+          "8-10.16",
+          "Appendices A-B"
+        ]
+      },
+      "requirements": [
+        {
+          "id": "RFC6749-2.3-MUST-NOT-MULTIPLE-AUTH",
+          "section": "2.3",
+          "strength": "must_not",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-2.3-MUST-NOT-MULTIPLE-AUTH positive: Basic is the single client authentication method"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-2.3-MUST-NOT-MULTIPLE-AUTH negative: an authenticated request has no second body credential"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-2.3.1-MAY-BASIC",
+          "section": "2.3.1 and Appendix B",
+          "strength": "may",
+          "applicable": true,
+          "claimed": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-2.3.1-MAY-BASIC positive: Basic credentials use form encoding before base64"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-2.3.1-MAY-BASIC negative: Basic credentials never appear in the form body"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-2.3.1-SHOULD-LIMIT-BODY",
+          "section": "2.3.1",
+          "strength": "should",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-2.3.1-SHOULD-LIMIT-BODY positive: automatic authentication prefers HTTP Basic"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-2.3.1-SHOULD-LIMIT-BODY negative: explicit POST authentication stays one bounded method"
+            }]
+          },
+          "deviation": {
+            "reviewed_on": "2026-08-24",
+            "rationale": "HTTP Basic remains the automatic preference. Body credentials require an explicit per-provider compatibility choice and never accompany another authentication method."
+          }
+        },
+        {
+          "id": "RFC6749-3.1-MUST-AUTH-ENDPOINT",
+          "section": "3.1",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-3.1-MUST-AUTH-ENDPOINT positive: existing authorization endpoint query is retained"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-3.1-MUST-AUTH-ENDPOINT negative: an authorization endpoint fragment is refused"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-3.1.1-MUST-CODE",
+          "section": "3.1.1 and 4.1.1",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-3.1.1-MUST-CODE positive: the authorization request asks only for a code"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-3.1.1-MUST-CODE negative: a provider without the code response type is refused"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-3.1-MUST-NOT-REPEAT",
+          "section": "3.1",
+          "strength": "must_not",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-3.1-MUST-NOT-REPEAT positive: every authorization request parameter is emitted once"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-3.1-MUST-NOT-REPEAT negative: an endpoint query cannot duplicate a protocol parameter"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-3.1.2.1-SHOULD-TLS-REDIRECT",
+          "section": "3.1.2.1",
+          "strength": "should",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-3.1.2.1-SHOULD-TLS-REDIRECT positive: the registered callback uses HTTPS"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-3.1.2.1-SHOULD-TLS-REDIRECT negative: a plain HTTP callback origin is refused"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-3.1.2.3-MUST-REDIRECT-URI",
+          "section": "3.1.2.3, 4.1 and 4.1.3",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-3.1.2.3-MUST-REDIRECT-URI positive: the exact callback is included in the authorization request"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-3.1.2.3-MUST-REDIRECT-URI negative: a changed callback binding is refused"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-3.2-MUST-TOKEN-POST",
+          "section": "3.2",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-3.2-MUST-TOKEN-POST positive: the authorization code is exchanged with POST over HTTPS"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-3.2-MUST-TOKEN-POST negative: a non-HTTPS token request is refused before transport"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-3.2-MUST-NOT-REPEAT",
+          "section": "3.2",
+          "strength": "must_not",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-3.2-MUST-NOT-REPEAT positive: every token request form parameter is emitted once"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-3.2-MUST-NOT-REPEAT negative: a token endpoint query cannot duplicate a form parameter"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-3.2.1-MUST-AUTHENTICATE",
+          "section": "3.2.1",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-3.2.1-MUST-AUTHENTICATE positive: the confidential client authenticates at the token endpoint"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-3.2.1-MUST-AUTHENTICATE negative: no unauthenticated token request is attempted"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-3.3-MUST-SCOPE-SYNTAX",
+          "section": "3.3 and Appendix A.4",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-3.3-MUST-SCOPE-SYNTAX positive: configured scopes use the OAuth scope-token grammar"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-3.3-MUST-SCOPE-SYNTAX negative: an invalid configured scope token is refused"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-4.1.1-SHOULD-STATE",
+          "section": "4.1.1",
+          "strength": "should",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-4.1.1-SHOULD-STATE positive: a random opaque state binds the authorization request"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-4.1.1-SHOULD-STATE negative: a callback without state is refused"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-4.1.2-MUST-SINGLE-USE-CODE",
+          "section": "4.1.2",
+          "strength": "must_not",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-4.1.2-MUST-SINGLE-USE-CODE positive: the matching transaction is consumed once"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-4.1.2-MUST-SINGLE-USE-CODE negative: replaying the same response state is refused"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-4.1.2-MUST-IGNORE-UNKNOWN",
+          "section": "4.1.2",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-4.1.2-MUST-IGNORE-UNKNOWN positive: unknown authorization response names are ignored"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-4.1.2-MUST-IGNORE-UNKNOWN negative: an extension cannot replace required state"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-4.1.2.1-MUST-SAFE-ERROR",
+          "section": "4.1.2.1 and Appendices A.7-A.9",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-4.1.2.1-MUST-SAFE-ERROR positive: a bounded authorization error is classified safely"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-4.1.2.1-MUST-SAFE-ERROR negative: malformed authorization errors are not reflected"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-4.1.3-MUST-TOKEN-PARAMETERS",
+          "section": "4.1.3 and Appendix B",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-4.1.3-MUST-TOKEN-PARAMETERS positive: the token form carries the exact code grant binding"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-4.1.3-MUST-TOKEN-PARAMETERS negative: Basic authentication omits the unauthenticated client_id field"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-5.1-MUST-TOKEN-RESPONSE",
+          "section": "5.1 and Appendices A.12-A.14",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-5.1-MUST-TOKEN-RESPONSE positive: a complete Bearer token response is accepted"
+            }],
+            "negative": [
+              {
+                "path": "tests/unit/oauth.php",
+                "test": "RFC6749-5.1-MUST-TOKEN-RESPONSE negative: a success response without an access token is refused"
+              },
+              {
+                "path": "tests/unit/oauth.php",
+                "test": "RFC6749-5.1-MUST-TOKEN-RESPONSE negative: an unsupported token type is refused"
+              },
+              {
+                "path": "tests/unit/oauth.php",
+                "test": "RFC6749-5.1-MUST-TOKEN-RESPONSE negative: a non-numeric access token lifetime is refused"
+              },
+              {
+                "path": "tests/unit/oauth.php",
+                "test": "RFC6749-5.1-MUST-TOKEN-RESPONSE negative: a malformed returned scope is refused"
+              }
+            ]
+          }
+        },
+        {
+          "id": "RFC6749-5.1-MUST-IGNORE-UNKNOWN",
+          "section": "5.1",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-5.1-MUST-IGNORE-UNKNOWN positive: arbitrary extension response names do not fail the exchange"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-5.1-MUST-IGNORE-UNKNOWN negative: ignored extension values never enter retained token state"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-5.2-MUST-SAFE-ERROR",
+          "section": "5.2 and Appendices A.7-A.9",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-5.2-MUST-SAFE-ERROR positive: a standard token error is classified by its bounded code"
+            }],
+            "negative": [
+              {
+                "path": "tests/unit/oauth.php",
+                "test": "RFC6749-5.2-MUST-SAFE-ERROR negative: malformed error fields are not reflected"
+              },
+              {
+                "path": "tests/unit/oauth.php",
+                "test": "RFC6749-5.2-MUST-SAFE-ERROR negative: an error object cannot masquerade as a success response"
+              }
+            ]
+          }
+        },
+        {
+          "id": "RFC6749-10.1-MUST-PROTECT-CREDENTIALS",
+          "section": "10.1",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-10.1-MUST-PROTECT-CREDENTIALS positive: client credentials stay in one HTTPS request"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-10.1-MUST-PROTECT-CREDENTIALS negative: credential-bearing redirects are refused"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-10.3-MUST-PROTECT-ACCESS-TOKEN",
+          "section": "10.3",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-10.3-MUST-PROTECT-ACCESS-TOKEN positive: the access token reaches only its HTTPS resource"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-10.3-MUST-PROTECT-ACCESS-TOKEN negative: access tokens are never carried through redirects"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-10.3-SHOULD-MINIMAL-SCOPE",
+          "section": "10.3",
+          "strength": "should",
+          "applicable": true,
+          "evidence": {},
+          "deviation": {
+            "reviewed_on": "2026-08-24",
+            "rationale": "The RP always adds only the OIDC openid scope itself. Additional provider-specific scopes are an explicit administrator choice needed to deliver configured identity or group claims, so the protocol cannot safely infer and remove them."
+          }
+        },
+        {
+          "id": "RFC6749-10.4-MUST-PROTECT-REFRESH-TOKEN",
+          "section": "10.4",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-10.4-MUST-PROTECT-REFRESH-TOKEN positive: refresh tokens leave only in an HTTPS revocation body"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-10.4-MUST-PROTECT-REFRESH-TOKEN negative: a refresh token is not followed through a redirect"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-10.5-MUST-TLS-CALLBACK",
+          "section": "10.5",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-10.5-MUST-TLS-CALLBACK positive: sign-in callbacks are exact HTTPS resources"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-10.5-MUST-TLS-CALLBACK negative: callback construction refuses cleartext WebGUI transport"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-10.8-MUST-NOT-CLEARTEXT",
+          "section": "10.8",
+          "strength": "must_not",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-10.8-MUST-NOT-CLEARTEXT positive: every credential-bearing provider request is HTTPS"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-10.8-MUST-NOT-CLEARTEXT negative: provider credentials cannot be posted over HTTP"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-10.8-SHOULD-NOT-SENSITIVE-STATE",
+          "section": "10.8",
+          "strength": "should_not",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-10.8-SHOULD-NOT-SENSITIVE-STATE positive: state is independent random data"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-10.8-SHOULD-NOT-SENSITIVE-STATE negative: the local target never enters browser parameters"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-10.9-MUST-VALIDATE-TLS",
+          "section": "10.9",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-10.9-MUST-VALIDATE-TLS positive: provider transport verifies the certificate and host"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-10.9-MUST-VALIDATE-TLS negative: a provider endpoint without server-authenticated TLS is refused"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-10.12-MUST-CSRF",
+          "section": "10.12",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-10.12-MUST-CSRF positive: callback state resolves only its server-side transaction"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-10.12-MUST-CSRF negative: attacker-selected state has no transaction"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-10.14-MUST-VALIDATE-INPUT",
+          "section": "10.14",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-10.14-MUST-VALIDATE-INPUT positive: a bounded authorization code reaches the token request"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6749-10.14-MUST-VALIDATE-INPUT negative: a control character in an authorization code is refused"
+            }]
+          }
+        },
+        {
+          "id": "RFC6749-3.1.2.5-MUST-SCRIPT-ORDER",
+          "section": "3.1.2.5",
+          "strength": "must",
+          "applicable": false,
+          "evidence": {},
+          "rationale": "The callback processes and consumes the authorization response before returning any document; it serves no third-party script that can observe response credentials."
+        },
+        {
+          "id": "RFC6749-4.2-4.5-MUST-OTHER-GRANTS",
+          "section": "4.2-4.5",
+          "strength": "must",
+          "applicable": false,
+          "evidence": {},
+          "rationale": "Implicit, resource-owner-password, client-credentials and extension grants are outside the frozen authorization-code-only client profile."
+        },
+        {
+          "id": "RFC6749-6-MUST-REFRESH-GRANT",
+          "section": "6",
+          "strength": "must",
+          "applicable": false,
+          "evidence": {},
+          "rationale": "The RP never uses a refresh token as an authorization grant; an optional returned refresh token is retained only for best-effort RFC 7009 revocation during logout."
+        },
+        {
+          "id": "RFC6749-7-MUST-RESOURCE-SERVER",
+          "section": "7",
+          "strength": "must",
+          "applicable": false,
+          "evidence": {},
+          "rationale": "Access-token presentation is inventoried under RFC 6750, while validation and protected-resource error responses are obligations of the provider's resource server."
+        },
+        {
+          "id": "RFC6749-10.7-SHOULD-PASSWORD-GRANT",
+          "section": "10.7",
+          "strength": "should",
+          "applicable": false,
+          "evidence": {},
+          "rationale": "The RP never collects provider credentials and the resource-owner-password grant is separately cataloged as not planned."
+        },
+        {
+          "id": "RFC6749-10.13-SHOULD-NATIVE-BROWSER",
+          "section": "10.13",
+          "strength": "should",
+          "applicable": false,
+          "evidence": {},
+          "rationale": "The recommendation assigns behavior to native applications and authorization servers; this client is a server-side WebGUI relying party."
+        },
+        {
+          "id": "RFC6749-10.16-MUST-IMPLICIT-TOKEN",
+          "section": "10.16",
+          "strength": "must",
+          "applicable": false,
+          "evidence": {},
+          "rationale": "The RP never accepts an implicit-flow access token as user authentication and requires a verified OpenID Connect ID Token from the code flow."
+        }
+      ]
     },
     {
       "id": "oauth-bearer",
       "title": "OAuth 2.0 Bearer Token Usage (RFC 6750)",
       "reference": "https://www.rfc-editor.org/rfc/rfc6750.html",
-      "scope": "Bearer access token sent by the RP to UserInfo or revocation endpoints",
-      "implementation": "partial",
-      "claim": "unverified",
-      "audit_complete": false,
-      "note": "Only client-side use needed by this RP is in scope."
+      "scope": "Bearer access token sent by the RP to the UserInfo endpoint",
+      "implementation": "implemented",
+      "claim": "verified",
+      "audit_complete": true,
+      "note": "Verified for client-side Bearer header use at the protected UserInfo resource; token issuance, resource-server responses and revocation form semantics are outside this claim.",
+      "source_review": {
+        "specification_revision": "RFC 6750, October 2012",
+        "reviewed_on": "2026-08-24",
+        "profile": "Confidential server-side OpenID Connect web client presenting an opaque Bearer access token only to the discovered UserInfo protected resource",
+        "sections": [
+          "1-1.3",
+          "2-2.3",
+          "3-3.1",
+          "5-5.3"
+        ]
+      },
+      "requirements": [
+        {
+          "id": "RFC6750-2-MUST-NOT-MULTIPLE-METHODS",
+          "section": "2",
+          "strength": "must_not",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-2-MUST-NOT-MULTIPLE-METHODS positive: UserInfo receives one bearer transmission method"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-2-MUST-NOT-MULTIPLE-METHODS negative: the bearer token is absent from URL and body"
+            }]
+          }
+        },
+        {
+          "id": "RFC6750-2.1-SHOULD-AUTHORIZATION-HEADER",
+          "section": "2.1",
+          "strength": "should",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-2.1-SHOULD-AUTHORIZATION-HEADER positive: UserInfo uses the Bearer authorization scheme"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-2.1-SHOULD-AUTHORIZATION-HEADER negative: bearer credentials are not redirected to another resource"
+            }]
+          }
+        },
+        {
+          "id": "RFC6750-2.1-MUST-B64TOKEN-SYNTAX",
+          "section": "2.1 bearer credentials ABNF",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-2.1-MUST-B64TOKEN-SYNTAX positive: every allowed bearer credential character is accepted"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-2.1-MUST-B64TOKEN-SYNTAX negative: whitespace in a bearer credential is refused"
+            }]
+          }
+        },
+        {
+          "id": "RFC6750-2.2-SHOULD-NOT-FORM-BODY",
+          "section": "2.2",
+          "strength": "should_not",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-2.2-SHOULD-NOT-FORM-BODY positive: bearer credentials are never form encoded"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-2.2-SHOULD-NOT-FORM-BODY negative: no access_token body parameter accompanies UserInfo"
+            }]
+          }
+        },
+        {
+          "id": "RFC6750-2.3-SHOULD-NOT-QUERY",
+          "section": "2.3",
+          "strength": "should_not",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-2.3-SHOULD-NOT-QUERY positive: the protected-resource URL contains no bearer query"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-2.3-SHOULD-NOT-QUERY negative: the bearer token is not exposed in a page URL"
+            }]
+          }
+        },
+        {
+          "id": "RFC6750-5.2-5.3-MUST-SAFEGUARD",
+          "section": "5.2 and 5.3",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-5.2-5.3-MUST-SAFEGUARD positive: the bearer token is shared only with the discovered HTTPS resource"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-5.2-5.3-MUST-SAFEGUARD negative: an unintended redirect cannot receive the bearer token"
+            }]
+          }
+        },
+        {
+          "id": "RFC6750-5.2-5.3-MUST-TLS",
+          "section": "5.2 and 5.3",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-5.2-5.3-MUST-TLS positive: bearer transport accepts an HTTPS protected resource"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-5.2-5.3-MUST-TLS negative: bearer transport refuses a cleartext protected resource"
+            }]
+          }
+        },
+        {
+          "id": "RFC6750-5.2-5.3-MUST-VALIDATE-CERT",
+          "section": "5.2 and 5.3",
+          "strength": "must",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-5.2-5.3-MUST-VALIDATE-CERT positive: bearer transport validates certificate and host identity"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-5.2-5.3-MUST-VALIDATE-CERT negative: no transport option disables peer or host verification"
+            }]
+          }
+        },
+        {
+          "id": "RFC6750-5.2-5.3-MUST-NOT-CLEAR-COOKIE",
+          "section": "5.2 and 5.3",
+          "strength": "must_not",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-5.2-5.3-MUST-NOT-CLEAR-COOKIE positive: bearer requests contain no Cookie header"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-5.2-5.3-MUST-NOT-CLEAR-COOKIE negative: a sensitive cookie is not followed through redirects"
+            }]
+          }
+        },
+        {
+          "id": "RFC6750-5.3-SHOULD-NOT-PAGE-URL",
+          "section": "5.3",
+          "strength": "should_not",
+          "applicable": true,
+          "evidence": {
+            "positive": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-5.3-SHOULD-NOT-PAGE-URL positive: bearer tokens use a request header instead of the URI"
+            }],
+            "negative": [{
+              "path": "tests/unit/oauth.php",
+              "test": "RFC6750-5.3-SHOULD-NOT-PAGE-URL negative: no browser-facing authorization URL contains a bearer token"
+            }]
+          }
+        },
+        {
+          "id": "RFC6750-2.2-MUST-FORM-CONDITIONS",
+          "section": "2.2",
+          "strength": "must",
+          "applicable": false,
+          "evidence": {},
+          "rationale": "The RP never selects form-body bearer transmission; it always uses the preferred Authorization header method."
+        },
+        {
+          "id": "RFC6750-2.3-SHOULD-QUERY-CACHE",
+          "section": "2.3",
+          "strength": "should",
+          "applicable": false,
+          "evidence": {},
+          "rationale": "The RP never places bearer tokens in a URI query, so the conditional Cache-Control requirement for that method cannot arise."
+        },
+        {
+          "id": "RFC6750-3-MUST-RESOURCE-ERRORS",
+          "section": "3 and 3.1",
+          "strength": "must",
+          "applicable": false,
+          "evidence": {},
+          "rationale": "WWW-Authenticate challenges and protected-resource error construction are resource-server obligations; the RP is only the client."
+        },
+        {
+          "id": "RFC6750-5.2-MUST-TOKEN-ISSUANCE",
+          "section": "5.2 and 5.3",
+          "strength": "must",
+          "applicable": false,
+          "evidence": {},
+          "rationale": "Bearer-token integrity, lifetime, audience and issuance are authorization-server responsibilities; the RP treats the access token as an opaque credential for one discovered resource."
+        },
+        {
+          "id": "RFC6750-5.2-MUST-BACKEND-CONFIDENTIALITY",
+          "section": "5.2",
+          "strength": "must",
+          "applicable": false,
+          "evidence": {},
+          "rationale": "Confidentiality behind a resource server's TLS-terminating frontend is controlled by the provider deployment, not by this client."
+        }
+      ]
     },
     {
       "id": "oauth-revocation",
