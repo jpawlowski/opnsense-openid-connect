@@ -424,6 +424,16 @@ def main():
           guard_module.is_read_only_shell("git -C /tmp/other --no-pager status --short"), False)
     check("a later paginate flag cannot re-enable a configured Git pager",
           guard_module.is_read_only_shell("git --no-pager --paginate log -1"), False)
+    previous_git_pager = os.environ.get("GIT_PAGER")
+    os.environ["GIT_PAGER"] = "touch pager-ran"
+    check("an environment-selected Git pager makes bare inspection unsafe",
+          guard_module.is_read_only_shell("git log -1"), False)
+    check("--no-pager suppresses an environment-selected Git pager",
+          guard_module.is_read_only_shell("git --no-pager log -1"), True)
+    if previous_git_pager is None:
+        os.environ.pop("GIT_PAGER", None)
+    else:
+        os.environ["GIT_PAGER"] = previous_git_pager
     check("a subcommand patch flag is not mistaken for a global Git pager",
           guard_module.is_read_only_shell("git --no-pager diff -p"), True)
     check("command-line Git configuration cannot install a read helper",
@@ -516,6 +526,10 @@ def main():
     check("an environment wrapper cannot hide a push boundary", guard_module.requires_uncached_remote({
         "tool_name": "Bash", "tool_input": {"command": "env GIT_OPTIONAL_LOCKS=0 git push origin codex/topic"},
     }), True)
+    check("an external command wrapper cannot hide a push boundary",
+          guard_module.requires_uncached_remote({
+              "tool_name": "Bash", "tool_input": {"command": "timeout 10 git push origin codex/topic"},
+          }), True)
     check("a leading environment assignment cannot hide a push boundary",
           guard_module.requires_uncached_remote({
               "tool_name": "Bash", "tool_input": {"command": "FOO=bar git push origin codex/topic"},

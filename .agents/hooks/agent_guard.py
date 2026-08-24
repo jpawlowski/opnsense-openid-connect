@@ -190,6 +190,9 @@ def _configured_git_helper(command, arguments, global_arguments):
         return True
     no_pager = no_pager_index >= 0
     pagers = _git_config("--get-all", f"pager.{command}") or _git_config("--get-all", "core.pager")
+    environment_pagers = [os.environ.get("GIT_PAGER", ""), os.environ.get("PAGER", "")]
+    if not no_pager and any(value.strip().lower() not in disabled for value in environment_pagers):
+        return True
     if not no_pager and any(value.strip().lower() not in disabled for value in pagers):
         return True
 
@@ -565,7 +568,10 @@ def _effective_invocation(command):
         }
         name = Path(program).name
         option = interpreter_options.get(name)
-        if (program in (".", "coproc", "doas", "eval", "nice", "nohup", "source", "sudo", "time", "xargs")
+        if (program in (
+                ".", "chrt", "coproc", "daemon", "doas", "eval", "ionice", "nice", "nohup", "parallel",
+                "script", "setsid", "source", "stdbuf", "sudo", "time", "timeout", "unbuffer", "watch", "xargs",
+        )
                 or (option and any(value.startswith("-") and option in value[1:] for value in arguments))):
             return program, arguments, True
         break
