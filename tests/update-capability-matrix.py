@@ -23,7 +23,12 @@ EVIDENCE = {"live", "adapter", "documented", "conditional", "unavailable", "inco
 REQUIREMENT_STRENGTH = {"must", "must_not", "should", "should_not", "may"}
 GATE_EVIDENCE_TEST = pathlib.PurePosixPath("tests/capability-matrix.py")
 PROVIDER_EVIDENCE_DIRECTORY = pathlib.PurePosixPath("tests/evidence")
-PROVIDER_REVISION = re.compile(r"^(?:version|release|service|commit):[A-Za-z0-9][A-Za-z0-9._+:/@ -]{0,111}$")
+PROVIDER_REVISION = re.compile(
+    r"^(?:(?:version|release|commit):[A-Za-z0-9][A-Za-z0-9._+-]{0,111}|service:\d{4}-\d{2}-\d{2})$"
+)
+SAFE_CONFIGURATION_FIELDS = {"provider_profile", "guide", "client_type", "flow", "feature_mode"}
+FEATURE_MODES = {"enabled", "automatic", "required"}
+EXECUTED_TESTS = set()
 
 STATUS_LABEL = {
     "implemented": "Implemented",
@@ -78,18 +83,41 @@ def repository_file(value, label, root=ROOT):
     return relative, root.joinpath(*relative.parts)
 
 
-def gate_test_names(relative, path):
-    is_unit = relative.parent == pathlib.PurePosixPath("tests/unit") and relative.suffix == ".php"
-    if relative != GATE_EVIDENCE_TEST and not is_unit:
+def gate_evidence_path(relative):
+    return relative == GATE_EVIDENCE_TEST or (
+        relative.parent == pathlib.PurePosixPath("tests/unit") and relative.suffix == ".php"
+    )
+
+
+def is_gate_evidence_test(relative, path):
+    if not gate_evidence_path(relative):
         raise CatalogError(f"{relative}: normative evidence must name a test suite executed by ./tests/run.sh")
     if not path.is_file():
         raise CatalogError(f"{relative}: evidence test suite does not exist")
-    source = path.read_text(encoding="utf-8")
-    if relative.suffix == ".php":
-        pattern = r"Checks::(?:that|throws)\(\s*(['\"])(.*?)\1"
-    else:
-        pattern = r"\bcheck\(\s*(['\"])(.*?)\1"
-    return {match[1] for match in re.findall(pattern, source, re.DOTALL)}
+
+
+def load_executed_tests(path):
+    try:
+        data = read_json(path)
+    except (FileNotFoundError, json.JSONDecodeError, OSError) as error:
+        raise CatalogError("executed-test manifest is missing or invalid JSON") from error
+    if not isinstance(data, dict) or data.get("schema_version") != 1:
+        raise CatalogError("executed-test manifest has an unsupported schema")
+    records = data.get("executed_tests")
+    if not isinstance(records, list):
+        raise CatalogError("executed-test manifest has no test inventory")
+    executed = set()
+    for record in records:
+        if not isinstance(record, dict) or set(record) != {"path", "test"}:
+            raise CatalogError("executed-test manifest contains an invalid record")
+        relative, test_path = repository_file(record["path"], "executed-test manifest")
+        if not gate_evidence_path(relative):
+            continue
+        is_gate_evidence_test(relative, test_path)
+        if not isinstance(record["test"], str) or not record["test"]:
+            raise CatalogError("executed-test manifest contains an empty test name")
+        executed.add((relative, record["test"]))
+    return executed
 
 
 def validate_test_evidence(requirement_id, direction, reference):
@@ -100,8 +128,9 @@ def validate_test_evidence(requirement_id, direction, reference):
     prefix = f"{requirement_id} {direction}: "
     if not isinstance(test, str) or not test.startswith(prefix):
         raise CatalogError(f"{requirement_id}: {direction} evidence test must begin with '{prefix}'")
-    if test not in gate_test_names(relative, path):
-        raise CatalogError(f"{requirement_id}: exact {direction} test is not present in {relative}")
+    is_gate_evidence_test(relative, path)
+    if (relative, test) not in EXECUTED_TESTS:
+        raise CatalogError(f"{requirement_id}: exact {direction} test did not execute in the current gate")
     return relative, test
 
 
@@ -123,6 +152,38 @@ def reviewed_deviation(requirement):
     if not isinstance(rationale, str) or rationale.strip() != rationale or not 1 <= len(rationale) <= 1000:
         raise CatalogError(f"{requirement['id']}: deviation needs a non-empty reviewed rationale")
     return True
+
+
+def validate_source_review(standard, review):
+    label = standard["id"]
+    if not isinstance(review, dict) or not {
+        "specification_revision", "reviewed_on", "profile", "sections"
+    } <= review.keys():
+        raise CatalogError(f"{label}: verified requires a pinned source and applicability review")
+    for field in ("specification_revision", "profile"):
+        value = review[field]
+        if not isinstance(value, str) or value.strip() != value or not 1 <= len(value) <= 500:
+            raise CatalogError(f"{label}: source review {field} must be a non-empty, trimmed value")
+    reviewed_on = review["reviewed_on"]
+    try:
+        if not isinstance(reviewed_on, str) or datetime.date.fromisoformat(reviewed_on).isoformat() != reviewed_on:
+            raise ValueError
+    except ValueError as error:
+        raise CatalogError(f"{label}: source review date must use YYYY-MM-DD") from error
+    sections = review["sections"]
+    if (
+        not isinstance(sections, list)
+        or not sections
+        or any(
+            not isinstance(section, str)
+            or section.strip() != section
+            or not section
+            or len(section) > 200
+            for section in sections
+        )
+        or len(set(sections)) != len(sections)
+    ):
+        raise CatalogError(f"{label}: source review needs distinct, non-empty specification sections")
 
 
 def validate_requirement(standard, requirement):
@@ -184,9 +245,7 @@ def validate_standards(data):
         if standard["claim"] == "verified":
             if not standard["audit_complete"] or not requirements:
                 raise CatalogError(f"{standard['id']}: verified requires a complete, non-empty normative inventory")
-            review = standard.get("source_review", {})
-            if not {"specification_revision", "reviewed_on", "profile", "sections"} <= review.keys():
-                raise CatalogError(f"{standard['id']}: verified requires a pinned source and applicability review")
+            validate_source_review(standard, standard.get("source_review"))
         if standard["audit_complete"] and not requirements:
             raise CatalogError(f"{standard['id']}: an empty inventory cannot be complete")
     return ids
@@ -209,6 +268,22 @@ def validate_record_text(record, field, label):
     return value
 
 
+def validate_safe_configuration(provider, feature_id, configuration):
+    label = f"{provider['id']}/{feature_id}"
+    if not isinstance(configuration, dict) or set(configuration) != SAFE_CONFIGURATION_FIELDS:
+        raise CatalogError(f"{label}: artifact configuration must use only the publishable safe schema")
+    expected = {
+        "provider_profile": provider["id"],
+        "guide": provider.get("guide"),
+        "client_type": "confidential",
+        "flow": "authorization_code",
+    }
+    if any(configuration.get(key) != value for key, value in expected.items()):
+        raise CatalogError(f"{label}: artifact configuration is not bound to the public provider profile")
+    if configuration["feature_mode"] not in FEATURE_MODES:
+        raise CatalogError(f"{label}: artifact configuration has an invalid feature mode")
+
+
 def validate_live_evidence_record(provider, feature_id, status, record, root=ROOT):
     label = f"{provider['id']}/{feature_id}"
     if not isinstance(record, dict) or not {"feature", "tested_on", "provider_revision", "artifact"} <= record.keys():
@@ -224,7 +299,7 @@ def validate_live_evidence_record(provider, feature_id, status, record, root=ROO
     provider_revision = validate_record_text(record, "provider_revision", label)
     if not PROVIDER_REVISION.fullmatch(provider_revision):
         raise CatalogError(
-            f"{label}: provider_revision must start with version:, release:, service: or commit:"
+            f"{label}: provider_revision must be a safe version, release, service date or commit identifier"
         )
     relative, artifact_path = repository_file(record.get("artifact"), label, root)
     if relative.parent != PROVIDER_EVIDENCE_DIRECTORY or relative.suffix != ".json":
@@ -240,17 +315,23 @@ def validate_live_evidence_record(provider, feature_id, status, record, root=ROO
         "provider_revision": provider_revision,
         "tested_on": tested_on,
     }
-    if not isinstance(artifact, dict) or any(artifact.get(key) != value for key, value in expected.items()):
+    artifact_fields = set(expected) | {"configuration", "results"}
+    if (
+        not isinstance(artifact, dict)
+        or set(artifact) != artifact_fields
+        or any(artifact.get(key) != value for key, value in expected.items())
+    ):
         raise CatalogError(f"{label}: artifact is not bound to the provider, revision and test date")
-    configuration = artifact.get("configuration")
-    if not isinstance(configuration, dict) or not configuration:
-        raise CatalogError(f"{label}: artifact must retain a sanitized non-empty provider configuration")
+    validate_safe_configuration(provider, feature_id, artifact.get("configuration"))
     results = artifact.get("results")
     if not isinstance(results, list):
         raise CatalogError(f"{label}: artifact must contain provider capability results")
     matches = [result for result in results if isinstance(result, dict) and result.get("feature") == feature_id]
     if len(matches) != 1 or matches[0].get("status") != status:
         raise CatalogError(f"{label}: artifact does not prove this capability status")
+    result_fields = {"feature", "status", "adaptation"} if status == "adapter" else {"feature", "status"}
+    if set(matches[0]) != result_fields:
+        raise CatalogError(f"{label}: capability result contains fields outside the publishable schema")
     if status == "adapter":
         adaptation = provider.get("adaptations", {}).get(feature_id)
         if not isinstance(adaptation, str) or not adaptation.strip():
@@ -265,6 +346,8 @@ def validate_providers(data, standard_ids):
         raise CatalogError("capability defaults must name every feature exactly once")
     if any(status not in EVIDENCE for status in data["capability_defaults"].values()):
         raise CatalogError("capability defaults contain an invalid evidence status")
+    if any(status != "unknown" for status in data["capability_defaults"].values()):
+        raise CatalogError("capability defaults must remain unknown so every provider claim is explicit")
     for feature in data["features"]:
         if feature["standard"] is not None and feature["standard"] not in standard_ids:
             raise CatalogError(f"{feature['id']}: unknown standard {feature['standard']}")
@@ -431,9 +514,12 @@ def main():
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument("--check", action="store_true")
     action.add_argument("--update", action="store_true")
+    parser.add_argument("--executed-tests", type=pathlib.Path)
     args = parser.parse_args()
 
     try:
+        global EXECUTED_TESTS
+        EXECUTED_TESTS = load_executed_tests(args.executed_tests) if args.executed_tests else set()
         standards = read_json(STANDARDS)
         providers = read_json(PROVIDERS)
         standard_ids = validate_standards(standards)

@@ -19,6 +19,7 @@ final class Checks
     private static int $passed = 0;
     private static array $failures = [];
     private static string $group = '';
+    private static array $executed = [];
 
     public static function group(string $name): void
     {
@@ -28,6 +29,7 @@ final class Checks
 
     public static function that(string $what, $actual, $expected): void
     {
+        self::record($what);
         if ($actual === $expected) {
             self::$passed++;
             printf("  ok    %s\n", $what);
@@ -45,6 +47,7 @@ final class Checks
 
     public static function throws(string $what, callable $run, string $expectedMessage = ''): void
     {
+        self::record($what);
         try {
             $run();
         } catch (\Throwable $e) {
@@ -74,6 +77,7 @@ final class Checks
 
     public static function report(): int
     {
+        self::publishExecutedTests();
         printf("\n%d checks passed", self::$passed);
         if (self::$failures === []) {
             printf(", none failed.\n");
@@ -85,6 +89,49 @@ final class Checks
         }
 
         return 1;
+    }
+
+    private static function record(string $what): void
+    {
+        $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3);
+        $source = (string)($trace[1]['file'] ?? '');
+        $root = dirname(__DIR__) . DIRECTORY_SEPARATOR;
+        if (str_starts_with($source, $root)) {
+            $source = str_replace(DIRECTORY_SEPARATOR, '/', substr($source, strlen($root)));
+        }
+        self::$executed[$source . "\0" . $what] = ['path' => $source, 'test' => $what];
+    }
+
+    private static function publishExecutedTests(): void
+    {
+        $destination = getenv('OPENIDCONNECT_EXECUTED_TESTS');
+        if (!is_string($destination) || $destination === '') {
+            return;
+        }
+        $current = [];
+        if (is_file($destination) && filesize($destination) > 0) {
+            $decoded = json_decode((string)file_get_contents($destination), true);
+            $current = is_array($decoded['executed_tests'] ?? null) ? $decoded['executed_tests'] : [];
+        }
+        foreach ($current as $record) {
+            if (is_array($record) && is_string($record['path'] ?? null) && is_string($record['test'] ?? null)) {
+                self::$executed[$record['path'] . "\0" . $record['test']] = $record;
+            }
+        }
+        usort(self::$executed, static function (array $left, array $right): int {
+            return [$left['path'], $left['test']] <=> [$right['path'], $right['test']];
+        });
+        $payload = json_encode(
+            ['schema_version' => 1, 'executed_tests' => array_values(self::$executed)],
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
+        );
+        if (!is_string($payload)) {
+            return;
+        }
+        $temporary = dirname($destination) . '/.' . basename($destination) . '.' . getmypid() . '.tmp';
+        file_put_contents($temporary, $payload . "\n", LOCK_EX);
+        chmod($temporary, 0600);
+        rename($temporary, $destination);
     }
 }
 

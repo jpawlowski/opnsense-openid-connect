@@ -533,17 +533,11 @@ def arguments():
 
 def main():
     args = arguments()
+    suite_command = [str(ROOT / "tests" / "run.sh")]
     if args.update:
-        capabilities = run(
-            [sys.executable, str(ROOT / "tests" / "update-capability-matrix.py"), "--update"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
-        if capabilities.returncode != 0:
-            sys.stdout.write(capabilities.stdout)
-            return capabilities.returncode
+        suite_command.append("--update-capability-matrix")
     suite = run(
-        [str(ROOT / "tests" / "run.sh")],
+        suite_command,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )

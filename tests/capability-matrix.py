@@ -43,6 +43,14 @@ def retained_artifact(root, artifact):
     return "tests/evidence/provider-result.json"
 
 
+def unreachable_evidence_fixture():
+    check(
+        "OIDC-CORE-CODE-MUST-VERIFIED positive: an unreachable acceptance fixture",
+        True,
+        True,
+    )
+
+
 def main():
     standards = matrix.read_json(matrix.STANDARDS)
     providers = matrix.read_json(matrix.PROVIDERS)
@@ -71,6 +79,10 @@ def main():
         )),
         True,
     )
+    matrix.EXECUTED_TESTS = {
+        (pathlib.PurePosixPath(source), test)
+        for source, test in harness.executed_tests()
+    }
 
     one_sided = copy.deepcopy(standards)
     one_sided["standards"][0]["requirements"] = [{
@@ -154,6 +166,26 @@ def main():
         lambda: matrix.validate_standards(reused)
     ), True)
 
+    unreachable = copy.deepcopy(complete)
+    unreachable["standards"][0]["requirements"][0]["evidence"]["positive"] = [{
+        "path": "tests/capability-matrix.py",
+        "test": "OIDC-CORE-CODE-MUST-VERIFIED positive: an unreachable acceptance fixture",
+    }]
+    check("a statically present but unexecuted check cannot become evidence", refused(
+        lambda: matrix.validate_standards(unreachable)
+    ), True)
+
+    unpinned = copy.deepcopy(complete)
+    unpinned["standards"][0]["source_review"] = {
+        "specification_revision": "",
+        "reviewed_on": "",
+        "profile": "",
+        "sections": [],
+    }
+    check("empty source-review pins cannot make a standard verified", refused(
+        lambda: matrix.validate_standards(unpinned)
+    ), True)
+
     group("A provider claim cannot outrun retained interoperability evidence")
     incomplete = copy.deepcopy(providers)
     incomplete["capability_defaults"].pop("login")
@@ -163,6 +195,12 @@ def main():
         refused(lambda: matrix.validate_providers(incomplete, standard_ids)),
         True,
     )
+
+    live_default = copy.deepcopy(providers)
+    live_default["capability_defaults"]["par"] = "live"
+    check("a capability default cannot grant inherited live status", refused(
+        lambda: matrix.validate_providers(live_default, standard_ids)
+    ), True)
 
     unsupported = copy.deepcopy(providers)
     unsupported["providers"][0]["capabilities"]["login"] = "live"
@@ -178,7 +216,7 @@ def main():
         lambda: matrix.validate_providers(adapted, standard_ids)
     ), True)
 
-    provider = {"id": "general"}
+    provider = {"id": "general", "guide": "docs/providers/general.md"}
     dated_record = {
         "feature": "login",
         "tested_on": "2026-08-24",
@@ -217,7 +255,13 @@ def main():
             "provider": "another-provider",
             "provider_revision": "version:fixture-1",
             "tested_on": "2026-08-24",
-            "configuration": {"profile": "synthetic test fixture"},
+            "configuration": {
+                "provider_profile": "general",
+                "guide": "docs/providers/general.md",
+                "client_type": "confidential",
+                "flow": "authorization_code",
+                "feature_mode": "enabled",
+            },
             "results": [{"feature": "login", "status": "live"}],
         }
         retained_artifact(evidence_root, artifact)
@@ -233,6 +277,22 @@ def main():
                 provider, "login", "live", dated_record, evidence_root
             )
         ), False)
+        artifact["configuration"]["client_secret"] = "must-not-be-retained"
+        retained_artifact(evidence_root, artifact)
+        check("a retained configuration rejects sensitive or unknown fields", refused(
+            lambda: matrix.validate_live_evidence_record(
+                provider, "login", "live", dated_record, evidence_root
+            )
+        ), True)
+        del artifact["configuration"]["client_secret"]
+        artifact["access_token"] = "must-not-be-retained"
+        retained_artifact(evidence_root, artifact)
+        check("a retained artifact rejects fields outside its safe schema", refused(
+            lambda: matrix.validate_live_evidence_record(
+                provider, "login", "live", dated_record, evidence_root
+            )
+        ), True)
+        del artifact["access_token"]
         artifact["results"] = [{
             "feature": "login",
             "status": "adapter",

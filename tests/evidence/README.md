@@ -19,13 +19,25 @@ installed-integration or browser-E2E command.
 Provider interoperability cells have an additional contract in
 `tests/providers/capabilities.json`: a `live` or `adapter` cell must name a test
 date, the provider version or hosted-service revision, and a retained artifact
-in this directory. Revisions use `version:`, `release:`, `service:` or `commit:`
-to identify what was tested. The JSON artifact uses schema version 1 and
+in this directory. Revisions use a bounded `version:`, `release:` or `commit:`
+identifier, or `service:YYYY-MM-DD` for a hosted service without a published
+version. The JSON artifact uses schema version 1 and
 evidence type `provider_interoperability`; it repeats the provider, revision and
-date, retains a sanitized non-empty `configuration` object, and has one result
-containing the feature and its `live` or `adapter` status. An adapter result
-must also repeat the exact named provider deviation. The catalog validator
-rejects blank or malformed record fields, artifacts outside this directory,
-mismatched identities and unproven capabilities. A result remains a dated
-historical fact until newer contradictory evidence explicitly replaces it; it
-does not silently certify later provider revisions.
+date and has one result containing the feature and its `live` or `adapter`
+status. Its `configuration` object has exactly five publishable fields:
+`provider_profile`, the repository-relative `guide`, `client_type` set to
+`confidential`, `flow` set to `authorization_code`, and `feature_mode` set to
+`enabled`, `automatic` or `required`. The artifact and each result reject all
+other fields. No endpoint, tenant, user, client ID, secret or token belongs in
+retained evidence. An adapter result must also repeat
+the exact named provider deviation. The catalog validator rejects blank or
+malformed record fields, artifacts outside this directory, extra configuration
+fields, mismatched identities and unproven capabilities. Evidence-backed
+statuses are forbidden as catalog defaults, so every green cell has an explicit
+provider record. A result remains a dated historical fact until newer
+contradictory evidence explicitly replaces it; it does not silently certify
+later provider revisions.
+
+These generated strict-schema JSON artifacts omit an embedded copyright field;
+the adjacent notice in this file covers them without opening the schema to
+arbitrary metadata.

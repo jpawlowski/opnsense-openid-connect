@@ -10,6 +10,19 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
+capability_action=--check
+if [ "${1:-}" = "--update-capability-matrix" ]; then
+    capability_action=--update
+    shift
+fi
+if [ "$#" -ne 0 ]; then
+    echo 'usage: ./tests/run.sh [--update-capability-matrix]' >&2
+    exit 2
+fi
+executed_tests=$(mktemp "${TMPDIR:-/tmp}/openid-connect-executed-tests.XXXXXX")
+trap 'rm -f "$executed_tests"' EXIT HUP INT TERM
+export OPENIDCONNECT_EXECUTED_TESTS="$executed_tests"
+
 echo '== syntax =='
 find src packaging tests -name '*.php' -print0 | xargs -0 -n1 php -l >/dev/null
 # An earlier E2E run may have left Playwright dependencies here. They are not
@@ -20,13 +33,16 @@ find .agents .codex packaging tests -name '*.py' -print0 | xargs -0 -n1 python3 
 python3 -m json.tool .codex/hooks.json >/dev/null
 for f in packaging/watch/openid-connect-watch packaging/hooks/* tests/run.sh tests/e2e/*.sh; do sh -n "$f"; done
 python3 tests/e2e/check.py
-python3 tests/update-capability-matrix.py --check
-python3 tests/capability-matrix.py
 echo 'all files parse'
 
 echo
 echo '== behaviour =='
 php tests/run.php
+
+echo
+echo '== normative conformance evidence =='
+python3 tests/capability-matrix.py
+python3 tests/update-capability-matrix.py "$capability_action" --executed-tests "$executed_tests"
 
 echo
 echo '== what a commit message may be =='

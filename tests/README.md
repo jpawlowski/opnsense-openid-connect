@@ -25,9 +25,13 @@ after the exact RP profile and specification revision are pinned, every
 applicable normative requirement has a stable ID, and each mandatory or claimed
 behaviour points to distinct accepting and refusing checks in a test suite run by
 the host-independent gate. Each exact check name starts with the requirement ID
-and evidence direction. Recommendations need the same evidence or a dated,
-reviewed rationale for deviating. The validator also requires every provider
-profile and matrix dimension to be represented.
+and evidence direction. The PHP and Python harnesses record the checks actually
+reached by `./tests/run.sh`; a check merely present in source is not evidence.
+Recommendations need the same evidence or a dated, reviewed rationale for
+deviating. Verified source-review pins require a canonical date and non-empty
+revision, profile and section inventory. The validator also requires every
+provider profile and matrix dimension to be represented. Run the complete gate,
+not only the standalone generator, when validating a verified claim.
 
 Installed and browser evidence is optional but required for statements that
 cannot be proven on the host alone. Keep a sanitized result under
