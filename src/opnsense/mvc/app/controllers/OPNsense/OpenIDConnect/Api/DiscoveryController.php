@@ -116,6 +116,10 @@ class DiscoveryController extends PrivateApiControllerBase
             $list($metadata->get('id_token_signing_alg_values_supported', [])),
             JwtVerifier::ALGORITHMS
         ));
+        $jarmAlgorithms = array_values(array_intersect(
+            $metadata->authorizationResponseSigningAlgorithms(),
+            JwtVerifier::ALGORITHMS
+        ));
         $authMethods = array_values(array_intersect(
             $list($metadata->get('token_endpoint_auth_methods_supported', ['client_secret_basic'])),
             ['client_secret_basic', 'client_secret_post']
@@ -221,6 +225,17 @@ class DiscoveryController extends PrivateApiControllerBase
                 $modeSupported
                     ? gettext('The selected response mode is advertised.')
                     : gettext('The selected response mode is not advertised.')
+            );
+        }
+
+        if (str_ends_with($responseMode, '.jwt')) {
+            $checks[] = $this->check(
+                gettext('JARM signatures'),
+                implode(', ', $jarmAlgorithms) ?: gettext('None supported'),
+                $jarmAlgorithms === [] ? 'warning' : 'success',
+                $jarmAlgorithms === []
+                    ? gettext('The provider advertises no supported asymmetric JARM signature.')
+                    : gettext('The signed authorization response can use a supported asymmetric signature.')
             );
         }
 
