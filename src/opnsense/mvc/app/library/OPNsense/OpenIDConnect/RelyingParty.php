@@ -46,14 +46,19 @@ class RelyingParty
     /** @var array<string,mixed> */
     private array $idTokenClaims = [];
 
-    public function __construct(OpenIDConnect $settings, Controller $controller, ?HttpClient $http = null)
+    public function __construct(
+        OpenIDConnect $settings,
+        Controller $controller,
+        ?HttpClient $http = null,
+        ?JwtVerifier $verifier = null
+    )
     {
         $this->settings = $settings;
         $this->session = $controller->session;
         $this->request = $controller->request;
         $this->response = $controller->response;
         $this->http = $http ?? new HttpClient();
-        $this->verifier = new JwtVerifier($this->http);
+        $this->verifier = $verifier ?? new JwtVerifier($this->http);
 
         $redirect = static::acceptedRedirectUri($settings, $controller->request);
         if ($redirect === null) {
@@ -123,7 +128,11 @@ class RelyingParty
         $responseMode = $this->settings->responseMode();
         $metadata->assertAuthorizationCapabilities($responseMode);
         $this->tokenAuthMethod = $metadata->tokenEndpointAuthMethod($this->settings->tokenAuthMethod());
-        $formPost = $responseMode === 'form_post';
+        if (self::isJarmMode($responseMode)
+            && array_intersect($metadata->authorizationResponseSigningAlgorithms(), JwtVerifier::ALGORITHMS) === []) {
+            throw new ProtocolException('The provider advertises no supported JARM signing algorithm');
+        }
+        $formPost = self::isFormPostMode($responseMode);
         $state = ($formPost ? 'p.' : '') . self::randomValue(32);
         $nonce = self::randomValue(32);
         $verifier = self::randomValue(64);
@@ -136,6 +145,8 @@ class RelyingParty
             'app_code' => $this->settings->applicationCode(),
             'target' => $target,
             'purpose' => $testOnly ? 'test' : 'login',
+            'state' => $state,
+            'response_mode' => $responseMode,
             'issuer' => $metadata->issuer(),
             'redirect_uri' => $this->redirectUri,
             'nonce' => $nonce,
@@ -158,8 +169,8 @@ class RelyingParty
         ];
         /* max_age=0 is meaningful: OIDC Core defines it as active re-authentication. */
         $parameters['max_age'] = (string)$this->settings->maximumAuthenticationAge();
-        if ($responseMode === 'form_post') {
-            $parameters['response_mode'] = 'form_post';
+        if ($responseMode !== 'query') {
+            $parameters['response_mode'] = $responseMode;
         }
         if ($authenticationRequirement !== null) {
             $parameters = array_replace($parameters, $authenticationRequirement->authorizationParameters());
@@ -249,7 +260,7 @@ class RelyingParty
     /** @param array<string,mixed> $parameters @return array<string,mixed> */
     public static function consumeTransaction(Session $session, array $parameters, string $applicationCode): array
     {
-        $state = $parameters['state'] ?? null;
+        $state = self::authorizationResponseState($parameters);
         if (!is_string($state) || $state === '' || strlen($state) > 512) {
             throw new ProtocolException('The authorization response carries no usable state');
         }
@@ -296,6 +307,7 @@ class RelyingParty
             throw new ProtocolException('The authentication requirement changed while the login was pending');
         }
 
+        $parameters = $this->validatedAuthorizationResponse($transaction, $parameters);
         $code = $this->authorizationCode($parameters);
 
         $this->tokens = $this->exchangeCode($code, (string)$transaction['code_verifier']);
@@ -650,6 +662,80 @@ class RelyingParty
             return;
         }
         $session->set(self::TRANSACTIONS, json_encode($transactions, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+    }
+
+    /** @param array<string,mixed> $parameters */
+    private static function authorizationResponseState(array $parameters): ?string
+    {
+        if (!array_key_exists('response', $parameters)) {
+            return is_string($parameters['state'] ?? null) ? $parameters['state'] : null;
+        }
+        if (!is_string($parameters['response'])) {
+            throw new ProtocolException('The JARM authorization response is not a JWT');
+        }
+        [, $claims] = JwtVerifier::decode($parameters['response']);
+        return is_string($claims['state'] ?? null) ? $claims['state'] : null;
+    }
+
+    /**
+     * Verify the frozen response mode before any authorization result is used.
+     *
+     * @param array<string,mixed> $transaction
+     * @param array<string,mixed> $parameters
+     * @return array<string,mixed>
+     */
+    private function validatedAuthorizationResponse(array $transaction, array $parameters): array
+    {
+        $responseMode = $transaction['response_mode'] ?? 'query';
+        if (!is_string($responseMode) || !in_array($responseMode, OpenIDConnect::RESPONSE_MODES, true)) {
+            throw new ProtocolException('The login transaction carries an invalid authorization response mode');
+        }
+        if ($this->request->isPost() !== self::isFormPostMode($responseMode)) {
+            throw new ProtocolException('The authorization response used a different transport than requested');
+        }
+
+        if (!self::isJarmMode($responseMode)) {
+            if (array_key_exists('response', $parameters)) {
+                throw new ProtocolException('The provider returned an unexpected JARM authorization response');
+            }
+            $expectedState = $transaction['state'] ?? $parameters['state'] ?? null;
+            if (!is_string($expectedState) || !is_string($parameters['state'] ?? null)
+                || !hash_equals($expectedState, $parameters['state'])) {
+                throw new ProtocolException('The authorization response state does not match the login transaction');
+            }
+            return $parameters;
+        }
+
+        if (count($parameters) !== 1 || !is_string($parameters['response'] ?? null)) {
+            throw new ProtocolException('The provider did not return the requested JARM authorization response');
+        }
+        $claims = $this->verifier->verifyAuthorizationResponse(
+            $parameters['response'],
+            $this->metadata,
+            $this->settings->clientId(),
+            fn(array $candidate): bool => is_string($candidate['iss'] ?? null)
+                && $this->responseIssuerMatches($candidate['iss'])
+        );
+        $expectedState = $transaction['state'] ?? null;
+        if (!is_string($expectedState) || !is_string($claims['state'] ?? null)
+            || !hash_equals($expectedState, $claims['state'])) {
+            throw new ProtocolException('The signed authorization response state does not match the login transaction');
+        }
+
+        return array_intersect_key($claims, array_flip([
+            'state', 'code', 'iss', 'error', 'error_description', 'error_uri', 'session_state',
+            'access_token', 'id_token', 'token_type', 'expires_in',
+        ]));
+    }
+
+    private static function isJarmMode(string $responseMode): bool
+    {
+        return str_ends_with($responseMode, '.jwt');
+    }
+
+    private static function isFormPostMode(string $responseMode): bool
+    {
+        return in_array($responseMode, ['form_post', 'form_post.jwt'], true);
     }
 
     private static function randomValue(int $bytes): string

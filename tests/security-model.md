@@ -6,8 +6,9 @@ Copyright (C) 2026 Julian Pawlowski. All rights reserved. BSD-2-Clause, see LICE
 
 | Threat | Control |
 |---|---|
-| forged/replayed callback | random server-bound state, nonce and PKCE; state consumed before processing; bounded one-time server index for `form_post` under SameSite=Lax; PAR keeps the complete request server-to-server when advertised |
-| authorization-server mix-up | frozen exact issuer/endpoints, distinct callback per provider, RFC 9207 when advertised |
+| forged/replayed callback | random server-bound state, nonce and PKCE; state consumed before processing; bounded one-time server index for Form POST modes under SameSite=Lax; PAR keeps the complete request server-to-server when advertised |
+| forged or downgraded JARM response | the requested signed mode is frozen into the one-time transaction; asymmetric signature, advertised algorithm, exact issuer/audience, time, state and transport are checked before code or error processing |
+| authorization-server mix-up | frozen exact issuer/endpoints, distinct callback per provider, RFC 9207 when advertised and signed JARM issuer/audience binding when selected |
 | forged ID Token | verified RS/PS/ES/Ed25519 JWKS signature profile, public-key type/curve/size/use/operations/algorithm binding, 2048–8192-bit RSA bound |
 | provider ignores or misinterprets a requested authentication strength | an enabled requirement needs exact signed `acr`/`acrs` context and bounded `amr` evidence frozen into the login transaction; missing or mismatched evidence is refused before account lookup |
 | token for another client | exact `aud` and `azp` rules |

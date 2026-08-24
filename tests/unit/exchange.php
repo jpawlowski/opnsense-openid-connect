@@ -120,6 +120,13 @@ function verifyJwaProfile(
     );
 }
 
+function compactJwt(array $claims, array $header = ['alg' => 'RS256', 'kid' => 'test-key']): string
+{
+    return JwtVerifier::base64UrlEncode(json_encode($header, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)) . '.'
+        . JwtVerifier::base64UrlEncode(json_encode($claims, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)) . '.'
+        . JwtVerifier::base64UrlEncode(str_repeat("\x5a", 256));
+}
+
 Checks::group('Strict provider discovery');
 
 $http = new HttpClient(fn() => jsonAnswer(metadata()));
@@ -328,6 +335,14 @@ Checks::throws(
         new HttpClient(fn() => jsonAnswer(metadata(['subject_types_supported' => ['opaque']])))
     ),
     'subject identifier type'
+);
+Checks::throws(
+    'JARM signing algorithms in discovery must be a bounded string list',
+    fn() => ProviderMetadata::discover(
+        'https://id.example.net',
+        new HttpClient(fn() => jsonAnswer(metadata(['authorization_signing_alg_values_supported' => 'RS256'])))
+    ),
+    'authorization_signing_alg_values_supported'
 );
 Checks::throws(
     'a discovery document served as the wrong media type is refused',
@@ -650,6 +665,26 @@ Checks::throws(
         new HttpClient(fn() => jsonAnswer(metadata()))
     ))->begin('post-auth', '/'),
     'not advertised'
+);
+
+$unsupportedJarmSettings = connector([
+    'openidconnect_client_id' => 'client-id',
+    'openidconnect_client_secret' => 'secret',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_app_code' => 'unsupported-jarm',
+    'openidconnect_response_mode' => 'query.jwt',
+]);
+Checks::throws(
+    'JARM is refused before redirect when discovery advertises no supported signing algorithm',
+    fn() => (new RelyingParty(
+        $unsupportedJarmSettings,
+        new Controller(new Request('https', 'firewall.example.net'), new Session()),
+        new HttpClient(fn() => jsonAnswer(metadata([
+            'response_modes_supported' => ['query.jwt'],
+            'authorization_signing_alg_values_supported' => ['HS256'],
+        ])))
+    ))->begin('unsupported-jarm', '/'),
+    'JARM signing algorithm'
 );
 
 $parRequest = [];
@@ -1279,6 +1314,297 @@ Checks::that(
         $eddsaAccessToken
     )['claims']['at_hash'],
     $eddsaClaims['at_hash']
+);
+
+Checks::group('JWT-secured authorization responses');
+
+$jarmNow = time();
+$jarmKey = rsaJwaKey(256, ['kid' => 'test-key', 'alg' => 'RS256', 'use' => 'sig']);
+$jarmMetadata = ProviderMetadata::fromArray(metadata([
+    'response_modes_supported' => ['query.jwt', 'form_post.jwt'],
+    'authorization_signing_alg_values_supported' => ['RS256'],
+]));
+$jarmVerifier = new class(new HttpClient(fn() => jsonAnswer(['keys' => [$jarmKey]]))) extends JwtVerifier {
+    public bool $signatureAccepted = true;
+    protected function verifySignature(string $algorithm, array $jwk, string $payload, string $signature): bool
+    {
+        return $this->signatureAccepted;
+    }
+};
+$jarmClaims = [
+    'iss' => 'https://id.example.net', 'aud' => 'client-id', 'exp' => $jarmNow + 300,
+    'iat' => $jarmNow, 'state' => 'transaction-state', 'code' => 'authorization-code',
+];
+$verifiedJarm = $jarmVerifier->verifyAuthorizationResponse(
+    compactJwt($jarmClaims),
+    $jarmMetadata,
+    'client-id',
+    null,
+    $jarmNow
+);
+Checks::that('a signed JARM code response is accepted', $verifiedJarm['code'], 'authorization-code');
+Checks::throws(
+    'a JARM response from another issuer is refused before key use',
+    fn() => $jarmVerifier->verifyAuthorizationResponse(
+        compactJwt(array_replace($jarmClaims, ['iss' => 'https://attacker.example.net'])),
+        $jarmMetadata,
+        'client-id',
+        null,
+        $jarmNow
+    ),
+    'different issuer'
+);
+Checks::throws(
+    'a JARM response for another client is refused',
+    fn() => $jarmVerifier->verifyAuthorizationResponse(
+        compactJwt(array_replace($jarmClaims, ['aud' => 'other-client'])),
+        $jarmMetadata,
+        'client-id',
+        null,
+        $jarmNow
+    ),
+    'this client'
+);
+Checks::throws(
+    'an expired JARM response is refused',
+    fn() => $jarmVerifier->verifyAuthorizationResponse(
+        compactJwt(array_replace($jarmClaims, ['exp' => $jarmNow - JwtVerifier::CLOCK_TOLERANCE - 1])),
+        $jarmMetadata,
+        'client-id',
+        null,
+        $jarmNow
+    ),
+    'expired'
+);
+Checks::throws(
+    'a future JARM issue time is refused',
+    fn() => $jarmVerifier->verifyAuthorizationResponse(
+        compactJwt(array_replace($jarmClaims, ['iat' => $jarmNow + JwtVerifier::CLOCK_TOLERANCE + 1])),
+        $jarmMetadata,
+        'client-id',
+        null,
+        $jarmNow
+    ),
+    'issue time'
+);
+Checks::throws(
+    'a JARM algorithm not advertised for authorization responses is refused',
+    fn() => $jarmVerifier->verifyAuthorizationResponse(
+        compactJwt($jarmClaims, ['alg' => 'PS256', 'kid' => 'test-key']),
+        $jarmMetadata,
+        'client-id',
+        null,
+        $jarmNow
+    ),
+    'not advertised'
+);
+Checks::throws(
+    'a symmetric JARM algorithm cannot downgrade asymmetric verification',
+    fn() => $jarmVerifier->verifyAuthorizationResponse(
+        compactJwt($jarmClaims, ['alg' => 'HS256', 'kid' => 'test-key']),
+        $jarmMetadata,
+        'client-id',
+        null,
+        $jarmNow
+    ),
+    'unsupported signing algorithm'
+);
+$jarmVerifier->signatureAccepted = false;
+Checks::throws(
+    'a forged JARM signature is refused',
+    fn() => $jarmVerifier->verifyAuthorizationResponse(
+        compactJwt($jarmClaims),
+        $jarmMetadata,
+        'client-id',
+        null,
+        $jarmNow
+    ),
+    'signature is invalid'
+);
+$jarmVerifier->signatureAccepted = true;
+Checks::throws(
+    'encrypted JARM remains outside the supported profile',
+    fn() => $jarmVerifier->verifyAuthorizationResponse(
+        'one.two.three.four.five',
+        $jarmMetadata,
+        'client-id',
+        null,
+        $jarmNow
+    ),
+    'Encrypted JARM'
+);
+
+$jarmSettings = connector([
+    'openidconnect_client_id' => 'client-id',
+    'openidconnect_client_secret' => 'secret',
+    'openidconnect_claims_source' => 'id_token',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_app_code' => 'jarm-login',
+    'openidconnect_response_mode' => 'query.jwt',
+]);
+$issuedIdToken = '';
+$exchangedCode = '';
+$jarmHttp = new HttpClient(function (string $method, string $url, ?string $body) use (
+    $jarmKey,
+    &$issuedIdToken,
+    &$exchangedCode
+): array {
+    if ($url === 'https://id.example.net/keys') {
+        return jsonAnswer(['keys' => [$jarmKey]]);
+    }
+    if ($method === 'POST') {
+        parse_str((string)$body, $fields);
+        $exchangedCode = (string)($fields['code'] ?? '');
+        return jsonAnswer(['id_token' => $issuedIdToken]);
+    }
+    return jsonAnswer(metadata([
+        'response_modes_supported' => ['query.jwt'],
+        'authorization_signing_alg_values_supported' => ['RS256'],
+    ]));
+});
+$jarmFlowVerifier = new class($jarmHttp) extends JwtVerifier {
+    protected function verifySignature(string $algorithm, array $jwk, string $payload, string $signature): bool
+    {
+        return true;
+    }
+};
+$jarmSession = new Session();
+$jarmStartController = new Controller(new Request('https', 'firewall.example.net'), $jarmSession);
+$jarmAuthorization = (new RelyingParty(
+    $jarmSettings,
+    $jarmStartController,
+    $jarmHttp,
+    $jarmFlowVerifier
+))->authorizationUrl('jarm-provider', '/ui/dashboard');
+parse_str((string)parse_url($jarmAuthorization, PHP_URL_QUERY), $jarmParameters);
+Checks::that('JARM negotiation sends the exact signed response mode', $jarmParameters['response_mode'], 'query.jwt');
+$jarmResponse = compactJwt([
+    'iss' => 'https://id.example.net', 'aud' => 'client-id', 'exp' => time() + 300,
+    'state' => $jarmParameters['state'], 'code' => 'signed-code',
+]);
+$jarmTransaction = RelyingParty::consumeTransaction(
+    $jarmSession,
+    ['response' => $jarmResponse],
+    'jarm-login'
+);
+Checks::that('the requested JARM mode is frozen into the transaction', $jarmTransaction['response_mode'], 'query.jwt');
+Checks::throws(
+    'a signed authorization response is one-time use',
+    fn() => RelyingParty::consumeTransaction($jarmSession, ['response' => $jarmResponse], 'jarm-login'),
+    'pending login'
+);
+$issuedIdToken = compactJwt([
+    'iss' => 'https://id.example.net', 'sub' => 'jarm-subject', 'aud' => 'client-id',
+    'exp' => time() + 300, 'iat' => time(), 'nonce' => $jarmParameters['nonce'],
+    'auth_time' => time(), 'preferred_username' => 'jarm-user',
+]);
+$jarmCompleteController = new Controller(
+    new Request('https', 'firewall.example.net', ['response' => $jarmResponse]),
+    $jarmSession
+);
+$jarmIdentity = (new RelyingParty(
+    $jarmSettings,
+    $jarmCompleteController,
+    $jarmHttp,
+    $jarmFlowVerifier
+))->complete($jarmTransaction, ['response' => $jarmResponse]);
+Checks::that('only a verified signed code reaches the token endpoint', $exchangedCode, 'signed-code');
+Checks::that('a verified JARM flow reaches the normal identity claims', $jarmIdentity->preferred_username, 'jarm-user');
+
+$errorSession = new Session();
+$errorController = new Controller(new Request('https', 'firewall.example.net'), $errorSession);
+$errorUrl = (new RelyingParty(
+    $jarmSettings,
+    $errorController,
+    $jarmHttp,
+    $jarmFlowVerifier
+))->authorizationUrl('jarm-provider', '/');
+parse_str((string)parse_url($errorUrl, PHP_URL_QUERY), $errorParameters);
+$errorResponse = compactJwt([
+    'iss' => 'https://id.example.net', 'aud' => 'client-id', 'exp' => time() + 300,
+    'state' => $errorParameters['state'], 'error' => 'access_denied',
+]);
+$errorTransaction = RelyingParty::consumeTransaction(
+    $errorSession,
+    ['response' => $errorResponse],
+    'jarm-login'
+);
+Checks::throws(
+    'a signed JARM provider error is verified before it is reported',
+    fn() => (new RelyingParty(
+        $jarmSettings,
+        new Controller(new Request('https', 'firewall.example.net', ['response' => $errorResponse]), $errorSession),
+        $jarmHttp,
+        $jarmFlowVerifier
+    ))->complete($errorTransaction, ['response' => $errorResponse]),
+    'access_denied'
+);
+
+$hybridSession = new Session();
+$hybridController = new Controller(new Request('https', 'firewall.example.net'), $hybridSession);
+$hybridUrl = (new RelyingParty(
+    $jarmSettings,
+    $hybridController,
+    $jarmHttp,
+    $jarmFlowVerifier
+))->authorizationUrl('jarm-provider', '/');
+parse_str((string)parse_url($hybridUrl, PHP_URL_QUERY), $hybridParameters);
+$hybridResponse = compactJwt([
+    'iss' => 'https://id.example.net', 'aud' => 'client-id', 'exp' => time() + 300,
+    'state' => $hybridParameters['state'], 'code' => 'signed-code', 'access_token' => 'browser-token',
+]);
+$hybridTransaction = RelyingParty::consumeTransaction(
+    $hybridSession,
+    ['response' => $hybridResponse],
+    'jarm-login'
+);
+Checks::throws(
+    'a signed JARM response cannot smuggle a front-channel token',
+    fn() => (new RelyingParty(
+        $jarmSettings,
+        new Controller(new Request('https', 'firewall.example.net', ['response' => $hybridResponse]), $hybridSession),
+        $jarmHttp,
+        $jarmFlowVerifier
+    ))->complete($hybridTransaction, ['response' => $hybridResponse]),
+    'front-channel token'
+);
+
+Checks::throws(
+    'a signed state from another transaction cannot select a pending login',
+    fn() => RelyingParty::consumeTransaction(
+        new Session(),
+        ['response' => compactJwt(array_replace($jarmClaims, ['state' => 'other-state']))],
+        'jarm-login'
+    ),
+    'pending login'
+);
+
+$downgradeSession = new Session();
+$downgradeController = new Controller(new Request('https', 'firewall.example.net'), $downgradeSession);
+$downgradeUrl = (new RelyingParty(
+    $jarmSettings,
+    $downgradeController,
+    $jarmHttp,
+    $jarmFlowVerifier
+))->authorizationUrl('jarm-provider', '/');
+parse_str((string)parse_url($downgradeUrl, PHP_URL_QUERY), $downgradeParameters);
+$downgradeTransaction = RelyingParty::consumeTransaction(
+    $downgradeSession,
+    ['state' => $downgradeParameters['state'], 'code' => 'unsigned-code'],
+    'jarm-login'
+);
+Checks::throws(
+    'an unsigned authorization response cannot downgrade a JARM transaction',
+    fn() => (new RelyingParty(
+        $jarmSettings,
+        $downgradeController,
+        $jarmHttp,
+        $jarmFlowVerifier
+    ))->complete($downgradeTransaction, [
+        'state' => $downgradeParameters['state'],
+        'code' => 'unsigned-code',
+    ]),
+    'requested JARM'
 );
 
 Checks::group('ID token claim validation');

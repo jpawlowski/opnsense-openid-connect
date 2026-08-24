@@ -168,6 +168,73 @@ class JwtVerifier
         return ['header' => $header, 'claims' => $claims, 'key' => $key];
     }
 
+    /**
+     * Verify a signed JARM response against the issuer and key set frozen into the login.
+     * Grant-specific claims are deliberately left to RelyingParty after this succeeds.
+     *
+     * @param null|callable(array<string,mixed>):bool $issuerValidator
+     * @return array<string,mixed>
+     */
+    public function verifyAuthorizationResponse(
+        string $jwt,
+        ProviderMetadata $metadata,
+        string $clientId,
+        ?callable $issuerValidator = null,
+        ?int $now = null
+    ): array {
+        if (substr_count($jwt, '.') === 4) {
+            throw new ProtocolException('Encrypted JARM authorization responses are not supported');
+        }
+        [$header, $claims, $signingInput, $signature] = self::decode($jwt);
+        if (count($claims) > 64) {
+            throw new ProtocolException('The JARM authorization response carries too many claims');
+        }
+        $algorithm = $header['alg'] ?? null;
+        if (!is_string($algorithm) || !in_array($algorithm, self::ALGORITHMS, true)) {
+            throw new ProtocolException('The JARM authorization response uses an unsupported signing algorithm');
+        }
+        if (!in_array($algorithm, $metadata->authorizationResponseSigningAlgorithms(), true)) {
+            throw new ProtocolException('The JARM signing algorithm was not advertised by the provider');
+        }
+
+        $issuer = $claims['iss'] ?? null;
+        $issuerAccepted = is_string($issuer) && ($issuerValidator === null
+            ? hash_equals($metadata->issuer(), $issuer) : $issuerValidator($claims));
+        if (!$issuerAccepted) {
+            throw new ProtocolException('The JARM authorization response came from a different issuer');
+        }
+        $audiences = is_string($claims['aud'] ?? null) ? [$claims['aud']] : ($claims['aud'] ?? null);
+        if (!is_array($audiences) || $audiences === [] || !array_is_list($audiences)
+            || array_filter($audiences, 'is_string') !== $audiences
+            || in_array('', $audiences, true) || !in_array($clientId, $audiences, true)) {
+            throw new ProtocolException('The JARM authorization response was not issued to this client');
+        }
+
+        $now ??= time();
+        if (!is_int($claims['exp'] ?? null) || $claims['exp'] < 0
+            || $claims['exp'] < $now - self::CLOCK_TOLERANCE) {
+            throw new ProtocolException('The JARM authorization response is expired or has no usable expiry');
+        }
+        if (isset($claims['iat']) && (!is_int($claims['iat']) || $claims['iat'] < 0
+            || $claims['iat'] > $now + self::CLOCK_TOLERANCE || $claims['iat'] > $claims['exp'])) {
+            throw new ProtocolException('The JARM authorization response has no usable issue time');
+        }
+        if (isset($claims['nbf']) && (!is_int($claims['nbf']) || $claims['nbf'] < 0
+            || $claims['nbf'] > $now + self::CLOCK_TOLERANCE || $claims['nbf'] > $claims['exp'])) {
+            throw new ProtocolException('The JARM authorization response is not valid yet');
+        }
+
+        $this->matchingKey(
+            $metadata->jwksUri(),
+            $header,
+            $algorithm,
+            $signingInput,
+            $signature,
+            'The JARM authorization response signature is invalid'
+        );
+        return $claims;
+    }
+
     /** @param array<string,mixed> $header @return array<string,mixed> */
     private function matchingKey(
         string $jwksUri,
