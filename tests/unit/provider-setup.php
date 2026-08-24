@@ -60,6 +60,25 @@ Checks::that('YAML single quotes in a name are escaped', str_contains(
     "name: 'OPNsense administrator''s WebGUI'"
 ), true);
 
+$authentikWithoutEmail = ProviderSetup::generate(
+    'authentik',
+    'minimal',
+    'Minimal OPNsense WebGUI',
+    ['https://firewall.example.com'],
+    false,
+    'backchannel',
+    '',
+    [
+        'openidconnect_scopes' => 'openid,profile',
+        'openidconnect_username_claim' => 'preferred_username',
+    ]
+);
+Checks::that('authentik receives only the configured standard scope mappings', [
+    str_contains($authentikWithoutEmail['content'], 'scope-openid'),
+    str_contains($authentikWithoutEmail['content'], 'scope-profile'),
+    str_contains($authentikWithoutEmail['content'], 'scope-email'),
+], [true, true, false]);
+
 $keycloak = ProviderSetup::generate(
     'keycloak',
     'Main_ONE',
@@ -140,3 +159,66 @@ Checks::throws('a pairwise sector outside the accepted origins is refused', func
         'https://other.example.com'
     );
 }, 'not an accepted WebGUI origin');
+Checks::throws('authentik setup refuses an unenforced authentication requirement', function (): void {
+    ProviderSetup::generate(
+        'authentik',
+        'main',
+        'Firewall',
+        ['https://firewall.example.com'],
+        false,
+        'backchannel',
+        '',
+        ['openidconnect_required_authentication' => 'phishing-resistant']
+    );
+}, 'cannot yet enforce the configured authentication requirement');
+Checks::throws('Keycloak setup refuses an unenforced authentication requirement', function (): void {
+    ProviderSetup::generate(
+        'keycloak',
+        'main',
+        'Firewall',
+        ['https://firewall.example.com'],
+        false,
+        'backchannel',
+        '',
+        ['openidconnect_required_authentication' => 'multi-factor']
+    );
+}, 'cannot yet enforce the configured authentication requirement');
+Checks::throws('provider setup refuses a scope it cannot project', function (): void {
+    ProviderSetup::generate(
+        'authentik',
+        'main',
+        'Firewall',
+        ['https://firewall.example.com'],
+        false,
+        'backchannel',
+        '',
+        ['openidconnect_scopes' => 'openid,custom']
+    );
+}, 'does not yet support every configured scope');
+Checks::throws('provider setup refuses a username claim absent from its scopes', function (): void {
+    ProviderSetup::generate(
+        'keycloak',
+        'main',
+        'Firewall',
+        ['https://firewall.example.com'],
+        false,
+        'backchannel',
+        '',
+        [
+            'openidconnect_scopes' => 'openid,profile',
+            'openidconnect_username_claim' => 'email',
+        ]
+    );
+}, 'does not emit the configured username claim');
+Checks::throws('Keycloak setup refuses an unprojected group claim', function (): void {
+    ProviderSetup::generate(
+        'keycloak',
+        'main',
+        'Firewall',
+        ['https://firewall.example.com'],
+        false,
+        'backchannel',
+        '',
+        ['openidconnect_group_claim' => 'groups']
+    );
+}, 'does not yet emit the configured group claim');

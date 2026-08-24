@@ -1113,7 +1113,14 @@
                 origins: effectiveOrigins().join(','),
                 sector_origin: field('openidconnect_sector_origin').value,
                 post_logout_redirect: $(field('openidconnect_logout_redirect')).is(':checked') ? '1' : '0',
-                logout_channel: channel.val()
+                logout_channel: channel.val(),
+                openidconnect_scopes: field('openidconnect_scopes').value,
+                openidconnect_username_claim: field('openidconnect_username_claim').value,
+                openidconnect_group_claim: field('openidconnect_group_claim').value,
+                openidconnect_required_authentication: field('openidconnect_required_authentication').value,
+                openidconnect_acr_request: field('openidconnect_acr_request').value,
+                openidconnect_acr_values: field('openidconnect_acr_values').value,
+                openidconnect_amr_values: field('openidconnect_amr_values').value
             };
         }
 

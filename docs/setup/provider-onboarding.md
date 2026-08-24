@@ -43,6 +43,20 @@ origins are registered. In either mode the first origin is the canonical
 front-channel or back-channel logout notification address; all origins receive
 authorization and optional post-logout redirect entries.
 
+The download is a projection of the current form, not a generic provider
+template. Provider-side choices such as requested scopes, the claims OPNsense
+expects, authentication-strength evidence, redirect addresses, logout delivery
+and pairwise subjects have to agree with the generated resource. When a provider
+adapter cannot safely express one of those choices, generation stops with a
+specific error instead of producing a client which OPNsense will later refuse.
+In particular, writing an `acr` or `amr` claim is never treated as equivalent to
+configuring a provider flow which actually enforces that authentication method.
+
+Settings that only decide what OPNsense does remain outside the provider file:
+local identity bindings, account admission and creation, assignable local groups,
+root access, tracing and login-button presentation. The generated file receives
+no client secret, token or stored subject binding.
+
 Pairwise subjects are the exception to unsaved generation. Select a stable
 **Pairwise subject sector** and save the authentication server as a disabled
 draft first, because the provider must fetch the public sector identifier URI
