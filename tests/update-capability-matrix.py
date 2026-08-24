@@ -22,11 +22,12 @@ CLAIMS = {"verified", "unverified", "not_claimed", "not_applicable"}
 EVIDENCE = {"live", "adapter", "documented", "conditional", "unavailable", "incompatible", "unknown"}
 REQUIREMENT_STRENGTH = {"must", "must_not", "should", "should_not", "may"}
 GATE_EVIDENCE_TEST = pathlib.PurePosixPath("tests/capability-matrix.py")
-PROVIDER_EVIDENCE_DIRECTORY = pathlib.PurePosixPath("tests/evidence")
+PROVIDER_EVIDENCE_DIRECTORY = pathlib.PurePosixPath("tests/evidence/providers")
 PROVIDER_REVISION = re.compile(
     r"^(?:(?:version|release|commit):[A-Za-z0-9][A-Za-z0-9._+-]{0,111}|service:\d{4}-\d{2}-\d{2})$"
 )
 SAFE_CONFIGURATION_FIELDS = {"provider_profile", "guide", "client_type", "flow", "feature_mode"}
+LIVE_EVIDENCE_FIELDS = {"feature", "tested_on", "provider_revision", "artifact"}
 FEATURE_MODES = {"enabled", "automatic", "required"}
 EXECUTED_TESTS = set()
 
@@ -286,8 +287,8 @@ def validate_safe_configuration(provider, feature_id, configuration):
 
 def validate_live_evidence_record(provider, feature_id, status, record, root=ROOT):
     label = f"{provider['id']}/{feature_id}"
-    if not isinstance(record, dict) or not {"feature", "tested_on", "provider_revision", "artifact"} <= record.keys():
-        raise CatalogError(f"{label}: incomplete live evidence record")
+    if not isinstance(record, dict) or set(record) != LIVE_EVIDENCE_FIELDS:
+        raise CatalogError(f"{label}: live evidence record must use only the publishable schema")
     if record["feature"] != feature_id:
         raise CatalogError(f"{label}: live evidence record names another feature")
     tested_on = validate_record_text(record, "tested_on", label)
@@ -310,7 +311,7 @@ def validate_live_evidence_record(provider, feature_id, status, record, root=ROO
             raise CatalogError(f"{label}: service revision must contain a real YYYY-MM-DD date") from error
     relative, artifact_path = repository_file(record.get("artifact"), label, root)
     if relative.parent != PROVIDER_EVIDENCE_DIRECTORY or relative.suffix != ".json":
-        raise CatalogError(f"{label}: live evidence artifact must be a JSON file in tests/evidence")
+        raise CatalogError(f"{label}: live evidence artifact must be a JSON file in tests/evidence/providers")
     try:
         artifact = read_json(artifact_path)
     except (FileNotFoundError, json.JSONDecodeError, OSError) as error:

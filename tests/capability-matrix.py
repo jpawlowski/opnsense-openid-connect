@@ -25,7 +25,16 @@ def load_matrix():
     return module
 
 
+def load_security_report():
+    path = ROOT / "tests" / "update-security-report.py"
+    spec = importlib.util.spec_from_file_location("security_report", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 matrix = load_matrix()
+security_report = load_security_report()
 
 
 def refused(call):
@@ -37,10 +46,10 @@ def refused(call):
 
 
 def retained_artifact(root, artifact):
-    path = root / "tests" / "evidence" / "provider-result.json"
+    path = root / "tests" / "evidence" / "providers" / "provider-result.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(artifact), encoding="utf-8")
-    return "tests/evidence/provider-result.json"
+    return "tests/evidence/providers/provider-result.json"
 
 
 def unreachable_evidence_fixture():
@@ -221,7 +230,7 @@ def main():
         "feature": "login",
         "tested_on": "2026-08-24",
         "provider_revision": "version:fixture-1",
-        "artifact": "tests/evidence/provider-result.json",
+        "artifact": "tests/evidence/providers/provider-result.json",
     }
     blank = copy.deepcopy(dated_record)
     blank["tested_on"] = ""
@@ -239,6 +248,12 @@ def main():
     malformed_revision["provider_revision"] = "fixture-1"
     check("a live record rejects an untyped provider revision", refused(
         lambda: matrix.validate_live_evidence_record(provider, "login", "live", malformed_revision)
+    ), True)
+
+    extra_record_field = copy.deepcopy(dated_record)
+    extra_record_field["client_secret"] = "must-not-be-retained"
+    check("a live record rejects fields outside its publishable schema", refused(
+        lambda: matrix.validate_live_evidence_record(provider, "login", "live", extra_record_field)
     ), True)
 
     impossible_service_revision = copy.deepcopy(dated_record)
@@ -273,6 +288,16 @@ def main():
             "results": [{"feature": "login", "status": "live"}],
         }
         retained_artifact(evidence_root, artifact)
+        original_evidence_directory = security_report.EVIDENCE_DIRECTORY
+        security_report.EVIDENCE_DIRECTORY = evidence_root / "tests" / "evidence"
+        try:
+            check(
+                "provider interoperability artifacts stay outside audit evidence discovery",
+                security_report.evidence_paths([]),
+                [],
+            )
+        finally:
+            security_report.EVIDENCE_DIRECTORY = original_evidence_directory
         check("an artifact for another provider cannot make a cell green", refused(
             lambda: matrix.validate_live_evidence_record(
                 provider, "login", "live", dated_record, evidence_root

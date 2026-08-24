@@ -6,9 +6,9 @@ Place sanitized evidence produced by an installed OPNsense integration run or
 the disposable browser/ZAP run in this directory when its validated statements
 should appear in `docs/reference/security-and-conformance.md`.
 
-Only `*.json` files are read. The report generator accepts a passing result only
-when it uses the current evidence schema, names a known tier, is bound to a
-clean Git revision available in this repository, and the relevant implementation
+Only top-level `*.json` files are read as audit evidence. The report generator
+accepts a passing result only when it uses the current evidence schema, names a
+known tier, is bound to a clean Git revision available in this repository, and the relevant implementation
 and validation files are unchanged since that revision. Generated evidence is
 designed not to contain hosts, users, claims, tokens, cookies or secrets; review
 it before committing it nevertheless.
@@ -16,10 +16,12 @@ it before committing it nevertheless.
 Do not hand-edit a result to make it pass. Regenerate it with the documented
 installed-integration or browser-E2E command.
 
-Provider interoperability cells have an additional contract in
-`tests/providers/capabilities.json`: a `live` or `adapter` cell must name a test
+Provider interoperability artifacts are kept separately under the `providers/`
+subdirectory and are never read as audit evidence. Their cells have an
+additional contract in `tests/providers/capabilities.json`: a `live` or `adapter`
+cell must name a test
 date, the provider version or hosted-service revision, and a retained artifact
-in this directory. Revisions use a bounded `version:`, `release:` or `commit:`
+in that subdirectory. Revisions use a bounded `version:`, `release:` or `commit:`
 identifier, or `service:YYYY-MM-DD` for a hosted service without a published
 version. The JSON artifact uses schema version 1 and
 evidence type `provider_interoperability`; it repeats the provider, revision and
@@ -31,8 +33,8 @@ status. Its `configuration` object has exactly five publishable fields:
 other fields. No endpoint, tenant, user, client ID, secret or token belongs in
 retained evidence. An adapter result must also repeat
 the exact named provider deviation. The catalog validator rejects blank or
-malformed record fields, artifacts outside this directory, extra configuration
-fields, mismatched identities and unproven capabilities. Evidence-backed
+malformed record fields, extra catalog fields, artifacts outside that
+subdirectory, extra configuration fields, mismatched identities and unproven capabilities. Evidence-backed
 statuses are forbidden as catalog defaults, so every green cell has an explicit
 provider record. A result remains a dated historical fact until newer
 contradictory evidence explicitly replaces it; it does not silently certify
