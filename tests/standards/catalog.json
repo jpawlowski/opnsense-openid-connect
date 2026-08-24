@@ -195,7 +195,7 @@
       "implementation": "partial",
       "claim": "unverified",
       "audit_complete": false,
-      "note": "Only events with a safe local-session consequence are consumed."
+      "note": "The complete event matrix is audited; seven account-risk events with an exact matchable user subject end only pre-event local sessions."
     },
     {
       "id": "oidc-session",

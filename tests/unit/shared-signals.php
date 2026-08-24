@@ -153,19 +153,123 @@ $accepted = $events->verify(
     $ssfMetadata,
     'firewall-receiver',
     'https://id.example.net',
-    false,
+    'general',
     $now
 );
 Checks::that('a supported event is actionable', $accepted['actionable'], true);
 Checks::that('the subject remains opaque to local account policy', $accepted['subject'], 'subject-1');
 Checks::that('the event time limits affected sessions', $accepted['cutoff'], $now - 5);
 
+$knownRiscEvents = [
+    SecurityEventVerifier::RISC_CREDENTIAL_REQUIRED,
+    SecurityEventVerifier::RISC_ACCOUNT_PURGED,
+    SecurityEventVerifier::RISC_ACCOUNT_DISABLED,
+    SecurityEventVerifier::RISC_ACCOUNT_ENABLED,
+    SecurityEventVerifier::RISC_IDENTIFIER_CHANGED,
+    SecurityEventVerifier::RISC_IDENTIFIER_RECYCLED,
+    SecurityEventVerifier::RISC_CREDENTIAL_COMPROMISE,
+    SecurityEventVerifier::RISC_OPT_IN,
+    SecurityEventVerifier::RISC_OPT_OUT_INITIATED,
+    SecurityEventVerifier::RISC_OPT_OUT_CANCELLED,
+    SecurityEventVerifier::RISC_OPT_OUT_EFFECTIVE,
+    SecurityEventVerifier::RISC_RECOVERY_ACTIVATED,
+    SecurityEventVerifier::RISC_RECOVERY_INFORMATION_CHANGED,
+    SecurityEventVerifier::RISC_SESSIONS_REVOKED,
+];
+Checks::that('the complete RISC event profile is inventoried', SecurityEventVerifier::RISC_EVENTS, $knownRiscEvents);
+$actionableRiscEvents = [
+    SecurityEventVerifier::RISC_CREDENTIAL_REQUIRED,
+    SecurityEventVerifier::RISC_ACCOUNT_PURGED,
+    SecurityEventVerifier::RISC_ACCOUNT_DISABLED,
+    SecurityEventVerifier::RISC_CREDENTIAL_COMPROMISE,
+    SecurityEventVerifier::RISC_RECOVERY_ACTIVATED,
+    SecurityEventVerifier::RISC_RECOVERY_INFORMATION_CHANGED,
+    SecurityEventVerifier::RISC_SESSIONS_REVOKED,
+];
+Checks::that(
+    'every RISC event with a safe session consequence is selected',
+    SecurityEventVerifier::ACTIONABLE_RISC_EVENTS,
+    $actionableRiscEvents
+);
+foreach ($actionableRiscEvents as $index => $type) {
+    $profile = ['event_timestamp' => $now - $index - 10];
+    if ($type === SecurityEventVerifier::RISC_CREDENTIAL_COMPROMISE) {
+        $profile['credential_type'] = 'password';
+    }
+    $fakeJwt->claims = array_replace($eventClaims, [
+        'jti' => 'risc-action-' . $index,
+        'events' => [$type => $profile],
+    ]);
+    $result = $events->verify(
+        'signed',
+        $ssfMetadata,
+        'firewall-receiver',
+        'https://id.example.net',
+        'general',
+        $now
+    );
+    Checks::that('the actionable RISC profile ends matching pre-event sessions: ' . $type, [
+        $result['actionable'],
+        $result['event'],
+        $result['cutoff'],
+    ], [true, $type, $now - $index - 10]);
+}
+
+$informationalRiscEvents = array_values(array_diff($knownRiscEvents, $actionableRiscEvents));
+foreach ($informationalRiscEvents as $index => $type) {
+    $claims = array_replace($eventClaims, [
+        'jti' => 'risc-no-action-' . $index,
+        'events' => [$type => []],
+    ]);
+    if (in_array($type, [
+        SecurityEventVerifier::RISC_IDENTIFIER_CHANGED,
+        SecurityEventVerifier::RISC_IDENTIFIER_RECYCLED,
+    ], true)) {
+        $claims['sub_id'] = ['format' => 'email', 'email' => 'person@example.net'];
+    }
+    $fakeJwt->claims = $claims;
+    Checks::that(
+        'a RISC profile without a safe local session consequence is acknowledged: ' . $type,
+        $events->verify(
+            'signed',
+            $ssfMetadata,
+            'firewall-receiver',
+            'https://id.example.net',
+            'general',
+            $now
+        )['actionable'],
+        false
+    );
+}
+$fakeJwt->claims = array_replace($eventClaims, [
+    'events' => [SecurityEventVerifier::RISC_IDENTIFIER_CHANGED => []],
+]);
+Checks::throws(
+    'an identifier event with a forbidden issuer-and-subject profile is refused',
+    fn() => $events->verify(
+        'signed',
+        $ssfMetadata,
+        'firewall-receiver',
+        'https://id.example.net',
+        'general',
+        $now
+    ),
+    'email or phone'
+);
+
 $fakeJwt->claims = array_replace($eventClaims, [
     'events' => ['https://schemas.example.net/informational' => []],
 ]);
 Checks::that(
     'an unknown valid event is acknowledged without action',
-    $events->verify('signed', $ssfMetadata, 'firewall-receiver', 'https://id.example.net', false, $now)['actionable'],
+    $events->verify(
+        'signed',
+        $ssfMetadata,
+        'firewall-receiver',
+        'https://id.example.net',
+        'general',
+        $now
+    )['actionable'],
     false
 );
 $fakeJwt->claims = array_replace($eventClaims, [
@@ -179,7 +283,7 @@ $multiple = $events->verify(
     $ssfMetadata,
     'firewall-receiver',
     'https://id.example.net',
-    false,
+    'general',
     $now
 );
 Checks::that('multiple event URIs retain a supported session action', $multiple['actionable'], true);
@@ -189,19 +293,87 @@ $fakeJwt->claims = array_replace($eventClaims, [
 ]);
 Checks::that(
     'an issuer and subject from another namespace cannot target a local session',
-    $events->verify('signed', $ssfMetadata, 'firewall-receiver', 'https://id.example.net', false, $now)['actionable'],
+    $events->verify(
+        'signed',
+        $ssfMetadata,
+        'firewall-receiver',
+        'https://id.example.net',
+        'general',
+        $now
+    )['actionable'],
     false
+);
+$fakeJwt->claims = array_replace($eventClaims, [
+    'events' => [SecurityEventVerifier::RISC_RECOVERY_ACTIVATED => [
+        'subject' => ['format' => 'iss_sub', 'iss' => 'https://id.example.net', 'sub' => 'another-subject'],
+    ]],
+]);
+Checks::throws(
+    'an event-level subject cannot differ from the primary subject',
+    fn() => $events->verify(
+        'signed',
+        $ssfMetadata,
+        'firewall-receiver',
+        'https://id.example.net',
+        'general',
+        $now
+    ),
+    'differs'
+);
+$fakeJwt->claims = array_replace($eventClaims, [
+    'events' => [SecurityEventVerifier::RISC_CREDENTIAL_COMPROMISE => []],
+]);
+Checks::throws(
+    'a credential compromise without its required credential type is refused',
+    fn() => $events->verify(
+        'signed',
+        $ssfMetadata,
+        'firewall-receiver',
+        'https://id.example.net',
+        'general',
+        $now
+    ),
+    'credential type'
+);
+$fakeJwt->claims = array_replace($eventClaims, [
+    'events' => [SecurityEventVerifier::RISC_RECOVERY_ACTIVATED => ['event_timestamp' => (string)$now]],
+]);
+Checks::throws(
+    'an actionable RISC event with a malformed timestamp is refused',
+    fn() => $events->verify(
+        'signed',
+        $ssfMetadata,
+        'firewall-receiver',
+        'https://id.example.net',
+        'general',
+        $now
+    ),
+    'event time'
 );
 $fakeJwt->claims = $eventClaims + ['exp' => $now + 60];
 Checks::throws(
     'an SSF SET may not carry exp',
-    fn() => $events->verify('signed', $ssfMetadata, 'firewall-receiver', 'https://id.example.net', false, $now),
+    fn() => $events->verify(
+        'signed',
+        $ssfMetadata,
+        'firewall-receiver',
+        'https://id.example.net',
+        'general',
+        $now
+    ),
     'forbidden'
 );
 $fakeJwt->claims = array_replace($eventClaims, ['aud' => 'another-receiver']);
 Checks::throws(
     'a SET for another audience is refused',
-    fn() => $events->verify('signed', $ssfMetadata, 'firewall-receiver', 'https://id.example.net', false, $now),
+    fn() => $events->verify(
+        'signed',
+        $ssfMetadata,
+        'firewall-receiver',
+        'https://id.example.net',
+        'general',
+        $now
+    ),
     'receiver'
 );
 $fakeJwt->claims = $eventClaims;
@@ -210,14 +382,65 @@ $fakeJwt->claims['events'] = [SecurityEventVerifier::CAEP_CREDENTIAL_CHANGE => [
     'subject' => ['format' => 'iss_sub', 'iss' => 'https://id.example.net', 'sub' => 'okta-subject'],
     'event_timestamp' => ($now - 2) * 1000,
 ]];
-$okta = $events->verify('signed', $ssfMetadata, 'firewall-receiver', 'https://id.example.net', true, $now);
+$okta = $events->verify('signed', $ssfMetadata, 'firewall-receiver', 'https://id.example.net', 'okta', $now);
 Checks::that('Okta legacy event subjects are narrowly accepted', $okta['subject'], 'okta-subject');
 Checks::that('Okta millisecond timestamps are normalized', $okta['cutoff'], $now - 2);
+$fakeJwt->claims = array_replace($eventClaims, [
+    'sub_id' => [
+        'subject_type' => 'iss_sub',
+        'iss' => 'https://id.example.net',
+        'sub' => 'google-subject',
+    ],
+    'events' => [SecurityEventVerifier::RISC_RECOVERY_ACTIVATED => []],
+]);
+$google = $events->verify('signed', $ssfMetadata, 'firewall-receiver', 'https://id.example.net', 'google', $now);
+Checks::that('Google legacy subject_type is narrowly accepted', [
+    $google['actionable'],
+    $google['subject'],
+], [true, 'google-subject']);
+Checks::that(
+    'Google legacy subject_type is not accepted for an unnamed profile',
+    $events->verify(
+        'signed',
+        $ssfMetadata,
+        'firewall-receiver',
+        'https://id.example.net',
+        'general',
+        $now
+    )['actionable'],
+    false
+);
+$fakeJwt->claims['sub_id']['format'] = 'email';
+$fakeJwt->claims['sub_id']['email'] = 'person@example.net';
+Checks::that(
+    'a conforming Google format takes precedence over its legacy subject_type',
+    $events->verify(
+        'signed',
+        $ssfMetadata,
+        'firewall-receiver',
+        'https://id.example.net',
+        'google',
+        $now
+    )['actionable'],
+    false
+);
 $fakeJwt->claims['sub_id'] = [
     'format' => 'complex',
     'user' => ['format' => 'iss_sub', 'iss' => 'https://id.example.net', 'sub' => 'subject-1'],
     'device' => ['format' => 'opaque', 'id' => 'device'],
 ];
+Checks::that(
+    'a complex subject can identify the same user session without consuming its device member',
+    $events->verify(
+        'signed',
+        $ssfMetadata,
+        'firewall-receiver',
+        'https://id.example.net',
+        'general',
+        $now
+    )['actionable'],
+    true
+);
 $criticalMetadata = SharedSignalsMetadata::fromArray('https://signals.example.net', [
     'issuer' => 'https://signals.example.net',
     'jwks_uri' => 'https://signals.example.net/keys',
@@ -225,7 +448,14 @@ $criticalMetadata = SharedSignalsMetadata::fromArray('https://signals.example.ne
 ]);
 Checks::throws(
     'an unsupported critical subject member discards the event',
-    fn() => $events->verify('signed', $criticalMetadata, 'firewall-receiver', 'https://id.example.net', true, $now),
+    fn() => $events->verify(
+        'signed',
+        $criticalMetadata,
+        'firewall-receiver',
+        'https://id.example.net',
+        'okta',
+        $now
+    ),
     'critical subject'
 );
 
