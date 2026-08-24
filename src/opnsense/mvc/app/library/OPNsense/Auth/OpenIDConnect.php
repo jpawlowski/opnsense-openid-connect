@@ -383,9 +383,9 @@ class OpenIDConnect extends Base implements IAuthConnector
             'openidconnect_amr_values' => [
                 'name' => gettext('Accepted authentication methods'),
                 'help' => gettext(
-                    'Advanced. Exact, case-sensitive amr values; any one may satisfy the method check. Empty ' .
-                    'restores the documented preset. user means presence only and is not a cryptographic method; ' .
-                    'the registered hardware-key value is hwk, not hw.'
+                    'Advanced. Exact, case-sensitive amr values from which the selected policy must have sufficient ' .
+                    'evidence. Empty restores the documented preset. Standard MFA needs mfa or methods from two ' .
+                    'different factor types. user means presence only; the hardware-key value is hwk, not hw.'
                 ),
                 'type' => 'text',
                 'validate' => fn($value) => static::validateRequirementList(
@@ -1069,12 +1069,12 @@ class OpenIDConnect extends Base implements IAuthConnector
                 AuthenticationRequirement::MULTI_FACTOR => [
                     'request' => AuthenticationRequirement::ESSENTIAL_CLAIM,
                     'acr' => 'https://refeds.org/profile/mfa',
-                    'amr' => 'mfa',
+                    'amr' => 'mfa,pwd,pin,kba,otp,hwk,sc,sms,swk,tel,pop,face,fpt,iris,retina,vbm',
                 ],
                 AuthenticationRequirement::PHISHING_RESISTANT => [
                     'request' => AuthenticationRequirement::ESSENTIAL_CLAIM,
                     'acr' => 'phr,phrh',
-                    'amr' => 'fido,pop,hwk,swk',
+                    'amr' => 'pop,hwk,swk',
                 ],
             ],
             'okta' => [
@@ -1086,7 +1086,7 @@ class OpenIDConnect extends Base implements IAuthConnector
                 AuthenticationRequirement::PHISHING_RESISTANT => [
                     'request' => AuthenticationRequirement::ACR_VALUES,
                     'acr' => 'phr,phrh',
-                    'amr' => 'fido,pop,hwk,swk',
+                    'amr' => 'pop,hwk,swk',
                 ],
             ],
             'entra' => [

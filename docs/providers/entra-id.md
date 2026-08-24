@@ -54,11 +54,12 @@ carry one trustworthy meaning across Organizations, Consumers or Common.
 
 OPNsense accepts the result only when the signature-verified ID Token contains
 both the requested `acrs` context and suitable `amr` evidence. MFA requires
-`mfa`. Phishing-resistant authentication accepts Entra's documented `fido`,
-`hwk` or `x509` methods. A context without method evidence is refused, even if
-Entra completed an otherwise valid login. Conditional Access requires a
-compatible Entra license; Microsoft currently documents it as an Entra ID P1
-capability.
+`mfa`. Phishing-resistant authentication requires `mfa` together with Entra's
+documented `fido`, `hwk` or `x509` method; `x509` alone is also emitted for
+single-factor and device authentication and therefore never suffices. A context
+without complete method evidence is refused, even if Entra completed an
+otherwise valid login. Conditional Access requires a compatible Entra license;
+Microsoft currently documents it as an Entra ID P1 capability.
 
 ## Enter or change these OPNsense values
 

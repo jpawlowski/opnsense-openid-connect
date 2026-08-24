@@ -884,10 +884,10 @@
       "title": "Authentication Method Reference Values (RFC 8176)",
       "reference": "https://www.rfc-editor.org/rfc/rfc8176.html",
       "scope": "RP interpretation of bounded signed authentication-method evidence",
-      "implementation": "partial",
+      "implementation": "implemented",
       "claim": "unverified",
       "audit_complete": false,
-      "note": "A bounded subset is used as supporting evidence for configured authentication strength; normative evidence is incomplete."
+      "note": "Every registered value is classified as direct, factor-specific or non-elevating evidence; normative evidence is incomplete."
     },
     {
       "id": "security-event-token",
