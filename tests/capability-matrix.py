@@ -178,6 +178,12 @@ def main():
         lambda: matrix.validate_standards(unimplemented)
     ), True)
 
+    string_audit_flag = copy.deepcopy(complete)
+    string_audit_flag["standards"][0]["audit_complete"] = "false"
+    check("a truthy string cannot mark a standards audit complete", refused(
+        lambda: matrix.validate_standards(string_audit_flag)
+    ), True)
+
     empty_requirement_id = copy.deepcopy(complete)
     empty_requirement_id["standards"][0]["requirements"][0]["id"] = ""
     check("an empty requirement identifier cannot fill a verified inventory", refused(

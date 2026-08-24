@@ -259,6 +259,8 @@ def validate_standards(data):
             raise CatalogError(f"{standard['id']}: invalid implementation status")
         if standard["claim"] not in CLAIMS:
             raise CatalogError(f"{standard['id']}: invalid claim status")
+        if not isinstance(standard.get("audit_complete"), bool):
+            raise CatalogError(f"{standard['id']}: audit_complete must be a boolean")
         if standard["claim"] == "verified" and standard["implementation"] != "implemented":
             raise CatalogError(f"{standard['id']}: verified requires an implemented standard scope")
         requirements = standard.get("requirements", [])
