@@ -40,6 +40,7 @@ class RelyingParty
     private JwtVerifier $verifier;
     private DpopKeyStore $dpopStore;
     private ?DpopProof $dpop;
+    private RequestObjectSigner $requestObjectSigner;
     private string $redirectUri;
     private ?ProviderMetadata $metadata = null;
     private ?string $tokenAuthMethod = null;
@@ -53,6 +54,7 @@ class RelyingParty
         Controller $controller,
         ?HttpClient $http = null,
         ?JwtVerifier $verifier = null,
+        ?RequestObjectSigner $requestObjectSigner = null,
         ?DpopProof $dpop = null
     )
     {
@@ -64,6 +66,7 @@ class RelyingParty
         $this->verifier = $verifier ?? new JwtVerifier($this->http);
         $this->dpopStore = DpopKeyStore::forSettings($settings);
         $this->dpop = $dpop;
+        $this->requestObjectSigner = $requestObjectSigner ?? new RequestObjectSigner();
 
         $redirect = static::acceptedRedirectUri($settings, $controller->request);
         if ($redirect === null) {
@@ -193,6 +196,19 @@ class RelyingParty
             $parameters['prompt'] = 'select_account';
         }
 
+        $usedRequestObject = false;
+        $requestObjectKey = $this->settings->requestObjectSigningKey();
+        if ($metadata->requiresSignedRequestObject() && $requestObjectKey === '') {
+            throw new ProtocolException('Discovery requires signed Request Objects but no signing key is selected');
+        }
+        if ($requestObjectKey !== '') {
+            $parameters = [
+                'client_id' => $this->settings->clientId(),
+                'request' => $this->requestObjectSigner->sign($this->settings, $metadata, $parameters),
+            ];
+            $usedRequestObject = true;
+        }
+
         $parEndpoint = $metadata->pushedAuthorizationRequestEndpoint();
         $parRequired = $metadata->requiresPushedAuthorizationRequests();
         $parMode = $this->settings->parMode();
@@ -234,12 +250,13 @@ class RelyingParty
         }
 
         $this->settings->trace(sprintf(
-            'exchange prepared for exact issuer %s, callback %s, PKCE S256, response mode %s%s',
+            'exchange prepared for exact issuer %s, callback %s, PKCE S256, response mode %s%s%s%s',
             $metadata->issuer(),
             $this->redirectUri,
             $responseMode,
-            ($this->dpop !== null ? ', DPoP-bound authorization code' : '')
-                . ($usedPar ? ', pushed authorization request' : '')
+            $this->dpop !== null ? ', DPoP-bound authorization code' : '',
+            $usedRequestObject ? ', signed Request Object' : '',
+            $usedPar ? ', pushed authorization request' : ''
         ));
         return $authorizationUrl;
     }

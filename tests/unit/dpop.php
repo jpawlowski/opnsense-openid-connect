@@ -182,6 +182,7 @@ $authorizationParty = new RelyingParty(
     $authorizationController,
     new HttpClient(fn() => dpopAnswer(dpopMetadata())),
     null,
+    null,
     $dpopProof
 );
 $authorizationUrl = $authorizationParty->authorizationUrl('dpop', '/');
@@ -230,6 +231,7 @@ $parParty = new RelyingParty(
         return dpopAnswer(['request_uri' => 'urn:example:request', 'expires_in' => 60], 201);
     }),
     null,
+    null,
     $dpopProof
 );
 $parParty->authorizationUrl('dpop-par', '/');
@@ -252,6 +254,7 @@ $tokenParty = new RelyingParty(
             : dpopAnswer(['access_token' => 'dpop-access', 'token_type' => 'DPoP']);
     }),
     null,
+    null,
     $dpopProof
 );
 $dpopMetadataProperty = new ReflectionProperty(RelyingParty::class, 'metadata');
@@ -271,6 +274,7 @@ $downgradeParty = new RelyingParty(
     dpopSettings('dpop-downgrade'),
     new Controller(new Request('https', 'firewall.example.net'), new Session()),
     new HttpClient(fn() => dpopAnswer(['access_token' => 'bearer-access', 'token_type' => 'Bearer'])),
+    null,
     null,
     $dpopProof
 );
@@ -306,6 +310,7 @@ $userinfoParty = new RelyingParty(
             : dpopAnswer(['sub' => 'stable-subject']);
     }),
     null,
+    null,
     $dpopProof
 );
 $dpopMetadataProperty->setValue($userinfoParty, ProviderMetadata::fromArray(dpopMetadata()));
@@ -335,6 +340,7 @@ $duplicateNonceParty = new RelyingParty(
         ['dpop-nonce' => ['first', 'second']]
     )),
     null,
+    null,
     $dpopProof
 );
 $dpopMetadataProperty->setValue($duplicateNonceParty, ProviderMetadata::fromArray(dpopMetadata()));
@@ -348,6 +354,7 @@ $missingNonceParty = new RelyingParty(
     dpopSettings('dpop-missing-challenge-nonce'),
     new Controller(new Request('https', 'firewall.example.net'), new Session()),
     new HttpClient(fn() => dpopAnswer(['error' => 'use_dpop_nonce'], 400)),
+    null,
     null,
     $dpopProof
 );
@@ -368,6 +375,7 @@ $revocationParty = new RelyingParty(
         $revocationBody = (string)$body;
         return dpopAnswer([], 204);
     }),
+    null,
     null,
     $dpopProof
 );

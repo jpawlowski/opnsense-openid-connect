@@ -12,6 +12,7 @@ use OPNsense\OpenIDConnect\HttpClient;
 use OPNsense\OpenIDConnect\JwtVerifier;
 use OPNsense\OpenIDConnect\ProviderMetadata;
 use OPNsense\OpenIDConnect\RelyingParty;
+use OPNsense\OpenIDConnect\RequestObjectSigner;
 
 function metadata(array $extra = []): array
 {
@@ -316,6 +317,30 @@ Checks::throws(
     'invalid pushed authorization request requirement'
 );
 Checks::throws(
+    'the signed Request Object requirement in discovery must be a boolean',
+    fn() => ProviderMetadata::discover(
+        'https://id.example.net',
+        new HttpClient(fn() => jsonAnswer(metadata(['require_signed_request_object' => 'true'])))
+    ),
+    'invalid signed Request Object requirement'
+);
+Checks::throws(
+    'a null signed Request Object requirement in discovery is refused',
+    fn() => ProviderMetadata::discover(
+        'https://id.example.net',
+        new HttpClient(fn() => jsonAnswer(metadata(['require_signed_request_object' => null])))
+    ),
+    'invalid signed Request Object requirement'
+);
+Checks::throws(
+    'a provider cannot require signed Request Objects without a supported algorithm',
+    fn() => ProviderMetadata::discover(
+        'https://id.example.net',
+        new HttpClient(fn() => jsonAnswer(metadata(['require_signed_request_object' => true])))
+    ),
+    'offers no supported algorithm'
+);
+Checks::throws(
     'an issuer carrying a query is refused before discovery',
     fn() => ProviderMetadata::discover('https://id.example.net?tenant=x', $http),
     'query'
@@ -538,6 +563,206 @@ parse_str(
     $selectAccountParameters
 );
 Checks::that('account selection sends the standard prompt value', $selectAccountParameters['prompt'], 'select_account');
+
+Checks::group('JWT-secured authorization requests');
+
+$jarKeys = [
+    'jar-current' => ['private_key' => 'current', 'type' => 'RSA', 'bits' => 3072, 'curve' => ''],
+    'jar-next' => ['private_key' => 'next', 'type' => 'RSA', 'bits' => 3072, 'curve' => ''],
+    'jar-ec' => ['private_key' => 'ec', 'type' => 'EC', 'bits' => 256, 'curve' => 'prime256v1'],
+];
+$jarSigner = new RequestObjectSigner(
+    static fn(string $reference) => $jarKeys[$reference] ?? null,
+    static fn(string $algorithm, string $key, string $payload): string =>
+        hash('sha256', $algorithm . ':' . $key . ':' . $payload, true),
+    static fn(): int => 2000000000
+);
+$jarSettings = connector([
+    'openidconnect_client_id' => 'jar-client',
+    'openidconnect_client_secret' => 'jar-secret',
+    'openidconnect_request_object_key' => 'jar-current',
+    'openidconnect_required_authentication' => 'multi-factor',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_app_code' => 'jar',
+]);
+$jarMetadata = metadata([
+    'request_object_signing_alg_values_supported' => ['PS256', 'RS256'],
+    'require_signed_request_object' => true,
+]);
+Checks::throws(
+    'a malformed JSON-valued claims parameter is refused before signing',
+    fn() => $jarSigner->sign(
+        $jarSettings,
+        ProviderMetadata::fromArray($jarMetadata),
+        ['claims' => 'not-json']
+    ),
+    'not a JSON object'
+);
+$jarController = new Controller(new Request('https', 'firewall.example.net'), new Session());
+$jarUrl = (new RelyingParty(
+    $jarSettings,
+    $jarController,
+    new HttpClient(fn() => jsonAnswer($jarMetadata)),
+    null,
+    $jarSigner
+))->authorizationUrl('jar', '/');
+parse_str((string)parse_url($jarUrl, PHP_URL_QUERY), $jarBrowserParameters);
+[$jarHeader, $jarClaims] = JwtVerifier::decode($jarBrowserParameters['request']);
+Checks::that('the browser carries only the matching client ID and signed Request Object',
+    array_keys($jarBrowserParameters), ['client_id', 'request']);
+Checks::that('the outer and protected client IDs cannot diverge', [
+    $jarBrowserParameters['client_id'],
+    $jarClaims['client_id'],
+    $jarClaims['iss'],
+], ['jar-client', 'jar-client', 'jar-client']);
+Checks::that('the Request Object is explicitly typed and identifies the selected rotation key', $jarHeader, [
+    'alg' => 'RS256',
+    'kid' => 'jar-current',
+    'typ' => 'oauth-authz-req+jwt',
+]);
+Checks::that('the Request Object binds its audience and has a bounded lifetime', [
+    $jarClaims['aud'],
+    $jarClaims['iat'],
+    $jarClaims['exp'],
+    $jarClaims['exp'] - $jarClaims['iat'],
+], ['https://id.example.net', 2000000000, 2000000060, RequestObjectSigner::LIFETIME]);
+Checks::that('all authorization decisions stay inside the Request Object', [
+    $jarClaims['response_type'],
+    $jarClaims['code_challenge_method'],
+    $jarClaims['redirect_uri'],
+    $jarClaims['max_age'],
+    is_int($jarClaims['max_age']),
+], [
+    'code',
+    'S256',
+    'https://firewall.example.net/api/openidconnect/auth/callback/jar',
+    14400,
+    true,
+]);
+Checks::that('JSON-valued essential claims remain native Request Object JSON', [
+    $jarClaims['claims']['id_token']['acr']['essential'],
+    $jarClaims['claims']['id_token']['acr']['values'],
+    $jarClaims['claims']['id_token']['amr']['essential'],
+], [true, ['https://refeds.org/profile/mfa'], true]);
+Checks::that('Request Objects carry a random replay identifier and never a client-authentication subject', [
+    is_string($jarClaims['jti']) && strlen($jarClaims['jti']) >= 32,
+    isset($jarClaims['sub']),
+], [true, false]);
+
+$jarJarmSettings = connector([
+    'openidconnect_client_id' => 'jar-jarm-client',
+    'openidconnect_client_secret' => 'jar-jarm-secret',
+    'openidconnect_request_object_key' => 'jar-current',
+    'openidconnect_response_mode' => 'query.jwt',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_app_code' => 'jar-jarm',
+]);
+$jarJarmController = new Controller(new Request('https', 'firewall.example.net'), new Session());
+$jarJarmUrl = (new RelyingParty(
+    $jarJarmSettings,
+    $jarJarmController,
+    new HttpClient(fn() => jsonAnswer(metadata([
+        'request_object_signing_alg_values_supported' => ['RS256'],
+        'response_modes_supported' => ['query.jwt'],
+        'authorization_signing_alg_values_supported' => ['RS256'],
+    ]))),
+    null,
+    $jarSigner
+))->authorizationUrl('jar-jarm', '/');
+parse_str((string)parse_url($jarJarmUrl, PHP_URL_QUERY), $jarJarmBrowser);
+[, $jarJarmClaims] = JwtVerifier::decode($jarJarmBrowser['request']);
+Checks::that('JAR and JARM compose without exposing protected authorization parameters', [
+    array_keys($jarJarmBrowser),
+    $jarJarmClaims['response_mode'],
+], [['client_id', 'request'], 'query.jwt']);
+
+$jarReplayController = new Controller(new Request('https', 'firewall.example.net'), new Session());
+$jarReplayUrl = (new RelyingParty(
+    $jarSettings,
+    $jarReplayController,
+    new HttpClient(fn() => jsonAnswer($jarMetadata)),
+    null,
+    $jarSigner
+))->authorizationUrl('jar', '/');
+parse_str((string)parse_url($jarReplayUrl, PHP_URL_QUERY), $jarReplayParameters);
+[, $jarReplayClaims] = JwtVerifier::decode($jarReplayParameters['request']);
+Checks::that('separate Request Objects cannot reuse the same replay identifier',
+    hash_equals($jarClaims['jti'], $jarReplayClaims['jti']), false);
+
+$rotatedJarSettings = connector([
+    'openidconnect_client_id' => 'jar-client',
+    'openidconnect_client_secret' => 'jar-secret',
+    'openidconnect_request_object_key' => 'jar-next',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_app_code' => 'jar-next',
+]);
+$rotatedJarController = new Controller(new Request('https', 'firewall.example.net'), new Session());
+$rotatedJarUrl = (new RelyingParty(
+    $rotatedJarSettings,
+    $rotatedJarController,
+    new HttpClient(fn() => jsonAnswer($jarMetadata)),
+    null,
+    $jarSigner
+))->authorizationUrl('jar-next', '/');
+parse_str((string)parse_url($rotatedJarUrl, PHP_URL_QUERY), $rotatedJarParameters);
+[$rotatedJarHeader] = JwtVerifier::decode($rotatedJarParameters['request']);
+Checks::that('selecting a preregistered replacement key changes the kid on the next request',
+    $rotatedJarHeader['kid'], 'jar-next');
+
+Checks::throws(
+    'a provider-required Request Object fails before redirect when no signing key is selected',
+    fn() => (new RelyingParty(
+        $settings,
+        new Controller(new Request('https', 'firewall.example.net'), new Session()),
+        new HttpClient(fn() => jsonAnswer($jarMetadata)),
+        null,
+        $jarSigner
+    ))->begin('jar', '/'),
+    'no signing key is selected'
+);
+Checks::throws(
+    'a signing-key and provider-algorithm mismatch fails before redirect',
+    fn() => (new RelyingParty(
+        $jarSettings,
+        new Controller(new Request('https', 'firewall.example.net'), new Session()),
+        new HttpClient(fn() => jsonAnswer(metadata([
+            'request_object_signing_alg_values_supported' => ['ES256'],
+        ]))),
+        null,
+        $jarSigner
+    ))->begin('jar', '/'),
+    'share no supported Request Object algorithm'
+);
+
+$jarParRequest = [];
+$jarParController = new Controller(new Request('https', 'firewall.example.net'), new Session());
+$jarParUrl = (new RelyingParty(
+    $jarSettings,
+    $jarParController,
+    new HttpClient(function (string $method, string $url, ?string $body) use (&$jarParRequest, $jarMetadata): array {
+        if ($method === 'GET') {
+            return jsonAnswer($jarMetadata + [
+                'pushed_authorization_request_endpoint' => 'https://id.example.net/par',
+                'require_pushed_authorization_requests' => true,
+            ]);
+        }
+        parse_str((string)$body, $jarParRequest);
+        return jsonAnswer(['request_uri' => 'urn:example:jar-par', 'expires_in' => 45], 201);
+    }),
+    null,
+    $jarSigner
+))->authorizationUrl('jar', '/');
+parse_str((string)parse_url($jarParUrl, PHP_URL_QUERY), $jarParBrowser);
+[, $jarParClaims] = JwtVerifier::decode($jarParRequest['request']);
+Checks::that('PAR receives only client authentication and the complete signed Request Object', [
+    array_keys(array_diff_key($jarParRequest, ['client_secret' => true])),
+    $jarParClaims['response_type'],
+    $jarParClaims['state'] !== '',
+], [['client_id', 'request'], 'code', true]);
+Checks::that('the browser still sees only the PAR reference after JAR and PAR compose', $jarParBrowser, [
+    'client_id' => 'jar-client',
+    'request_uri' => 'urn:example:jar-par',
+]);
 
 $noPkceController = new Controller(new Request('https', 'firewall.example.net'), new Session());
 Checks::throws(
