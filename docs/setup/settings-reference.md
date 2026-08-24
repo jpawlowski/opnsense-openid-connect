@@ -145,7 +145,9 @@ setup** and **Open setup guide** are actions, not stored settings. None runs
 during Save. Test discovery live-fetches Discovery and JWKS from OPNsense and
 checks the selected Request Object key. It uses the current unsaved client
 values for an authenticated PAR check when applicable and also works without
-client credentials. Connection health becomes
+client credentials. Where PAR does not already cover it, a silent authorization
+request checks whether the provider accepts the public Client ID and exact
+callback without authenticating a user. Connection health becomes
 available when the current form contains Exact issuer URL, Client ID and Client
 Secret and adds form and WebGUI transport checks without requiring a save. Both
 dialogs distinguish live OPNsense requests, metadata/configuration evaluation
@@ -153,7 +155,10 @@ and advertised paths that remain untested. The browser does not need to reach
 Discovery. Test sign-in becomes available after the server has first been saved,
 is complete and has no unsaved changes. It may be used while the provider
 remains disabled and validates a real browser flow without changing the WebGUI
-session or local identity state. The provider may retain its own SSO session.
+session or local identity state. A Client ID or callback rejected during the
+preflight leaves the browser on the form. A client credential rejected only
+during the code exchange produces a dedicated failure result with an exact
+return link. The provider may retain its own SSO session.
 OPNsense's generic **System > Access > Tester** is a username/password tester and
 does not apply to OIDC. The setup
 download and its independently reopenable guide are offered only where an

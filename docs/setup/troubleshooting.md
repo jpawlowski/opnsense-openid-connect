@@ -40,6 +40,20 @@ a WebGUI session and does not create or modify local users, bindings or groups.
 Save or revert every form change before starting it; the action deliberately
 tests only the saved connector and returns to the same edit form afterward.
 
+## The provider shows a Client ID error before sign-in
+
+Run **Connection health** first. When the provider supports PAR, its authenticated
+request checks Client ID, Client Secret and callback together. Otherwise OPNsense
+sends a silent, no-user authorization request that can check the public Client ID
+and exact callback but cannot prove the secret. A rejection at this stage remains
+in the authentication-server form instead of sending the browser to the provider.
+
+The Client Secret is normally presented only after the provider has issued a real
+authorization code. If that token exchange returns `invalid_client`, **Test
+sign-in** shows a dedicated failure result and a link back to the exact saved
+server. Copy the current Client ID and Client Secret again after recreating or
+reimporting a provider application, then save before repeating the test.
+
 ## A callback is shown twice
 
 A current plugin version normalizes an accidentally pasted callback to its

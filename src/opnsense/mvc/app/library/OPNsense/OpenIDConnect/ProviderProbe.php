@@ -71,6 +71,15 @@ final class ProviderProbe
             );
         }
         $checks[] = $this->requestObjectCheck($settings, $metadata);
+        $authorization = (new AuthorizationPreflight($this->http))->check($settings, $metadata, $redirectUri);
+        $checks[] = self::check(
+            gettext('Authorization registration'),
+            $authorization['value'],
+            $authorization['status'],
+            $authorization['note'],
+            ['opnsense', 'idp'],
+            $authorization['verification']
+        );
         $checks[] = $this->parCheck($settings, $metadata, $redirectUri);
         return $checks;
     }

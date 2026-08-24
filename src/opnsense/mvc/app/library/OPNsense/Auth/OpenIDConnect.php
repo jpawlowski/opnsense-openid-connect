@@ -1321,7 +1321,13 @@ class OpenIDConnect extends Base implements IAuthConnector
                     'amr' => 'mfa',
                 ],
             ],
-            'keycloak' => $generic,
+            'keycloak' => array_replace($generic, [
+                AuthenticationRequirement::PHISHING_RESISTANT => [
+                    'request' => AuthenticationRequirement::ESSENTIAL_CLAIM,
+                    'acr' => 'phr,phrh',
+                    'amr' => 'fido,pop,hwk,swk',
+                ],
+            ]),
             'okta' => [
                 AuthenticationRequirement::MULTI_FACTOR => [
                     'request' => AuthenticationRequirement::ACR_VALUES,
@@ -1485,15 +1491,16 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'skipped' => gettext('Skipped by configuration'),
             ],
             'testHelp' => gettext(
-                'Live server-side preflight of Discovery, JWKS and, when configured, authenticated PAR. ' .
-                'The browser does not need the Discovery URL; Test sign-in checks its authorization path. ' .
-                'Saving remains independent of this test.'
+                'Live server-side preflight of Discovery, JWKS, the public authorization registration and, ' .
+                'when configured, authenticated PAR. The browser does not need the Discovery URL; Test sign-in ' .
+                'still checks the complete authorization path. Saving remains independent of this test.'
             ),
             'healthTestLabel' => gettext('Connection health'),
             'healthTestingLabel' => gettext('Checking...'),
             'healthTestHelp' => gettext(
-                'Uses the current form values for live Discovery, JWKS and, when available, authenticated PAR. ' .
-                'Saving is not required; Test sign-in exercises the browser and token paths.'
+                'Uses the current form values for live Discovery, JWKS, a silent authorization-registration ' .
+                'check and, when available, authenticated PAR. Saving is not required; Test sign-in exercises ' .
+                'the browser and token paths.'
             ),
             'healthTestIncompleteHelp' => gettext(
                 'Enter Exact issuer URL, Client ID and Client Secret to check connection health. ' .
@@ -1501,10 +1508,11 @@ class OpenIDConnect extends Base implements IAuthConnector
             ),
             'signInTestLabel' => gettext('Test sign-in'),
             'signInTestHelp' => gettext(
-                'Runs the real browser flow and validates PKCE, the code exchange, ID Token and configured ' .
-                'claims source. It does not change the current WebGUI session, local accounts, subject bindings ' .
-                'or groups. The identity provider may retain its own SSO session. The generic System > Access > ' .
-                'Tester supports username/password connectors only and cannot test OpenID Connect.'
+                'Checks the public client registration before leaving this form, then runs the real browser flow ' .
+                'and validates PKCE, the code exchange, ID Token and configured claims source. A rejected token ' .
+                'credential returns a dedicated result here. The test does not change the current WebGUI session, ' .
+                'local accounts, subject bindings or groups. The identity provider may retain its own SSO session. ' .
+                'The generic System > Access > Tester supports username/password connectors only.'
             ),
             'signInTestSaveHelp' => gettext(
                 'Save this authentication server first. Saving remains independent of both tests.'

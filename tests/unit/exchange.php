@@ -11,6 +11,7 @@ use OPNsense\Mvc\Session;
 use OPNsense\Auth\Directory;
 use OPNsense\Core\Config;
 use OPNsense\OpenIDConnect\Api\TestController;
+use OPNsense\OpenIDConnect\Api\AuthController;
 use OPNsense\OpenIDConnect\HttpClient;
 use OPNsense\OpenIDConnect\JwtVerifier;
 use OPNsense\OpenIDConnect\ProviderMetadata;
@@ -456,6 +457,19 @@ $redirected = new HttpClient(function ($method, $url) use (&$redirects): array {
 });
 Checks::that('a relative HTTPS redirect is resolved manually', $redirected->get('https://id.example.net/start', 100)->url, 'https://id.example.net/finish');
 Checks::that('each redirect target is fetched separately', $redirects, 2);
+$firstRedirectCalls = 0;
+$firstRedirect = (new HttpClient(function () use (&$firstRedirectCalls): array {
+    $firstRedirectCalls++;
+    return [
+        'status' => 302,
+        'content_type' => 'text/html',
+        'body' => '',
+        'location' => 'https://id.example.net/callback?state=opaque',
+    ];
+}))->getFirstResponse('https://id.example.net/authorize', 100);
+Checks::that('a front-channel probe retains the first redirect location',
+    $firstRedirect->headers['location'], 'https://id.example.net/callback?state=opaque');
+Checks::that('a front-channel probe never follows the provider redirect', $firstRedirectCalls, 1);
 Checks::throws(
     'a redirect cannot downgrade transport security',
     fn() => (new HttpClient(fn() => [
@@ -509,6 +523,35 @@ Checks::throws(
     fn() => inspect($missingType, 'exchangeCode', 'code', 'verifier'),
     'omitted the access token type'
 );
+
+$invalidClient = new RelyingParty(
+    $endpointSettings,
+    $endpointController,
+    new HttpClient(fn() => jsonAnswer(['error' => 'invalid_client'], 401))
+);
+$metadataProperty->setValue($invalidClient, $endpointMetadata);
+$invalidClientClass = '';
+try {
+    inspect($invalidClient, 'exchangeCode', 'code', 'verifier');
+} catch (Throwable $error) {
+    $invalidClientClass = get_class($error);
+}
+Checks::that('an explicit token client rejection remains a typed credential failure',
+    $invalidClientClass, OPNsense\OpenIDConnect\ClientAuthenticationException::class);
+
+$testFailureController = new AuthController();
+$testFailureHtml = inspect(
+    $testFailureController,
+    'signInTestFailureResult',
+    'Office identity',
+    '/system_authservers.php?act=edit&id=3'
+);
+Checks::that('a credential failure has a dedicated sign-in test result',
+    str_contains($testFailureHtml, 'Sign-in test failed'), true);
+Checks::that('the failed test returns to the exact saved authentication-server row',
+    str_contains($testFailureHtml, 'href="/system_authservers.php?act=edit&amp;id=3"'), true);
+Checks::that('the failed diagnostic page does not trigger proxy interception with an HTTP error status',
+    $testFailureController->response->status, null);
 
 $wrongUserInfoType = new RelyingParty(
     $endpointSettings,

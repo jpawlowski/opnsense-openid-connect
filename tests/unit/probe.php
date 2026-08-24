@@ -97,6 +97,9 @@ Checks::that('the provider profile is current-form policy', $draftSemantics['Pro
 Checks::that('authorization is an unexecuted browser path', $draftSemantics['Authorization endpoint'], [
     'browser,idp', 'not-tested',
 ]);
+Checks::that('an incomplete registration is explicitly left untested', $draftSemantics['Authorization registration'], [
+    'opnsense,idp', 'not-tested',
+]);
 Checks::that('the token endpoint is an unexecuted server path', $draftSemantics['Token endpoint'], [
     'opnsense,idp', 'not-tested',
 ]);

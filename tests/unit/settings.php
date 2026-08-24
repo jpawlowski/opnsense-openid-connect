@@ -156,6 +156,19 @@ Checks::that('Keycloak manual setup uses the documented standards-oriented value
     'methods' => ['mfa', 'pwd', 'pin', 'kba', 'otp', 'hwk', 'sc', 'sms', 'swk', 'tel', 'pop', 'face', 'fpt',
         'iris', 'retina', 'vbm'],
 ]);
+$keycloakPhishingResistant = connector([
+    'openidconnect_provider_profile' => 'keycloak',
+    'openidconnect_required_authentication' => 'phishing-resistant',
+])->authenticationRequirement();
+Checks::that('Keycloak phishing-resistant setup accepts its documented WebAuthn method',
+    $keycloakPhishingResistant->toArray(), [
+        'tier' => 'phishing-resistant',
+        'request_mode' => 'essential_claim',
+        'contexts' => ['phr', 'phrh'],
+        'methods' => ['fido', 'pop', 'hwk', 'swk'],
+    ]);
+$keycloakPhishingResistant->assertSatisfied(['acr' => 'phr', 'amr' => ['fido']]);
+Checks::that('Keycloak WebAuthn evidence satisfies its phishing-resistant preset', true, true);
 Checks::throws(
     'an unsupported named provider refuses a manually injected authentication requirement',
     fn() => connector([

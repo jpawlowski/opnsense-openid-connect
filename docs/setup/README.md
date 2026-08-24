@@ -234,16 +234,19 @@ Every result names the actors and method beneath the check name. The arrow path
 distinguishes requests made by OPNsense from browser paths and provider
 responses. The method distinguishes a live request, local evaluation of live
 Discovery metadata, current-form policy, an intentionally skipped path and a
-path that has not yet been exercised. Browser and token paths are never faked by
-the preflight: their advertised endpoints are shown, and **Test sign-in** is
-named as the action that really exercises them.
+path that has not yet been exercised. A silent `prompt=none` request may verify
+that the public Client ID and exact callback are accepted, but it neither
+authenticates a user nor exchanges a code. **Test sign-in** remains the action
+that exercises the real browser and token paths.
 
 Once Exact issuer URL, Client ID and Client Secret are present, **Connection
-health** runs the same fresh Discovery, JWKS and applicable PAR preflight with
-the current unsaved form values. It additionally checks form completeness and
-the current WebGUI transport. If PAR is not executed, the result says plainly
-that only Test sign-in can validate those client credentials during a code
-exchange.
+health** runs the same fresh Discovery, JWKS, authorization-registration and
+applicable PAR preflight with the current unsaved form values. It additionally
+checks form completeness and the current WebGUI transport. Authenticated PAR
+validates the Client ID, Client Secret and callback together. Without PAR, the
+silent authorization check can validate only the public Client ID and callback;
+the result says plainly that only Test sign-in can validate the secret during a
+real code exchange.
 
 Validated runtime caches may still bridge provider outages for bounded periods,
 but they are not presented as a live health result. Discovery may remain usable
@@ -262,7 +265,12 @@ change a local account, subject binding or group membership. It is available
 only while the saved form is unchanged; save or exactly revert edits first.
 This makes it safe to run before deciding the admission policy. The identity provider may
 still retain its own SSO session, so use a private browser window when a later
-test must begin without that provider session.
+test must begin without that provider session. Before leaving OPNsense, the test
+runs the same reduced public-registration check when possible. If the provider
+rejects the Client ID or callback there, the form shows the failure without a
+browser redirect. If it accepts authorization but rejects the confidential
+client during the token exchange, a dedicated diagnostic page explains the
+credential failure and returns to the exact saved server row.
 
 OPNsense's generic **System > Access > Tester** is built only for connectors
 which accept a username and password in one request. It always requires those

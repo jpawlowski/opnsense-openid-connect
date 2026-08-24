@@ -13,6 +13,7 @@ use OPNsense\Base\ApiControllerBase;
 use OPNsense\Core\ACL;
 use OPNsense\Core\Config;
 use OPNsense\Core\SanitizeFilter;
+use OPNsense\OpenIDConnect\ClientAuthenticationException;
 use OPNsense\OpenIDConnect\HttpClient;
 use OPNsense\OpenIDConnect\JwtVerifier;
 use OPNsense\OpenIDConnect\ProviderMetadata;
@@ -274,6 +275,9 @@ class AuthController extends ApiControllerBase
         $parameters = $this->authorizationResponse();
         $name = '';
         $purpose = 'login';
+        $target = '/system_authservers.php';
+        $settings = null;
+        $trustedTestTransaction = false;
         try {
             $transaction = RelyingParty::consumeTransaction($this->session, $parameters, $applicationCode);
             $name = (string)$transaction['provider'];
@@ -290,8 +294,19 @@ class AuthController extends ApiControllerBase
                 || !hash_equals($applicationCode, $settings->applicationCode())) {
                 throw new ProtocolException('The pending provider configuration no longer exists');
             }
+            $trustedTestTransaction = $purpose === 'test';
             $exchange = new RelyingParty($settings, $this);
             $claims = $exchange->complete($transaction, $parameters);
+        } catch (ClientAuthenticationException $e) {
+            if ($trustedTestTransaction && $settings instanceof OpenIDConnect) {
+                $settings->trace('the sign-in test token exchange rejected the saved client credentials');
+                syslog(LOG_NOTICE, sprintf(
+                    'OIDC: sign-in test for %s failed because the token endpoint rejected the client credentials',
+                    $name
+                ));
+                return $this->signInTestFailureResult($name, $target);
+            }
+            return $this->protocolFailure($name, 'the authorization response was not accepted', $e, 403);
         } catch (\Exception $e) {
             return $this->protocolFailure($name, 'the authorization response was not accepted', $e, 403);
         }
@@ -845,6 +860,60 @@ class AuthController extends ApiControllerBase
             . '</span></div></div></div><section class="details"><h2>' . $escape(gettext('Verified details'))
             . '</h2><table class="oidc-signin-results"><tbody>' . $table . '</tbody></table></section><div class="actions">'
             . '<a href="' . $escape($returnTarget) . '">' . $escape(gettext('Return to authentication servers'))
+            . '</a></div></section></main></body></html>';
+    }
+
+    /** Explain the one credential failure that a confidential client can only learn after browser authorization. */
+    private function signInTestFailureResult(string $name, string $target): string
+    {
+        if ($this->request->isPost()) {
+            header_remove('Set-Cookie');
+        }
+        $this->response->setContentType('text/html', 'UTF-8');
+        $this->response->setHeader(
+            'Content-Security-Policy',
+            "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+        );
+        $escape = static fn(string $value): string => htmlspecialchars(
+            $value,
+            ENT_QUOTES | ENT_SUBSTITUTE,
+            'UTF-8'
+        );
+        $returnTarget = preg_match(
+            '#^/system_authservers\.php(?:\?act=edit&id=(?:0|[1-9][0-9]*))?$#D',
+            $target
+        ) ? $target : '/system_authservers.php';
+
+        return '<!doctype html><html><head><meta charset="utf-8">'
+            . '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            . '<title>' . $escape(gettext('OpenID Connect sign-in test')) . '</title>'
+            . '<style>:root{color-scheme:light dark;--bg:#f3f5f7;--panel:#fff;--text:#263238;--muted:#5d6b73;'
+            . '--line:#d8dee2;--accent:#9c2f2f;--accent-bg:#fbeaea}*{box-sizing:border-box}body{margin:0;background:var(--bg);'
+            . 'color:var(--text);font:16px/1.55 system-ui,-apple-system,sans-serif}main{max-width:44rem;margin:4rem auto;padding:0 1rem}'
+            . '.panel{background:var(--panel);border:1px solid var(--line);border-radius:.7rem;box-shadow:0 .25rem 1.25rem #00000012;'
+            . 'overflow:hidden}.hero{display:flex;gap:1rem;align-items:center;padding:1.6rem;background:var(--accent-bg);'
+            . 'border-bottom:1px solid var(--line)}.mark{display:grid;place-items:center;flex:0 0 3rem;height:3rem;border-radius:50%;'
+            . 'background:var(--accent);color:#fff;font-size:1.5rem;font-weight:800}.hero h1{margin:0;color:var(--accent);font-size:1.55rem}'
+            . '.hero p{margin:.2rem 0 0;color:var(--muted)}.content{padding:1.6rem}.notice{margin:1rem 0;padding:1rem;'
+            . 'border:1px solid var(--line);border-radius:.4rem;background:var(--accent-bg)}ol{padding-left:1.3rem}li+li{margin-top:.45rem}'
+            . 'code{overflow-wrap:anywhere}a{display:inline-block;margin-top:.5rem;padding:.6rem .85rem;background:#337ab7;color:#fff;'
+            . 'text-decoration:none;border-radius:.3rem;font-weight:600}@media(max-width:600px){main{margin:1rem auto}.hero{align-items:flex-start}}'
+            . '@media(prefers-color-scheme:dark){:root{--bg:#172126;--panel:#202c32;--text:#edf2f4;--muted:#bdc9ce;'
+            . '--line:#405159;--accent:#ff8d8d;--accent-bg:#472525}}</style></head><body><main><section '
+            . 'class="panel oidc-signin-result oidc-signin-failure"><header class="hero"><span class="mark" aria-hidden="true">!</span>'
+            . '<div><h1>' . $escape(gettext('Sign-in test failed')) . '</h1><p>'
+            . $escape(gettext('The token endpoint rejected the saved client credentials.'))
+            . '</p></div></header><div class="content"><div class="notice"><strong>'
+            . $escape(gettext('No OPNsense login session was created.')) . '</strong><br>'
+            . $escape(sprintf(
+                gettext('Authentication server %s reached the provider, but its Client ID or Client Secret was refused.'),
+                $name
+            )) . '</div><p>' . $escape(gettext('To correct the saved registration:')) . '</p><ol><li>'
+            . $escape(gettext('Copy the current Client ID and Client Secret from the provider application.'))
+            . '</li><li>' . $escape(gettext('Update and save this authentication server.'))
+            . '</li><li>' . $escape(gettext('Run Connection health and then Test sign-in again.'))
+            . '</li></ol><a href="' . $escape($returnTarget) . '">'
+            . $escape(gettext('Return to authentication servers'))
             . '</a></div></section></main></body></html>';
     }
 

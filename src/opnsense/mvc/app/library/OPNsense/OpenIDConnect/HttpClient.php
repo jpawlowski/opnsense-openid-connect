@@ -62,6 +62,12 @@ class HttpClient
         return $this->request('GET', $url, null, $headers, $maxBytes);
     }
 
+    /** Return the provider's first answer so callers can inspect a front-channel redirect without following it. */
+    public function getFirstResponse(string $url, int $maxBytes, array $headers = []): HttpResponse
+    {
+        return $this->request('GET', $url, null, $headers, $maxBytes, false);
+    }
+
     public function postForm(string $url, array $fields, int $maxBytes, array $headers = []): HttpResponse
     {
         self::assertQueryParametersAbsent($url, $fields);
@@ -89,7 +95,8 @@ class HttpClient
         string $url,
         ?string $body,
         array $headers,
-        int $maxBytes
+        int $maxBytes,
+        bool $followRedirects = true
     ): HttpResponse {
         if ($maxBytes < 1) {
             throw new \InvalidArgumentException('A positive response limit is required');
@@ -106,7 +113,10 @@ class HttpClient
                 throw new ProtocolException('The provider returned an invalid or oversized HTTP response');
             }
 
-            if (!in_array($response['status'], [301, 302, 303, 307, 308], true)) {
+            if ($response['location'] !== '') {
+                $response['headers']['location'] = $response['location'];
+            }
+            if (!$followRedirects || !in_array($response['status'], [301, 302, 303, 307, 308], true)) {
                 return new HttpResponse(
                     $response['status'],
                     $response['content_type'],
