@@ -239,6 +239,8 @@ The exact endpoint matrix and the reasons for the two exceptions are recorded in
   request and a fresh proof at the token endpoint. The private P-256 key lives in
   a per-provider mode-`0600` store, rotates every 90 days and retains at most five
   retired generations for 370 days so an existing grant keeps its exact key.
+  The server-side login session freezes the opaque store binding as well as the
+  key identifier, so later client-ID edits cannot detach logout from its key.
   Server nonces are persisted per exact endpoint and, once supplied, are never
   omitted. State for removed providers is pruned only after the same retention
   window.

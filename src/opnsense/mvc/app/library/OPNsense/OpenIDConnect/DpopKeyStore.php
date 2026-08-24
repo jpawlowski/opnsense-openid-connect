@@ -20,22 +20,43 @@ final class DpopKeyStore
     private readonly string $binding;
     private readonly string $directory;
 
-    public function __construct(string $binding, ?string $directory = null, private readonly mixed $generator = null)
+    private function __construct(
+        string $bindingId,
+        ?string $directory = null,
+        private readonly mixed $generator = null
+    )
     {
-        if ($binding === '') {
-            throw new \InvalidArgumentException('A DPoP provider binding is required');
+        if (!preg_match('/^[a-f0-9]{64}$/D', $bindingId)) {
+            throw new \InvalidArgumentException('A valid DPoP provider binding identifier is required');
         }
-        $this->binding = hash('sha256', $binding);
+        $this->binding = $bindingId;
         $this->directory = $directory ?? (defined('OPENIDCONNECT_TEST_DPOP_DIRECTORY')
             ? (string)constant('OPENIDCONNECT_TEST_DPOP_DIRECTORY') : '/var/db/openid-connect/dpop');
     }
 
     public static function forSettings(OpenIDConnect $settings): self
     {
-        return new self(json_encode([
+        return self::forBinding(json_encode([
             $settings->issuerUrl(),
             $settings->clientId(),
         ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+    }
+
+    public static function forBinding(
+        string $binding,
+        ?string $directory = null,
+        mixed $generator = null
+    ): self {
+        if ($binding === '') {
+            throw new \InvalidArgumentException('A DPoP provider binding is required');
+        }
+        return new self(hash('sha256', $binding), $directory, $generator);
+    }
+
+    /** Reopen the exact namespace frozen into a server-side login session. */
+    public static function fromBindingId(string $bindingId, ?string $directory = null): self
+    {
+        return new self($bindingId, $directory);
     }
 
     public function active(?int $now = null): DpopProof

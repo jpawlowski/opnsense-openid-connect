@@ -70,10 +70,10 @@ function decodedDpop(string $proof): array
     ];
 }
 
-function dpopSettings(string $applicationCode): OPNsense\Auth\OpenIDConnect
+function dpopSettings(string $applicationCode, string $clientId = 'dpop-client'): OPNsense\Auth\OpenIDConnect
 {
     return connector([
-        'openidconnect_client_id' => 'dpop-client',
+        'openidconnect_client_id' => $clientId,
         'openidconnect_client_secret' => 'secret',
         'openidconnect_provider_url' => 'https://dpop.example.net',
         'openidconnect_redirect_urls' => 'https://firewall.example.net',
@@ -139,6 +139,23 @@ Checks::that(
     DpopKeyStore::forSettings(dpopSettings('route-before'))->bindingId(),
     DpopKeyStore::forSettings(dpopSettings('route-after'))->bindingId()
 );
+$originalClientStore = DpopKeyStore::forSettings(dpopSettings('client-binding', 'client-before'));
+$replacementClientStore = DpopKeyStore::forSettings(dpopSettings('client-binding', 'client-after'));
+Checks::that(
+    'changing the client ID selects a different provider proof-key store',
+    $originalClientStore->bindingId() !== $replacementClientStore->bindingId(),
+    true
+);
+Checks::that(
+    'a session binding reopens the provider proof-key store from before a client-ID edit',
+    DpopKeyStore::fromBindingId($originalClientStore->bindingId())->statePath(),
+    $originalClientStore->statePath()
+);
+Checks::throws(
+    'an invalid session binding cannot select a proof-key store',
+    fn() => DpopKeyStore::fromBindingId('not-a-binding'),
+    'valid DPoP provider binding identifier'
+);
 
 $rotationGeneration = 0;
 $rotationGenerator = static function (int $created) use (&$rotationGeneration): array {
@@ -156,7 +173,7 @@ $rotationGenerator = static function (int $created) use (&$rotationGeneration): 
         'public_jwk' => $public,
     ];
 };
-$rotationStore = new DpopKeyStore('rotation-retention', null, $rotationGenerator);
+$rotationStore = DpopKeyStore::forBinding('rotation-retention', null, $rotationGenerator);
 $rotationState = ['version' => 1, 'active' => $rotationGenerator(0), 'retired' => []];
 $oldestRotationKey = $rotationState['active']['id'];
 for ($rotation = 1; $rotation <= 5; $rotation++) {
@@ -198,6 +215,11 @@ $storedTransactions = json_decode(
 $storedTransaction = reset($storedTransactions);
 Checks::that('the pending login freezes the exact proof-key generation',
     $storedTransaction['dpop_key'], $dpopProof->keyId());
+Checks::that(
+    'the completed exchange exposes the exact proof-key store binding for the session',
+    $authorizationParty->getDpopBindingId(),
+    DpopKeyStore::forSettings(dpopSettings('dpop-authorization'))->bindingId()
+);
 
 $bearerController = new Controller(new Request('https', 'firewall.example.net'), new Session());
 $bearerMetadata = dpopMetadata();

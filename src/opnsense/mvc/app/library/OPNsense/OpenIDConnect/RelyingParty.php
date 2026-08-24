@@ -676,11 +676,18 @@ class RelyingParty
         $this->metadata = $metadata;
     }
 
-    /** Restore the exact proof key that sender-constrained grants in a session used. */
-    public function useDpopKey(string $keyId): void
+    /** Restore the exact proof key and store namespace that sender-constrained grants in a session used. */
+    public function useDpopKey(string $keyId, string $bindingId = ''): void
     {
         if (!preg_match('/^[A-Za-z0-9_-]{43}$/D', $keyId)) {
             throw new ProtocolException('The stored session carries an invalid DPoP proof-key identifier');
+        }
+        if ($bindingId !== '') {
+            try {
+                $this->dpopStore = DpopKeyStore::fromBindingId($bindingId);
+            } catch (\InvalidArgumentException $e) {
+                throw new ProtocolException('The stored session carries an invalid DPoP provider binding', 0, $e);
+            }
         }
         $this->dpop = $this->dpopStore->find($keyId);
     }
@@ -735,6 +742,11 @@ class RelyingParty
     public function getDpopKeyId(): string
     {
         return $this->dpop?->keyId() ?? '';
+    }
+
+    public function getDpopBindingId(): string
+    {
+        return $this->dpop === null ? '' : $this->dpopStore->bindingId();
     }
 
     /**

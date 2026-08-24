@@ -261,7 +261,7 @@ $check(
 $validated('runtime-jws-crypto');
 
 $dpopDirectory = sys_get_temp_dir() . '/openidconnect-dpop-integration-' . getmypid();
-$dpopStore = new DpopKeyStore('installed-integration', $dpopDirectory);
+$dpopStore = DpopKeyStore::forBinding('installed-integration', $dpopDirectory);
 $dpop = $dpopStore->active(1700000000);
 $dpopJwt = $dpop->proof(
     'POST',
