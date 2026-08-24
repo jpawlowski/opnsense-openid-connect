@@ -13,9 +13,8 @@ use OPNsense\Base\ApiControllerBase;
 use OPNsense\Core\Config;
 use OPNsense\OpenIDConnect\HttpClient;
 use OPNsense\OpenIDConnect\JwtVerifier;
-use OPNsense\OpenIDConnect\SecurityEventVerifier;
 use OPNsense\OpenIDConnect\SecurityEventException;
-use OPNsense\OpenIDConnect\SessionRegistry;
+use OPNsense\OpenIDConnect\SharedSignalsEventProcessor;
 use OPNsense\OpenIDConnect\SharedSignalsMetadata;
 
 /** Public RFC 8935 push receiver for signed Shared Signals events. */
@@ -56,7 +55,8 @@ class SsfController extends ApiControllerBase
             return $this->error('invalid_request', 'The request does not contain a Security Event Token.');
         }
         $resolved = $this->settingsForApplicationCode($applicationCode);
-        if ($resolved === null || !$resolved['settings']->receivesSharedSignals()) {
+        if ($resolved === null || !$resolved['settings']->receivesSharedSignals()
+            || $resolved['settings']->sharedSignalsDeliveryMethod() !== SharedSignalsMetadata::PUSH_METHOD) {
             return $this->error('access_denied', 'This receiver does not accept the transmission.');
         }
         $settings = $resolved['settings'];
@@ -64,9 +64,21 @@ class SsfController extends ApiControllerBase
             || $settings->sharedSignalsAudience() === '' || $settings->sharedSignalsIssuer() === '') {
             return $this->error('access_denied', 'This receiver does not accept the transmission.');
         }
-        $expectedAuthorization = 'Bearer ' . $settings->sharedSignalsPushSecret();
         $authorization = trim($this->request->getHeader('AUTHORIZATION'));
-        if ($authorization === '' || !hash_equals($expectedAuthorization, $authorization)) {
+        $acceptedAuthorization = array_map(
+            static fn(string $secret): string => 'Bearer ' . $secret,
+            array_filter([
+                $settings->sharedSignalsPushSecret(),
+                $settings->sharedSignalsPreviousPushSecret(),
+            ], static fn(string $secret): bool => preg_match('/^[A-Za-z0-9_-]{43}$/D', $secret) === 1)
+        );
+        if ($authorization === '' || !array_reduce(
+            $acceptedAuthorization,
+            static fn(bool $accepted, string $expected): bool => (bool)(
+                $accepted | hash_equals($expected, $authorization)
+            ),
+            false
+        )) {
             return $this->error('authentication_failed', 'The transmitter could not be authenticated.');
         }
         $set = $this->request->getRawBody();
@@ -76,6 +88,9 @@ class SsfController extends ApiControllerBase
 
         try {
             $metadata = SharedSignalsMetadata::discover($settings->sharedSignalsIssuer(), new HttpClient());
+            if (!$metadata->supportsDelivery(SharedSignalsMetadata::PUSH_METHOD)) {
+                throw new \RuntimeException('The transmitter does not advertise push delivery');
+            }
         } catch (\Throwable $e) {
             syslog(LOG_ERR, sprintf(
                 'OIDC: Shared Signals metadata for %s could not be used (%s)',
@@ -87,12 +102,11 @@ class SsfController extends ApiControllerBase
         }
 
         try {
-            $event = (new SecurityEventVerifier(new JwtVerifier(new HttpClient(), 'ssf-jwks')))->verify(
+            $event = (new SharedSignalsEventProcessor(new HttpClient()))->process(
                 $set,
-                $metadata,
-                $settings->sharedSignalsAudience(),
-                $settings->issuerUrl(),
-                $settings->providerProfile()
+                $resolved['name'],
+                $settings,
+                $metadata
             );
         } catch (SecurityEventException $e) {
             syslog(LOG_NOTICE, sprintf(
@@ -112,42 +126,11 @@ class SsfController extends ApiControllerBase
         }
 
         try {
-            if (!SessionRegistry::acceptSecurityEvent(
-                $resolved['name'],
-                $metadata->issuer(),
-                $settings->sharedSignalsAudience(),
-                $event['jti']
-            )) {
-                return $this->accepted();
-            }
-            try {
-                $count = $event['actionable'] && $event['subject_issuer'] !== null
-                    && ($event['subject'] !== null || $event['session_id'] !== null)
-                    ? SessionRegistry::terminateForSecurityEvent(
-                        $resolved['name'],
-                        $event['subject_issuer'],
-                        $event['subject'],
-                        $event['cutoff'],
-                        $event['session_id']
-                    ) : 0;
-            } catch (\Throwable $e) {
-                try {
-                    SessionRegistry::releaseSecurityEvent(
-                        $resolved['name'],
-                        $metadata->issuer(),
-                        $settings->sharedSignalsAudience(),
-                        $event['jti']
-                    );
-                } catch (\Throwable $releaseError) {
-                    syslog(LOG_ERR, 'OIDC: a Shared Signals replay marker could not be released');
-                }
-                throw $e;
-            }
             syslog(LOG_NOTICE, sprintf(
                 'OIDC: accepted Shared Signals event %s for %s; ended %d session(s)',
                 $event['event'],
                 $resolved['name'],
-                $count
+                $event['count']
             ));
             return $this->accepted();
         } catch (\Throwable $e) {
