@@ -71,8 +71,9 @@ need to go deeper.
 
 The plugin uses the Authorization Code flow, PKCE, exact issuer validation,
 asymmetric token signatures and one-time login transactions. Optional features
-such as PAR, provider-initiated logout, MFA evidence and Shared Signals stream
-management or push/poll delivery remain subject to provider support.
+such as signed JARM authorization responses, PAR, provider-initiated logout,
+MFA evidence and Shared Signals stream management or push/poll delivery remain
+subject to provider support.
 
 The generated
 [security and conformance report](docs/reference/security-and-conformance.md)

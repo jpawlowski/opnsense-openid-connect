@@ -173,8 +173,10 @@ URIs. A provider may offer only some of these fields. Follow its individual
 [provider guide](../providers/README.md).
 
 Use Authorization Code, PKCE `S256`, asymmetric token signing and exact redirect
-addresses. Do not use wildcard redirects. Public clients without a secret and
-encrypted ID Tokens are outside this plugin's supported profile.
+addresses. When JARM is selected, register a supported asymmetric authorization
+response signing algorithm and use signed Query or signed Form POST. Do not use
+wildcard redirects. Public clients without a secret, encrypted ID Tokens and
+encrypted JARM responses are outside this plugin's supported profile.
 
 ### Network directions and required reachability
 
@@ -230,7 +232,7 @@ outage but cannot replace the mandatory Token endpoint or admit an unknown key.
 
 After the server has been saved, **Test sign-in** performs the complete browser
 flow even while **Offer on the login page** remains disabled. It checks the
-authorization response, PKCE binding, code exchange, ID Token and configured
+authorization response (including JARM when selected), PKCE binding, code exchange, ID Token and configured
 claims source. The result shows the exact issuer, subject and configured
 username claim. It deliberately does not create a WebGUI login session or
 change a local account, subject binding or group membership. This makes it safe
