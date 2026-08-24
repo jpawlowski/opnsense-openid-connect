@@ -211,6 +211,12 @@ def main():
         lambda: matrix.validate_providers(live_default, standard_ids)
     ), True)
 
+    malformed_orphan = copy.deepcopy(providers)
+    malformed_orphan["providers"][0]["live_evidence"] = [{"client_secret": "must-not-be-retained"}]
+    check("every retained provider evidence record is validated", refused(
+        lambda: matrix.validate_providers(malformed_orphan, standard_ids)
+    ), True)
+
     unsupported = copy.deepcopy(providers)
     unsupported["providers"][0]["capabilities"]["login"] = "live"
     check(

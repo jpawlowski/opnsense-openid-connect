@@ -371,6 +371,21 @@ def validate_providers(data, standard_ids):
         unknown = set(provider["capabilities"]) - feature_ids
         if unknown:
             raise CatalogError(f"{provider['id']}: unknown capabilities {sorted(unknown)}")
+        all_records = provider.get("live_evidence", [])
+        if not isinstance(all_records, list):
+            raise CatalogError(f"{provider['id']}: live_evidence must be a list")
+        evidenced_features = set()
+        for record in all_records:
+            if not isinstance(record, dict):
+                raise CatalogError(f"{provider['id']}: live_evidence contains a non-object record")
+            feature_id = record.get("feature")
+            if not isinstance(feature_id, str) or feature_id not in feature_ids:
+                raise CatalogError(f"{provider['id']}: live_evidence names an unknown feature")
+            status = provider["capabilities"].get(feature_id)
+            if status not in {"live", "adapter"}:
+                raise CatalogError(f"{provider['id']}/{feature_id}: live evidence has no live or adapter cell")
+            validate_live_evidence_record(provider, feature_id, status, record)
+            evidenced_features.add(feature_id)
         for feature_id, status in provider["capabilities"].items():
             if status not in EVIDENCE:
                 raise CatalogError(f"{provider['id']}/{feature_id}: invalid evidence status {status}")
@@ -378,18 +393,8 @@ def validate_providers(data, standard_ids):
                 raise CatalogError(
                     f"{provider['id']}/{feature_id}: documented status needs an external source in its guide"
                 )
-            if status in {"live", "adapter"}:
-                all_records = provider.get("live_evidence", [])
-                if not isinstance(all_records, list):
-                    raise CatalogError(f"{provider['id']}: live_evidence must be a list")
-                records = [
-                    record for record in all_records
-                    if isinstance(record, dict) and record.get("feature") == feature_id
-                ]
-                if not records:
-                    raise CatalogError(f"{provider['id']}/{feature_id}: live status needs a retained evidence record")
-                for record in records:
-                    validate_live_evidence_record(provider, feature_id, status, record)
+            if status in {"live", "adapter"} and feature_id not in evidenced_features:
+                raise CatalogError(f"{provider['id']}/{feature_id}: live status needs a retained evidence record")
 
 
 def cell(defaults, provider, feature_id):
