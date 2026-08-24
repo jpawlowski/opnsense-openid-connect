@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import xml.etree.ElementTree as ET
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BUILD = ROOT / "packaging" / "build.py"
@@ -71,6 +72,8 @@ URL_HOST = re.compile(r"https?://([a-z0-9._-]*)", re.I)
 EXAMPLE_HOST = re.compile(r"(^|\.)(example\.(com|net|org)|example|invalid|test|localhost)$", re.I)
 PROTOCOL_HOSTS = {
     "schemas.openid.net", "goauthentik.io", "version-2026-8.goauthentik.io",
+    # Required license address in the bundled verbatim Apache-2.0 terms.
+    "www.apache.org",
     # XML namespace carried by the package-owned SVG provider marks.
     "www.w3.org",
     # Public issuers and useful public-service defaults used by named provider profiles.
@@ -193,9 +196,11 @@ def main():
         check(f"it states {key}", key in manifest and manifest[key] != "")
     check("the version is the one asked for", manifest["version"], VERSION)
     check("nothing is tied to an architecture", (manifest["abi"], manifest["arch"]), ("*", "*"))
-    check("it names its licence", manifest["annotations"].get("license"), "BSD-2-Clause")
-    check("pkg sees one native licence", manifest.get("licenselogic"), "single")
-    check("pkg sees the BSD two-clause licence", manifest.get("licenses"), ["BSD2CLAUSE"])
+    check("it names all applicable licences", manifest["annotations"].get("license"),
+          "BSD-2-Clause AND Apache-2.0")
+    check("pkg sees licences for distinct package portions", manifest.get("licenselogic"), "multi")
+    check("pkg sees the native BSD and Apache identifiers", manifest.get("licenses"),
+          ["BSD2CLAUSE", "APACHE20"])
     check("it records the runtime cryptography provider",
           manifest["annotations"].get("runtime_crypto"), "OPNsense phpseclib3")
     check("it identifies the source revision honestly",
@@ -278,6 +283,104 @@ def main():
         "ping.svg", "pocketid.svg", "slack.svg", "wso2.svg", "yahoo.svg",
         "zitadel.svg",
     })
+    apache_license_path = (
+        "/usr/local/opnsense/mvc/app/library/OPNsense/OpenIDConnect/"
+        "assets/provider-icons/LICENSE.apache-2.0"
+    )
+    apache_notice_path = (
+        "/usr/local/opnsense/mvc/app/library/OPNsense/OpenIDConnect/"
+        "assets/provider-icons/NOTICE.apache-2.0"
+    )
+    apache_license = contents.get(apache_license_path, b"").decode("utf-8", "replace")
+    apache_notice = contents.get(apache_notice_path, b"").decode("utf-8", "replace")
+    check("the package gives icon recipients the Apache 2.0 licence",
+          "Apache License\n                           Version 2.0" in apache_license, True)
+    check("the package preserves Dashboard Icons attribution",
+          "Copyright (c) 2024 Bjorn Lammers, Meier Lukas, Thomas Camlong and Homarr Labs"
+          in apache_notice, True)
+    apache_derived_icons = {
+        "apple.svg", "authelia.svg", "dex.svg", "fusionauth.svg", "gitlab.svg",
+        "google.svg", "keycloak.svg", "linkedin.svg", "okta.svg", "oracle_idcs.svg",
+        "pocketid.svg", "slack.svg", "yahoo.svg", "zitadel.svg",
+    }
+    missing_apache_notices = sorted(
+        name for name in apache_derived_icons
+        if "Apache-2.0" not in contents[
+            next(path for path in contents if path.endswith("/provider-icons/" + name))
+        ].decode("utf-8", "replace")
+    )
+    check("every modified Apache icon identifies its source licence",
+          missing_apache_notices, [])
+    branded_icons = {
+        name: contents[name].decode("utf-8", "replace")
+        for name in contents
+        if "/OPNsense/OpenIDConnect/assets/provider-icons/" in name
+        and name.endswith(".svg") and not name.endswith("/general.svg")
+    }
+    check("named provider profiles use vector brand artwork rather than letter tiles",
+          [pathlib.PurePosixPath(name).name for name, svg in branded_icons.items()
+           if "<path" not in svg or "<text" in svg], [])
+    authentik_icons = [svg for name, svg in branded_icons.items() if name.endswith("/authentik.svg")]
+    check("authentik uses its orange official mark", len(authentik_icons) == 1
+          and "#fd4b2d" in authentik_icons[0].lower(), True)
+    all_provider_icons = {
+        name: contents[name].decode("utf-8", "replace")
+        for name in contents
+        if "/OPNsense/OpenIDConnect/assets/provider-icons/" in name and name.endswith(".svg")
+    }
+    malformed_icon_geometry = []
+    visible_white_layers = []
+    for name, svg in sorted(all_provider_icons.items()):
+        try:
+            root = ET.fromstring(svg)
+            viewbox = [float(part) for part in re.split(r"[\s,]+", root.attrib.get("viewBox", "").strip())]
+        except (ET.ParseError, ValueError):
+            malformed_icon_geometry.append(pathlib.PurePosixPath(name).name)
+            continue
+        if (len(viewbox) != 4 or viewbox[2] <= 0 or viewbox[3] <= 0
+                or abs(viewbox[2] - viewbox[3]) > 0.001
+                or "width" in root.attrib or "height" in root.attrib):
+            malformed_icon_geometry.append(pathlib.PurePosixPath(name).name)
+
+        def find_visible_white(element, inside_mask=False):
+            tag = element.tag.rsplit("}", 1)[-1]
+            inside_mask = inside_mask or tag == "mask"
+            paint = " ".join([
+                element.attrib.get("fill", ""),
+                element.attrib.get("stroke", ""),
+                element.attrib.get("style", ""),
+            ])
+            if not inside_mask and re.search(
+                r"(?:^|[\s:;])(?:#fff(?:fff)?|white)(?:$|[\s;])", paint, re.I
+            ):
+                visible_white_layers.append(pathlib.PurePosixPath(name).name)
+            for child in element:
+                find_visible_white(child, inside_mask)
+
+        find_visible_white(root)
+    check("provider icon artboards share one square CSS geometry", malformed_icon_geometry, [])
+    check("light icon details are transparent mask cut-outs, not visible white layers",
+          sorted(set(visible_white_layers)), [])
+    generic_icons = [svg for name, svg in all_provider_icons.items() if name.endswith("/general.svg")]
+    check("Generic uses the official orange OpenID glyph", len(generic_icons) == 1
+          and "#f78c40" in generic_icons[0].lower() and "<text" not in generic_icons[0], True)
+    microsoft_icons = [svg for name, svg in all_provider_icons.items() if name.endswith("/entra.svg")]
+    check("Microsoft uses the official four-colour sign-in symbol", len(microsoft_icons) == 1
+          and all(colour in microsoft_icons[0].lower()
+                  for colour in ("#f25022", "#7fba00", "#00a4ef", "#ffb900")), True)
+    keycloak_icons = [svg for name, svg in all_provider_icons.items() if name.endswith("/keycloak.svg")]
+    check("Keycloak keeps an open centre in single-colour rendering", len(keycloak_icons) == 1
+          and "#4d4d4d" not in keycloak_icons[0].lower()
+          and all(colour in keycloak_icons[0].lower()
+                  for colour in ("#00b8e3", "#33c6e9", "#008aaa")), True)
+    button_styles = [contents[name].decode("utf-8", "replace") for name in contents
+                     if name.endswith("/OPNsense/OpenIDConnect/assets/login-button.css")]
+    check("every login button reserves the same 24-pixel icon column", len(button_styles) == 1
+          and re.search(
+              r"\.login-sso-mark\s*\{[^}]*width:\s*24px;[^}]*height:\s*24px;"
+              r"[^}]*flex:\s*0\s+0\s+24px;",
+              button_styles[0], re.S
+          ) is not None, True)
     unsafe_icons = []
     for name in sorted(n for n in contents if n.endswith(".svg")):
         svg = contents[name].decode("utf-8", "replace")

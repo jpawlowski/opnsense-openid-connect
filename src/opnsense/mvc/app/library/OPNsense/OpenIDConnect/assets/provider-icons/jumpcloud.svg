@@ -1,1 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img"><title>JumpCloud</title><rect x="1.5" y="1.5" width="21" height="21" rx="4" fill="none" stroke="#354052" stroke-width="1.5"/><text x="12" y="15.5" text-anchor="middle" fill="#354052" font-family="Arial,Helvetica,sans-serif" font-size="10" font-weight="700">JC</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 168 168" role="img">
+  <title>JumpCloud</title>
+  <defs>
+    <mask id="jumpcloud-cutout">
+      <circle cx="84" cy="84" r="84" fill="#fff"/>
+      <path fill="#000" transform="translate(27 56.4) scale(.68)" d="M167.627 58.455a22.705 22.705 0 0 1-22.707 22.707h-6.243c-.651-7.57-8.461-14.005-19.501-16.994a19.72 19.72 0 0 0 4.394-21.52 19.72 19.72 0 0 0-18.243-12.235 19.718 19.718 0 0 0-13.848 33.755 34.3 34.3 0 0 0-14.246 7.231 34.3 34.3 0 0 0-8.268-3.398 16.874 16.874 0 1 0-23.623 0C36.64 70.41 30.3 75.232 28.95 81.065h-6.243a22.731 22.731 0 0 1 0-45.438c2.89.01 5.753.567 8.437 1.64A22.66 22.66 0 0 1 51.85 24.08h1.64a29.601 29.601 0 0 1 54.429-9.642 24.1 24.1 0 0 1 21.003 3.439 24.11 24.11 0 0 1 10.092 18.738 22.66 22.66 0 0 1 28.613 21.935z"/>
+    </mask>
+  </defs>
+  <circle cx="84" cy="84" r="84" fill="#002b49" mask="url(#jumpcloud-cutout)"/>
+</svg>

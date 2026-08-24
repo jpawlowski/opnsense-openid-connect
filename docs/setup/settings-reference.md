@@ -79,9 +79,9 @@ prevents a typo from delegating every firewall privilege.
 | Login button wording | the localized OPNsense login sentence for Generic and installation-specific providers; the familiar short provider name for fixed global services | omit the sentence and show only an installation-specific provider label, or deliberately use one exact custom full text |
 | Provider label on login button | Descriptive name; available for Generic, self-hosted and tenant-specific profiles | the name users should see differs from the technical authentication-server name; it remains compatible with the localized OPNsense sentence |
 | Custom login button text | Empty; shown only for Custom full text | one literal complete wording should replace both the localized sentence and provider label for every WebGUI language |
-| Icon URL | every profile selects a package-owned SVG; Generic uses a neutral OIDC mark | replace it with a local theme asset, image data URI or public HTTPS image for installation-specific branding; a remote image is fetched through the firewall rather than by the login browser |
+| Icon URL | every named profile selects its real package-owned brand SVG; Generic uses the official OpenID mark | replace it with a local theme asset, image data URI or public HTTPS image for installation-specific branding; a remote image is fetched through the firewall rather than by the login browser |
 | Icon markup | Empty | supported built-in markup is used; it takes precedence over Icon URL |
-| Icon rendering | Single colour | use Original colours for a multicolour logo or one with a filled background |
+| Icon rendering | Single colour | choose Original colours when the provider's brand colours are preferred; bundled marks use real transparent cut-outs, while a custom icon must not simulate them with opaque white shapes |
 
 The localized mode deliberately reuses the exact sentence translated by
 OPNsense core. A custom full text cannot be translated automatically because it
