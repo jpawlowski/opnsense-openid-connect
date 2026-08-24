@@ -13,6 +13,7 @@ use OPNsense\Auth\OpenIDConnect;
 final class ParClient
 {
     public const MAX_BYTES = 262144;
+    private bool $credentialsExercised = false;
 
     public function __construct(private readonly OpenIDConnect $settings, private readonly HttpClient $http)
     {
@@ -21,8 +22,12 @@ final class ParClient
     /** @param array<string,string> $parameters */
     public function push(ProviderMetadata $metadata, string $endpoint, array $parameters): string
     {
+        $this->credentialsExercised = false;
         $headers = ['Accept: application/json'];
         $this->authenticate($metadata, $parameters, $headers);
+        // A metadata refusal above never exposed the credentials to transport; from this point the authenticated
+        // request is attempted even when the provider or network rejects it.
+        $this->credentialsExercised = true;
         $response = $this->http->postForm($endpoint, $parameters, self::MAX_BYTES, $headers);
         if ($response->status === 429 || $response->status >= 500) {
             throw new ProviderUnavailableException(
@@ -58,6 +63,11 @@ final class ParClient
             throw new ProtocolException('The pushed authorization request endpoint returned no valid expiry');
         }
         return $requestUri;
+    }
+
+    public function credentialsExercised(): bool
+    {
+        return $this->credentialsExercised;
     }
 
     public function probe(ProviderMetadata $metadata, string $redirectUri): void

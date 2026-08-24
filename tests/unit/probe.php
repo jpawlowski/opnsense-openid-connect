@@ -161,6 +161,43 @@ $readiness = ProviderProbe::healthReadiness($complete);
 Checks::that('health checks current client completeness', $readiness[0]['status'], 'success');
 $credentials = ProviderProbe::credentialsCheck($par);
 Checks::that('health says when PAR exercised client credentials', $credentials['verification'], 'live');
+$unsupportedProvider = array_replace($provider, [
+    'token_endpoint_auth_methods_supported' => ['client_secret_basic'],
+]);
+$unsupportedRequests = [];
+$unsupportedTransport = static function (
+    string $method,
+    string $url,
+    ?string $body,
+    array $headers
+) use (&$unsupportedRequests, $issuer, $unsupportedProvider): array {
+    $unsupportedRequests[] = compact('method', 'url', 'body', 'headers');
+    if ($url === $issuer . '/.well-known/openid-configuration') {
+        return jsonAnswer($unsupportedProvider);
+    }
+    if ($url === $issuer . '/keys') {
+        return jsonAnswer(['keys' => [[
+            'kty' => 'RSA',
+            'kid' => 'probe-key',
+            'use' => 'sig',
+            'alg' => 'RS256',
+            'n' => 'AQAB',
+            'e' => 'AQAB',
+        ]]]);
+    }
+    throw new RuntimeException('The unsupported authentication method must fail before PAR transport');
+};
+$unsupportedChecks = (new ProviderProbe(new HttpClient($unsupportedTransport, true)))->checks(
+    $complete,
+    'https://firewall.example.net/api/openidconnect/auth/callback/main'
+);
+$unsupportedPar = $unsupportedChecks[array_key_last($unsupportedChecks)];
+Checks::that('an unsupported authentication method fails before the PAR request', count($unsupportedRequests), 2);
+Checks::that(
+    'a pre-transport PAR failure does not report credentials as exercised',
+    ProviderProbe::credentialsCheck($unsupportedPar)['verification'],
+    'not-tested'
+);
 $answer = ProviderProbe::answer(
     array_merge($readiness, $completeChecks, [$credentials]),
     'accepted',

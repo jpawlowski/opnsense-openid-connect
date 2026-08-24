@@ -134,7 +134,7 @@ final class ProviderProbe
     /** @return array<string,mixed> */
     public static function credentialsCheck(array $par): array
     {
-        if (($par['verification'] ?? '') === 'live') {
+        if (($par['credentials_exercised'] ?? false) === true) {
             return self::check(
                 gettext('Client credentials'),
                 gettext('Exercised by PAR'),
@@ -449,10 +449,11 @@ final class ProviderProbe
             );
         }
         $key = ProviderRuntimeState::parKey($settings, $metadata);
+        $client = new ParClient($settings, $this->http);
         try {
-            (new ParClient($settings, $this->http))->probe($metadata, $redirectUri);
+            $client->probe($metadata, $redirectUri);
             ProviderRuntimeState::parAvailable($key);
-            return self::check(
+            $check = self::check(
                 gettext('PAR endpoint'),
                 gettext('Live authenticated request accepted'),
                 'success',
@@ -463,10 +464,12 @@ final class ProviderProbe
                 ['opnsense', 'idp'],
                 'live'
             );
+            $check['credentials_exercised'] = $client->credentialsExercised();
+            return $check;
         } catch (ProviderUnavailableException $error) {
             if ($mode === 'auto' && !$required) {
                 ProviderRuntimeState::parUnavailable($key, $error->retryAfter());
-                return self::check(
+                $check = self::check(
                     gettext('PAR endpoint'),
                     gettext('Temporarily unavailable; bypass active'),
                     'warning',
@@ -474,8 +477,10 @@ final class ProviderProbe
                     ['opnsense', 'idp'],
                     'live'
                 );
+                $check['credentials_exercised'] = $client->credentialsExercised();
+                return $check;
             }
-            return self::check(
+            $check = self::check(
                 gettext('PAR endpoint'),
                 gettext('Live check failed'),
                 'error',
@@ -483,9 +488,11 @@ final class ProviderProbe
                 ['opnsense', 'idp'],
                 'live'
             );
+            $check['credentials_exercised'] = $client->credentialsExercised();
+            return $check;
         } catch (\Throwable $error) {
             ProviderRuntimeState::parHardFailure($key);
-            return self::check(
+            $check = self::check(
                 gettext('PAR endpoint'),
                 gettext('Live check failed'),
                 'error',
@@ -493,6 +500,8 @@ final class ProviderProbe
                 ['opnsense', 'idp'],
                 'live'
             );
+            $check['credentials_exercised'] = $client->credentialsExercised();
+            return $check;
         }
     }
 
