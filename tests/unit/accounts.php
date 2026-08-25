@@ -25,6 +25,28 @@ function accountConnector(array $settings): OPNsense\Auth\OpenIDConnect
     return connector($settings + ['openidconnect_bootstrap_mode' => 'either']);
 }
 
+/** @return string[] exact UIDs stored on one local group */
+function membersOf(string $name): array
+{
+    foreach (Directory::$groups as $group) {
+        if ((string)($group->name ?? '') === $name) {
+            return array_values(array_filter(explode(',', implode(',', (array)($group->member ?? [])))));
+        }
+    }
+    return [];
+}
+
+/** Replace one test group's membership as if another administrator had saved it. */
+function setMembersOf(string $name, array $members): void
+{
+    foreach (Directory::$groups as $group) {
+        if ((string)($group->name ?? '') === $name) {
+            $group->member = implode(',', $members);
+            return;
+        }
+    }
+}
+
 Checks::group('Which local account a login is');
 
 directory($ok);
@@ -278,6 +300,7 @@ Checks::that('approval consumes the pending request', $approval->pendingApproval
 
 Checks::group('Administrator-managed local account creation');
 directory($ok);
+Directory::addGroup(['name' => 'Admins']);
 $accountManager = connector(['openidconnect_bootstrap_mode' => 'strict']);
 $managedAccount = $accountManager->createManagedAccount('new-local-account');
 Checks::that('an administrator can create a local account independently of first-login provisioning',
@@ -288,13 +311,23 @@ Checks::that('the newly returned uid can be bound without another account lookup
     $accountManager->createSubjectBinding(
         'https://id.example.net',
         'new-local-subject',
-        (string)($managedAccount['uid'] ?? '')
+        (string)($managedAccount['uid'] ?? ''),
+        ['Admins'],
+        []
     ), true);
+Checks::that('selected existing groups are applied with the new account binding', membersOf('Admins'), ['1001']);
+Checks::that('the native account synchronization is requested after membership changes', Recorder::$backendCalls[1],
+    ['event' => 'auth user changed', 'params' => ['new-local-account']]);
+Checks::that('the native account synchronization runs after the configuration lock is released',
+    Recorder::$backendLockStates[1] ?? null, false);
 Checks::that('the new account resolves through its durable binding',
     $accountManager->localAccountFor(claims(['sub' => 'new-local-subject'])), 'new-local-account');
 Checks::that('the managed creation path never reuses an existing local account',
     $accountManager->createManagedAccount('new-local-account'), null);
-Checks::that('reusing an account does not ask configd a second time', count(Recorder::$backendCalls), 1);
+Checks::that('reusing an account does not ask configd to add it a second time', count(array_filter(
+    Recorder::$backendCalls,
+    static fn(array $call): bool => $call['event'] === 'auth add user'
+)), 1);
 
 directory();
 Directory::$creationWorks = false;
@@ -303,6 +336,8 @@ Checks::that('a refused native account creation cannot yield a managed account',
 
 Checks::group('Administrator-managed identity bindings');
 directory($ok, ['name' => 'anna', 'email' => 'anna@example.net']);
+Directory::addGroup(['name' => 'Viewers', 'member' => [(string)Directory::$users[0]->uid]]);
+Directory::addGroup(['name' => 'Admins', 'member' => [(string)Directory::$users[1]->uid]]);
 $manager = connector(['openidconnect_bootstrap_mode' => 'strict']);
 $issuer = 'https://id.example.net';
 Checks::that('an administrator can add an exact subject binding without editing raw text',
@@ -314,8 +349,12 @@ Checks::that('the identity manager lists issuer, subject and resolved local acco
     $managedBindings[0]['account'] ?? '',
     $managedBindings[0]['canonical'] ?? false,
 ], [$issuer, 'manual-subject', 'mikah', true]);
+Checks::that('the identity manager lists the selected account memberships',
+    $managedBindings[0]['groups'] ?? [], ['Viewers']);
 Checks::that('an already bound local account is absent from new-binding choices',
     array_column($manager->approvableAccounts(), 'name'), ['anna']);
+Checks::that('an eligible existing account carries its memberships into the picker',
+    $manager->approvableAccounts()[0]['groups'] ?? [], ['Admins']);
 Checks::that('a second identity cannot be assigned to the same local account',
     $manager->createSubjectBinding($issuer, 'another-subject', (string)Directory::$users[0]->uid), false);
 Checks::that('the manually bound exact subject signs in under strict admission',
@@ -338,6 +377,57 @@ Checks::that('a removed identity is refused by strict admission',
 Checks::that('a manual binding cannot name a different issuer',
     $manager->createSubjectBinding('https://lookalike.example.net', 'subject',
         (string)Directory::$users[0]->uid), false);
+
+Checks::group('Administrator-selected local groups');
+directory($ok, ['name' => 'anna', 'email' => 'anna@example.net']);
+Directory::addGroup(['name' => 'Operators', 'member' => ['65000']]);
+Directory::addGroup(['name' => 'Admins', 'member' => [(string)Directory::$users[0]->uid]]);
+$groupManager = connector(['openidconnect_bootstrap_mode' => 'strict']);
+Checks::that('only existing local groups are offered in stable display order',
+    $groupManager->manageableGroups(), ['Admins', 'Operators']);
+$groupAccounts = array_column($groupManager->approvableAccounts(), null, 'name');
+Checks::that('an existing account starts with its current memberships selected',
+    $groupAccounts['mikah']['groups'] ?? [], ['Admins']);
+Checks::that('one or more selected groups are saved with a binding',
+    $groupManager->createSubjectBinding($issuer, 'group-subject', (string)Directory::$users[1]->uid,
+        ['Admins', 'Operators'], []), true);
+Checks::that('the membership comparison explicitly reloads after taking the configuration lock',
+    OPNsense\Core\Config::getInstance()->lastLockReload, true);
+Checks::that('adding one account preserves every other group member', membersOf('Admins'), ['1000', '1001']);
+Checks::that('membership is also added to a second selected group', membersOf('Operators'), ['65000', '1001']);
+Checks::that('a conflicting binding cannot apply its requested membership changes',
+    $groupManager->createSubjectBinding($issuer, 'group-subject', (string)Directory::$users[0]->uid,
+        ['Operators'], ['Admins']), false);
+Checks::that('the rejected binding leaves that account in its original group', membersOf('Admins'), ['1000', '1001']);
+$groupBinding = $groupManager->subjectBindingRecords()[0] ?? [];
+Checks::that('saved memberships are returned with the binding',
+    $groupBinding['groups'] ?? [], ['Admins', 'Operators']);
+setMembersOf('Admins', ['1000']);
+Checks::that('a stale complete selection cannot undo a concurrent membership removal',
+    $groupManager->updateSubjectBinding((string)($groupBinding['id'] ?? ''), $issuer, 'group-subject',
+        (string)Directory::$users[1]->uid, ['Operators'], ['Admins', 'Operators']), false);
+Checks::that('the concurrent membership removal remains in force', membersOf('Admins'), ['1000']);
+setMembersOf('Admins', ['1000', '1001']);
+Checks::that('saving a smaller selection removes only this account from deselected groups',
+    $groupManager->updateSubjectBinding((string)($groupBinding['id'] ?? ''), $issuer, 'group-subject',
+        (string)Directory::$users[1]->uid, ['Operators'], ['Admins', 'Operators']), true);
+Checks::that('the other account remains in the deselected group', membersOf('Admins'), ['1000']);
+Checks::that('an unknown group is refused without changing the saved selection',
+    $groupManager->updateSubjectBinding((string)($groupBinding['id'] ?? ''), $issuer, 'group-subject',
+        (string)Directory::$users[1]->uid, ['Missing'], ['Operators']), false);
+Checks::that('the last valid membership remains after the refusal', membersOf('Operators'), ['65000', '1001']);
+Checks::that('selecting no group is valid',
+    $groupManager->updateSubjectBinding((string)($groupBinding['id'] ?? ''), $issuer, 'group-subject',
+        (string)Directory::$users[1]->uid, [], ['Operators']), true);
+Checks::that('an empty selection removes this account from every local group', membersOf('Operators'), ['65000']);
+OPNsense\Core\Config::$lockHook = static function (): void {
+    Directory::$users[1]->disabled = '1';
+};
+Checks::that('an account disabled while the editor was open is revalidated after the locked reload',
+    $groupManager->updateSubjectBinding((string)($groupBinding['id'] ?? ''), $issuer, 'group-subject',
+        (string)Directory::$users[1]->uid, ['Operators'], []), false);
+Checks::that('the refused stale save grants no group to the newly disabled account', membersOf('Operators'), ['65000']);
+Directory::$users[1]->disabled = '';
 
 $entraManager = connector([
     'openidconnect_provider_profile' => 'entra',
