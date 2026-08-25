@@ -70,7 +70,10 @@ class HttpClient
     /** Return the provider's first answer so callers can inspect a front-channel redirect without following it. */
     public function getFirstResponse(string $url, int $maxBytes, array $headers = []): HttpResponse
     {
-        return $this->request('GET', $url, null, $headers, $maxBytes, null, false);
+        /* The authorization response body is neither trusted nor inspected. Discarding it
+         * lets a useful status survive a proxy's large branded error page without placing
+         * that unbounded page in memory. */
+        return $this->request('GET', $url, null, $headers, $maxBytes, null, false, false);
     }
 
     public function postForm(
@@ -108,7 +111,8 @@ class HttpClient
         array $headers,
         int $maxBytes,
         ?ClientCertificate $clientCertificate = null,
-        bool $followRedirects = true
+        bool $followRedirects = true,
+        bool $captureBody = true
     ): HttpResponse {
         if ($maxBytes < 1) {
             throw new \InvalidArgumentException('A positive response limit is required');
@@ -123,7 +127,8 @@ class HttpClient
                 $body,
                 $headers,
                 $maxBytes,
-                $clientCertificate
+                $clientCertificate,
+                $captureBody
             );
             if (!is_int($response['status']) || $response['status'] < 0 || $response['status'] > 599
                 || !is_string($response['body']) || strlen($response['body']) > $maxBytes
@@ -182,7 +187,8 @@ class HttpClient
         ?string $postBody,
         array $headers,
         int $maxBytes,
-        ?ClientCertificate $clientCertificate = null
+        ?ClientCertificate $clientCertificate = null,
+        bool $captureBody = true
     ): array {
         if ($this->transport !== null) {
             $answer = ($this->transport)(
@@ -197,7 +203,11 @@ class HttpClient
                 throw new ProtocolException('The test transport returned no response');
             }
 
-            return $answer + ['status' => 0, 'content_type' => '', 'body' => '', 'location' => '', 'headers' => []];
+            $answer += ['status' => 0, 'content_type' => '', 'body' => '', 'location' => '', 'headers' => []];
+            if (!$captureBody) {
+                $answer['body'] = '';
+            }
+            return $answer;
         }
 
         $received = '';
@@ -235,7 +245,14 @@ class HttpClient
 
                 return strlen($line);
             },
-            CURLOPT_WRITEFUNCTION => static function ($handle, string $chunk) use (&$received, $maxBytes): int {
+            CURLOPT_WRITEFUNCTION => static function ($handle, string $chunk) use (
+                &$received,
+                $maxBytes,
+                $captureBody
+            ): int {
+                if (!$captureBody) {
+                    return strlen($chunk);
+                }
                 if (strlen($received) + strlen($chunk) > $maxBytes) {
                     return 0;
                 }

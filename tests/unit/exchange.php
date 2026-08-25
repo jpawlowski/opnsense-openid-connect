@@ -530,6 +530,16 @@ $firstRedirect = (new HttpClient(function () use (&$firstRedirectCalls): array {
 Checks::that('a front-channel probe retains the first redirect location',
     $firstRedirect->headers['location'], 'https://id.example.net/callback?state=opaque');
 Checks::that('a front-channel probe never follows the provider redirect', $firstRedirectCalls, 1);
+$largeFirstResponse = (new HttpClient(static fn(): array => [
+    'status' => 400,
+    'content_type' => 'text/html',
+    'body' => str_repeat('branded provider error', 4096),
+    'location' => '',
+]))->getFirstResponse('https://id.example.net/authorize', 65536);
+Checks::that('a front-channel probe discards an unused oversized error body', [
+    $largeFirstResponse->status,
+    $largeFirstResponse->body,
+], [400, '']);
 Checks::throws(
     'a redirect cannot downgrade transport security',
     fn() => (new HttpClient(fn() => [

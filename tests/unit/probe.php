@@ -540,6 +540,48 @@ Checks::that('health results remain secret-free', str_contains(
     json_encode($answer, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
     $secret
 ), false);
+$authorizationFailureProvider = array_replace($provider, [
+    'pushed_authorization_request_endpoint' => null,
+]);
+unset($authorizationFailureProvider['pushed_authorization_request_endpoint']);
+$authorizationFailureTransport = static function (string $method, string $url) use (
+    $issuer,
+    $authorizationFailureProvider
+): array {
+    if ($url === $issuer . '/.well-known/openid-configuration') {
+        return jsonAnswer($authorizationFailureProvider);
+    }
+    if ($url === $issuer . '/keys') {
+        return jsonAnswer(['keys' => [[
+            'kty' => 'RSA',
+            'kid' => 'probe-key',
+            'use' => 'sig',
+            'alg' => 'RS256',
+            'n' => JwtVerifier::base64UrlEncode("\x80" . str_repeat("\x01", 255)),
+            'e' => 'AQAB',
+        ]]]);
+    }
+    throw new RuntimeException('authorization transport failed');
+};
+$authorizationFailureSettings = ProviderProbe::settings([
+    'openidconnect_provider_url' => $issuer,
+    'openidconnect_client_id' => 'diagnostic-client',
+    'openidconnect_client_secret' => $secret,
+    'openidconnect_par_mode' => 'disabled',
+    'openidconnect_response_mode' => 'query',
+]);
+$authorizationFailureChecks = (new ProviderProbe(
+    new HttpClient($authorizationFailureTransport, true)
+))->checks($authorizationFailureSettings, 'https://firewall.example.net/api/openidconnect/auth/callback/main');
+Checks::that('an authorization transport failure remains attributed to registration',
+    probeRow($authorizationFailureChecks, 'Authorization registration'), [
+        'label' => 'Authorization registration',
+        'value' => 'Live check failed',
+        'status' => 'error',
+        'note' => 'authorization transport failed',
+        'actors' => ['opnsense', 'idp'],
+        'verification' => 'live',
+    ]);
 $jarm = ProviderProbe::settings([
     'openidconnect_provider_url' => $issuer,
     'openidconnect_provider_profile' => 'general',

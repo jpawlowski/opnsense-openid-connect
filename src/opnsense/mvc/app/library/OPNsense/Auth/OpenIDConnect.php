@@ -548,9 +548,10 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'name' => gettext('WebGUI address policy'),
                 'help' => gettext(
                     'Following OPNsense automatically uses its hostname and domain, short hostname, alternate ' .
-                    'hostnames, local interface addresses and virtual IPs when the WebGUI itself uses HTTPS. ' .
-                    'The current accepted browser address is shown first. Choose Custom for provider-specific ' .
-                    'restrictions, a reverse proxy or an external port OPNsense does not know.'
+                    'hostnames, local interface addresses and virtual IPs when the WebGUI itself uses HTTPS. Every ' .
+                    'inherited address keeps the configured WebGUI port. The current accepted browser address is ' .
+                    'shown first. Choose Custom for provider-specific restrictions, a reverse proxy or an external ' .
+                    'port OPNsense does not know.'
                 ),
                 'type' => 'dropdown',
                 'default' => 'opnsense',
