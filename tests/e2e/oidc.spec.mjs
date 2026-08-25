@@ -133,7 +133,21 @@ async function configureServer(page) {
   expect(new Set((await diagnosticButtons.evaluateAll(buttons => (
     buttons.map(button => Math.round(button.getBoundingClientRect().top))
   )))).size).toBe(1);
-  await expect(page.locator('.oidc-endpoints')).toBeVisible({ timeout: 15_000 });
+  const endpoints = page.locator('.oidc-endpoints');
+  await expect(endpoints).toBeVisible({ timeout: 15_000 });
+  await expect(endpoints.locator('.oidc-endpoint-row')).toHaveCount(4);
+  await expect(endpoints.getByRole('button', { name: /^Copy / })).toHaveCount(4);
+  const firstEndpointValue = await endpoints.locator('[data-oidc-endpoint="0"]').textContent();
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: value => { window.__oidcCopiedEndpoint = value; return Promise.resolve(); } },
+    });
+  });
+  const firstEndpointCopy = endpoints.getByRole('button', { name: /^Copy / }).first();
+  await firstEndpointCopy.click();
+  await expect(firstEndpointCopy).toContainText('Copied');
+  expect(await page.evaluate(() => window.__oidcCopiedEndpoint)).toBe(firstEndpointValue);
   await expect(page.locator('input[name="openidconnect_tls_offloading"]')
     .locator('xpath=ancestor::tr')).toBeHidden();
   await expect(page.locator('input[name="openidconnect_max_age"]')).toHaveValue('14400');
@@ -201,9 +215,17 @@ async function configureServer(page) {
   await expect(buttonTextMode.locator('xpath=ancestor::tr')).toBeHidden();
   await expect(buttonProviderLabel.locator('xpath=ancestor::tr')).toBeHidden();
   await expect(customButtonText.locator('xpath=ancestor::tr')).toBeHidden();
+  const restoreProfile = page.getByRole('button', { name: 'Restore profile defaults' });
+  await expect(restoreProfile).toBeDisabled();
   await page.locator('input[name="openidconnect_username_claim"]').fill('sub');
-  await page.getByRole('button', { name: 'Restore profile defaults' }).click();
+  await expect(restoreProfile).toBeEnabled();
+  await restoreProfile.click();
+  const restoreDialog = page.getByRole('dialog', { name: 'Restore profile defaults' });
+  await expect(restoreDialog).toContainText('Replace edited values');
+  await expect(page.locator('input[name="openidconnect_username_claim"]')).toHaveValue('sub');
+  await restoreDialog.getByRole('button', { name: 'OK' }).click();
   await expect(page.locator('input[name="openidconnect_username_claim"]')).toHaveValue('email');
+  await expect(restoreProfile).toBeDisabled();
   await selectNative(providerProfile, 'orcid');
   await expect(issuerField).toHaveValue('https://orcid.org');
   await expect(page.locator('input[name="openidconnect_scopes"]')).toHaveValue('openid');

@@ -1637,10 +1637,10 @@ class OpenIDConnect extends Base implements IAuthConnector
             )),
             'profileAppliedLabel' => gettext('Provider defaults applied'),
             'profileAppliedHelp' => gettext(
-                'Recommended values are filled in but remain editable. Values the selected provider fixes are ' .
-                'locked here and enforced during sign-in. Client ID, Client Secret and a tenant-specific issuer ' .
-                'still have to come from the provider.'
+                'Recommended values stay editable. Fixed values are locked and enforced during sign-in. Client ID, ' .
+                'Client Secret and any tenant-specific issuer still come from the provider.'
             ),
+            'profileGenericLabel' => gettext('Generic provider profile'),
             'profileGenericHelp' => gettext(
                 'Generic OpenID Connect makes no provider-specific assumptions. Existing values remain editable.'
             ),
@@ -1651,6 +1651,9 @@ class OpenIDConnect extends Base implements IAuthConnector
             'profileUnsupportedLabel' => gettext('Not supported by the selected provider profile'),
             'profileRequiredLabel' => gettext('Enter the value issued by this provider'),
             'profileRestoreLabel' => gettext('Restore profile defaults'),
+            'profileRestoreConfirm' => gettext(
+                'Replace edited values with the defaults for the selected provider profile?'
+            ),
             'testLabel' => gettext('Test discovery'),
             'testingLabel' => gettext('Testing...'),
             'discoveryAccepted' => gettext('Discovery document accepted'),
@@ -1975,6 +1978,11 @@ class OpenIDConnect extends Base implements IAuthConnector
             'opnsenseStandardHttpsOrigins' => $this->opnsenseStandardHttpsHostnameOrigins(),
             'webGuiPort' => $this->opnsenseWebGuiPort(),
             'endpointLabel' => gettext('Provider endpoint reference'),
+            'endpointCopyLabel' => gettext('Copy'),
+            'endpointCopiedLabel' => gettext('Copied'),
+            'endpointCopyFailed' => gettext(
+                'This URI could not be copied. Select it and copy it manually.'
+            ),
             'noEndpointOrigin' => gettext(
                 'No accepted HTTPS WebGUI origin is available. Check the WebGUI address policy and origins.'
             ),
