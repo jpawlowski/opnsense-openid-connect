@@ -317,6 +317,14 @@ def publish_mirrored(numbers, body, identifier, token, values_by_pull, replace_i
                 for item in matching_comments(values_by_pull.get(number, []), replaced_id)
             ]
             if same_state:
+                if update_existing and any(
+                    pr_coordination.without_hash_number_references(comment.get("body"))
+                    != pr_coordination.without_hash_number_references(body)
+                    for comment, _record in same_state
+                ):
+                    raise RuntimeError(
+                        f"coordination id {identifier} has inconsistent mirrored content on #{number}"
+                    )
                 matching = [
                     comment for comment, _record in same_state if str(comment.get("body") or "") == body
                 ]
@@ -470,7 +478,7 @@ def fulfill_locked(arguments, token):
     load_target_comments(values_by_pull, targets, token)
     record = recorded_publication(values_by_pull, arguments.id)
     body = pr_coordination.render_fulfilled(record, language=arguments.language)
-    urls = publish_mirrored(targets, body, record["id"], token, values_by_pull)
+    urls = publish_mirrored(targets, body, record["id"], token, values_by_pull, update_existing=True)
     print(f"fulfilled coordination {record['id']}")
     for url in urls:
         print(url)

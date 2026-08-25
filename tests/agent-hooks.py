@@ -1578,6 +1578,19 @@ module.update_registry(repository, update)
     check("a resumed legacy recommendation updates its old copy before filling missing targets",
           (updated_resume_comments, published_paths),
           ([(5, sanitized_body)], ["issues/57/comments"]))
+    inconsistent_resume = resumable_body.replace("same file", "different contract")
+    updated_resume_comments.clear()
+    try:
+        publisher.publish_mirrored(
+            [42], sanitized_body, resumable_record["id"], "token",
+            {42: [dict(existing[42][0], body=inconsistent_resume)]}, update_existing=True,
+        )
+        inconsistent_resume_error = ""
+    except RuntimeError as error:
+        inconsistent_resume_error = str(error)
+    check("a resumed publication rejects a late target with inconsistent visible content",
+          (updated_resume_comments, "may be partially published" in inconsistent_resume_error),
+          ([], True))
     check("a replacement is mirrored to old-only and new-only pull requests",
           publisher.publication_targets(
               [57, 63], [{"id": "old-order", "order": [42, 57]}], {"old-order"},
@@ -1645,6 +1658,21 @@ module.update_registry(repository, update)
     updated_comments.clear()
     published_paths.clear()
     fulfilled_body = coordination.render_fulfilled(replacement)
+    legacy_fulfilled_body = (
+        fulfilled_body.replace("PR 42", "#42").replace("PR 57", "#57").replace("PR 63", "#63")
+    )
+    publisher.publish_mirrored(
+        [42, 57], fulfilled_body, replacement["id"], "token",
+        {
+            42: [{"id": 1, "body": legacy_fulfilled_body, "author_association": "OWNER"}],
+            57: [],
+        },
+        update_existing=True,
+    )
+    check("a legacy fulfilled publication updates its old copy and reaches missing targets",
+          (updated_comments, published_paths), ([1], ["issues/57/comments"]))
+    updated_comments.clear()
+    published_paths.clear()
     publisher.publish_mirrored(
         [42], fulfilled_body, replacement["id"], "token",
         {42: [{"id": 1, "body": replacement_body, "author_association": "OWNER"}]},
@@ -1758,13 +1786,13 @@ module.update_registry(repository, update)
         int(pull["number"]): publisher.comments(int(pull["number"]), token) for pull in pulls
     }
     fulfillment_publication = []
-    publisher.publish_mirrored = lambda numbers, _body, identifier, _token, values: (
-        fulfillment_publication.append((numbers, identifier, sorted(values))) or []
+    publisher.publish_mirrored = lambda numbers, _body, identifier, _token, values, **keywords: (
+        fulfillment_publication.append((numbers, identifier, sorted(values), keywords)) or []
     )
     publisher.fulfill(SimpleNamespace(id="57-63-order", language="en"))
     check("fulfillment reaches and loads every recorded replacement target",
           (fulfillment_reads, fulfillment_publication),
-          ([57, 63, 42], [([42, 57, 63], "57-63-order", [42, 57, 63])]))
+          ([57, 63, 42], [([42, 57, 63], "57-63-order", [42, 57, 63], {"update_existing": True})]))
 
     closed_fulfillment = {
         "id": "57-63-1787590804-123abc", "order": [57, 63], "state": "final",
@@ -1790,13 +1818,15 @@ module.update_registry(repository, update)
         closed_fulfillment_reads.append(number) or closed_fulfillment_comments[number]
     )
     closed_fulfillment_publications = []
-    publisher.publish_mirrored = lambda numbers, _body, identifier, _token, values: (
-        closed_fulfillment_publications.append((numbers, identifier, sorted(values))) or []
+    publisher.publish_mirrored = lambda numbers, _body, identifier, _token, values, **keywords: (
+        closed_fulfillment_publications.append((numbers, identifier, sorted(values), keywords)) or []
     )
     publisher.fulfill_locked(SimpleNamespace(id=closed_fulfillment["id"], language="en"), "token")
     check("fulfillment resumes from closed fulfilled originals and reaches the remaining final target",
           (closed_fulfillment_reads, closed_fulfillment_publications),
-          ([57, 63, 42], [([57, 63, 42], closed_fulfillment["id"], [42, 57, 63])]))
+          ([57, 63, 42], [(
+              [57, 63, 42], closed_fulfillment["id"], [42, 57, 63], {"update_existing": True},
+          )]))
 
     group("Codex review requests leave one temporary trigger and preserve review evidence")
     review_requests = load_agent_module(
