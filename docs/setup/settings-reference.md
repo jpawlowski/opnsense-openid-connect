@@ -190,7 +190,8 @@ logout path needs Test sign-in. Optional capabilities absent from Discovery appe
 in a separate **Not offered by the provider** section; a missing capability required
 by the current form remains under **Readiness** as attention or failure. The browser
 does not need to reach Discovery. Test sign-in becomes available after the server has first been saved,
-is complete and has no unsaved changes. It may be used while the provider
+is complete and has no unsaved changes. Its disabled-state tooltip names the missing requirement, and
+**Revert changes** beside **Save** restores the complete saved form. It may be used while the provider
 remains disabled and validates a real browser flow without changing the WebGUI
 session or local identity state. A Client ID or callback rejected during the
 preflight leaves the browser on the form. A client credential rejected only

@@ -110,6 +110,13 @@ async function configureServer(page) {
   });
   await page.goto(`${origin}/system_authservers.php?act=new`);
   await selectNative(page.locator('select[name="type"]'), 'openidconnect');
+  const newServerRevert = page.getByRole('button', { name: 'Revert changes' });
+  await expect(newServerRevert).toBeVisible();
+  await newServerRevert.click();
+  await expect(page).toHaveURL(/system_authservers\.php\?act=new$/);
+  await expect(page.locator('select[name="type"]')).toHaveValue('ldap');
+  await expect(newServerRevert).toBeHidden();
+  await selectNative(page.locator('select[name="type"]'), 'openidconnect');
   await expect(page.locator('input[name="openidconnect_provider_url"]')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Connection health' })).toBeDisabled();
   await expect(page.locator('[data-oidc-action-section="diagnostics"]')).toBeVisible();
@@ -485,12 +492,28 @@ async function configureServer(page) {
   await expect(page.locator('input[name="openidconnect_client_secret"]')).toHaveValue('');
   await expect(page.locator('input[name="openidconnect_max_age"]')).toHaveValue('14400');
   const signInTestButton = page.getByRole('button', { name: 'Test sign-in' });
+  const signInTestHelp = page.locator('.oidc-signin-test-help');
+  const revertChanges = page.getByRole('button', { name: 'Revert changes' });
   await expect(signInTestButton).toBeDisabled();
+  await expect(signInTestHelp).toHaveAttribute('aria-label', /Complete and save.*Client ID/);
+  await expect(revertChanges).toBeHidden();
+  await signInTestHelp.hover();
+  await expect(page.locator('.tooltip')).toBeVisible();
+  await expect(page.locator('.tooltip')).toContainText('Complete and save');
+  await signInTestHelp.focus();
+  await expect(page.locator('.tooltip')).toContainText('Complete and save');
 
   await page.locator('input[name="openidconnect_provider_url"]')
     .fill(`${issuer}/.well-known/openid-configuration`);
   await expect(signInTestButton).toBeDisabled();
-  await expect(signInTestButton).toHaveAttribute('title', /Save or revert your changes/);
+  await expect(signInTestButton).toHaveAttribute('title', /Complete and save.*Client ID/);
+  await expect(signInTestHelp).toHaveAttribute('aria-label', /Complete and save.*Client ID/);
+  await expect(revertChanges).toBeVisible();
+  await revertChanges.click();
+  await expect(page.locator('input[name="openidconnect_provider_url"]')).toHaveValue('');
+  await expect(revertChanges).toBeHidden();
+  await page.locator('input[name="openidconnect_provider_url"]')
+    .fill(`${issuer}/.well-known/openid-configuration`);
   const refusedTestResponsePromise = page.waitForResponse(response => (
     new URL(response.url()).pathname === '/api/openidconnect/test/start'
   ));
@@ -636,15 +659,36 @@ async function configureServer(page) {
   await expect(page.locator('input[name="openidconnect_logout_redirect"]')).toBeChecked();
   await expect(page.locator('select[name="openidconnect_logout_notifications"]')).toHaveValue('both');
   const savedSignInTest = page.getByRole('button', { name: 'Test sign-in' });
+  const savedSignInHelp = page.locator('.oidc-signin-test-help');
+  const savedRevertChanges = page.getByRole('button', { name: 'Revert changes' });
   await expect(savedSignInTest).toBeEnabled();
+  await expect(savedRevertChanges).toBeHidden();
+
+  const savedEditUrl = page.url();
+  await page.locator('input[name="name"]').evaluate(element => {
+    element.value = '';
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.locator('body')).toContainText('A server name must be provided.');
+  await expect(savedRevertChanges).toBeVisible();
+  await savedRevertChanges.click();
+  await expect(page).toHaveURL(savedEditUrl);
+  await expect(page.locator('input[name="name"]')).toHaveValue(process.env.E2E_SERVER_NAME);
+  await expect(savedRevertChanges).toBeHidden();
 
   const maxAge = page.locator('input[name="openidconnect_max_age"]');
   const savedMaxAge = await maxAge.inputValue();
   await maxAge.fill('60');
   await expect(savedSignInTest).toBeDisabled();
   await expect(savedSignInTest).toHaveAttribute('title', /Save or revert your changes/);
+  await expect(savedSignInHelp).toHaveAttribute('aria-label', /Save or revert your changes/);
+  await expect(savedRevertChanges).toBeVisible();
+  await savedSignInHelp.hover();
+  await expect(page.locator('.tooltip')).toContainText('Save or revert your changes');
   await maxAge.fill(savedMaxAge);
   await expect(savedSignInTest).toBeEnabled();
+  await expect(savedRevertChanges).toBeHidden();
 
   const selectAccount = page.locator('input[name="openidconnect_select_account"]');
   await selectAccount.check();
