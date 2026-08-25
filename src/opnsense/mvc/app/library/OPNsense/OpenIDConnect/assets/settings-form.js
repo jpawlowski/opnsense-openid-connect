@@ -2380,6 +2380,7 @@
                         issuer.value = issuer.value.replace(/\/+$/, '') + '/';
                     }
                 }
+                updateRestoreState();
             }
             $(issuer).on('change blur', normalizeIssuerInput);
             $(issuer.form).on('submit', normalizeIssuerInput);

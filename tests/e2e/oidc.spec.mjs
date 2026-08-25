@@ -242,6 +242,14 @@ async function configureServer(page) {
   await selectNative(providerProfile, 'orcid');
   await expect(issuerField).toHaveValue('https://orcid.org');
   await expect(page.locator('input[name="openidconnect_scopes"]')).toHaveValue('openid');
+  await selectNative(providerProfile, 'gitlab');
+  await expect(issuerField).toHaveValue('https://gitlab.com');
+  await expect(restoreProfile).toBeDisabled();
+  await issuerField.fill('https://gitlab.com/.well-known/openid-configuration');
+  await expect(restoreProfile).toBeEnabled();
+  await issuerField.blur();
+  await expect(issuerField).toHaveValue('https://gitlab.com');
+  await expect(restoreProfile).toBeDisabled();
   await selectNative(providerProfile, 'auth0');
   await expect(requiredAuthentication).toBeEnabled();
   await expect(selectPickerButton(requiredAuthentication)).toBeEnabled();
