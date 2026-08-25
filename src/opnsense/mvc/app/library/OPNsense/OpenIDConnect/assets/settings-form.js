@@ -1,6 +1,4 @@
 /*
- * Copyright (C) 2026 Julian Pawlowski - BSD-2-Clause, see LICENSE at the repository root.
- *
  * Browser side of the OpenID Connect settings, under System > Access > Servers.
  *
  * The form there renders every pluggable option as a single-line <input>; it knows text,

@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
 """Builds the finished package - without `pkg`, using only the standard library.
 
 A FreeBSD package is a compressed tar archive with three kinds of entry, in
@@ -61,6 +59,7 @@ EXTRA = [
     ("watch/openid-connect-refresh", "usr/local/sbin/openid-connect-refresh", 0o755),
     ("watch/openid-connect.cron", "usr/local/etc/cron.d/openid-connect.cron", 0o644),
 ]
+LICENSE_TARGET = "usr/local/share/licenses/os-openid-connect/LICENSE"
 
 # The watchdog writes an anchor on the machine it runs on, under /var/db. pkg
 # removes what it installed and nothing else, so without this the fingerprint of
@@ -109,8 +108,8 @@ id is rotated once the session gains privileges. Everything an
 installation differs on is a setting under System > Access > Servers.
 
 Contains only additional files below /usr/local/opnsense/mvc/ plus the
-watchdog /usr/local/sbin/openid-connect-watch and its daily run. No file
-of the core package is replaced or altered.
+watchdog /usr/local/sbin/openid-connect-watch, its daily run and the package
+licence. No file of the core package is replaced or altered.
 
 BSD-2-Clause, with Apache-2.0 portions in bundled provider icons. Runtime
 cryptography is provided by the phpseclib package that is part of OPNsense;
@@ -173,6 +172,11 @@ def collect():
 
     for source, target, mode in EXTRA:
         entries.append(("/" + target, (HERE / source).read_bytes(), mode))
+
+    # A standalone package does not have the repository root around it. Keep one
+    # authoritative notice in the conventional package licence location instead of
+    # repeating it in every installed source file.
+    entries.append(("/" + LICENSE_TARGET, (REPO / "LICENSE").read_bytes(), 0o644))
 
     return entries
 

@@ -1,10 +1,5 @@
 <?php
 
-/*
- * Copyright (C) 2026 Julian Pawlowski
- * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
- */
-
 namespace OPNsense\OpenIDConnect;
 
 /** A safe RFC 8935 error category paired with a private diagnostic. */

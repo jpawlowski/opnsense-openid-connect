@@ -2,9 +2,6 @@
 <?php
 
 /*
- * Copyright (C) 2026 Julian Pawlowski
- * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
- *
  * Run only on an OPNsense host after installing the package. It exercises the
  * cryptography and filesystem that local stubs deliberately cannot reproduce.
  */

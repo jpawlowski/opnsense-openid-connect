@@ -280,11 +280,11 @@ existing branch.
 ## Style
 
 Comments explain **why**, not what — this project's comments are long on
-purpose and are not clutter to remove. English throughout, a copyright line in
-every file whose format permits one, no host, address or mailbox of whoever
-wrote it (`tests/package.py` checks all three, and deliberately names none of
-them). A strict-schema machine-import file may omit the line only when an
-adjacent human-readable file carries the notice and documents the exception.
+purpose and are not clutter to remove. English throughout, no host, address or
+mailbox of whoever wrote it (`tests/package.py` checks all three, and deliberately
+names none of them). Project copyright and licensing information belongs in
+`LICENSE`; preserve embedded notices only when third-party provenance or an
+external license requires them.
 
 Commit messages follow Conventional Commits because the release note is written
 out of them; see `CONTRIBUTING.md`. A change that can turn a login that worked

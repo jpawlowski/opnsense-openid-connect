@@ -1,10 +1,5 @@
 <?php
 
-/*
- * Copyright (C) 2026 Julian Pawlowski
- * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
- */
-
 namespace OPNsense\OpenIDConnect\ACL;
 
 /** Add OIDC identity management to core's existing authentication-server privilege. */

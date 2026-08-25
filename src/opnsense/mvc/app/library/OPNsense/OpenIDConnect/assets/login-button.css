@@ -1,6 +1,4 @@
 /*
- * Copyright (C) 2026 Julian Pawlowski - BSD-2-Clause, see LICENSE at the repository root.
- *
  * Styles for the single sign-on button on the login page. Core emits one
  * .login-sso-link-container per provider, directly after the login form, so everything
  * here hangs off that container. clear:both keeps it clear of the floated Login button.

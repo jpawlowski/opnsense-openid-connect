@@ -1,8 +1,3 @@
-/*
- * Copyright (C) 2026 Julian Pawlowski
- * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
- */
-
 import { expect, request as playwrightRequest, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';

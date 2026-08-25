@@ -94,22 +94,19 @@ nothing said about it in the note. The second is the one nobody notices.
 **`tests/package.py`** builds the package and checks the result: the archive
 shape `pkg` expects, that every file is listed with a matching checksum,
 permissions and ownership, that no retired third-party client ships and
-documentation does not — and that nothing carries the naming, addresses or
-hosts of whoever built it, that everything is English, and that every file of
-ours says who wrote it.
+documentation does not — and that nothing carries private addresses, hosts or
+mailboxes of whoever built it, and that everything is English.
 
-That last part is there because this package is meant to be handed to strangers.
-It is a check, not a courtesy.
+The personal-metadata checks are there because this package is meant to be handed
+to strangers. They are checks, not courtesies.
 
 **It names nothing.** A check written as a list of the names to keep out is
 itself a list of those names, published with the package — which is worse than
 the thing it prevents. So it tests properties instead: an address literal that
 is not the loopback or a documentation range, a host that is not the one the
-manifest already declares, a mailbox that is not the declared maintainer. The
-copyright line it looks for is read from `LICENSE` rather than written out.
-
-That is also the stronger check. It catches whatever a future author leaves
-behind, not only what this one happened to think of.
+manifest already declares, and a mailbox that is not the declared maintainer.
+This catches whatever a future author leaves behind, not only what this one
+happened to think of.
 
 **`tests/capability-matrix.py`** attacks the publication gate itself. It proves
 that an empty normative inventory, one-sided mandatory evidence, a live provider

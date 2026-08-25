@@ -1,7 +1,5 @@
 # Authorization-server metadata profile
 
-Copyright (C) 2026 Julian Pawlowski. All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
-
 The plugin retrieves OpenID Provider Configuration from
 `/.well-known/openid-configuration`. Within that OIDC document, the RFC 8414
 metadata below is the applicable profile for this confidential web relying

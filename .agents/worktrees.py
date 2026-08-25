@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-#
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
+
 """Create and inspect isolated local agent worktrees from the canonical base."""
 
 import argparse

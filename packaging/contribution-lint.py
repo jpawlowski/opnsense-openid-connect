@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
 """Keep issues and pull requests short, complete and useful to a reviewer.
 
     python3 packaging/contribution-lint.py --title "fix(auth): ..." --body-file /tmp/pr.md

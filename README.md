@@ -110,5 +110,3 @@ not remove its saved settings and does not disable local password login.
 - [Contributing](CONTRIBUTING.md)
 
 BSD-2-Clause, see [LICENSE](LICENSE).
-
-Copyright (C) 2026 Julian Pawlowski. All rights reserved.

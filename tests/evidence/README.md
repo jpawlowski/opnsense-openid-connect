@@ -1,7 +1,5 @@
 # Retained audit evidence
 
-Copyright (C) 2026 Julian Pawlowski. All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
-
 Place sanitized evidence produced by an installed OPNsense integration run or
 the disposable browser/ZAP run in this directory when its validated statements
 should appear in `docs/reference/security-and-conformance.md`.
@@ -41,6 +39,5 @@ provider record. A result remains a dated historical fact until newer
 contradictory evidence explicitly replaces it; it does not silently certify
 later provider revisions.
 
-These generated strict-schema JSON artifacts omit an embedded copyright field;
-the adjacent notice in this file covers them without opening the schema to
-arbitrary metadata.
+These generated strict-schema JSON artifacts contain only evidence fields; do
+not open the schema to unrelated metadata.

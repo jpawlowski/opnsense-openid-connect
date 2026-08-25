@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
-
 """Checks the package that build.py produces, and the hygiene of what goes into it.
 
 Two kinds of check live here:
 
   * the shape of the archive - `pkg` will not tell us it is wrong until someone tries to
     install it, and by then it is on a firewall
-  * what the files may and may not contain - a licence notice on everything of ours, no
-    German, and none of the naming, addresses or hosts of whoever built it
+  * what the files may and may not contain - no German, private addresses,
+    hosts or mailboxes of whoever built it
 
 The second kind exists because this package is meant to be handed to strangers.
 """
@@ -100,22 +97,6 @@ GERMAN = r"\b(der|die|das|und|nicht|wird|werden|eine|einen|damit|dass|aber|kein|
 
 failures = []
 passed = 0
-COPYRIGHT = ""
-
-
-def notice():
-    """The copyright line every file of ours has to carry, read from the licence.
-
-    Taken from there rather than written out here, so that the name lives in one place and
-    this check has no opinion about who wrote the thing.
-    """
-    for line in (ROOT / "LICENSE").read_text().splitlines():
-        if line.startswith("Copyright"):
-            holder = line.split(",", 1)[1].strip() if "," in line else line
-            year = re.search(r"\b(\d{4})\b", line)
-            return f"Copyright (C) {year.group(1)} {holder}" if year else None
-
-    return None
 
 
 def check(what, actual, expected=True, detail=""):
@@ -157,11 +138,6 @@ def build():
 
 
 def main():
-    global COPYRIGHT
-    COPYRIGHT = notice()
-    if COPYRIGHT is None:
-        sys.exit("LICENSE carries no copyright line to check the sources against")
-
     group("A version pkg can carry")
     build_py = load_build()
     check("a release tag", build_py.pkg_version("v1.2.3"), "1.2.3")
@@ -285,6 +261,9 @@ def main():
           [n for n in contents if n.endswith(("OpenIDConnectClient.php", "LICENSE.jumbojett"))], [])
     check("no documentation is installed onto the firewall",
           [n for n in contents if n.endswith(".md")], [])
+    license_path = "/usr/local/share/licenses/os-openid-connect/LICENSE"
+    check("the package carries the central project licence",
+          contents.get(license_path), (ROOT / "LICENSE").read_bytes())
     provider_icons = {
         pathlib.PurePosixPath(n).name
         for n in contents
@@ -448,15 +427,13 @@ def main():
                         and not m.lower().startswith("root@")})
         check(f"{short} names no mailbox but the declared one", mails, [])
 
-    group("Everything is in English and says who wrote it")
+    group("Everything is in English")
     for name, blob in sorted(contents.items()):
         text = blob.decode("utf-8", "replace")
         german = sorted(set(m.group(0).lower() for m in re.finditer(GERMAN, text)))
         check(f"{pathlib.Path(name).name} is English", german, [])
-        if name.endswith((".php", ".js", ".css")):
-            check(f"{pathlib.Path(name).name} carries a copyright notice", COPYRIGHT in text)
 
-    group("Every other file of ours says the same")
+    group("Every other file of ours is English")
     ours = sorted(
         path
         for pattern in ("packaging/*.py", "packaging/watch/*", "packaging/hooks/*",
@@ -471,7 +448,6 @@ def main():
         text = path.read_text(encoding="utf-8", errors="replace")
         german = sorted(set(m.group(0).lower() for m in re.finditer(GERMAN, text)))
         check(f"{path.relative_to(ROOT)} is English", german, [])
-        check(f"{path.relative_to(ROOT)} carries a copyright notice", COPYRIGHT in text)
 
     package.unlink(missing_ok=True)
 

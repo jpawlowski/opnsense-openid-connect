@@ -1,10 +1,5 @@
 <?php
 
-/*
- * Copyright (C) 2026 Julian Pawlowski
- * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
- */
-
 use OPNsense\OpenIDConnect\RelyingParty;
 
 Checks::group('Separating identity claims from protocol claims');

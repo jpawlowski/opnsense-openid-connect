@@ -1,8 +1,5 @@
 # Install or remove the beta package
 
-Copyright (C) 2026 Julian Pawlowski. All rights reserved. BSD-2-Clause, see
-LICENSE at the repository root.
-
 The beta is a manually installed package. It does not add a package repository
 or enable automatic updates.
 

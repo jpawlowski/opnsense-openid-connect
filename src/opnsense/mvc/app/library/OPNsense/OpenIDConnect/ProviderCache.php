@@ -1,10 +1,5 @@
 <?php
 
-/*
- * Copyright (C) 2026 Julian Pawlowski
- * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
- */
-
 namespace OPNsense\OpenIDConnect;
 
 /** HTTP-aware, bounded persistence for public Discovery and signing-key responses. */

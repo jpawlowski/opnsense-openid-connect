@@ -1,10 +1,5 @@
 <?php
 
-/*
- * Copyright (C) 2026 Julian Pawlowski
- * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
- */
-
 namespace OPNsense\OpenIDConnect;
 
 /** Bounded, metadata-bound SSF stream management and poll delivery client. */
