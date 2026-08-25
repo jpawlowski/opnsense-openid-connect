@@ -88,8 +88,10 @@ MFA but does not bind the request, enforcement and signed evidence together.
 
 The successful result names the authorization response mode, actual PAR/JAR/DPoP
 use, token authentication, issued token kinds and selected signed claims without
-displaying a token. **Validate sign-out** then opens a separate tab, ends only
-the provider test session and returns to this server row. A configured
+displaying a token. **Validate sign-out** then opens a separate tab, requests
+provider logout and returns to this server row without ending the current
+OPNsense WebGUI session. Depending on the provider's logout semantics, that
+request may end its wider SSO session or sessions for other clients. A configured
 front/back-channel row passes only when that notification reached OPNsense and
 completed its normal issuer, session and signature validation. "Not observed"
 is therefore an actionable provider-registration result, not a successful test.
