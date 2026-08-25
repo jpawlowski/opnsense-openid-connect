@@ -2030,16 +2030,19 @@
                 $(this).prop('disabled', boundary.admission
                     && ['username', 'verified_email', 'either'].indexOf(this.value) !== -1);
             });
+            var populationCoercions = $();
             var admission = admissionInput.value || 'strict';
             var automatic = ['username', 'verified_email', 'either'].indexOf(admission) !== -1;
             if (boundary.admission && automatic) {
                 $(admissionInput).val('approval');
+                populationCoercions = populationCoercions.add(admissionInput);
                 admission = 'approval';
                 automatic = false;
             }
             refreshSelectPicker(admissionInput);
-            if (boundary.creation) {
+            if (boundary.creation && $(creationInput).is(':checked')) {
                 $(creationInput).prop('checked', false);
+                populationCoercions = populationCoercions.add(creationInput);
             }
             $(creationInput).prop('disabled', boundary.creation);
             var creates = $(creationInput).is(':checked');
@@ -2087,6 +2090,9 @@
                 buttonTextCustomizable && buttonTextMode === 'custom'
             );
             refreshSelectPicker(authenticationInput);
+            /* These security-boundary coercions are direct assignments. Notify the
+             * profile controls after the complete population state is consistent. */
+            populationCoercions.trigger('input');
         }
         $(field('openidconnect_create_users')).on('change', update);
         $(field('openidconnect_group_claim')).on('input change', update);

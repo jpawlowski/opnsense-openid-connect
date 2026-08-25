@@ -245,6 +245,16 @@ async function configureServer(page) {
   await selectNative(providerProfile, 'gitlab');
   await expect(issuerField).toHaveValue('https://gitlab.com');
   await expect(restoreProfile).toBeDisabled();
+  await issuerField.fill('https://gitlab.example.com');
+  await expect(admissionPolicy.locator('option[value="username"]')).toBeEnabled();
+  await selectNative(admissionPolicy, 'username');
+  await createUsers.check();
+  await expect(restoreProfile).toBeEnabled();
+  await issuerField.fill('https://gitlab.com');
+  await expect(admissionPolicy).toHaveValue('approval');
+  await expect(createUsers).not.toBeChecked();
+  await expect(createUsers).toBeDisabled();
+  await expect(restoreProfile).toBeDisabled();
   await issuerField.fill('https://gitlab.com/.well-known/openid-configuration');
   await expect(restoreProfile).toBeEnabled();
   await issuerField.blur();
