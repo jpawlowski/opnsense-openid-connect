@@ -611,6 +611,16 @@ def main():
               "tool_name": "Bash",
               "tool_input": {"command": "python3 .agents/pr-coordination.py status --pr 42"},
           }), False)
+    check("review request cleanup forces an uncached remote observation",
+          guard_module.requires_uncached_remote({
+              "tool_name": "Bash",
+              "tool_input": {"command": "python3 .agents/review-requests.py cleanup --pr 42"},
+          }), True)
+    check("a current-head review request is also a publication boundary",
+          guard_module.requires_uncached_remote({
+              "tool_name": "Bash",
+              "tool_input": {"command": ".agents/review-requests.py request --pr 42"},
+          }), True)
     check("coordination publication needs a topic branch before creating durable comments",
           guard_module.requires_topic_branch({
               "tool_name": "Bash",
@@ -621,6 +631,11 @@ def main():
               "tool_name": "Bash",
               "tool_input": {"command": "python3 .agents/pr-coordination.py status --pr 42"},
           }), False)
+    check("review request hygiene needs a topic branch",
+          guard_module.requires_topic_branch({
+              "tool_name": "Bash",
+              "tool_input": {"command": "python3 .agents/review-requests.py request --pr 42"},
+          }), True)
     check("a detached worktree needs a branch before commit", guard_module.requires_topic_branch({
         "tool_name": "Bash", "tool_input": {"command": "git commit -m 'test: durable work'"},
     }), True)
@@ -1751,6 +1766,152 @@ module.update_registry(repository, update)
     check("fulfillment resumes from closed fulfilled originals and reaches the remaining final target",
           (closed_fulfillment_reads, closed_fulfillment_publications),
           ([57, 63, 42], [([57, 63, 42], closed_fulfillment["id"], [42, 57, 63])]))
+
+    group("Codex review requests leave one temporary trigger and preserve review evidence")
+    review_requests = load_agent_module(
+        "review_request_hygiene_test", ROOT / ".agents" / "review-requests.py",
+    )
+    current_head = "a" * 40
+    old_head = "b" * 40
+    rendered_request = review_requests.request_body(current_head)
+    check("a review trigger binds its exact head and carries the agent notice",
+          (review_requests.request_head(rendered_request),
+           rendered_request.rstrip().endswith(review_requests.NOTICE["en"])),
+          ((True, current_head), True))
+    comments = [
+        {"id": 1, "created_at": "2026-08-24T09:00:00Z", "body": review_requests.request_body(old_head),
+         "user": {"login": "publisher"}},
+        {"id": 2, "created_at": "2026-08-24T11:00:00Z", "body": rendered_request,
+         "user": {"login": "publisher"}},
+        {"id": 3, "created_at": "2026-08-24T11:01:00Z", "body": rendered_request,
+         "user": {"login": "publisher"}},
+        {"id": 4, "created_at": "2026-08-24T11:02:00Z", "body": rendered_request,
+         "user": {"login": "somebody-else"}},
+        {"id": 5, "created_at": "2026-08-24T11:03:00Z", "body": rendered_request + "\n\nPlease inspect X.",
+         "user": {"login": "publisher"}},
+        {"id": 6, "created_at": "2026-08-24T09:30:00Z",
+         "body": "@codex review\n\n" + review_requests.NOTICE["en"], "user": {"login": "publisher"}},
+        {"id": 7, "created_at": "2026-08-24T11:04:00Z",
+         "body": "@codex review\n\n" + review_requests.NOTICE["en"], "user": {"login": "publisher"}},
+    ]
+    removable, pending = review_requests.classify_requests(
+        comments, "publisher", current_head, [],
+    )
+    check("only own strict stale triggers, unbound legacy triggers and duplicate current requests are removable",
+          ([value["id"] for value in removable], [value["id"] for value in pending]), ([1, 6, 7, 3], [2]))
+    events = review_requests.review_events([
+        {"user": {"login": "chatgpt-codex-connector"}, "commit_id": current_head,
+         "submitted_at": "2026-08-24T12:00:00Z", "state": "COMMENTED"},
+        {"user": {"login": "somebody-else"}, "commit_id": old_head,
+         "submitted_at": "2026-08-24T12:01:00Z", "state": "COMMENTED"},
+        {"user": {"login": "chatgpt-codex-connector"}, "commit_id": old_head,
+         "submitted_at": "", "state": "PENDING"},
+        {"user": {"login": "chatgpt-codex-connector"}, "commit_id": old_head,
+         "submitted_at": "2026-08-24T12:02:00Z", "state": "DISMISSED"},
+    ], [])
+    removable, pending = review_requests.classify_requests(
+        comments, "publisher", current_head, events,
+    )
+    check("a submitted Codex review fulfills the current trigger without selecting discussion or foreign comments",
+          (events, sorted(value["id"] for value in removable), pending),
+          ([('2026-08-24T12:00:00Z', current_head)], [1, 2, 3, 6, 7], []))
+
+    original_github_api = review_requests.github_api
+    original_verify_local_pull = review_requests.verify_local_pull
+    changed_pull = {"state": "open", "merged_at": None, "head": {"sha": old_head}}
+    review_requests.github_api = lambda *_arguments, **_keywords: changed_pull
+    review_requests.verify_local_pull = lambda pull: str(pull["head"]["sha"])
+    mixed_head_rejected = False
+    try:
+        review_requests.verify_remote_pull(91, current_head, "token")
+    except RuntimeError:
+        mixed_head_rejected = True
+    check("a changed remote head discards the request snapshot before mutation", mixed_head_rejected, True)
+    draft_pull = {"state": "open", "merged_at": None, "draft": True, "head": {"sha": current_head}}
+    review_requests.github_api = lambda *_arguments, **_keywords: draft_pull
+    draft_review_rejected = False
+    try:
+        review_requests.verify_remote_pull(91, current_head, "token", ready_required=True)
+    except RuntimeError:
+        draft_review_rejected = True
+    check("a draft cannot receive an agent-requested Codex review", draft_review_rejected, True)
+
+    original_review_state = review_requests.review_state
+    original_delete_requests = review_requests.delete_requests
+    original_verify_remote_pull = review_requests.verify_remote_pull
+    original_require_token = review_requests.require_token
+    original_paged = review_requests.paged
+    delete_calls = []
+    stale_request = comments[0]
+    edited_request = dict(stale_request, body=stale_request["body"] + "\n\nDisposition added.")
+    review_requests.verify_remote_pull = lambda *_arguments, **_keywords: current_head
+    review_requests.paged = lambda *_arguments: [edited_request]
+    review_requests.github_api = lambda path, _token, **keywords: delete_calls.append(
+        (keywords.get("method"), path)
+    )
+    removed = review_requests.delete_requests(
+        [stale_request], 91, current_head, "publisher", [], "token",
+    )
+    check("cleanup preserves a request comment edited after its snapshot", (removed, delete_calls), (0, []))
+    moving_head = [current_head]
+
+    def move_head_while_refreshing_comments(*_arguments):
+        moving_head[0] = old_head
+        return [stale_request]
+
+    def reject_head_changed_during_comment_refresh(_number, expected_head, *_arguments, **_keywords):
+        if moving_head[0] != expected_head:
+            raise RuntimeError("mixed head")
+        return expected_head
+
+    review_requests.paged = move_head_while_refreshing_comments
+    review_requests.verify_remote_pull = reject_head_changed_during_comment_refresh
+    changed_during_refresh_rejected = False
+    try:
+        review_requests.delete_requests(
+            [stale_request], 91, current_head, "publisher", [], "token",
+        )
+    except RuntimeError:
+        changed_during_refresh_rejected = True
+    check("cleanup revalidates the head after refreshing comments and before deletion",
+          (changed_during_refresh_rejected, delete_calls), (True, []))
+    review_requests.verify_remote_pull = lambda *_arguments, **_keywords: current_head
+    review_requests.paged = lambda *_arguments: [stale_request]
+    removed = review_requests.delete_requests(
+        [stale_request], 91, current_head, "publisher", [], "token",
+    )
+    check("cleanup deletes the same freshly confirmed strict request", (removed, delete_calls),
+          (1, [("DELETE", "issues/comments/1")]))
+
+    actions = []
+    retained_request = {"id": 10, "html_url": "https://example.test/retained"}
+    duplicate_request = {"id": 11, "html_url": "https://example.test/duplicate"}
+    states = iter((
+        (current_head, "publisher", [], [], [], []),
+        (current_head, "publisher", [retained_request, duplicate_request], [], [duplicate_request],
+         [retained_request]),
+    ))
+    review_requests.review_state = lambda *_arguments, **_keywords: actions.append("snapshot") or next(states)
+    review_requests.delete_requests = lambda values, *_arguments, **_keywords: actions.append(
+        ("delete", [value["id"] for value in values])
+    )
+    review_requests.verify_remote_pull = lambda *_arguments, **_keywords: actions.append("verify") or current_head
+    review_requests.require_token = lambda: "token"
+    review_requests.github_api = lambda path, _token, **keywords: (
+        actions.append((keywords.get("method"), path)) or duplicate_request
+    )
+    review_requests.request_review(SimpleNamespace(pr=91, language="en"))
+    check("parallel request creation revalidates before posting and converges on the earliest trigger",
+          actions,
+          ["snapshot", ("delete", []), "verify", ("POST", "issues/91/comments"), "snapshot",
+           ("delete", [11])])
+    review_requests.github_api = original_github_api
+    review_requests.verify_local_pull = original_verify_local_pull
+    review_requests.review_state = original_review_state
+    review_requests.delete_requests = original_delete_requests
+    review_requests.verify_remote_pull = original_verify_remote_pull
+    review_requests.require_token = original_require_token
+    review_requests.paged = original_paged
 
     group("Finished worktrees retire before local branches and never delete remote branches")
     cleanup = load_agent_module(

@@ -273,6 +273,13 @@ verification subset; Ed25519 is the separately audited RFC 8037 subset.
   retains that connector's exact edit target. Its callback reports the verified
   identity but does not resolve or mutate a local account and does not elevate
   or replace the initiating WebGUI session.
+- Its optional sign-out half retains the accepted ID Token in a bounded,
+  mode-`0600`, ten-minute lifecycle registry only until it can be supplied as
+  `id_token_hint`. Issuer, subject and provider-session selectors used to
+  observe logout notifications are stored as digests. The authenticated server
+  page starts the logout, a dedicated exact post-logout URI returns there, and
+  the normal front/back-channel validators mark only successfully accepted
+  notifications. The disposable test is never indexed as a local PHP login.
 - Validated Discovery and JWKS responses are shared through bounded, HTTP-aware
   mode-`0600` caches and refreshed outside the login path. The exact metadata
   snapshot used at login is still frozen into the transaction so endpoints

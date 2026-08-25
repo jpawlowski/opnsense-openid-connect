@@ -15,9 +15,9 @@
     is separate because it mutates an external transmitter and sends the saved
     management credential. The read-only health endpoint
     extends the existing authentication-server privilege and reveals only cache
-    states and timestamps. The sign-in test starts the same
-    provider redirect as a login, but only after an authenticated, CSRF-protected
-    request and without granting a local session at its callback.
+    states and timestamps. The lifecycle test starts the same provider redirect as a
+    login and may later start provider logout, but only after authenticated,
+    CSRF-protected requests and without granting a local session at its callback.
 
     The endpoints under api/openidconnect/auth/ are deliberately NOT listed. They answer before
     anyone is signed in and decline the session check themselves; what protects them is
@@ -42,7 +42,7 @@
         </patterns>
     </page-system-openidconnect-setup>
     <page-system-openidconnect-test>
-        <name>System: Access: Servers: OpenID Connect sign-in test</name>
+        <name>System: Access: Servers: OpenID Connect lifecycle test</name>
         <patterns>
             <pattern>api/openidconnect/test/*</pattern>
         </patterns>

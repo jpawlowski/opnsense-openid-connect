@@ -178,6 +178,7 @@ endpoint reference according to its labels:
 | OPNsense reference | Register it as |
 |---|---|
 | Authorization redirect URI | the application's login/callback/authorization redirect URI |
+| Lifecycle-test post-logout redirect URI | an exact post-logout URI, always |
 | Post-logout redirect URI | a post-logout URI, only when **Return here after logout** is enabled |
 | Back-channel logout URI | the provider's back-channel logout endpoint, when supported |
 | Front-channel logout URI | the provider's front-channel logout endpoint, as an alternative |
@@ -209,9 +210,9 @@ enough.
 | Token endpoint | OPNsense → IdP | every completed login | Test sign-in |
 | UserInfo endpoint | OPNsense → IdP | selected or missing claims require it | Test sign-in |
 | Revocation endpoint | OPNsense → IdP | best-effort provider-aware logout | real logout |
-| End-session endpoint | Browser → IdP | RP-initiated provider logout | real logout |
-| Back-channel logout | IdP → OPNsense | that notification channel is registered | provider logout |
-| Front-channel logout | IdP → browser → OPNsense | that notification channel is registered | provider logout |
+| End-session endpoint | Browser → IdP | RP-initiated provider logout | lifecycle test, real logout |
+| Back-channel logout | IdP → OPNsense | that notification channel is registered | lifecycle test, provider logout |
+| Front-channel logout | IdP → browser → OPNsense | that notification channel is registered | lifecycle test, provider logout |
 | Shared Signals management | OPNsense → transmitter | a discovered lifecycle operation is requested | Test Shared Signals plus Create/Read stream |
 | Shared Signals push | transmitter → OPNsense | Push delivery is explicitly selected | Test Shared Signals plus a real event |
 | Shared Signals poll | OPNsense → transmitter | Poll delivery is explicitly selected | connectivity status plus a real event |
@@ -277,13 +278,26 @@ action so that the displayed form and the saved connector under test cannot
 disagree. Use **Revert changes** beside **Save** to reload the complete saved
 form. Hover over or focus the unavailable action to see whether it needs that
 revert, a first save, or missing required values such as the Client ID or
-credential. The result shows the exact issuer, subject and configured
-username claim. It deliberately does not create a WebGUI login session or
+credential. The result shows the exact issuer, subject and configured username
+claim plus the actual response mode, PAR/JAR/DPoP outcome, token authentication
+method, issued token kinds and selected signed claims. It deliberately does not
+create a WebGUI login session or
 change a local account, subject binding or group membership. It is available
-only while the saved form is unchanged.
-This makes it safe to run before deciding the admission policy. The identity provider may
-still retain its own SSO session, so use a private browser window when a later
-test must begin without that provider session. Before leaving OPNsense, the test
+only while the saved form is unchanged; save or exactly revert edits first.
+This makes it safe to run before deciding the admission policy. When Discovery
+offers RP-initiated logout, **Validate sign-out** opens a separate tab. Its
+short-lived test grant ends the provider session, forces the dedicated registered
+return to this server row, and reports which configured front/back-channel
+notifications passed their normal validation. It never indexes a disposable
+local login. A validated notification still ends every matching existing
+OPNsense WebGUI session, possibly including the administrator session which
+started the test when it used the same provider identity and session. Start the
+lifecycle test from a local-password WebGUI session, or one which does not match
+the tested provider identity and session, when the result page must remain
+authenticated. The provider may also end its wider SSO session or sessions for
+other clients. If sign-out is not validated, the identity provider may retain
+its own SSO session, so use a private browser window when a later test must begin
+without that provider session. Before leaving OPNsense, the sign-in half
 runs the same reduced public-registration check when possible. If the provider
 rejects the Client ID or callback there, the form shows the failure without a
 browser redirect. If it accepts authorization but rejects the confidential

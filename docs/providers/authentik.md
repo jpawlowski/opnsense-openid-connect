@@ -127,6 +127,9 @@ type:
 
 - Add the callback above as type **Authorization**.
 - Do not add the back-channel or front-channel logout address as Authorization.
+- Add `https://firewall.example.com/api/openidconnect/auth/logouttestcallback/authentik`
+  as type **Post Logout**. This exact address returns the optional disposable
+  lifecycle test to the saved OPNsense server page.
 - Add `https://firewall.example.com/` as type **Post Logout** only if **Return
   here after logout** will be enabled in OPNsense. Keep the trailing `/` because
   that is the exact post-logout address displayed by the plugin.

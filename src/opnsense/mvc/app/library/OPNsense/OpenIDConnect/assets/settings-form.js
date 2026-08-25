@@ -1933,6 +1933,8 @@
             var base = origin + '/api/openidconnect/auth/';
             var destinations = [
                 [options.authorizationEndpointLabel || 'Authorization redirect URI', base + 'callback/' + encodeURIComponent(code)],
+                [options.lifecycleEndpointLabel || 'Lifecycle-test post-logout redirect URI',
+                    base + 'logouttestcallback/' + encodeURIComponent(code)],
                 [options.postLogoutEndpointLabel || 'Post-logout redirect URI', origin + '/'],
                 [options.backchannelEndpointLabel || 'Back-channel logout URI', base + 'backchannel/' + encodeURIComponent(code)],
                 [options.frontchannelEndpointLabel || 'Front-channel logout URI', base + 'frontchannel/' + encodeURIComponent(code)]
@@ -2413,6 +2415,130 @@
         return decorate;
     }
 
+    /* ---------------------------------------------------------- lifecycle result */
+
+    function lifecycleTestFromAddress() {
+        var address = new URL(window.location.href);
+        var startId = address.searchParams.get('openidconnect_lifecycle') || '';
+        var resultId = address.searchParams.get('openidconnect_lifecycle_result') || '';
+        if (!/^[A-Za-z0-9_-]{43}$/.test(startId) && !/^[A-Za-z0-9_-]{43}$/.test(resultId)) {
+            return;
+        }
+        address.searchParams.delete('openidconnect_lifecycle');
+        address.searchParams.delete('openidconnect_lifecycle_result');
+        window.history.replaceState({}, document.title, address.pathname + address.search + address.hash);
+
+        if (/^[A-Za-z0-9_-]{43}$/.test(startId)) {
+            $.ajax({
+                type: 'POST',
+                url: '/api/openidconnect/test/logout',
+                data: { test_id: startId }
+            }).done(function (answer) {
+                if (answer && answer.status === 'ok' && answer.logout_url_b64) {
+                    try {
+                        var logoutUrl = new URL(window.atob(answer.logout_url_b64));
+                        if (logoutUrl.protocol === 'https:') {
+                            window.location.assign(logoutUrl.href);
+                            return;
+                        }
+                    } catch (_) {
+                        /* The authenticated API must return one absolute HTTPS address. */
+                    }
+                }
+                BootstrapDialog.show({
+                    title: options.lifecycleTestLabel || 'Validate sign-out',
+                    message: $('<div>').text((answer && answer.message) || 'unknown error').html(),
+                    type: BootstrapDialog.TYPE_DANGER
+                });
+            }).fail(function (xhr) {
+                BootstrapDialog.show({
+                    title: options.lifecycleTestLabel || 'Validate sign-out',
+                    message: $('<div>').text(xhr.responseText || 'request failed').html(),
+                    type: BootstrapDialog.TYPE_DANGER
+                });
+            });
+            return;
+        }
+
+        var attempts = 0;
+        function showResult(result, final) {
+            var expected = Array.isArray(result.expected) ? result.expected : [];
+            var observed = result.observed && typeof result.observed === 'object' ? result.observed : {};
+            var testable = result.testable && typeof result.testable === 'object' ? result.testable : {};
+            var rows = $('<tbody>');
+            function row(label, value, kind) {
+                rows.append($('<tr>')
+                    .append($('<th>').css('width', '65%').text(label),
+                        $('<td class="text-right">').css('width', '12rem').append($('<span class="label">')
+                            .css({ display: 'block', width: '100%', textAlign: 'center' })
+                            .addClass('label-' + kind).text(value))));
+            }
+            row(options.lifecycleReturnLabel || 'RP-initiated logout return',
+                result.returned ? (options.passedLabel || 'Passed') : (options.notObservedLabel || 'Not observed'),
+                result.returned ? 'success' : (final ? 'danger' : 'warning'));
+            ['frontchannel', 'backchannel'].forEach(function (channel) {
+                var label = channel === 'frontchannel'
+                    ? (options.frontchannelLabel || 'Front-channel logout')
+                    : (options.backchannelLabel || 'Back-channel logout');
+                if (expected.indexOf(channel) === -1) {
+                    row(label, options.notConfiguredLabel || 'Not configured', 'info');
+                } else if (testable[channel] === false) {
+                    row(label, options.notTestableLabel || 'Not testable (no sid)', 'warning');
+                } else if (observed[channel]) {
+                    row(label, options.passedLabel || 'Passed', 'success');
+                } else {
+                    row(label, final ? (options.notObservedLabel || 'Not observed')
+                        : (options.waitingLabel || 'Waiting...'), final ? 'danger' : 'warning');
+                }
+            });
+            var table = $('<table class="table table-striped">').css('table-layout', 'fixed').append(rows);
+            var failed = !result.returned || expected.some(function (channel) {
+                return testable[channel] !== false && !observed[channel];
+            });
+            BootstrapDialog.show({
+                title: options.lifecycleResultLabel || 'OpenID Connect lifecycle test',
+                message: $('<div>').append(
+                    $('<p>').text(options.lifecycleResultHelp
+                        || 'Validated provider logout notifications can end the administrator WebGUI session.'),
+                    table
+                ),
+                type: final
+                    ? (failed ? BootstrapDialog.TYPE_DANGER : BootstrapDialog.TYPE_SUCCESS)
+                    : BootstrapDialog.TYPE_WARNING
+            });
+        }
+        function poll() {
+            attempts++;
+            $.ajax({
+                type: 'POST',
+                url: '/api/openidconnect/test/result',
+                data: { test_id: resultId }
+            }).done(function (answer) {
+                if (!answer || answer.status !== 'ok' || !answer.result) {
+                    showResult({ expected: [], observed: {}, testable: {}, returned: null }, true);
+                    return;
+                }
+                var result = answer.result;
+                var expected = Array.isArray(result.expected) ? result.expected : [];
+                var observed = result.observed && typeof result.observed === 'object' ? result.observed : {};
+                var testable = result.testable && typeof result.testable === 'object' ? result.testable : {};
+                var pending = expected.some(function (channel) {
+                    return testable[channel] !== false && !observed[channel];
+                });
+                if (result.returned && (!pending || attempts >= 10)) {
+                    showResult(result, true);
+                } else if (attempts >= 10) {
+                    showResult(result, true);
+                } else {
+                    window.setTimeout(poll, 1000);
+                }
+            }).fail(function () {
+                showResult({ expected: [], observed: {}, testable: {}, returned: null }, true);
+            });
+        }
+        poll();
+    }
+
     /* --------------------------------------------------------------------- start */
 
     $(function () {
@@ -2450,6 +2576,7 @@
         conditionalFields();
         webGuiTransportNotice();
         endpointPreview();
+        lifecycleTestFromAddress();
 
         /* Normalise the list fields first: if the tokenizer never arrives, what stays
          * behind is a readable comma separated field rather than one long string. */

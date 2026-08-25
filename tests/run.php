@@ -24,6 +24,7 @@ define('OPENIDCONNECT_TEST_DPOP_DIRECTORY', $dpopTestDirectory);
 define('OPENIDCONNECT_TEST_SESSION_DIRECTORY', $sessionTestDirectory);
 define('OPENIDCONNECT_TEST_SESSION_REGISTRY', $sessionTestDirectory . '/index.json');
 define('OPENIDCONNECT_TEST_SIGNAL_REPLAYS', $sessionTestDirectory . '/signals.json');
+define('OPENIDCONNECT_TEST_LIFECYCLE_REGISTRY', $sessionTestDirectory . '/lifecycle.json');
 ini_set('session.save_path', $sessionTestDirectory);
 register_shutdown_function(static function (): void {
     @unlink((string)constant('OPENIDCONNECT_TEST_PENDING_REGISTRY'));
@@ -78,6 +79,7 @@ require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SharedSign
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SharedSignalsPoller.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SessionGrant.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/TransactionRegistry.php';
+require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/LifecycleTestRegistry.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/WebGuiAccess.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderRuntimeState.php';
 require $root . '/src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ParClient.php';
