@@ -302,6 +302,12 @@ returns the pull request to draft before the next implementation change. Fixes
 within an already authorized review batch do not revoke readiness. No agent
 automatically changes a draft back to ready.
 
+Before every external review request or final review handoff, read and follow
+the complete `preflight-review` skill against the exact final diff from the
+canonical base. A green test gate is evidence, not completion. If the preflight
+changes code, rerun the affected validation and repeat its relevant checks on
+the new diff before requesting review.
+
 Do not merge a pull request until Codex has reviewed its current head commit.
 P0 and P1 findings block the merge until fixed or technically rebutted in their
 thread. A P2 blocks only when it is independently reproducible and affects
