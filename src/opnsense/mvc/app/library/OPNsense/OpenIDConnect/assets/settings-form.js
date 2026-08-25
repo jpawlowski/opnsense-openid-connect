@@ -251,7 +251,7 @@
         /* the original input stays put as the field that gets submitted */
         $(input).attr('type', 'hidden').after(picker);
         picker.on('tokenize:tokens:change change', function () {
-            $(input).val((picker.val() || []).join(','));
+            $(input).val((picker.val() || []).join(',')).trigger('change');
         });
     }
 
@@ -1838,17 +1838,85 @@
         if (!target.length) {
             return;
         }
-        var preview = $('<div class="help-block oidc-endpoints"><strong></strong><div></div></div>');
-        preview.find('strong').text(options.endpointLabel || 'Provider endpoints');
+        var titleId = 'openidconnect-provider-endpoints';
+        var preview = $('<div class="oidc-endpoints" role="region">').attr('aria-labelledby', titleId);
+        var output = $('<div class="oidc-endpoint-list">');
+        var help = $('<p class="oidc-endpoint-help">');
+        preview.append(
+            $('<div class="oidc-support-panel-heading">').append(
+                $('<strong>').attr('id', titleId).text(options.endpointLabel || 'Provider endpoints')
+            ),
+            output,
+            help
+        );
         target.append(preview);
+
+        function writeClipboard(value) {
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                return navigator.clipboard.writeText(value);
+            }
+            return new Promise(function (resolve, reject) {
+                var textarea = $('<textarea readonly>').css({
+                    left: '-9999px',
+                    opacity: 0,
+                    position: 'fixed',
+                    top: 0
+                }).val(value).appendTo(document.body);
+                textarea[0].select();
+                textarea[0].setSelectionRange(0, value.length);
+                try {
+                    if (!document.execCommand('copy')) {
+                        throw new Error('copy command was rejected');
+                    }
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                } finally {
+                    textarea.remove();
+                }
+            });
+        }
+
+        function endpointRow(destination, index) {
+            var copyLabel = options.endpointCopyLabel || 'Copy';
+            var copiedLabel = options.endpointCopiedLabel || 'Copied';
+            var button = $('<button type="button" class="btn btn-default btn-xs oidc-endpoint-copy">')
+                .attr('aria-label', copyLabel + ' ' + destination[0])
+                .append($('<i class="fa fa-copy" aria-hidden="true">'), ' ', $('<span>').text(copyLabel));
+            button.on('click', function () {
+                button.prop('disabled', true);
+                writeClipboard(destination[1]).then(function () {
+                    button.addClass('btn-success').removeClass('btn-default')
+                        .attr('aria-label', copiedLabel + ': ' + destination[0])
+                        .find('span').text(copiedLabel);
+                    window.setTimeout(function () {
+                        button.addClass('btn-default').removeClass('btn-success').prop('disabled', false)
+                            .attr('aria-label', copyLabel + ' ' + destination[0])
+                            .find('span').text(copyLabel);
+                    }, 1600);
+                }).catch(function () {
+                    button.prop('disabled', false);
+                    BootstrapDialog.alert(options.endpointCopyFailed
+                        || 'This URI could not be copied. Select it and copy it manually.');
+                });
+            });
+            return $('<div class="oidc-endpoint-row">')
+                .append($('<div class="oidc-endpoint-name">').text(destination[0]))
+                .append($('<div class="oidc-endpoint-value">').append(
+                    $('<code>').attr('data-oidc-endpoint', index).text(destination[1])
+                ))
+                .append(button);
+        }
 
         function update() {
             var code = (field('openidconnect_app_code').value || 'main').trim();
             var origins = effectiveOrigins();
             var supplied = origins[0];
-            var output = preview.find('div').empty();
+            output.empty();
+            help.empty();
             if (!supplied) {
-                $('<span>').text(options.noEndpointOrigin || 'No accepted HTTPS WebGUI origin is available.')
+                $('<div class="oidc-endpoint-empty" role="status">')
+                    .text(options.noEndpointOrigin || 'No accepted HTTPS WebGUI origin is available.')
                     .appendTo(output);
                 return;
             }
@@ -1885,11 +1953,10 @@
                     sectorOrigin + '/api/openidconnect/auth/sector/' + encodeURIComponent(code)
                 ]);
             }
-            destinations.forEach(function (destination) {
-                $('<div>').append($('<span>').text(destination[0] + ': '))
-                    .append($('<code>').text(destination[1])).appendTo(output);
+            destinations.forEach(function (destination, index) {
+                endpointRow(destination, index).appendTo(output);
             });
-            $('<small>').text(options.endpointHelp || '').appendTo(output);
+            help.text(options.endpointHelp || '');
         }
         $(field('openidconnect_app_code')).on('input change', update);
         $(field('openidconnect_redirect_urls')).on('input change', update);
@@ -1963,16 +2030,19 @@
                 $(this).prop('disabled', boundary.admission
                     && ['username', 'verified_email', 'either'].indexOf(this.value) !== -1);
             });
+            var populationCoercions = $();
             var admission = admissionInput.value || 'strict';
             var automatic = ['username', 'verified_email', 'either'].indexOf(admission) !== -1;
             if (boundary.admission && automatic) {
                 $(admissionInput).val('approval');
+                populationCoercions = populationCoercions.add(admissionInput);
                 admission = 'approval';
                 automatic = false;
             }
             refreshSelectPicker(admissionInput);
-            if (boundary.creation) {
+            if (boundary.creation && $(creationInput).is(':checked')) {
                 $(creationInput).prop('checked', false);
+                populationCoercions = populationCoercions.add(creationInput);
             }
             $(creationInput).prop('disabled', boundary.creation);
             var creates = $(creationInput).is(':checked');
@@ -2020,6 +2090,9 @@
                 buttonTextCustomizable && buttonTextMode === 'custom'
             );
             refreshSelectPicker(authenticationInput);
+            /* These security-boundary coercions are direct assignments. Notify the
+             * profile controls after the complete population state is consistent. */
+            populationCoercions.trigger('input');
         }
         $(field('openidconnect_create_users')).on('change', update);
         $(field('openidconnect_group_claim')).on('input change', update);
@@ -2109,11 +2182,12 @@
         }
         previousProfile = profile.value || 'general';
 
-        var summary = $('<div class="help-block oidc-profile-summary">');
-        var summaryText = $('<span>');
-        var restore = $('<button type="button" class="btn btn-default btn-xs oidc-profile-restore">')
-            .text(options.profileRestoreLabel || 'Restore profile defaults');
-        summary.append(summaryText, ' ', restore);
+        var summary = $('<div class="oidc-profile-summary">');
+        var summaryText = $('<div class="oidc-profile-summary-text">');
+        var restore = $('<button type="button" class="btn btn-default btn-sm oidc-profile-restore">')
+            .append($('<i class="fa fa-undo" aria-hidden="true">'), ' ')
+            .append($('<span>').text(options.profileRestoreLabel || 'Restore profile defaults'));
+        summary.append(summaryText, $('<div class="oidc-profile-actions">').append(restore));
         row('openidconnect_provider_profile').find('td').last().append(summary);
 
         function preset() {
@@ -2144,6 +2218,26 @@
                     picker.trigger('change');
                 }
             }
+        }
+
+        function currentValue(name) {
+            var input = field(name);
+            if (!input) {
+                return null;
+            }
+            return input.type === 'checkbox' ? ($(input).is(':checked') ? '1' : '0') : input.value;
+        }
+
+        function restoreNeeded() {
+            var values = preset().values || {};
+            return Object.keys(values).some(function (name) {
+                var value = currentValue(name);
+                return value !== null && value !== String(values[name]);
+            });
+        }
+
+        function updateRestoreState() {
+            restore.prop('disabled', !restoreNeeded());
         }
 
         function setLocked(name, locked) {
@@ -2226,14 +2320,16 @@
             });
 
             if (profile.value === 'general') {
-                summaryText.text(options.profileGenericHelp || 'Generic OpenID Connect makes no provider-specific assumptions.');
-                restore.show();
+                summaryText.empty()
+                    .append($('<strong>').text(options.profileGenericLabel || 'Generic provider profile'))
+                    .append($('<div>').text(options.profileGenericHelp
+                        || 'Generic OpenID Connect makes no provider-specific assumptions.'));
             } else {
-                summaryText.empty().append($('<strong>').text(
-                    options.profileAppliedLabel || 'Provider defaults applied'
-                ), ' — ' + (options.profileAppliedHelp || 'Recommended values remain editable.'));
-                restore.show();
+                summaryText.empty()
+                    .append($('<strong>').text(options.profileAppliedLabel || 'Provider defaults applied'))
+                    .append($('<div>').text(options.profileAppliedHelp || 'Recommended values remain editable.'));
             }
+            updateRestoreState();
         }
 
         function apply(force) {
@@ -2261,7 +2357,21 @@
             apply(profile.value !== 'general');
             previousProfile = profile.value;
         });
-        restore.on('click', function () { apply(true); });
+        Object.keys((presets.general || {}).values || {}).forEach(function (name) {
+            $(field(name)).on('input change', updateRestoreState);
+        });
+        restore.on('click', function () {
+            if (!restoreNeeded()) {
+                return;
+            }
+            BootstrapDialog.confirm({
+                title: options.profileRestoreLabel || 'Restore profile defaults',
+                message: options.profileRestoreConfirm
+                    || 'Replace edited values with the defaults for the selected provider profile?',
+                type: BootstrapDialog.TYPE_WARNING,
+                callback: function (confirmed) { if (confirmed) { apply(true); } }
+            });
+        });
         apply(false);
 
         var microsoftAudience = field('openidconnect_microsoft_audience');
@@ -2276,6 +2386,7 @@
                         issuer.value = issuer.value.replace(/\/+$/, '') + '/';
                     }
                 }
+                updateRestoreState();
             }
             $(issuer).on('change blur', normalizeIssuerInput);
             $(issuer.form).on('submit', normalizeIssuerInput);
@@ -2302,6 +2413,7 @@
                         $(issuer).removeAttr('readonly');
                     }
                 }
+                updateRestoreState();
             }
             $(microsoftAudience).on('change', updateMicrosoftIssuer);
             $(profile).on('change', updateMicrosoftIssuer);

@@ -133,7 +133,21 @@ async function configureServer(page) {
   expect(new Set((await diagnosticButtons.evaluateAll(buttons => (
     buttons.map(button => Math.round(button.getBoundingClientRect().top))
   )))).size).toBe(1);
-  await expect(page.locator('.oidc-endpoints')).toBeVisible({ timeout: 15_000 });
+  const endpoints = page.locator('.oidc-endpoints');
+  await expect(endpoints).toBeVisible({ timeout: 15_000 });
+  await expect(endpoints.locator('.oidc-endpoint-row')).toHaveCount(5);
+  await expect(endpoints.getByRole('button', { name: /^Copy / })).toHaveCount(5);
+  const firstEndpointValue = await endpoints.locator('[data-oidc-endpoint="0"]').textContent();
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: value => { window.__oidcCopiedEndpoint = value; return Promise.resolve(); } },
+    });
+  });
+  const firstEndpointCopy = endpoints.getByRole('button', { name: /^Copy / }).first();
+  await firstEndpointCopy.click();
+  await expect(firstEndpointCopy).toContainText('Copied');
+  expect(await page.evaluate(() => window.__oidcCopiedEndpoint)).toBe(firstEndpointValue);
   await expect(page.locator('input[name="openidconnect_tls_offloading"]')
     .locator('xpath=ancestor::tr')).toBeHidden();
   await expect(page.locator('input[name="openidconnect_max_age"]')).toHaveValue('14400');
@@ -201,12 +215,51 @@ async function configureServer(page) {
   await expect(buttonTextMode.locator('xpath=ancestor::tr')).toBeHidden();
   await expect(buttonProviderLabel.locator('xpath=ancestor::tr')).toBeHidden();
   await expect(customButtonText.locator('xpath=ancestor::tr')).toBeHidden();
+  const restoreProfile = page.getByRole('button', { name: 'Restore profile defaults' });
+  await expect(restoreProfile).toBeDisabled();
+  const scopesInput = page.locator('input[name="openidconnect_scopes"]');
+  const scopesPicker = scopesInput.locator('xpath=following-sibling::select[contains(@class, "tokenize")]');
+  await scopesPicker.evaluate(select => {
+    select.querySelector('option[value="name"]').selected = false;
+    window.jQuery(select).trigger('tokenize:tokens:change');
+  });
+  await expect(scopesInput).toHaveValue('openid,email');
+  await expect(restoreProfile).toBeEnabled();
+  await restoreProfile.click();
+  let restoreDialog = page.getByRole('dialog', { name: 'Restore profile defaults' });
+  await restoreDialog.getByRole('button', { name: 'OK' }).click();
+  await expect(scopesInput).toHaveValue('openid,email,name');
+  await expect(restoreProfile).toBeDisabled();
   await page.locator('input[name="openidconnect_username_claim"]').fill('sub');
-  await page.getByRole('button', { name: 'Restore profile defaults' }).click();
+  await expect(restoreProfile).toBeEnabled();
+  await restoreProfile.click();
+  restoreDialog = page.getByRole('dialog', { name: 'Restore profile defaults' });
+  await expect(restoreDialog).toContainText('Replace edited values');
+  await expect(page.locator('input[name="openidconnect_username_claim"]')).toHaveValue('sub');
+  await restoreDialog.getByRole('button', { name: 'OK' }).click();
   await expect(page.locator('input[name="openidconnect_username_claim"]')).toHaveValue('email');
+  await expect(restoreProfile).toBeDisabled();
   await selectNative(providerProfile, 'orcid');
   await expect(issuerField).toHaveValue('https://orcid.org');
   await expect(page.locator('input[name="openidconnect_scopes"]')).toHaveValue('openid');
+  await selectNative(providerProfile, 'gitlab');
+  await expect(issuerField).toHaveValue('https://gitlab.com');
+  await expect(restoreProfile).toBeDisabled();
+  await issuerField.fill('https://gitlab.example.com');
+  await expect(admissionPolicy.locator('option[value="username"]')).toBeEnabled();
+  await selectNative(admissionPolicy, 'username');
+  await createUsers.check();
+  await expect(restoreProfile).toBeEnabled();
+  await issuerField.fill('https://gitlab.com');
+  await expect(admissionPolicy).toHaveValue('approval');
+  await expect(createUsers).not.toBeChecked();
+  await expect(createUsers).toBeDisabled();
+  await expect(restoreProfile).toBeDisabled();
+  await issuerField.fill('https://gitlab.com/.well-known/openid-configuration');
+  await expect(restoreProfile).toBeEnabled();
+  await issuerField.blur();
+  await expect(issuerField).toHaveValue('https://gitlab.com');
+  await expect(restoreProfile).toBeDisabled();
   await selectNative(providerProfile, 'auth0');
   await expect(requiredAuthentication).toBeEnabled();
   await expect(selectPickerButton(requiredAuthentication)).toBeEnabled();
@@ -274,9 +327,12 @@ async function configureServer(page) {
     .toHaveValue('https://login.microsoftonline.com/common/v2.0');
   await expect(page.locator('input[name="openidconnect_provider_url"]'))
     .toHaveAttribute('readonly', 'readonly');
+  await expect(restoreProfile).toBeEnabled();
   await selectNative(microsoftAudience, 'tenant');
   await expect(requiredAuthentication).toBeEnabled();
   await expect(selectPickerButton(requiredAuthentication)).toBeEnabled();
+  await expect(page.locator('input[name="openidconnect_provider_url"]')).toHaveValue('');
+  await expect(restoreProfile).toBeDisabled();
   await selectNative(microsoftAudience, 'common');
   await selectNative(page.locator('select[name="openidconnect_provider_profile"]'), 'keycloak');
   await expect(microsoftAudience.locator('xpath=ancestor::tr')).toBeHidden();

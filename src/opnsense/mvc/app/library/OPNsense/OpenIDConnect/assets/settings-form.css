@@ -58,6 +58,93 @@
     margin-left: 0.65rem;
 }
 
+.oidc-endpoints,
+.oidc-profile-summary {
+    background: rgba(127, 127, 127, 0.06);
+    border: 1px solid rgba(127, 127, 127, 0.3);
+    border-radius: 4px;
+    margin-top: 1rem;
+}
+
+.oidc-support-panel-heading {
+    border-bottom: 1px solid rgba(127, 127, 127, 0.25);
+    padding: 0.75rem 1rem;
+}
+
+.oidc-endpoint-row {
+    align-items: start;
+    display: grid;
+    gap: 0.65rem 1rem;
+    grid-template-columns: minmax(13rem, 0.8fr) minmax(0, 1.6fr) auto;
+    padding: 0.7rem 1rem;
+}
+
+.oidc-endpoint-row + .oidc-endpoint-row {
+    border-top: 1px solid rgba(127, 127, 127, 0.2);
+}
+
+.oidc-endpoint-name {
+    font-weight: 600;
+    line-height: 1.45;
+}
+
+.oidc-endpoint-value {
+    min-width: 0;
+}
+
+.oidc-endpoint-value code {
+    background: transparent;
+    color: inherit;
+    display: block;
+    font-size: 0.95em;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    padding: 0;
+    user-select: all;
+    word-break: break-word;
+}
+
+.oidc-endpoint-copy {
+    min-width: 6.2rem;
+}
+
+.oidc-endpoint-empty,
+.oidc-endpoint-help {
+    margin: 0;
+    padding: 0.7rem 1rem;
+}
+
+.oidc-endpoint-help {
+    font-size: 0.9em;
+    line-height: 1.4;
+}
+
+.oidc-endpoint-help:not(:empty) {
+    border-top: 1px solid rgba(127, 127, 127, 0.25);
+}
+
+.oidc-profile-summary {
+    align-items: center;
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+    padding: 0.85rem 1rem;
+}
+
+.oidc-profile-summary-text {
+    line-height: 1.45;
+    min-width: 0;
+}
+
+.oidc-profile-summary-text strong {
+    display: block;
+    margin-bottom: 0.15rem;
+}
+
+.oidc-profile-actions {
+    flex: 0 0 auto;
+}
+
 .oidc-provider-setup {
     align-items: center;
     display: inline-flex;
@@ -270,6 +357,35 @@
     position: absolute;
     right: -1px;
     top: -3px;
+}
+
+@media (max-width: 767px) {
+    .oidc-endpoint-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .oidc-endpoint-name {
+        grid-column: 1;
+    }
+
+    .oidc-endpoint-value {
+        grid-column: 1 / -1;
+        grid-row: 2;
+    }
+
+    .oidc-endpoint-copy {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    .oidc-profile-summary {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .oidc-profile-restore {
+        width: 100%;
+    }
 }
 
 @media (max-width: 520px) {
