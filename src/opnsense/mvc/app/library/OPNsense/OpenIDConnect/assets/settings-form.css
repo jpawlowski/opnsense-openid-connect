@@ -41,6 +41,23 @@
     vertical-align: middle;
 }
 
+.oidc-action-help {
+    display: inline-flex;
+}
+
+.oidc-action-help-disabled > .btn[disabled] {
+    pointer-events: none;
+}
+
+.oidc-action-help-disabled:focus {
+    outline: 2px solid #337ab7;
+    outline-offset: 2px;
+}
+
+.oidc-revert-changes {
+    margin-left: 0.65rem;
+}
+
 .oidc-provider-setup {
     align-items: center;
     display: inline-flex;

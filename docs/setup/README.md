@@ -264,10 +264,13 @@ flow even while **Offer on the login page** remains disabled. It checks the
 authorization response (including JARM when selected), PKCE binding, code
 exchange, ID Token and configured claims source. Unsaved changes disable the
 action so that the displayed form and the saved connector under test cannot
-disagree. The result shows the exact issuer, subject and configured
+disagree. Use **Revert changes** beside **Save** to reload the complete saved
+form. Hover over or focus the unavailable action to see whether it needs that
+revert, a first save, or missing required values such as the Client ID or
+credential. The result shows the exact issuer, subject and configured
 username claim. It deliberately does not create a WebGUI login session or
 change a local account, subject binding or group membership. It is available
-only while the saved form is unchanged; save or exactly revert edits first.
+only while the saved form is unchanged.
 This makes it safe to run before deciding the admission policy. The identity provider may
 still retain its own SSO session, so use a private browser window when a later
 test must begin without that provider session. Before leaving OPNsense, the test

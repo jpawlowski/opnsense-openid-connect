@@ -273,6 +273,37 @@
         return section;
     }
 
+    /* A disabled button does not reliably receive pointer or keyboard events, so its
+     * title cannot explain why the action is unavailable. Let a focusable wrapper own
+     * the tooltip while leaving the real button disabled for form semantics. */
+    function withActionHelp(button, className) {
+        var wrapper = $('<span class="oidc-action-help">').addClass(className || '').append(button);
+        var tooltipReady = false;
+
+        function update(message, disabled) {
+            var explanation = String(message || '').replace(/`/g, '');
+            wrapper.toggleClass('oidc-action-help-disabled', disabled).attr({
+                'aria-label': explanation,
+                title: explanation
+            });
+            if (disabled) {
+                wrapper.attr('tabindex', '0');
+            } else {
+                wrapper.removeAttr('tabindex');
+            }
+            button.attr('title', explanation);
+            if (typeof wrapper.tooltip === 'function') {
+                if (!tooltipReady) {
+                    wrapper.tooltip({ container: 'body', placement: 'top', trigger: 'hover focus' });
+                    tooltipReady = true;
+                }
+                wrapper.attr({ 'data-original-title': explanation, title: '' });
+            }
+        }
+
+        return { element: wrapper, update: update };
+    }
+
     function resultStatus(status) {
         var statuses = {
             success: { icon: 'fa-check-circle', label: options.statusPassed || 'Passed', style: 'success' },
@@ -594,15 +625,29 @@
             return { establishBaseline: function () {} };
         }
         var form = submit.closest('form');
-        var address = new URL(window.location.href);
         var nameInput = field('name');
         var savedName = nameInput ? nameInput.value.trim() : '';
-        var saved = address.searchParams.get('act') === 'edit'
-            && /^\d+$/.test(address.searchParams.get('id') || '') && savedName !== '';
+        var serverId = currentServerId();
+        var saved = serverId !== null && savedName !== '';
         var savedReady = false;
         var initialized = false;
         var baseline = null;
         var running = false;
+        var revert = $('<button>')
+            .attr({
+                type: 'button',
+                class: 'btn btn-default oidc-revert-changes'
+            })
+            .text(options.revertChangesLabel || 'Revert changes')
+            .hide()
+            .on('click', function () {
+                var target = new URL('/system_authservers.php', window.location.origin);
+                target.searchParams.set('act', saved ? 'edit' : 'new');
+                if (saved) {
+                    target.searchParams.set('id', String(serverId));
+                }
+                window.location.assign(target.href);
+            });
         var button = $('<button>')
             .attr({
                 type: 'button',
@@ -650,6 +695,7 @@
                     updateAvailability();
                 });
             });
+        var buttonHelp = withActionHelp(button, 'oidc-signin-test-help');
         function currentFieldsComplete() {
             return currentClientFieldsComplete();
         }
@@ -674,40 +720,47 @@
         }
 
         function formChanged() {
-            return saved && (baseline === null || formState() !== baseline);
+            return initialized && (baseline === null || formState() !== baseline);
         }
         function updateAvailability() {
             var changed = formChanged();
             var ready = saved && initialized && !changed && savedReady;
-            button.prop('disabled', running || !ready);
+            var disabled = running || !ready;
+            button.prop('disabled', disabled);
+            revert.toggle(changed && !running);
             if (!running) {
                 button.text(options.signInTestLabel || 'Test sign-in');
             }
             var explanation;
-            if (!saved) {
-                explanation = options.signInTestSaveHelp || 'Save this server before testing sign-in.';
-            } else if (!initialized) {
+            if (!initialized) {
                 explanation = options.formPreparing || 'Preparing form state...';
+            } else if (!currentFieldsComplete()) {
+                explanation = options.signInTestIncompleteHelp
+                    || 'Complete and save the issuer, client ID and selected client credential before testing sign-in.';
             } else if (changed) {
                 explanation = options.signInTestChangedHelp
                     || 'Save or revert your changes before testing sign-in.';
+            } else if (!saved) {
+                explanation = options.signInTestSaveHelp || 'Save this server before testing sign-in.';
             } else if (!currentTransportReady()) {
                 explanation = options.signInTestTransportHelp
                     || 'Save a complete secure WebGUI transport configuration before testing sign-in.';
-            } else if (!currentFieldsComplete() || !savedReady) {
+            } else if (!savedReady) {
                 explanation = options.signInTestIncompleteHelp
                     || 'Complete and save the issuer, client ID and selected client credential before testing sign-in.';
             } else {
                 explanation = options.signInTestHelp
                     || 'Runs a complete browser sign-in without changing OPNsense.';
             }
-            button.attr('title', explanation.replace(/`/g, ''));
+            buttonHelp.update(explanation, disabled);
         }
 
         function establishBaseline() {
             initialized = true;
-            if (saved && options.formLoadedFromSavedState === true) {
+            if (options.formLoadedState === true) {
                 baseline = formState();
+            }
+            if (saved && options.formLoadedFromSavedState === true) {
                 savedReady = currentFieldsComplete() && currentTransportReady();
             }
             updateAvailability();
@@ -715,7 +768,8 @@
 
         submit.closest('form').on('input change tokenize:tokens:change', updateAvailability);
         formActionSection('diagnostics', options.diagnosticsActionsHeading || 'Test and diagnostics')
-            .find('.oidc-form-actions').append(button);
+            .find('.oidc-form-actions').append(buttonHelp.element);
+        submit.after(revert);
         updateAvailability();
         return { establishBaseline: establishBaseline };
     }
