@@ -19,6 +19,11 @@ GITHUB_PULL_URL_PATTERN = (
     r"(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?P<number>[0-9]+)"
     r"(?:[/?#][^\s<>)]*)?"
 )
+RELATIVE_MARKDOWN_PULL_REFERENCE = re.compile(
+    r"!?\[[^]\n]*\]\((?://(?:www[.])?github[.]com)?/"
+    r"(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?P<number>[0-9]+)(?:[/?#][^\s<>)]*)?\)",
+    re.IGNORECASE,
+)
 MARKDOWN_PULL_REFERENCE = re.compile(rf"!?\[[^]\n]*\]\({GITHUB_PULL_URL_PATTERN}\)", re.IGNORECASE)
 AUTOLINK_PULL_REFERENCE = re.compile(rf"<{GITHUB_PULL_URL_PATTERN}>", re.IGNORECASE)
 PULL_URL_REFERENCE = re.compile(GITHUB_PULL_URL_PATTERN, re.IGNORECASE)
@@ -162,7 +167,8 @@ def without_hash_number_references(value):
         reference = pull_reference(match.group("number"))
         return f"{repository} {reference}" if repository else reference
 
-    value = MARKDOWN_PULL_REFERENCE.sub(qualified_replacement, str(value or ""))
+    value = RELATIVE_MARKDOWN_PULL_REFERENCE.sub(qualified_replacement, str(value or ""))
+    value = MARKDOWN_PULL_REFERENCE.sub(qualified_replacement, value)
     value = AUTOLINK_PULL_REFERENCE.sub(qualified_replacement, value)
     value = PULL_URL_REFERENCE.sub(qualified_replacement, value)
     value = GH_NUMBER_REFERENCE.sub(lambda match: pull_reference(match.group("number")), value)

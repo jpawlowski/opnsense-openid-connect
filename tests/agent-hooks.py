@@ -1445,6 +1445,10 @@ module.update_registry(repository, update)
             "jpawlowski/opnsense-openid-connect PR 42",
         "[review](https://github.com/jpawlowski/opnsense-openid-connect/pull/42)":
             "jpawlowski/opnsense-openid-connect PR 42",
+        "[review](/jpawlowski/opnsense-openid-connect/pull/42)":
+            "jpawlowski/opnsense-openid-connect PR 42",
+        "[review](//github.com/jpawlowski/opnsense-openid-connect/pull/42)":
+            "jpawlowski/opnsense-openid-connect PR 42",
     }
     check("every GitHub pull-request reference form becomes non-linking prose",
           {value: coordination.without_hash_number_references(value) for value in reference_examples},
