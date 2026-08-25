@@ -15,7 +15,7 @@ application code `main`, every generated URL must end in `/main` instead.
 
 ### Optional shortcut: import a generated Blueprint
 
-Open OPNsense under the WebGUI address to register, select the authentik
+Open OPNsense under the accepted HTTPS WebGUI FQDN to register, select the authentik
 profile, enter the **Application code**, and select **Download provider setup**.
 Choose Back-channel only
 if the authentik server trusts and can reach the WebGUI; otherwise choose
@@ -33,7 +33,8 @@ dedicated verified e-mail mapping and an asymmetric signing key. authentik
 generates the Client ID and Client Secret. The Application's explicit Launch URL
 is the OPNsense login-start endpoint under the accepted WebGUI origin from which
 the Blueprint was downloaded, not its callback URL. That origin's callback is
-also the first redirect entry.
+also the first redirect entry. The application tile is named after that FQDN and
+uses the package-owned OPNsense mark from the same origin.
 
 The dedicated `email` mapping sends `email_verified=true` only when the
 authentik user's custom `email_verified` attribute is the JSON boolean `true`.

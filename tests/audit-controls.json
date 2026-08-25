@@ -772,7 +772,7 @@
         },
         {
           "slug": "provider-onboarding-invariants",
-          "claim": "Named provider presets cover every provider-dependent field, and generated Keycloak or authentik setup files contain exact redirects without embedding a client secret.",
+          "claim": "Named provider presets cover every provider-dependent field, and generated Keycloak or authentik setup files bind visible naming, branding and exact redirects to the active accepted WebGUI FQDN without embedding a client secret.",
           "implementation": [
             "src/opnsense/mvc/app/library/OPNsense/Auth/OpenIDConnect.php",
             "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderSetup.php"

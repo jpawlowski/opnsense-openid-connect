@@ -1566,6 +1566,10 @@ class OpenIDConnect extends Base implements IAuthConnector
     /** Resolve a profile name to one package-owned SVG without accepting a filesystem path. */
     public static function providerIconPath(string $profile): ?string
     {
+        if ($profile === 'opnsense') {
+            $path = __DIR__ . '/../OpenIDConnect/assets/application-icons/opnsense.svg';
+            return is_file($path) ? $path : null;
+        }
         if (!in_array($profile, self::PROVIDER_PROFILES, true)) {
             return null;
         }
@@ -1859,6 +1863,10 @@ class OpenIDConnect extends Base implements IAuthConnector
             'setupReviewWarning' => gettext(
                 'Importing changes the identity provider. Review the file, its WebGUI addresses and the selected ' .
                 'realm or tenant before applying it.'
+            ),
+            'setupOriginMismatchHelp' => gettext(
+                'Open this form through an accepted HTTPS WebGUI FQDN. Add that name to OPNsense Alternative ' .
+                'Hostnames or to this provider\'s exact origins before trying again.'
             ),
             'setupPairwiseSaveHelp' => gettext(
                 'Save this authentication server as a disabled draft before generating pairwise-subject setup. ' .
