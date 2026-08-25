@@ -8,6 +8,11 @@ body:
         Keep the complete issue to at most **175 counted prose words**. Code, commands, paths, URLs, closing references
         and the AI notice do not count. English and German are accepted; prefer English when in doubt.
 
+        If important supporting context does not fit, publish one comment beginning with `## Details`, then link it
+        from the relevant answer as `Details: [maintained comment](permalink)`. Keep this main body self-contained and
+        keep its outcome and decision here. Edit the existing detail comment whenever either part changes; do not add
+        correction or replacement detail comments. The comment has no separate word limit, but keep it focused.
+
         Agent-authored text must end with one exact italic notice after the answer under `To decide`, separated as its
         own final paragraph:
 

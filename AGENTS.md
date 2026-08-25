@@ -275,8 +275,9 @@ what to set — not that something changed.
 
 Before an agent creates or writes to a public GitHub issue, pull request, review
 or comment, read the complete `github-contribution` skill. Its issue-first rule,
-language matching, short-body limits, tone and authorship notice apply to every
-public message written in a contributor's name.
+language matching, short-body limits, maintained-detail-comment pattern, tone
+and authorship notice apply to every public message written in a contributor's
+name.
 
 Do not merge a pull request until Codex has reviewed its current head commit.
 P0 and P1 findings block the merge until fixed or technically rebutted in their
