@@ -20,8 +20,10 @@ GITHUB_PULL_URL_PATTERN = (
     r"(?:[/?#][^\s<>)]*)?"
 )
 RELATIVE_MARKDOWN_PULL_REFERENCE = re.compile(
-    r"!?\[[^]\n]*\]\((?://(?:www[.])?github[.]com)?/"
-    r"(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?P<number>[0-9]+)(?:[/?#][^\s<>)]*)?\)",
+    r"!?\[[^]\n]*\]\([ \t]*(?:\n[ \t]*)?(?P<angle><)?(?://(?:www[.])?github[.]com)?/"
+    r"(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?P<number>[0-9]+)(?:[/?#][^\s<>)]*)?"
+    r"(?(angle)>)(?:(?:[ \t]+|[ \t]*\n[ \t]*)(?:\"[^\"\n]*\"|'[^'\n]*'|\([^\)\n]*\)))?"
+    r"[ \t]*(?:\n[ \t]*)?\)",
     re.IGNORECASE,
 )
 RELATIVE_REFERENCE_PULL_DEFINITION = re.compile(
