@@ -738,6 +738,7 @@ async function editServer(page, change) {
 async function testSignIn(page, {
   expectNoLocalAccount = false,
   expectedEmailVerification = 'true',
+  validateSignOut = false,
 } = {}) {
   await page.goto(`${origin}/system_authservers.php`);
   await page.getByRole('row', { name: new RegExp(process.env.E2E_SERVER_NAME) })
@@ -779,14 +780,34 @@ async function testSignIn(page, {
   expectStandaloneHtmlHeaders(callbackResponse);
   await expect(page.locator('.oidc-signin-result .hero-icon')).toHaveText('✓');
   await expect(page.locator('.oidc-signin-result .card')).toHaveCount(3);
-  await expect(page.locator('.oidc-signin-results tr')).toHaveCount(7);
+  expect(await page.locator('.oidc-signin-results tr').count()).toBeGreaterThan(14);
+  await expect(page.getByRole('row', { name: /Pushed authorization request \(PAR\)/ })).toContainText('Used');
   await expect(page.getByRole('row', { name: /E-mail verification claim/ }))
     .toContainText(expectedEmailVerification);
   await expect(page.locator('body')).toContainText('PKCE binding');
   await expect(page.locator('body')).toContainText(process.env.E2E_TEST_USERNAME);
   await expect(page.locator('body')).toContainText(
-    'No login session, local account, subject binding or group membership was changed.'
+    'The sign-in half created no login session and changed no local account, subject binding or group membership.'
   );
+  await expect(page.locator('body')).toContainText(
+    'A validated provider notification ends every matching OPNsense session, possibly including the administrator session'
+  );
+  if (validateSignOut) {
+    const lifecyclePagePromise = page.context().waitForEvent('page');
+    await page.getByRole('link', { name: 'Validate sign-out' }).click();
+    const lifecyclePage = await lifecyclePagePromise;
+    await lifecyclePage.waitForLoadState('domcontentloaded');
+    const resultDialog = lifecyclePage.getByRole('dialog', { name: 'OpenID Connect lifecycle test' });
+    await expect(resultDialog).toBeVisible({ timeout: 20_000 });
+    await expect(resultDialog).toContainText(
+      'Validated provider logout notifications end every matching OPNsense WebGUI session.'
+    );
+    await expect(resultDialog.getByRole('row', { name: /RP-initiated logout return/ })).toContainText('Passed');
+    await expect(resultDialog.getByRole('row', { name: /Front-channel logout/ })).toContainText('Passed');
+    await expect(resultDialog.getByRole('row', { name: /Back-channel logout/ })).toContainText('Passed');
+    await expect(lifecyclePage.locator('input[name="name"]')).toHaveValue(process.env.E2E_SERVER_NAME);
+    await lifecyclePage.close();
+  }
   await page.getByRole('link', { name: 'Return to authentication servers' }).click();
   await expect(page).toHaveURL(serverEditUrl);
   await expect(page.locator('input[name="name"]')).toHaveValue(process.env.E2E_SERVER_NAME);
@@ -921,7 +942,9 @@ async function importGeneratedKeycloakClient(setup) {
   expect(client.defaultClientScopes).toEqual(setup.clients[0].defaultClientScopes);
   expect([...client.optionalClientScopes].sort()).toEqual([...setup.clients[0].optionalClientScopes].sort());
   expect(client.attributes['dpop.bound.access.tokens']).toBe('true');
-  expect(client.attributes['post.logout.redirect.uris']).toBe(`${origin}/`);
+  expect(client.attributes['post.logout.redirect.uris']).toBe(
+    `${origin}/api/openidconnect/auth/logouttestcallback/${process.env.E2E_APPLICATION_CODE}##${origin}/`
+  );
   expect(client.attributes['logout.confirmation.enabled']).toBe('false');
 
   // The generated public URL is correct for a real deployment. The disposable
@@ -1067,6 +1090,7 @@ test('real OPNsense login, session binding and logout interoperability', async (
   const adminPage = await admin.newPage();
   await localLogin(adminPage);
   await configureServer(adminPage);
+  await setFrontChannel(true);
   const invalidBackchannel = await unauthenticated.post(
     `${origin}/api/openidconnect/auth/backchannel/${process.env.E2E_APPLICATION_CODE}`,
     { form: { logout_token: '' }, maxRedirects: 0 }
@@ -1076,7 +1100,7 @@ test('real OPNsense login, session binding and logout interoperability', async (
   expect(invalidBackchannel.headers()['content-type']).toContain('text/plain');
   expect(invalidBackchannel.headers()['content-security-policy']).toContain("frame-ancestors 'none'");
   await unauthenticated.dispose();
-  await testSignIn(adminPage, { expectNoLocalAccount: true });
+  await testSignIn(adminPage, { expectNoLocalAccount: true, validateSignOut: true });
   await setKeycloakEmailVerification('false');
   await testSignIn(adminPage, {
     expectNoLocalAccount: true,

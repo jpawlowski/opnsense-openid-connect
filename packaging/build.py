@@ -83,6 +83,7 @@ rm -f /var/lib/php/sessions/.openidconnect-sessions
 rm -f /var/lib/php/sessions/.openidconnect-logout-tokens
 rm -f /var/lib/php/sessions/.openidconnect-security-events
 rm -f /var/lib/php/sessions/.openidconnect-transactions
+rm -f /var/lib/php/sessions/.openidconnect-lifecycle-tests
 rm -f /var/lib/php/sessions/.openidconnect-pending-identities
 rmdir /var/db/openid-connect 2>/dev/null
 /usr/local/sbin/pluginctl -s cron restart

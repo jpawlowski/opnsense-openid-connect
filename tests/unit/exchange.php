@@ -1096,6 +1096,29 @@ Checks::that(
     $endpointController->response->redirectedTo,
     '/'
 );
+$logoutUrlParty = new RelyingParty($endpointSettings, new Controller(), new HttpClient());
+$metadataProperty->setValue($logoutUrlParty, ProviderMetadata::fromArray(metadata([
+    'end_session_endpoint' => 'https://id.example.net/logout',
+])));
+$logoutTestUrl = $logoutUrlParty->signOutUrl(
+    'id-token',
+    'https://firewall.example.net/api/openidconnect/auth/logouttestcallback/main',
+    str_repeat('a', 43)
+);
+parse_str((string)parse_url($logoutTestUrl, PHP_URL_QUERY), $logoutTestParameters);
+Checks::that('a lifecycle logout binds its exact return and opaque state without changing the response', [
+    strtok($logoutTestUrl, '?'),
+    $logoutTestParameters,
+], [
+    'https://id.example.net/logout',
+    [
+        'id_token_hint' => 'id-token',
+        'post_logout_redirect_uri' => 'https://firewall.example.net/api/openidconnect/auth/logouttestcallback/main',
+        'state' => str_repeat('a', 43),
+    ],
+]);
+Checks::throws('logout state is accepted only beside an HTTPS return URI',
+    fn() => $logoutUrlParty->signOutUrl('id-token', null, str_repeat('a', 43)), 'state is invalid');
 
 $revocationRequest = [];
 $revocationParty = new RelyingParty(
@@ -1534,6 +1557,16 @@ $parTransaction = RelyingParty::consumeTransaction(
 );
 Checks::that('a successful PAR stores the normal server-side login transaction', $parTransaction['target'],
     '/ui/dashboard');
+Checks::that('the sign-in result can report the actual pushed authorization outcome',
+    $parTransaction['authorization_details'], [
+        'par_mode' => 'auto',
+        'par_advertised' => true,
+        'par_required' => true,
+        'par_used' => true,
+        'par_bypassed' => false,
+        'request_object_used' => false,
+        'dpop_used' => false,
+    ]);
 
 $failedParState = '';
 $failedParSession = new Session();

@@ -16,6 +16,7 @@ use OPNsense\Core\SanitizeFilter;
 use OPNsense\OpenIDConnect\ClientAuthenticationException;
 use OPNsense\OpenIDConnect\HttpClient;
 use OPNsense\OpenIDConnect\JwtVerifier;
+use OPNsense\OpenIDConnect\LifecycleTestRegistry;
 use OPNsense\OpenIDConnect\ProviderMetadata;
 use OPNsense\OpenIDConnect\RelyingParty;
 use OPNsense\OpenIDConnect\ProtocolException;
@@ -29,6 +30,7 @@ use OPNsense\OpenIDConnect\WebGuiAccess;
  *   /api/openidconnect/auth/login     start the exchange, or go where the browser belongs
  *   /api/openidconnect/auth/callback  finish it and turn the answer into a session
  *   /api/openidconnect/auth/logout    end here and at the provider
+ *   /api/openidconnect/auth/logouttestcallback return from a disposable lifecycle test
  *   /api/openidconnect/auth/icon      hand on a provider's logo for the login button
  *   /api/openidconnect/auth/builtinicon hand out a package-owned provider or OPNsense mark
  *   /api/openidconnect/auth/formscript serve the static authentication-server form application
@@ -186,6 +188,13 @@ class AuthController extends ApiControllerBase
                 is_string($claims['sid'] ?? null) ? $claims['sid'] : null,
                 is_string($claims['sub'] ?? null) ? $claims['sub'] : null
             );
+            $this->observeLifecycleLogout(
+                $settings->applicationCode(),
+                'backchannel',
+                $logoutIssuer,
+                is_string($claims['sid'] ?? null) ? $claims['sid'] : null,
+                is_string($claims['sub'] ?? null) ? $claims['sub'] : null
+            );
             syslog(LOG_NOTICE, sprintf('OIDC: back-channel logout invalidated %d local session(s)', $count));
         } catch (\Throwable $e) {
             if ($acceptedReplay !== null) {
@@ -218,6 +227,7 @@ class AuthController extends ApiControllerBase
         }
         try {
             $count = SessionRegistry::terminate($issuer, $sid, null);
+            $this->observeLifecycleLogout($settings->applicationCode(), 'frontchannel', $issuer, $sid, null);
             syslog(LOG_NOTICE, sprintf('OIDC: front-channel logout invalidated %d local session(s)', $count));
         } catch (\Throwable $e) {
             return $this->protocolFailure('', 'the front-channel logout was not accepted', $e, 400);
@@ -320,7 +330,7 @@ class AuthController extends ApiControllerBase
 
         if ($purpose === 'test') {
             $settings->trace('the accepted answer completed a sign-in test without changing the local session');
-            return $this->signInTestResult($name, $settings, $exchange, $claims, $target);
+            return $this->signInTestResult($name, $settings, $exchange, $claims, $transaction, $target);
         }
 
         $account = $settings->localAccountFor($claims, $exchange->issuer(), $exchange->subject());
@@ -446,6 +456,22 @@ class AuthController extends ApiControllerBase
         }
 
         return 'Signing out at the identity provider...';
+    }
+
+    /** Receive the provider's forced return from an authenticated disposable logout test. */
+    public function logouttestcallbackAction(string $applicationCode = '')
+    {
+        $state = $this->request->get('state', null);
+        if (!is_string($state)) {
+            return $this->refuse(400, 'Bad Request', 'The logout test return was not accepted.');
+        }
+        try {
+            $target = LifecycleTestRegistry::returned($state, $applicationCode);
+        } catch (\Throwable $e) {
+            return $this->protocolFailure('', 'the logout test return was not accepted', $e, 400);
+        }
+        $separator = str_contains($target, '?') ? '&' : '?';
+        return $this->sendTo($target . $separator . 'openidconnect_lifecycle_result=' . rawurlencode($state));
     }
 
     private function sameOriginNavigation(): bool
@@ -770,6 +796,22 @@ class AuthController extends ApiControllerBase
         return 'Redirecting...';
     }
 
+    /** Diagnostics must never turn an otherwise valid provider logout into a failure. */
+    private function observeLifecycleLogout(
+        string $applicationCode,
+        string $channel,
+        string $issuer,
+        ?string $sid,
+        ?string $subject
+    ): void {
+        try {
+            LifecycleTestRegistry::observe($applicationCode, $channel, $issuer, $sid, $subject);
+        } catch (\Throwable $e) {
+            syslog(LOG_NOTICE, sprintf('OIDC: could not record a %s logout test observation (%s)',
+                $channel, $e->getMessage()));
+        }
+    }
+
     /**
      * Report a complete browser-flow test without granting access or applying identity policy.
      *
@@ -783,6 +825,7 @@ class AuthController extends ApiControllerBase
         OpenIDConnect $settings,
         RelyingParty $exchange,
         object $claims,
+        array $transaction,
         string $target
     ): string {
         if ($this->request->isPost()) {
@@ -801,11 +844,43 @@ class AuthController extends ApiControllerBase
             '#^/system_authservers\.php(?:\?act=edit&id=(?:0|[1-9][0-9]*))?$#D',
             $target
         ) ? $target : '/system_authservers.php';
+        $authorization = is_array($transaction['authorization_details'] ?? null)
+            ? $transaction['authorization_details'] : [];
+        $parDescription = ($authorization['par_used'] ?? false) === true
+            ? gettext('Used')
+            : ((($authorization['par_bypassed'] ?? false) === true)
+                ? gettext('Temporarily bypassed after provider unavailability')
+                : ((($authorization['par_mode'] ?? '') === 'disabled')
+                    ? gettext('Disabled by configuration')
+                    : ((($authorization['par_advertised'] ?? false) === true)
+                        ? gettext('Not used') : gettext('Not advertised'))));
+        $tokenKinds = array_values(array_filter([
+            $exchange->getAccessToken() !== '' ? 'access_token' : '',
+            $exchange->getRefreshToken() !== '' ? 'refresh_token' : '',
+            $exchange->getIdToken() !== '' ? 'id_token' : '',
+        ]));
+        $supportsLogout = $exchange->supportsRpInitiatedLogout();
         $rows = [
             [gettext('Authentication server'), $name, 'info'],
             [gettext('Exact issuer'), $exchange->issuer(), 'success'],
+            [gettext('Redirect URI'), (string)($transaction['redirect_uri'] ?? ''), 'success'],
+            [gettext('Authorization response mode'), (string)($transaction['response_mode'] ?? 'query'), 'info'],
+            [gettext('Pushed authorization request (PAR)'), $parDescription,
+                ($authorization['par_used'] ?? false) === true ? 'success' : 'info'],
+            [gettext('Signed Request Object'), ($authorization['request_object_used'] ?? false) === true
+                ? gettext('Used') : gettext('Not used'), 'info'],
             [gettext('PKCE binding'), 'S256', 'success'],
+            [gettext('DPoP sender constraint'), ($authorization['dpop_used'] ?? false) === true
+                ? gettext('Used') : gettext('Not used'), 'info'],
+            [gettext('Token endpoint authentication'), (string)($transaction['token_auth_method'] ?? ''), 'success'],
+            [gettext('Issued token types'), implode(', ', $tokenKinds), 'info'],
+            [gettext('Browser round trip'), max(0, time() - (int)($transaction['created'] ?? time())) . ' s', 'info'],
             [gettext('Subject'), $exchange->subject(), 'success'],
+            [
+                gettext('Provider session identifier (sid)'),
+                $exchange->sessionIdentifier() !== '' ? gettext('present') : gettext('not present'),
+                $exchange->sessionIdentifier() !== '' ? 'info' : 'warning',
+            ],
             [
                 sprintf(gettext('Username claim (%s)'), $claimName),
                 $claimValue,
@@ -817,7 +892,46 @@ class AuthController extends ApiControllerBase
                 property_exists($claims, 'email_verified') ? 'info' : 'warning',
             ],
             [gettext('Claims source'), $settings->claimsSource(), 'info'],
+            [
+                gettext('RP-initiated logout endpoint'),
+                $supportsLogout ? gettext('Advertised') : gettext('Not advertised'),
+                $supportsLogout ? 'success' : 'warning',
+            ],
+            [gettext('Configured provider logout notifications'), $settings->logoutNotificationMode(), 'info'],
         ];
+        foreach (['acr', 'amr', 'auth_time'] as $protocolClaim) {
+            if (property_exists($claims, $protocolClaim)) {
+                $rows[] = [sprintf(gettext('ID Token claim (%s)'), $protocolClaim),
+                    $this->displayClaim($claims, $protocolClaim), 'info'];
+            }
+        }
+
+        $lifecycleId = '';
+        if ($supportsLogout) {
+            $expectedChannels = [];
+            if ($settings->acceptsFrontchannelLogout()) {
+                $expectedChannels[] = 'frontchannel';
+            }
+            if ($settings->acceptsBackchannelLogout()) {
+                $expectedChannels[] = 'backchannel';
+            }
+            try {
+                $lifecycleId = LifecycleTestRegistry::create(
+                    $settings->applicationCode(),
+                    $name,
+                    $exchange->issuer(),
+                    $exchange->subject(),
+                    $exchange->sessionIdentifier(),
+                    $exchange->getIdToken(),
+                    $exchange->ownOrigin() . '/api/openidconnect/auth/logouttestcallback/'
+                        . rawurlencode($settings->applicationCode()),
+                    $returnTarget,
+                    $expectedChannels
+                );
+            } catch (\Throwable $e) {
+                syslog(LOG_NOTICE, sprintf('OIDC: sign-out test could not be prepared (%s)', $e->getMessage()));
+            }
+        }
         $status = [
             'success' => ['symbol' => '✓', 'label' => gettext('Passed')],
             'warning' => ['symbol' => '!', 'label' => gettext('Warning')],
@@ -829,6 +943,24 @@ class AuthController extends ApiControllerBase
                 . '</th><td><code>' . $escape((string)$value) . '</code></td><td><span class="badge '
                 . $rowStatus . '"><span aria-hidden="true">' . $status[$rowStatus]['symbol']
                 . '</span> ' . $escape($status[$rowStatus]['label']) . '</span></td></tr>';
+        }
+        $logoutCard = $lifecycleId !== ''
+            ? '<div class="card warning"><span class="mark" aria-hidden="true">!</span><div><strong>'
+                . $escape(gettext('Sign-out can end WebGUI sessions')) . '</strong><span>'
+                . $escape(gettext(
+                    'A validated provider notification ends every matching OPNsense session, possibly including ' .
+                    'the administrator session that starts this test.'
+                ))
+                . '</span></div></div>'
+            : '<div class="card warning"><span class="mark" aria-hidden="true">!</span><div><strong>'
+                . $escape(gettext('Provider session may remain')) . '</strong><span>'
+                . $escape(gettext('No usable RP-initiated logout test could be prepared.')) . '</span></div></div>';
+        $lifecycleAction = '';
+        if ($lifecycleId !== '') {
+            $separator = str_contains($returnTarget, '?') ? '&' : '?';
+            $lifecycleTarget = $returnTarget . $separator . 'openidconnect_lifecycle=' . rawurlencode($lifecycleId);
+            $lifecycleAction = '<a href="' . $escape($lifecycleTarget)
+                . '" target="_blank" rel="noopener">' . $escape(gettext('Validate sign-out')) . '</a>';
         }
 
         return '<!doctype html><html><head><meta charset="utf-8">'
@@ -849,11 +981,13 @@ class AuthController extends ApiControllerBase
             . 'font-weight:800}.card strong{display:block}.card span:last-child{display:block;margin-top:.2rem;color:var(--text);font-size:.92rem}'
             . '.details{padding:0 1.5rem 1.5rem}.details h2{font-size:1.15rem;margin:.25rem 0 .75rem}table{border-collapse:collapse;'
             . 'width:100%}th,td{text-align:left;vertical-align:top;border-top:1px solid var(--line);padding:.7rem}th{width:30%}'
-            . 'td:last-child{text-align:right;width:8rem}code{overflow-wrap:anywhere;color:inherit}.badge{display:inline-block;white-space:nowrap;'
+            . 'td:last-child{text-align:right;width:9rem}.badge{display:block;width:100%;text-align:center;white-space:nowrap}'
+            . 'code{overflow-wrap:anywhere;color:inherit}.badge{'
             . 'padding:.25rem .45rem;border-radius:1rem;font-size:.78rem;font-weight:700}.badge.success{background:var(--success-bg);'
             . 'color:var(--success)}.badge.warning{background:var(--warning-bg);color:var(--warning)}.badge.info{background:var(--info-bg);'
             . 'color:var(--info)}.actions{padding:0 1.5rem 1.5rem}a{display:inline-block;padding:.6rem .85rem;background:#337ab7;'
-            . 'color:#fff;text-decoration:none;border-radius:.3rem;font-weight:600}@media(max-width:600px){main{margin:1rem auto}.hero{'
+            . 'color:#fff;text-decoration:none;border-radius:.3rem;font-weight:600}.actions a+a{margin-left:.5rem}'
+            . '@media(max-width:600px){main{margin:1rem auto}.hero{'
             . 'align-items:flex-start}.cards{grid-template-columns:1fr}.details{overflow-x:auto}th{min-width:10rem}}@media(prefers-color-scheme:dark){'
             . ':root{--bg:#172126;--panel:#202c32;--text:#edf2f4;--muted:#bdc9ce;--line:#405159;--success:#76d39e;'
             . '--success-bg:#183c2a;--warning:#ffd166;--warning-bg:#493a13;--info:#8dccf2;--info-bg:#17384c}}'
@@ -865,15 +999,14 @@ class AuthController extends ApiControllerBase
             . $escape(gettext('Protocol validation passed')) . '</strong><span>'
             . $escape(gettext('Authorization response, PKCE, code exchange, ID Token and claims source were accepted.'))
             . '</span></div></div><div class="card info"><span class="mark" aria-hidden="true">i</span><div><strong>'
-            . $escape(gettext('OPNsense remained unchanged')) . '</strong><span>'
-            . $escape(gettext('No login session, local account, subject binding or group membership was changed.'))
-            . '</span></div></div><div class="card warning"><span class="mark" aria-hidden="true">!</span><div><strong>'
-            . $escape(gettext('Provider session may remain')) . '</strong><span>'
-            . $escape(gettext('Use a private window when a later test must begin without the provider SSO session.'))
-            . '</span></div></div></div><section class="details"><h2>' . $escape(gettext('Verified details'))
+            . $escape(gettext('Sign-in test kept OPNsense unchanged')) . '</strong><span>'
+            . $escape(gettext(
+                'The sign-in half created no login session and changed no local account, subject binding or group membership.'
+            ))
+            . '</span></div></div>' . $logoutCard . '</div><section class="details"><h2>' . $escape(gettext('Verified details'))
             . '</h2><table class="oidc-signin-results"><tbody>' . $table . '</tbody></table></section><div class="actions">'
             . '<a href="' . $escape($returnTarget) . '">' . $escape(gettext('Return to authentication servers'))
-            . '</a></div></section></main></body></html>';
+            . '</a>' . $lifecycleAction . '</div></section></main></body></html>';
     }
 
     /** Explain the one credential failure that a confidential client can only learn after browser authorization. */

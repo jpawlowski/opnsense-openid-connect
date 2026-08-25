@@ -52,8 +52,9 @@ HTTPS origin must be an accepted FQDN and is placed first. A short hostname, IP
 literal or origin absent from the effective policy stops generation. With a
 custom policy, only the entered origins are registered. In either mode that
 first origin is the canonical launch and front-channel or back-channel logout
-address; all origins receive authorization and optional post-logout redirect
-entries. The generated
+address. All origins receive authorization redirects and the dedicated
+lifecycle-test post-logout return; the ordinary origin-root post-logout entry
+remains conditional on **Return here after logout**. The generated
 authentik Application `meta_launch_url` and Keycloak client Home URL start the
 local OPNsense login endpoint on that origin. They are intentionally different
 from the callback that receives the provider's authorization response.

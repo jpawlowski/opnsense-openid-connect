@@ -1745,6 +1745,21 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'reverse-proxy TLS-offloading exception is complete.'
             ),
             'signInTestChangedHelp' => gettext('Save or revert your changes before testing sign-in.'),
+            'lifecycleTestLabel' => gettext('Validate sign-out'),
+            'lifecycleResultLabel' => gettext('OpenID Connect lifecycle test'),
+            'lifecycleResultHelp' => gettext(
+                'Validated provider logout notifications end every matching OPNsense WebGUI session. If the ' .
+                'administrator session that started this test used the same provider identity and session, it may ' .
+                'be signed out before this result can be displayed.'
+            ),
+            'lifecycleReturnLabel' => gettext('RP-initiated logout return'),
+            'frontchannelLabel' => gettext('Front-channel logout'),
+            'backchannelLabel' => gettext('Back-channel logout'),
+            'passedLabel' => gettext('Passed'),
+            'notObservedLabel' => gettext('Not observed'),
+            'notConfiguredLabel' => gettext('Not configured'),
+            'notTestableLabel' => gettext('Not testable (ID Token has no sid)'),
+            'waitingLabel' => gettext('Waiting...'),
             'formPreparing' => gettext('Preparing form state...'),
             'formLoadedState' => ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET'
                 && is_string($_GET['act'] ?? null) && in_array($_GET['act'], ['new', 'edit'], true),
@@ -1982,6 +1997,7 @@ class OpenIDConnect extends Base implements IAuthConnector
             'postLogoutEndpointLabel' => gettext('Post-logout redirect URI (only when return after logout is enabled)'),
             'backchannelEndpointLabel' => gettext('Back-channel logout URI (server-to-server choice)'),
             'frontchannelEndpointLabel' => gettext('Front-channel logout URI (browser-based alternative)'),
+            'lifecycleEndpointLabel' => gettext('Lifecycle-test post-logout redirect URI (always register exactly)'),
             'sectorEndpointLabel' => gettext('Pairwise sector identifier URI'),
             'ssfEndpointLabel' => gettext('Shared Signals push URI'),
             'ssfGenerateSecretLabel' => gettext('Generate secret'),
