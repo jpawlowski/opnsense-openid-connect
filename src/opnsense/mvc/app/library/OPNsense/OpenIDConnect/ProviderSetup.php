@@ -82,7 +82,9 @@ final class ProviderSetup
 
         $serverName = trim($serverName);
         if ($serverName === '') {
-            $serverName = 'OPNsense WebGUI (' . $applicationCode . ')';
+            throw new \InvalidArgumentException(
+                'Enter the authentication server name before downloading provider setup.'
+            );
         }
         if (strlen($serverName) > 160 || self::hasControlCharacters($serverName)) {
             throw new \InvalidArgumentException('The server name is too long or contains control characters.');

@@ -49,10 +49,11 @@ Code flow and PKCE S256 where the provider exposes that setting. Neither uses a
 wildcard. With the default address policy, the automatically inherited origins
 and any additions become exact registered addresses. The currently opened
 HTTPS origin must be an accepted FQDN and is placed first. A short hostname, IP
-literal or origin absent from the effective policy stops generation. With a custom policy, only
-the entered origins are registered. In either mode that first origin is the
-canonical launch and front-channel or back-channel logout address; all origins
-receive authorization and optional post-logout redirect entries. The generated
+literal or origin absent from the effective policy stops generation. With a
+custom policy, only the entered origins are registered. In either mode that
+first origin is the canonical launch and front-channel or back-channel logout
+address; all origins receive authorization and optional post-logout redirect
+entries. The generated
 authentik Application `meta_launch_url` and Keycloak client Home URL start the
 local OPNsense login endpoint on that origin. They are intentionally different
 from the callback that receives the provider's authorization response.
