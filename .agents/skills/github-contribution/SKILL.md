@@ -180,10 +180,14 @@ block until reconciled.
 
 Wait for a review submission to finish, inventory every thread and address one
 coherent batch. Synchronize relevant canonical drift at that same checkpoint,
-validate and push once, then request one current-head review. `behind` is not a
-conflict. Do not change a head under active review merely to chase `main`; record
-a confirmed conflict and restore mergeability before initial review, after the
-review batch or at finalization.
+validate and push once, then request one current-head review with
+`.agents/review-requests.py request --pr N`. Do not post a raw `@codex review`
+comment. The helper removes fulfilled or stale request-only comments authored by
+the publishing account, retains at most one pending request for the exact head
+and never deletes a Codex review, finding, disposition reply or other discussion.
+`behind` is not a conflict. Do not change a head under active review merely to
+chase `main`; record a confirmed conflict and restore mergeability before initial
+review, after the review batch or at finalization.
 
 Claude Code cloud identifies itself with `CLAUDE_CODE_REMOTE=true`. In Codex
 cloud, set the repository-defined `AGENT_EXECUTION=codex-cloud` in the cloud
@@ -399,7 +403,9 @@ required thread resolution is the hard backstop, but it does not replace
 waiting for a late review or checking the reviewed commit.
 
 The integrating agent that owns the publishing branch owns every review thread
-through completion; the reviewing agent does not. After each review:
+through completion; the reviewing agent does not. After each review, first run
+`.agents/review-requests.py cleanup --pr N` to remove its fulfilled command-only
+trigger while retaining the review evidence. Then:
 
 1. Inventory every unresolved thread, including outdated threads from earlier
    heads.
@@ -412,8 +418,8 @@ through completion; the reviewing agent does not. After each review:
 
 Only after all existing threads have a disposition, all addressed threads are
 resolved, and no blocking finding remains unaddressed may the integrating agent
-request exactly one new review for the current head. A new Codex review is a
-separate snapshot; it does not update or close an earlier review's threads.
+request exactly one new review for the current head through the helper above.
+A new Codex review is a separate snapshot. It does not update or close an earlier review's threads.
 Once that current-head review has no blocking finding, stop: do not request
 another review merely to obtain zero suggestions.
 

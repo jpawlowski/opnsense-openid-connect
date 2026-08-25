@@ -637,6 +637,17 @@ def _coordination_publication(program, arguments):
     )
 
 
+def _review_request_publication(program, arguments):
+    return (
+        Path(program).name == "review-requests.py"
+        and any(command in ("request", "cleanup") for command in arguments)
+    ) or any(
+        Path(value).name == "review-requests.py"
+        and any(command in ("request", "cleanup") for command in arguments[index + 1:])
+        for index, value in enumerate(arguments)
+    )
+
+
 def requires_uncached_remote(event):
     """Identify publication boundaries whose remote view must never come from the active-work cache."""
     tool = str(event.get("tool_name") or "")
@@ -658,6 +669,7 @@ def requires_uncached_remote(event):
         or (program == "git" and git_command not in KNOWN_GIT_SUBCOMMANDS)
         or (program == "gh" and not _read_only_gh(arguments))
         or _coordination_publication(program, arguments)
+        or _review_request_publication(program, arguments)
         or (program not in ("git", "gh") and any(Path(value).name in ("git", "gh") for value in arguments))
     )
 
@@ -691,6 +703,7 @@ def requires_topic_branch(event):
         or (program == "git" and git_command not in KNOWN_GIT_SUBCOMMANDS)
         or (program == "gh" and not _read_only_gh(arguments))
         or _coordination_publication(program, arguments)
+        or _review_request_publication(program, arguments)
         or nested_durable
     )
 

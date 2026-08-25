@@ -41,6 +41,8 @@ separation is not decoration — keep it.
     python3 .agents/hooks/fast_gate.py checkpoint-main
     python3 .agents/hooks/fast_gate.py reconcile-pr --sha SHA --strategy merge
     python3 .agents/pr-coordination.py status --pr PR
+    python3 .agents/review-requests.py request --pr PR
+    python3 .agents/review-requests.py cleanup --pr PR
     python3 packaging/contribution-lint.py --help     what an issue or PR may contain
 
 Installed integration and destructive browser E2E are deliberate manual runs;
@@ -298,8 +300,14 @@ freshness, publication correctness, or cleanup safety; other P2 and all P3
 findings are answered and tracked. The integrating agent owns every review
 thread through completion. Before requesting another review, it records every
 existing thread's disposition and resolves every addressed thread; it never
-leaves that cleanup to the reviewer. Once a current-head review has no blocking
-finding, do not request another review merely to obtain zero suggestions.
+leaves that cleanup to the reviewer. Review requests use
+`.agents/review-requests.py request`, never a raw command-only comment. The helper
+removes fulfilled or stale request comments authored by the publishing account,
+retains at most one request for the current head and leaves Codex reviews,
+findings, dispositions and discussion untouched. After a review arrives, run
+`.agents/review-requests.py cleanup` to remove its fulfilled trigger. Once a
+current-head review has no blocking finding, do not request another review
+merely to obtain zero suggestions.
 
 ## What this deliberately does not do
 

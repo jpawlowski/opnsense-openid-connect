@@ -611,6 +611,16 @@ def main():
               "tool_name": "Bash",
               "tool_input": {"command": "python3 .agents/pr-coordination.py status --pr 42"},
           }), False)
+    check("review request cleanup forces an uncached remote observation",
+          guard_module.requires_uncached_remote({
+              "tool_name": "Bash",
+              "tool_input": {"command": "python3 .agents/review-requests.py cleanup --pr 42"},
+          }), True)
+    check("a current-head review request is also a publication boundary",
+          guard_module.requires_uncached_remote({
+              "tool_name": "Bash",
+              "tool_input": {"command": ".agents/review-requests.py request --pr 42"},
+          }), True)
     check("coordination publication needs a topic branch before creating durable comments",
           guard_module.requires_topic_branch({
               "tool_name": "Bash",
@@ -621,6 +631,11 @@ def main():
               "tool_name": "Bash",
               "tool_input": {"command": "python3 .agents/pr-coordination.py status --pr 42"},
           }), False)
+    check("review request hygiene needs a topic branch",
+          guard_module.requires_topic_branch({
+              "tool_name": "Bash",
+              "tool_input": {"command": "python3 .agents/review-requests.py request --pr 42"},
+          }), True)
     check("a detached worktree needs a branch before commit", guard_module.requires_topic_branch({
         "tool_name": "Bash", "tool_input": {"command": "git commit -m 'test: durable work'"},
     }), True)
@@ -1751,6 +1766,49 @@ module.update_registry(repository, update)
     check("fulfillment resumes from closed fulfilled originals and reaches the remaining final target",
           (closed_fulfillment_reads, closed_fulfillment_publications),
           ([57, 63, 42], [([57, 63, 42], closed_fulfillment["id"], [42, 57, 63])]))
+
+    group("Codex review requests leave one temporary trigger and preserve review evidence")
+    review_requests = load_agent_module(
+        "review_request_hygiene_test", ROOT / ".agents" / "review-requests.py",
+    )
+    current_head = "a" * 40
+    old_head = "b" * 40
+    rendered_request = review_requests.request_body(current_head)
+    check("a review trigger binds its exact head and carries the agent notice",
+          (review_requests.request_head(rendered_request),
+           rendered_request.rstrip().endswith(review_requests.NOTICE["en"])),
+          ((True, current_head), True))
+    comments = [
+        {"id": 1, "created_at": "2026-08-24T09:00:00Z", "body": review_requests.request_body(old_head),
+         "user": {"login": "publisher"}},
+        {"id": 2, "created_at": "2026-08-24T11:00:00Z", "body": rendered_request,
+         "user": {"login": "publisher"}},
+        {"id": 3, "created_at": "2026-08-24T11:01:00Z", "body": rendered_request,
+         "user": {"login": "publisher"}},
+        {"id": 4, "created_at": "2026-08-24T11:02:00Z", "body": rendered_request,
+         "user": {"login": "somebody-else"}},
+        {"id": 5, "created_at": "2026-08-24T11:03:00Z", "body": rendered_request + "\n\nPlease inspect X.",
+         "user": {"login": "publisher"}},
+        {"id": 6, "created_at": "2026-08-24T09:30:00Z",
+         "body": "@codex review\n\n" + review_requests.NOTICE["en"], "user": {"login": "publisher"}},
+    ]
+    removable, pending = review_requests.classify_requests(
+        comments, "publisher", current_head, "2026-08-24T10:00:00Z", [],
+    )
+    check("only own strict stale triggers and duplicate current requests are removable",
+          ([value["id"] for value in removable], [value["id"] for value in pending]), ([1, 6, 3], [2]))
+    events = review_requests.review_events([
+        {"user": {"login": "chatgpt-codex-connector"}, "commit_id": current_head,
+         "submitted_at": "2026-08-24T12:00:00Z"},
+        {"user": {"login": "somebody-else"}, "commit_id": old_head,
+         "submitted_at": "2026-08-24T12:01:00Z"},
+    ], [])
+    removable, pending = review_requests.classify_requests(
+        comments, "publisher", current_head, "2026-08-24T10:00:00Z", events,
+    )
+    check("a submitted Codex review fulfills the current trigger without selecting discussion or foreign comments",
+          (events, sorted(value["id"] for value in removable), pending),
+          ([('2026-08-24T12:00:00Z', current_head)], [1, 2, 3, 6], []))
 
     group("Finished worktrees retire before local branches and never delete remote branches")
     cleanup = load_agent_module(

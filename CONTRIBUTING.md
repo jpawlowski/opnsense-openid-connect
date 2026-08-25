@@ -143,8 +143,11 @@ security-, recoverability-, ownership-, freshness-, publication-, or
 cleanup-critical path; other P2 and all P3 findings are answered and tracked.
 The pull request's author or integrating agent owns every review thread through
 completion: document its disposition and resolve it when addressed before
-requesting another review. Once the current head has no blocking finding, do
-not repeat reviews merely to obtain zero suggestions. The required-thread rule
+requesting another review. Agents retain at most one machine-marked Codex review
+request for the current head. They remove their fulfilled or stale request-only
+comments before another request and after its review arrives, but retain every
+review, finding, disposition reply and other discussion. Once the current head
+has no blocking finding, do not repeat reviews merely to obtain zero suggestions. The required-thread rule
 prevents unresolved findings from merging, while this wait prevents a late
 Codex review from arriving only after merge.
 
