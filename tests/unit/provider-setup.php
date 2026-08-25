@@ -233,6 +233,9 @@ Checks::that('Keycloak generates and persists its own pairwise salt',
 Checks::throws('a provider without an importer is refused', function (): void {
     ProviderSetup::generate('entra', 'main', 'Firewall', ['https://firewall.example.com'], false);
 }, 'no downloadable setup file');
+Checks::throws('a launch URL cannot be generated from a synthetic server name', function (): void {
+    ProviderSetup::generate('keycloak', 'main', '', ['https://firewall.example.com'], false);
+}, 'authentication server name');
 Checks::throws('an origin with a path is refused', function (): void {
     ProviderSetup::generate('authentik', 'main', 'Firewall', ['https://firewall.example.com/callback'], false);
 }, 'not an HTTPS origin');
