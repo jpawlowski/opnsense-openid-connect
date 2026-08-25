@@ -24,7 +24,11 @@ port. It never contains `/api/...` or another path. Normally leave **WebGUI
 address policy** at **Follow OPNsense WebGUI settings**. The plugin then accepts
 OPNsense's hostname and domain, short hostname, alternate hostnames, actual
 local interface addresses and virtual IPs. Every origin uses the configured
-WebGUI port, or the HTTPS standard port 443 when none is configured. The
+WebGUI port, or the HTTPS standard port 443 when none is configured. When the
+native HTTPS port is non-standard, **Also accept port 443 for configured WebGUI
+hostnames** can additionally expose the configured DNS names through a trusted
+standard-port reverse proxy without duplicating them. It never widens local or
+virtual IP addresses. The
 provider setup download and endpoint preview put the currently opened origin
 first only when it is one of these accepted origins.
 
@@ -37,6 +41,9 @@ WebGUI settings. A value is `https://firewall.example.com`, not a callback URL.
 Scheme and port are part of the exact origin; certificate trust remains a
 separate matter. An arbitrary IP address is never accepted merely because it
 is syntactically valid: it must belong to OPNsense or be entered explicitly.
+Both **Test discovery** and **Connection health** show the resulting exact set
+as **Effective WebGUI origins**. Register the corresponding callback for every
+origin that administrators will use at the identity provider.
 
 An IP address is valid here. It can also be covered by a certificate when the
 certificate contains that IP address as an IP Subject Alternative Name. With a

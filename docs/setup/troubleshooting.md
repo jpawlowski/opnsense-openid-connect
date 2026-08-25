@@ -1,8 +1,10 @@
 # Troubleshooting
 
-The browser receives a generic message and a random reference. The detailed
-reason is written to the OPNsense audit/system log so the callback cannot be
-used to enumerate accounts or configuration.
+The browser normally receives a generic message and a random reference. The
+detailed reason is written to the OPNsense audit/system log so the callback
+cannot be used to enumerate accounts or configuration. A newly queued identity
+is the deliberate exception: after successful provider authentication, its
+styled approval page shows only a random workflow reference and no account data.
 
 Temporarily enable **Trace the exchange**, reproduce once, then disable it. The
 trace records flow shape and claim names, not tokens, secrets or unnecessary
@@ -16,6 +18,10 @@ Check these first:
 - Under the default WebGUI address policy, the browser name is the configured
   OPNsense hostname/domain, an alternate hostname, a local interface address or
   a virtual IP, and the browser port is OPNsense's configured WebGUI port.
+  When that native HTTPS port is non-standard but a trusted proxy exposes the
+  configured DNS names on 443, enable **Also accept port 443 for configured
+  WebGUI hostnames**. Confirm the result under **Effective WebGUI origins** in
+  Test discovery or Connection health and register its callback at the provider.
   An additional or custom address contains only an origin such as
   `https://firewall.example.com`, not `/api/openidconnect/...`.
 - The browser trusts or has accepted the WebGUI certificate.
@@ -110,6 +116,19 @@ Under **System > Access**, check the mapped local user and its local groups:
 If only the initially requested page is forbidden, the plugin automatically
 uses another OPNsense-authorized landing page. The audit log distinguishes this
 authorization denial from a failed identity-provider authentication.
+
+## Sign-in is waiting for administrator approval
+
+With **Administrator approval for unknown identities**, a successfully
+authenticated but unbound identity creates no WebGUI session. The browser shows
+an **Administrator approval required** page with a short request reference, and
+the saved authentication server lists the same request under **Manage
+identities**. After an administrator verifies and binds it, start a new sign-in.
+
+This page confirms only that the current authenticated identity entered the
+configured approval workflow. Missing, disabled, expired, privileged or
+otherwise unusable local accounts retain the same generic refusal and expose no
+account details.
 
 ## Recovery
 

@@ -499,6 +499,26 @@ Checks::that(
 
 Checks::group('Bounded HTTPS transport');
 Checks::throws(
+    'JSON-shaped text is refused before decoding',
+    fn() => (new OPNsense\OpenIDConnect\HttpResponse(
+        200,
+        'text/html',
+        '{"answer":true}',
+        'https://id.example.net/data'
+    ))->jsonObject(),
+    'JSON media type'
+);
+Checks::that(
+    'a registered structured JSON media type is accepted by the common decoder',
+    (new OPNsense\OpenIDConnect\HttpResponse(
+        200,
+        'application/jwk-set+json',
+        '{"keys":[]}',
+        'https://id.example.net/keys'
+    ))->jsonObject(),
+    ['keys' => []]
+);
+Checks::throws(
     'the client never fetches a local file',
     fn() => (new HttpClient(fn() => jsonAnswer([])))->get('file:///conf/config.xml', 100),
     'HTTPS'
@@ -518,8 +538,13 @@ $redirected = new HttpClient(function ($method, $url) use (&$redirects): array {
 Checks::that('a relative HTTPS redirect is resolved manually', $redirected->get('https://id.example.net/start', 100)->url, 'https://id.example.net/finish');
 Checks::that('each redirect target is fetched separately', $redirects, 2);
 $firstRedirectCalls = 0;
-$firstRedirect = (new HttpClient(function () use (&$firstRedirectCalls): array {
+$firstRedirectHeaders = [];
+$firstRedirect = (new HttpClient(function ($method, $url, $body, array $headers) use (
+    &$firstRedirectCalls,
+    &$firstRedirectHeaders
+): array {
     $firstRedirectCalls++;
+    $firstRedirectHeaders = $headers;
     return [
         'status' => 302,
         'content_type' => 'text/html',
@@ -530,6 +555,8 @@ $firstRedirect = (new HttpClient(function () use (&$firstRedirectCalls): array {
 Checks::that('a front-channel probe retains the first redirect location',
     $firstRedirect->headers['location'], 'https://id.example.net/callback?state=opaque');
 Checks::that('a front-channel probe never follows the provider redirect', $firstRedirectCalls, 1);
+Checks::that('a front-channel probe asks for a browser response rather than JSON',
+    in_array('Accept: text/html, application/xhtml+xml', $firstRedirectHeaders, true), true);
 $largeFirstResponse = (new HttpClient(static fn(): array => [
     'status' => 400,
     'content_type' => 'text/html',
@@ -992,6 +1019,13 @@ Checks::that('the failed test returns to the exact saved authentication-server r
     str_contains($testFailureHtml, 'href="/system_authservers.php?act=edit&amp;id=3"'), true);
 Checks::that('the failed diagnostic page does not trigger proxy interception with an HTTP error status',
     $testFailureController->response->status, null);
+$approvalController = new AuthController();
+$approvalHtml = inspect($approvalController, 'approvalRequiredResult', '0123456789abcdefabcd');
+Checks::that('a queued identity receives the dedicated administrator-approval page', [
+    $approvalController->response->status,
+    str_contains($approvalHtml, 'Administrator approval required'),
+    str_contains($approvalHtml, '0123456789abcdefabcd'),
+], [[202, 'Accepted'], true, true]);
 
 $wrongUserInfoType = new RelyingParty(
     $endpointSettings,

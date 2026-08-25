@@ -406,6 +406,23 @@ Checks::that('poll errors use the shared registered SET error code and language'
     in_array('Content-Language: en', $managementCalls[5]['headers'], true),
 ], ['invalid_key', true]);
 
+$managementResponses[] = [
+    'status' => 200,
+    'content_type' => 'text/html',
+    'body' => json_encode(['sets' => (object)[]]),
+    'location' => '',
+    'headers' => [],
+];
+Checks::throws(
+    'polling refuses a JSON-shaped response with the wrong media type',
+    fn() => $management->poll(
+        $ssfMetadata,
+        'Bearer management-token',
+        'https://signals.example.net/poll/stream-1'
+    ),
+    'application/json'
+);
+
 $mismatchedConfiguration = array_replace($pushConfiguration, ['iss' => 'https://other.example.net']);
 $managementResponses[] = [
     'status' => 200,

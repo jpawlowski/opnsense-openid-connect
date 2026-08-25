@@ -167,6 +167,48 @@ Checks::that('a certificate-only health controller reaches Discovery, JWKS and P
     ]);
 Checks::that('a certificate-only health controller exercises its client assertion live',
     $healthParRows[0]['verification'], 'live');
+Checks::that('connection health shows the exact browser origins accepted for sign-in',
+    probeRow($healthAnswer['checks'], 'Effective WebGUI origins'), [
+        'label' => 'Effective WebGUI origins',
+        'value' => 'https://firewall.example.net',
+        'status' => 'success',
+        'note' => 'OpenID Connect sign-in can start from exactly these browser origins.',
+        'actors' => ['browser', 'opnsense'],
+        'verification' => 'configuration',
+    ]);
+
+$discoveryController = new class(new Request(
+    'https',
+    'firewall.example.net',
+    [],
+    [
+        'openidconnect_provider_url' => $issuer,
+        'openidconnect_client_id' => 'private-key-client',
+        'openidconnect_signing_certificate' => '0123456789abc',
+        'openidconnect_token_auth' => 'private_key_jwt',
+        'openidconnect_par_mode' => 'auto',
+        'openidconnect_origin_policy' => 'custom',
+        'openidconnect_redirect_urls' => 'https://firewall.example.net',
+        'openidconnect_app_code' => 'private-key-discovery',
+    ],
+    [],
+    '',
+    'POST'
+), $healthProbe) extends DiscoveryController {
+    public function __construct(Request $request, private ProviderProbe $probe)
+    {
+        parent::__construct($request);
+    }
+
+    protected function providerProbe(): ProviderProbe
+    {
+        return $this->probe;
+    }
+};
+$discoveryAnswer = $discoveryController->probeAction();
+Checks::that('discovery shows the same exact browser origins accepted for sign-in',
+    probeRow($discoveryAnswer['checks'], 'Effective WebGUI origins')['value'],
+    'https://firewall.example.net');
 
 $legacyDiscoveryController = new DiscoveryController(new Request(
     'https',
@@ -481,6 +523,8 @@ $readiness = ProviderProbe::healthReadiness(
 );
 Checks::that('health checks current client completeness', $readiness[0]['status'], 'success');
 Checks::that('health accepts the current configured WebGUI origin', $readiness[1]['status'], 'success');
+Checks::that('health exposes every effective WebGUI origin as a configuration check', $readiness[2],
+    ProviderProbe::webGuiOriginsCheck($complete));
 $rejectedReadiness = ProviderProbe::healthReadiness($complete, null);
 Checks::that('health rejects a current WebGUI origin outside the effective origins', $rejectedReadiness[1], [
     'label' => 'WebGUI transport',

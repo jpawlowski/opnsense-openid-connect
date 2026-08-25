@@ -40,6 +40,9 @@ final class HttpResponse
     /** @return array<mixed> */
     public function jsonObject(): array
     {
+        if ($this->contentType !== 'application/json' && !str_ends_with($this->contentType, '+json')) {
+            throw new ProtocolException('The provider did not return a JSON media type');
+        }
         try {
             $decoded = json_decode($this->body, true, 64, JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {

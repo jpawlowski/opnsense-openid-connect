@@ -22,7 +22,8 @@ final class ProviderProbe
         'openidconnect_response_mode', 'openidconnect_claims_source', 'openidconnect_max_age',
         'openidconnect_select_account', 'openidconnect_required_authentication', 'openidconnect_acr_request',
         'openidconnect_acr_values', 'openidconnect_amr_values', 'openidconnect_entra_auth_context',
-        'openidconnect_origin_policy', 'openidconnect_redirect_urls', 'openidconnect_tls_offloading',
+        'openidconnect_origin_policy', 'openidconnect_standard_https_port',
+        'openidconnect_redirect_urls', 'openidconnect_tls_offloading',
     ];
 
     private $clientAssertionFactory;
@@ -156,7 +157,24 @@ final class ProviderProbe
                 ['browser', 'opnsense'],
                 'configuration'
             ),
+            self::webGuiOriginsCheck($settings),
         ];
+    }
+
+    /** @return array<string,mixed> */
+    public static function webGuiOriginsCheck(OpenIDConnect $settings): array
+    {
+        $origins = $settings->effectiveWebGuiOrigins();
+        return self::check(
+            gettext('Effective WebGUI origins'),
+            $origins === [] ? gettext('None') : implode(', ', $origins),
+            $origins === [] ? 'error' : 'success',
+            $origins === []
+                ? gettext('No browser origin is accepted for OpenID Connect sign-in.')
+                : gettext('OpenID Connect sign-in can start from exactly these browser origins.'),
+            ['browser', 'opnsense'],
+            'configuration'
+        );
     }
 
     /** @return array<string,mixed> */
