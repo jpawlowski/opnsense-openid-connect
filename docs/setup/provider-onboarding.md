@@ -60,10 +60,11 @@ local OPNsense login endpoint on that origin. They are intentionally different
 from the callback that receives the provider's authorization response.
 
 The FQDN becomes the visible authentik application or Keycloak client name. Both
-imports also reference the reviewed package-owned OPNsense SVG from that exact
-origin. The browser can retrieve the image without a WebGUI session, but the
-firewall still has to be reachable from the browser's network; the URL does not
-make a private WebGUI publicly routable.
+imports reference the reviewed OPNsense SVG through a commit-pinned public OPNsense
+Core URL. The browser therefore does not need Local Network Access merely to show
+the icon when the identity provider is public and the WebGUI address is private.
+This adds an external GitHub image request; replace or remove the provider-side icon
+URL when the installation requires local hosting.
 
 The authentik file replaces its fail-closed standard e-mail mapping with an
 application-specific mapping. It reports `email_verified=true` only when the

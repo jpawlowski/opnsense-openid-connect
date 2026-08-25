@@ -15,11 +15,12 @@ light interior details are transparent cut-outs rather than opaque white
 layers. Original colours remain selectable. **Generic OpenID Connect** uses
 the official OpenID `i+D` mark rather than an invented `OIDC` letter tile.
 
-Generated authentik applications and Keycloak clients use a separate package-owned
-OPNsense SVG at `/api/openidconnect/auth/builtinicon/opnsense`. Their import files
-reference the absolute URL below the accepted WebGUI FQDN used for generation. The
-route needs no WebGUI session and performs no third-party fetch; normal firewall,
-VPN and routing policy still decides whether a browser can reach it.
+Generated authentik applications and Keycloak clients use the reviewed OPNsense
+SVG from OPNsense Core revision `01fc795f34dae4184de79a710105f00a69c90400` through
+its commit-pinned `raw.githubusercontent.com` URL. Keeping application branding on
+a public address prevents a public identity-provider dashboard from requesting
+Local Network Access merely because the WebGUI FQDN resolves to a private address.
+The administrator may replace or remove that external URL in the provider.
 
 ## Installation-specific branding
 
@@ -69,7 +70,7 @@ The assets were retrieved on 24 August 2026 from these sources:
   Slack, Yahoo and ZITADEL: [Dashboard Icons][dashboard-icons], commit `8223c9c`, Apache-2.0
   collection. Keycloak retains its coloured interlocking ribbons without the opaque faceted
   backdrop; Oracle places its official oval in a compact inverse-colour tile.
-- OPNsense application tile: [official OPNsense core artwork][opnsense-icon], commit
+- Generated OPNsense application tile: [official OPNsense core artwork][opnsense-icon], commit
   `01fc795f34dae4184de79a710105f00a69c90400`, BSD-2-Clause.
 
 Collection licences do not waive third-party trademark or brand-guideline

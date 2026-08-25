@@ -34,7 +34,8 @@ generates the Client ID and Client Secret. The Application's explicit Launch URL
 is the OPNsense login-start endpoint under the accepted WebGUI origin from which
 the Blueprint was downloaded, not its callback URL. That origin's callback is
 also the first redirect entry. The application tile is named after that FQDN and
-uses the package-owned OPNsense mark from the same origin.
+uses the reviewed, commit-pinned OPNsense Core mark from public GitHub hosting.
+Replace or remove that external icon URL when the installation requires local hosting.
 
 The dedicated `email` mapping sends `email_verified=true` only when the
 authentik user's custom `email_verified` attribute is the JSON boolean `true`.

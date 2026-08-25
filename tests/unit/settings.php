@@ -660,8 +660,8 @@ $wrongNamedIconModes = array_keys(array_filter(
 Checks::that('named provider profiles use the normalized single-colour marks', $wrongNamedIconModes, []);
 Checks::that('Generic OpenID Connect resolves its package icon',
     basename((string)OpenIDConnect::providerIconPath('general')), 'general.svg');
-Checks::that('generated provider applications resolve the package-owned OPNsense icon',
-    basename((string)OpenIDConnect::providerIconPath('opnsense')), 'opnsense.svg');
+Checks::that('generated provider applications have no package-owned icon route',
+    OpenIDConnect::providerIconPath('opnsense'), null);
 Checks::that('an unknown profile resolves no package icon',
     OpenIDConnect::providerIconPath('../keycloak'), null);
 $missingProfileIcons = [];

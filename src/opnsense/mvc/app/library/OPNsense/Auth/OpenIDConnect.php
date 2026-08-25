@@ -1566,10 +1566,6 @@ class OpenIDConnect extends Base implements IAuthConnector
     /** Resolve a profile name to one package-owned SVG without accepting a filesystem path. */
     public static function providerIconPath(string $profile): ?string
     {
-        if ($profile === 'opnsense') {
-            $path = __DIR__ . '/../OpenIDConnect/assets/application-icons/opnsense.svg';
-            return is_file($path) ? $path : null;
-        }
         if (!in_array($profile, self::PROVIDER_PROFILES, true)) {
             return null;
         }

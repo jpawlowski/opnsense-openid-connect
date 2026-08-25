@@ -9,6 +9,9 @@ use OPNsense\OpenIDConnect\ProviderSetup;
 
 Checks::group('Provider setup files from an unfinished form');
 
+$applicationIconUrl = 'https://raw.githubusercontent.com/opnsense/core/'
+    . '01fc795f34dae4184de79a710105f00a69c90400/src/opnsense/www/themes/opnsense/build/images/icon-logo.svg';
+
 $authentik = ProviderSetup::generate(
     'authentik',
     'private-fw',
@@ -69,9 +72,9 @@ Checks::that('authentik explicitly launches the canonical local login start', st
     "meta_launch_url: 'https://firewall.example.com/api/openidconnect/auth/login?provider="
         . "OPNsense%20administrator%27s%20WebGUI'"
 ), true);
-Checks::that('authentik uses the same-origin package-owned OPNsense application icon', str_contains(
+Checks::that('authentik uses the commit-pinned public upstream OPNsense application icon', str_contains(
     $authentik['content'],
-    "icon: 'https://firewall.example.com/api/openidconnect/auth/builtinicon/opnsense'"
+    "icon: '" . $applicationIconUrl . "'"
 ), true);
 Checks::that('authentik gets typed post logout addresses', substr_count(
     $authentik['content'],
@@ -172,9 +175,9 @@ Checks::that('Keycloak explicitly exposes the canonical local login start', [
 ]);
 Checks::that('Keycloak binds access tokens to the proof key required by its advertised DPoP path',
     $client['attributes']['dpop.bound.access.tokens'], 'true');
-Checks::that('Keycloak uses the same-origin package-owned OPNsense application icon',
+Checks::that('Keycloak uses the commit-pinned public upstream OPNsense application icon',
     $client['attributes']['logoUri'],
-    'https://firewall.example.net/api/openidconnect/auth/builtinicon/opnsense');
+    $applicationIconUrl);
 Checks::that('Keycloak always registers the disposable lifecycle return for every exact origin',
     $client['attributes']['post.logout.redirect.uris'],
     'https://firewall.example.net/api/openidconnect/auth/logouttestcallback/Main_ONE'

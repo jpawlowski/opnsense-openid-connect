@@ -36,8 +36,9 @@ downloaded and **Home URL** to that origin's OPNsense login-start endpoint. This
 makes Keycloak's application link start a normal local OIDC transaction instead
 of sending the browser to a callback URL. The same origin's callback is first in
 **Valid Redirect URIs**, and the client remains visible in the Account Console.
-Its visible name is that FQDN, and its logo URI uses the package-owned OPNsense
-mark from the same origin.
+Its visible name is that FQDN, and its logo URI uses the reviewed, commit-pinned
+OPNsense Core mark from public GitHub hosting. Replace or remove that external
+icon URL when the installation requires local hosting.
 
 A repeated generated import does not update redirects or other client settings.
 Apply a small change directly to the existing client. To replace it from a newly
