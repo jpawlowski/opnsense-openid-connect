@@ -1685,8 +1685,15 @@ module.update_registry(repository, update)
         "id": 7, "created_at": "2026-08-24T13:30:00Z", "body": retry_body,
         "author_association": "OWNER",
     }
+    normalized_retry_comment = {
+        "id": 8, "created_at": "2026-08-24T13:31:00Z",
+        "body": coordination.without_hash_number_references(retry_body),
+        "author_association": "OWNER",
+    }
     publisher.open_pulls = lambda _token: [{"number": 57}, {"number": 63}]
-    publisher.comment_sets = lambda _pulls, _token: {57: [mirrored[1], retry_comment], 63: []}
+    publisher.comment_sets = lambda _pulls, _token: {
+        57: [mirrored[1], retry_comment], 63: [normalized_retry_comment],
+    }
     publisher.comments = lambda number, _token: [retry_comment] if number == 42 else []
     resumed_publications = []
     publisher.publish_mirrored = lambda numbers, body, identifier, _token, _values, **keywords: (

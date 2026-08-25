@@ -241,7 +241,8 @@ def recorded_publication(values_by_pull, identifier):
         raise RuntimeError(f"coordination id {identifier} has inconsistent mirrored markers")
     bodies_by_state = {}
     for comment, record in matches:
-        bodies_by_state.setdefault(record["state"], set()).add(str(comment.get("body") or ""))
+        body = pr_coordination.without_hash_number_references(comment.get("body"))
+        bodies_by_state.setdefault(record["state"], set()).add(body)
     if any(len(bodies) != 1 for bodies in bodies_by_state.values()):
         raise RuntimeError(f"coordination id {identifier} has inconsistent mirrored comment bodies")
     body_state = "final" if "final" in bodies_by_state else next(iter(bodies_by_state))
