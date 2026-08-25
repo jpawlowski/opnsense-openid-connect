@@ -273,6 +273,10 @@ def main():
     contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     check("agent and contributor rules wait for a review of the current head",
           all("current head" in text.lower() for text in (contribution_skill, agents, contributing)), True)
+    readiness = [re.sub(r"\s+", " ", text.lower()) for text in (contribution_skill, agents, contributing)]
+    check("review readiness requires explicit human intent as well as a technically green branch",
+          all("human intent gate" in text and "technically green" in text and "explicit human" in text
+              and "draft" in text and "automatically" in text for text in readiness), True)
     check("Codex findings use one consistent risk-based merge threshold",
           all("P0 and P1" in text and "P2" in text and "recoverability" in text
               for text in (contribution_skill, agents, contributing)), True)
@@ -286,6 +290,11 @@ def main():
           "Only after all existing threads have a disposition" in contribution_skill
           and "request exactly one new review" in contribution_skill
           and "does not update or close an earlier review's threads" in contribution_skill, True)
+    review_hygiene = [re.sub(r"\s+", " ", text.lower()) for text in (contribution_skill, agents, contributing)]
+    check("agents retain one temporary review trigger without deleting review evidence",
+          all("at most one" in text and "fulfilled" in text and "stale" in text
+              and "review" in text and "finding" in text and "disposition" in text
+              for text in review_hygiene), True)
     check("human and agent guidance distinguishes upstream branches from forks",
           all("without write access" in text.lower() and "opnsense-openid-connect:main" in text
               for text in (contribution_skill, contributing)), True)
