@@ -14,7 +14,9 @@ NOTICE = {
     "de": "*Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.*",
 }
 TRUSTED_ASSOCIATIONS = {"COLLABORATOR", "MEMBER", "OWNER"}
-HASH_NUMBER_REFERENCE = re.compile(r"(?<![\w&])#([0-9]+)\b")
+HASH_NUMBER_REFERENCE = re.compile(
+    r"(?<![\w&])(?:(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+))?#(?P<number>[0-9]+)\b"
+)
 
 
 def validate_order(prs, order):
@@ -146,7 +148,12 @@ def pull_reference(number):
 
 def without_hash_number_references(value):
     """Keep coordination prose from creating GitHub cross-reference events."""
-    return HASH_NUMBER_REFERENCE.sub(lambda match: pull_reference(match.group(1)), str(value or ""))
+    def replacement(match):
+        repository = match.group("repository")
+        reference = pull_reference(match.group("number"))
+        return f"{repository} {reference}" if repository else reference
+
+    return HASH_NUMBER_REFERENCE.sub(replacement, str(value or ""))
 
 
 def render_final(record, overlap, reason, reconsider, changed_fact="", changed_criterion="", language="en"):

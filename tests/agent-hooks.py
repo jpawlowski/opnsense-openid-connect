@@ -1433,14 +1433,15 @@ module.update_registry(repository, update)
     body = coordination.render_final(
         record,
         "both change the authentication hook",
-        "#42 already has a current-head review",
+        "jpawlowski/opnsense-openid-connect#42 already has a current-head review",
         "#42 closes or changes the shared contract",
     )
     check("the public record gives one exact human-facing order",
           all(value in body for value in ("PR 42 → PR 57", "Merge PR 42 first", "Do not merge", "explicit human")),
           True)
     check("coordination prose cannot create hash-number cross-references",
-          ("#42" not in body, "PR 42 already has" in body, "PR 42 closes" in body), (True, True, True))
+          ("#42" not in body, "jpawlowski/opnsense-openid-connect PR 42 already has" in body,
+           "PR 42 closes" in body), (True, True, True))
     check("the public record carries the required agent notice",
           body.rstrip().endswith(coordination.NOTICE["en"]), True)
     mirrored = [
