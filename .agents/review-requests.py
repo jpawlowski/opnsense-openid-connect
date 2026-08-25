@@ -182,8 +182,8 @@ def review_state(number, token, ready_required=False):
 def delete_requests(comments, number, head, viewer, events, token, ready_required=False):
     removed = 0
     for comment in comments:
-        verify_remote_pull(number, head, token, ready_required=ready_required)
         fresh_comments = paged(f"issues/{number}/comments", token)
+        verify_remote_pull(number, head, token, ready_required=ready_required)
         fresh_removable, _pending = classify_requests(fresh_comments, viewer, head, events)
         fresh = next((value for value in fresh_removable if int(value.get("id") or 0) == int(comment["id"])), None)
         if fresh is None or str(fresh.get("body") or "") != str(comment.get("body") or ""):

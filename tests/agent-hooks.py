@@ -1853,6 +1853,29 @@ module.update_registry(repository, update)
         [stale_request], 91, current_head, "publisher", [], "token",
     )
     check("cleanup preserves a request comment edited after its snapshot", (removed, delete_calls), (0, []))
+    moving_head = [current_head]
+
+    def move_head_while_refreshing_comments(*_arguments):
+        moving_head[0] = old_head
+        return [stale_request]
+
+    def reject_head_changed_during_comment_refresh(_number, expected_head, *_arguments, **_keywords):
+        if moving_head[0] != expected_head:
+            raise RuntimeError("mixed head")
+        return expected_head
+
+    review_requests.paged = move_head_while_refreshing_comments
+    review_requests.verify_remote_pull = reject_head_changed_during_comment_refresh
+    changed_during_refresh_rejected = False
+    try:
+        review_requests.delete_requests(
+            [stale_request], 91, current_head, "publisher", [], "token",
+        )
+    except RuntimeError:
+        changed_during_refresh_rejected = True
+    check("cleanup revalidates the head after refreshing comments and before deletion",
+          (changed_during_refresh_rejected, delete_calls), (True, []))
+    review_requests.verify_remote_pull = lambda *_arguments, **_keywords: current_head
     review_requests.paged = lambda *_arguments: [stale_request]
     removed = review_requests.delete_requests(
         [stale_request], 91, current_head, "publisher", [], "token",
