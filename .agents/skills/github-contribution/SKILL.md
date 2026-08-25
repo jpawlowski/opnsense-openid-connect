@@ -388,10 +388,27 @@ not as a reason to recreate the pull request.
 
 ## Review before merge
 
-Keep an agent-authored pull request in draft until its intended change and
-validation are complete. Before merging, wait for Codex to review the current
-head commit; compare the reviewed commit shown by Codex with the pull request's
-current head. A review of an older head does not count.
+Review readiness has two independent gates. The human intent gate says the
+intended scope is complete; validation establishes that the branch is
+technically green. Keep an agent-authored pull request in draft until both are
+true. Only an explicit human instruction to make that pull request ready for
+review satisfies the first gate. Do not infer it from silence or from requests
+to prepare a pull request, keep it mergeable, fix reviews or report technical
+readiness.
+
+New user-requested scope or a direct user change revokes the human intent gate.
+Before the next implementation change or push, refresh the remote view and
+return a ready pull request to draft with `gh pr ready N --undo`. A newly
+observed foreign head that carries such unfinished work also returns to draft
+after exact reconciliation. Fixes within an already authorized review batch do
+not revoke readiness. Once draft, the pull request never becomes ready again
+automatically; wait for another explicit human instruction. When authorized,
+mark it ready only after all known scope is implemented and technically green.
+
+The review-request helper refuses draft pull requests. Before merging, wait for
+Codex to review the current head commit; compare the reviewed commit shown by
+Codex with the pull request's current head. A review of an older head does not
+count.
 
 Every P0 and P1 finding blocks the merge until it is fixed or technically
 rebutted in its review thread. Independently reproduce each P2: it blocks only

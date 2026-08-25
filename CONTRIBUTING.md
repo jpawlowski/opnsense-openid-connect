@@ -135,15 +135,24 @@ body locally:
         --body-file /path/to/pr-body.md \
         --repository jpawlowski/opnsense-openid-connect
 
-Keep the pull request in draft while it is changing. Before merge, wait for
-Codex to review the current head commit, not an earlier revision. P0, P1 and P2
+Review readiness has two gates. The human intent gate confirms that the intended
+scope is complete; green checks only prove that the branch is technically green.
+An agent-authored pull request remains draft until an explicit human instruction
+marks it ready for review. Preparing it, keeping it mergeable or reporting green
+checks is not that instruction. New user-requested scope or a direct user change
+returns it to draft before further implementation, while fixes within the
+already authorized review batch retain readiness. A draft never becomes ready
+again automatically.
+
+Before merge, wait for Codex to review the current head commit, not an earlier revision. P0, P1 and P2
 do not have one blanket disposition: P0 and P1 always block until fixed or
 technically rebutted. A P2 blocks when independently reproduced in a
 security-, recoverability-, ownership-, freshness-, publication-, or
 cleanup-critical path; other P2 and all P3 findings are answered and tracked.
 The pull request's author or integrating agent owns every review thread through
 completion: document its disposition and resolve it when addressed before
-requesting another review. Agents retain at most one machine-marked Codex review
+requesting another review. Agents request no review while the pull request is draft and retain at most one
+machine-marked Codex review
 request for the current head. They remove their fulfilled or stale request-only
 comments before another request and after its review arrives, but retain every
 review, finding, disposition reply and other discussion. Once the current head

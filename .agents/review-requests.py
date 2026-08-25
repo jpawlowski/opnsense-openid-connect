@@ -153,17 +153,21 @@ def verify_local_pull(pull):
     return local_head
 
 
-def verify_remote_pull(number, expected_head, token):
+def verify_remote_pull(number, expected_head, token, ready_required=False):
     pull = github_api(f"pulls/{number}", token)
     observed_head = str((pull.get("head") or {}).get("sha") or "")
     if observed_head != expected_head or str(pull.get("state") or "").lower() != "open" or pull.get("merged_at"):
         raise RuntimeError("the pull request changed while review requests were being inspected; retry its snapshot")
+    if ready_required and pull.get("draft"):
+        raise RuntimeError("Codex review requests require explicit human readiness and a non-draft pull request")
     return verify_local_pull(pull)
 
 
-def review_state(number, token):
+def review_state(number, token, ready_required=False):
     pull = github_api(f"pulls/{number}", token)
     head = verify_local_pull(pull)
+    if ready_required and pull.get("draft"):
+        raise RuntimeError("Codex review requests require explicit human readiness and a non-draft pull request")
     viewer = str(github_api("user", token, repository=False).get("login") or "")
     if not viewer:
         raise RuntimeError("GitHub did not identify the publishing account")
@@ -171,43 +175,59 @@ def review_state(number, token):
     reviews = paged(f"pulls/{number}/reviews", token)
     events = review_events(reviews, comments)
     removable, pending = classify_requests(comments, viewer, head, events)
-    verify_remote_pull(number, head, token)
-    return head, comments, events, removable, pending
+    verify_remote_pull(number, head, token, ready_required=ready_required)
+    return head, viewer, comments, events, removable, pending
 
 
-def delete_requests(comments, number, head, token):
+def delete_requests(comments, number, head, viewer, events, token, ready_required=False):
+    removed = 0
     for comment in comments:
-        verify_remote_pull(number, head, token)
+        verify_remote_pull(number, head, token, ready_required=ready_required)
+        fresh_comments = paged(f"issues/{number}/comments", token)
+        fresh_removable, _pending = classify_requests(fresh_comments, viewer, head, events)
+        fresh = next((value for value in fresh_removable if int(value.get("id") or 0) == int(comment["id"])), None)
+        if fresh is None or str(fresh.get("body") or "") != str(comment.get("body") or ""):
+            print(f"kept changed or already removed review request {comment.get('html_url') or comment['id']}")
+            continue
         github_api(
             f"issues/comments/{int(comment['id'])}", token, method="DELETE", missing_ok=True,
         )
         print(f"removed fulfilled or stale review request {comment.get('html_url') or comment['id']}")
+        removed += 1
+    return removed
 
 
 def cleanup(arguments):
     token = require_token()
-    head, _comments, _events, removable, _pending = review_state(arguments.pr, token)
-    delete_requests(removable, arguments.pr, head, token)
-    print(f"review-request cleanup removed {len(removable)} comment(s)")
+    head, viewer, _comments, events, removable, _pending = review_state(arguments.pr, token)
+    removed = delete_requests(removable, arguments.pr, head, viewer, events, token)
+    print(f"review-request cleanup removed {removed} comment(s)")
 
 
 def request_review(arguments):
     token = require_token()
-    head, _comments, events, removable, pending = review_state(arguments.pr, token)
-    delete_requests(removable, arguments.pr, head, token)
+    head, viewer, _comments, events, removable, pending = review_state(
+        arguments.pr, token, ready_required=True,
+    )
+    delete_requests(removable, arguments.pr, head, viewer, events, token, ready_required=True)
     if head_reviewed(head, events):
         print(f"Codex already reviewed current head {head[:12]}; no request was added")
         return
     if pending:
         print(f"current-head review request already exists: {pending[0].get('html_url') or pending[0]['id']}")
         return
-    verify_remote_pull(arguments.pr, head, token)
+    verify_remote_pull(arguments.pr, head, token, ready_required=True)
     github_api(
         f"issues/{arguments.pr}/comments", token, method="POST",
         body={"body": request_body(head, language=arguments.language)},
     )
-    confirmed_head, _comments, confirmed_events, duplicates, confirmed_pending = review_state(arguments.pr, token)
-    delete_requests(duplicates, arguments.pr, confirmed_head, token)
+    confirmed_head, confirmed_viewer, _comments, confirmed_events, duplicates, confirmed_pending = review_state(
+        arguments.pr, token, ready_required=True,
+    )
+    delete_requests(
+        duplicates, arguments.pr, confirmed_head, confirmed_viewer, confirmed_events, token,
+        ready_required=True,
+    )
     if head_reviewed(confirmed_head, confirmed_events):
         print(f"Codex already reviewed current head {confirmed_head[:12]}; no request remains")
         return

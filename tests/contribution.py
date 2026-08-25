@@ -273,6 +273,10 @@ def main():
     contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     check("agent and contributor rules wait for a review of the current head",
           all("current head" in text.lower() for text in (contribution_skill, agents, contributing)), True)
+    readiness = [re.sub(r"\s+", " ", text.lower()) for text in (contribution_skill, agents, contributing)]
+    check("review readiness requires explicit human intent as well as a technically green branch",
+          all("human intent gate" in text and "technically green" in text and "explicit human" in text
+              and "draft" in text and "automatically" in text for text in readiness), True)
     check("Codex findings use one consistent risk-based merge threshold",
           all("P0 and P1" in text and "P2" in text and "recoverability" in text
               for text in (contribution_skill, agents, contributing)), True)

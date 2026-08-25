@@ -1827,23 +1827,52 @@ module.update_registry(repository, update)
     except RuntimeError:
         mixed_head_rejected = True
     check("a changed remote head discards the request snapshot before mutation", mixed_head_rejected, True)
+    draft_pull = {"state": "open", "merged_at": None, "draft": True, "head": {"sha": current_head}}
+    review_requests.github_api = lambda *_arguments, **_keywords: draft_pull
+    draft_review_rejected = False
+    try:
+        review_requests.verify_remote_pull(91, current_head, "token", ready_required=True)
+    except RuntimeError:
+        draft_review_rejected = True
+    check("a draft cannot receive an agent-requested Codex review", draft_review_rejected, True)
 
     original_review_state = review_requests.review_state
     original_delete_requests = review_requests.delete_requests
     original_verify_remote_pull = review_requests.verify_remote_pull
     original_require_token = review_requests.require_token
+    original_paged = review_requests.paged
+    delete_calls = []
+    stale_request = comments[0]
+    edited_request = dict(stale_request, body=stale_request["body"] + "\n\nDisposition added.")
+    review_requests.verify_remote_pull = lambda *_arguments, **_keywords: current_head
+    review_requests.paged = lambda *_arguments: [edited_request]
+    review_requests.github_api = lambda path, _token, **keywords: delete_calls.append(
+        (keywords.get("method"), path)
+    )
+    removed = review_requests.delete_requests(
+        [stale_request], 91, current_head, "publisher", [], "token",
+    )
+    check("cleanup preserves a request comment edited after its snapshot", (removed, delete_calls), (0, []))
+    review_requests.paged = lambda *_arguments: [stale_request]
+    removed = review_requests.delete_requests(
+        [stale_request], 91, current_head, "publisher", [], "token",
+    )
+    check("cleanup deletes the same freshly confirmed strict request", (removed, delete_calls),
+          (1, [("DELETE", "issues/comments/1")]))
+
     actions = []
     retained_request = {"id": 10, "html_url": "https://example.test/retained"}
     duplicate_request = {"id": 11, "html_url": "https://example.test/duplicate"}
     states = iter((
-        (current_head, [], [], [], []),
-        (current_head, [retained_request, duplicate_request], [], [duplicate_request], [retained_request]),
+        (current_head, "publisher", [], [], [], []),
+        (current_head, "publisher", [retained_request, duplicate_request], [], [duplicate_request],
+         [retained_request]),
     ))
-    review_requests.review_state = lambda *_arguments: actions.append("snapshot") or next(states)
-    review_requests.delete_requests = lambda values, *_arguments: actions.append(
+    review_requests.review_state = lambda *_arguments, **_keywords: actions.append("snapshot") or next(states)
+    review_requests.delete_requests = lambda values, *_arguments, **_keywords: actions.append(
         ("delete", [value["id"] for value in values])
     )
-    review_requests.verify_remote_pull = lambda *_arguments: actions.append("verify") or current_head
+    review_requests.verify_remote_pull = lambda *_arguments, **_keywords: actions.append("verify") or current_head
     review_requests.require_token = lambda: "token"
     review_requests.github_api = lambda path, _token, **keywords: (
         actions.append((keywords.get("method"), path)) or duplicate_request
@@ -1859,6 +1888,7 @@ module.update_registry(repository, update)
     review_requests.delete_requests = original_delete_requests
     review_requests.verify_remote_pull = original_verify_remote_pull
     review_requests.require_token = original_require_token
+    review_requests.paged = original_paged
 
     group("Finished worktrees retire before local branches and never delete remote branches")
     cleanup = load_agent_module(
