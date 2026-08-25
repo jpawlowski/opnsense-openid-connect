@@ -921,6 +921,9 @@
                     };
                     if (answer.account_groups_writable === true) {
                         data.groups_json = JSON.stringify(memberships.val() || []);
+                        data.groups_expected_json = JSON.stringify(
+                            created ? [] : accountGroups(answer.accounts || [], binding, uid)
+                        );
                     }
                     request(action, data).done(function (savedBinding) {
                         if (savedBinding && savedBinding.status === 'ok') {

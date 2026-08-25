@@ -2295,9 +2295,14 @@ class OpenIDConnect extends Base implements IAuthConnector
         return hash_equals($this->issuerUrl(), $issuer) ? $issuer : null;
     }
 
-    public function createSubjectBinding(string $issuer, string $subject, string $uid, ?array $groups = null): bool
-    {
-        return $this->saveManagedBinding('', $issuer, $subject, $uid, $groups);
+    public function createSubjectBinding(
+        string $issuer,
+        string $subject,
+        string $uid,
+        ?array $groups = null,
+        ?array $expectedGroups = null
+    ): bool {
+        return $this->saveManagedBinding('', $issuer, $subject, $uid, $groups, $expectedGroups);
     }
 
     public function updateSubjectBinding(
@@ -2305,9 +2310,10 @@ class OpenIDConnect extends Base implements IAuthConnector
         string $issuer,
         string $subject,
         string $uid,
-        ?array $groups = null
+        ?array $groups = null,
+        ?array $expectedGroups = null
     ): bool {
-        return $this->saveManagedBinding($bindingId, $issuer, $subject, $uid, $groups);
+        return $this->saveManagedBinding($bindingId, $issuer, $subject, $uid, $groups, $expectedGroups);
     }
 
     public function deleteSubjectBinding(string $bindingId): bool
@@ -2626,7 +2632,8 @@ class OpenIDConnect extends Base implements IAuthConnector
         string $issuer,
         string $subject,
         string $uid,
-        ?array $groups = null
+        ?array $groups = null,
+        ?array $expectedGroups = null
     ): bool {
         $issuer = $this->normalizeBindingIssuer($issuer) ?? '';
         $subject = static::normalizeSubjectIdentifier($subject) ?? '';
@@ -2672,7 +2679,7 @@ class OpenIDConnect extends Base implements IAuthConnector
             $lines[] = $canonical;
             return $lines;
         }, sprintf('%s subject binding for local uid %s', $bindingId === '' ? 'created' : 'updated', $uid),
-            $uid, $groups);
+            $uid, $groups, $expectedGroups);
     }
 
     /** Atomically mutate this saved server's bindings and an optional local-account group selection. */
@@ -2680,7 +2687,8 @@ class OpenIDConnect extends Base implements IAuthConnector
         callable $mutation,
         string $audit,
         string $uid = '',
-        ?array $groups = null
+        ?array $groups = null,
+        ?array $expectedGroups = null
     ): bool {
         $config = Config::getInstance();
         try {
@@ -2691,7 +2699,11 @@ class OpenIDConnect extends Base implements IAuthConnector
             if ($groups !== null) {
                 $account = static::userByUidIn($root, $uid);
                 $selectedGroups = static::normalizeManagedGroups($root, $groups);
-                if ($account === null || $selectedGroups === null) {
+                $expected = $expectedGroups === null
+                    ? null : static::normalizeManagedGroups($root, $expectedGroups);
+                $current = static::managedGroupMembershipsIn($root, $uid);
+                if ($account === null || $selectedGroups === null || $expected === null
+                    || array_diff_key($current, $expected) !== [] || array_diff_key($expected, $current) !== []) {
                     return false;
                 }
             }
@@ -2805,19 +2817,27 @@ class OpenIDConnect extends Base implements IAuthConnector
         return $changed;
     }
 
+    /** @return array<string,bool> exact current group names for one local UID */
+    private static function managedGroupMembershipsIn(object $root, string $uid): array
+    {
+        $groups = [];
+        foreach ($root->system->group ?? [] as $group) {
+            $name = (string)($group->name ?? '');
+            $members = explode(',', implode(',', (array)($group->member ?? [])));
+            if ($name !== '' && in_array($uid, $members, true)) {
+                $groups[$name] = true;
+            }
+        }
+        return $groups;
+    }
+
     /** @return string[] current memberships of one local UID */
     private function managedAccountGroups(string $uid): array
     {
         if ($uid === '' || !ctype_digit($uid)) {
             return [];
         }
-        $groups = [];
-        foreach (Config::getInstance()->object()->system->group ?? [] as $group) {
-            $members = explode(',', implode(',', (array)($group->member ?? [])));
-            if (in_array($uid, $members, true) && (string)($group->name ?? '') !== '') {
-                $groups[] = (string)$group->name;
-            }
-        }
+        $groups = array_keys(static::managedGroupMembershipsIn(Config::getInstance()->object(), $uid));
         natcasesort($groups);
         return array_values($groups);
     }

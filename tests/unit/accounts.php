@@ -36,6 +36,17 @@ function membersOf(string $name): array
     return [];
 }
 
+/** Replace one test group's membership as if another administrator had saved it. */
+function setMembersOf(string $name, array $members): void
+{
+    foreach (Directory::$groups as $group) {
+        if ((string)($group->name ?? '') === $name) {
+            $group->member = implode(',', $members);
+            return;
+        }
+    }
+}
+
 Checks::group('Which local account a login is');
 
 directory($ok);
@@ -301,7 +312,8 @@ Checks::that('the newly returned uid can be bound without another account lookup
         'https://id.example.net',
         'new-local-subject',
         (string)($managedAccount['uid'] ?? ''),
-        ['Admins']
+        ['Admins'],
+        []
     ), true);
 Checks::that('selected existing groups are applied with the new account binding', membersOf('Admins'), ['1001']);
 Checks::that('the native account synchronization is requested after membership changes', Recorder::$backendCalls[1],
@@ -376,27 +388,33 @@ Checks::that('an existing account starts with its current memberships selected',
     $groupAccounts['mikah']['groups'] ?? [], ['Admins']);
 Checks::that('one or more selected groups are saved with a binding',
     $groupManager->createSubjectBinding($issuer, 'group-subject', (string)Directory::$users[1]->uid,
-        ['Admins', 'Operators']), true);
+        ['Admins', 'Operators'], []), true);
 Checks::that('adding one account preserves every other group member', membersOf('Admins'), ['1000', '1001']);
 Checks::that('membership is also added to a second selected group', membersOf('Operators'), ['65000', '1001']);
 Checks::that('a conflicting binding cannot apply its requested membership changes',
     $groupManager->createSubjectBinding($issuer, 'group-subject', (string)Directory::$users[0]->uid,
-        ['Operators']), false);
+        ['Operators'], ['Admins']), false);
 Checks::that('the rejected binding leaves that account in its original group', membersOf('Admins'), ['1000', '1001']);
 $groupBinding = $groupManager->subjectBindingRecords()[0] ?? [];
 Checks::that('saved memberships are returned with the binding',
     $groupBinding['groups'] ?? [], ['Admins', 'Operators']);
+setMembersOf('Admins', ['1000']);
+Checks::that('a stale complete selection cannot undo a concurrent membership removal',
+    $groupManager->updateSubjectBinding((string)($groupBinding['id'] ?? ''), $issuer, 'group-subject',
+        (string)Directory::$users[1]->uid, ['Operators'], ['Admins', 'Operators']), false);
+Checks::that('the concurrent membership removal remains in force', membersOf('Admins'), ['1000']);
+setMembersOf('Admins', ['1000', '1001']);
 Checks::that('saving a smaller selection removes only this account from deselected groups',
     $groupManager->updateSubjectBinding((string)($groupBinding['id'] ?? ''), $issuer, 'group-subject',
-        (string)Directory::$users[1]->uid, ['Operators']), true);
+        (string)Directory::$users[1]->uid, ['Operators'], ['Admins', 'Operators']), true);
 Checks::that('the other account remains in the deselected group', membersOf('Admins'), ['1000']);
 Checks::that('an unknown group is refused without changing the saved selection',
     $groupManager->updateSubjectBinding((string)($groupBinding['id'] ?? ''), $issuer, 'group-subject',
-        (string)Directory::$users[1]->uid, ['Missing']), false);
+        (string)Directory::$users[1]->uid, ['Missing'], ['Operators']), false);
 Checks::that('the last valid membership remains after the refusal', membersOf('Operators'), ['65000', '1001']);
 Checks::that('selecting no group is valid',
     $groupManager->updateSubjectBinding((string)($groupBinding['id'] ?? ''), $issuer, 'group-subject',
-        (string)Directory::$users[1]->uid, []), true);
+        (string)Directory::$users[1]->uid, [], ['Operators']), true);
 Checks::that('an empty selection removes this account from every local group', membersOf('Operators'), ['65000']);
 
 $entraManager = connector([

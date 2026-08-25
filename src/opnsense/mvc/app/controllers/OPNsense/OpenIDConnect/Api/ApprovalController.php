@@ -147,20 +147,23 @@ class ApprovalController extends PrivateApiControllerBase
             if (!ctype_digit($uid)) {
                 throw new \RuntimeException(gettext('Choose an available local account.'));
             }
-            $groups = $this->postedGroups();
+            $groupSelection = $this->postedGroupSelection();
+            $groups = $groupSelection['selected'] ?? null;
+            $expectedGroups = $groupSelection['expected'] ?? null;
             $saved = $update
                 ? $settings->updateSubjectBinding(
                     trim((string)$this->request->getPost('binding_id', null, '')),
                     $issuer,
                     $subject,
                     $uid,
-                    $groups
+                    $groups,
+                    $expectedGroups
                 )
-                : $settings->createSubjectBinding($issuer, $subject, $uid, $groups);
+                : $settings->createSubjectBinding($issuer, $subject, $uid, $groups, $expectedGroups);
             if (!$saved) {
                 throw new \RuntimeException(gettext(
                     'The binding conflicts with an existing identity, the local account is unavailable, or ' .
-                    'the authentication server changed while it was being edited.'
+                    'the authentication server or group memberships changed while it was being edited.'
                 ));
             }
             return ['status' => 'ok', 'message' => $update
@@ -201,16 +204,28 @@ class ApprovalController extends PrivateApiControllerBase
         }
     }
 
-    /** @return string[]|null null leaves memberships unchanged for older or less-privileged clients */
-    private function postedGroups(): ?array
+    /** @return array{selected:string[],expected:string[]}|null null leaves memberships unchanged */
+    private function postedGroupSelection(): ?array
     {
         if (!$this->request->hasPost('groups_json')) {
             return null;
         }
         $this->requireAccountAdministration();
+        if (!$this->request->hasPost('groups_expected_json')) {
+            throw new \RuntimeException(gettext('Reload the identities before changing local group memberships.'));
+        }
+        return [
+            'selected' => $this->postedGroupList('groups_json'),
+            'expected' => $this->postedGroupList('groups_expected_json'),
+        ];
+    }
+
+    /** @return string[] */
+    private function postedGroupList(string $field): array
+    {
         try {
             $groups = json_decode(
-                (string)$this->request->getPost('groups_json', null, ''),
+                (string)$this->request->getPost($field, null, ''),
                 true,
                 16,
                 JSON_THROW_ON_ERROR
