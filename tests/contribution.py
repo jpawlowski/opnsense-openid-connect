@@ -270,7 +270,21 @@ def main():
     check("the pull-request template makes its area decision visible",
           "## Area" in pull_request_template and "Same as issue" in pull_request_template, True)
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    claude = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
     contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    preflight = (
+        ROOT / ".agents" / "skills" / "preflight-review" / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    check("implementing agents inspect the exact final diff before external review",
+          "Before every external review request" in agents
+          and "exact final diff" in agents
+          and "Inventory the complete diff" in preflight
+          and "never replaces the independent current-head review" in preflight, True)
+    check("Claude simplifies the completed change before the shared preflight",
+          "/simplify" in claude
+          and claude.index("/simplify") < claude.index("preflight-review")
+          and "behavior-preserving" in claude
+          and "Rerun the affected validation" in claude, True)
     check("agent and contributor rules wait for a review of the current head",
           all("current head" in text.lower() for text in (contribution_skill, agents, contributing)), True)
     readiness = [re.sub(r"\s+", " ", text.lower()) for text in (contribution_skill, agents, contributing)]
