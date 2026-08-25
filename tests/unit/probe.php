@@ -167,6 +167,48 @@ Checks::that('a certificate-only health controller reaches Discovery, JWKS and P
     ]);
 Checks::that('a certificate-only health controller exercises its client assertion live',
     $healthParRows[0]['verification'], 'live');
+Checks::that('connection health shows the exact browser origins accepted for sign-in',
+    probeRow($healthAnswer['checks'], 'Effective WebGUI origins'), [
+        'label' => 'Effective WebGUI origins',
+        'value' => 'https://firewall.example.net',
+        'status' => 'success',
+        'note' => 'OpenID Connect sign-in can start from exactly these browser origins.',
+        'actors' => ['browser', 'opnsense'],
+        'verification' => 'configuration',
+    ]);
+
+$discoveryController = new class(new Request(
+    'https',
+    'firewall.example.net',
+    [],
+    [
+        'openidconnect_provider_url' => $issuer,
+        'openidconnect_client_id' => 'private-key-client',
+        'openidconnect_signing_certificate' => '0123456789abc',
+        'openidconnect_token_auth' => 'private_key_jwt',
+        'openidconnect_par_mode' => 'auto',
+        'openidconnect_origin_policy' => 'custom',
+        'openidconnect_redirect_urls' => 'https://firewall.example.net',
+        'openidconnect_app_code' => 'private-key-discovery',
+    ],
+    [],
+    '',
+    'POST'
+), $healthProbe) extends DiscoveryController {
+    public function __construct(Request $request, private ProviderProbe $probe)
+    {
+        parent::__construct($request);
+    }
+
+    protected function providerProbe(): ProviderProbe
+    {
+        return $this->probe;
+    }
+};
+$discoveryAnswer = $discoveryController->probeAction();
+Checks::that('discovery shows the same exact browser origins accepted for sign-in',
+    probeRow($discoveryAnswer['checks'], 'Effective WebGUI origins')['value'],
+    'https://firewall.example.net');
 
 $legacyDiscoveryController = new DiscoveryController(new Request(
     'https',
@@ -180,6 +222,73 @@ $legacyDiscoveryController = new DiscoveryController(new Request(
 $legacyDiscoveryValues = inspect($legacyDiscoveryController, 'formValues');
 Checks::that('the authenticated discovery API retains its legacy URL parameter',
     ProviderProbe::settings($legacyDiscoveryValues)->issuerUrl(), $issuer);
+
+$httpFailureIssuer = 'https://http-failure.example.net';
+$httpFailureValues = [
+    'openidconnect_provider_url' => $httpFailureIssuer,
+    'openidconnect_client_id' => 'http-failure-client',
+    'openidconnect_client_secret' => 'http-failure-secret',
+    'openidconnect_par_mode' => 'disabled',
+    'openidconnect_origin_policy' => 'custom',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_tls_offloading' => '1',
+];
+$httpFailureProbe = new ProviderProbe(new HttpClient(static fn(): array => [
+    'status' => 502,
+    'content_type' => 'text/html',
+    'body' => '<html>untrusted reverse-proxy page</html>',
+    'location' => '',
+]));
+$httpFailureDiscovery = new class(new Request(
+    'https',
+    'firewall.example.net',
+    [],
+    $httpFailureValues,
+    [],
+    '',
+    'POST'
+), $httpFailureProbe) extends DiscoveryController {
+    public function __construct(Request $request, private ProviderProbe $probe)
+    {
+        parent::__construct($request);
+    }
+
+    protected function providerProbe(): ProviderProbe
+    {
+        return $this->probe;
+    }
+};
+$httpFailureDiscoveryAnswer = $httpFailureDiscovery->probeAction();
+Checks::that('Discovery exposes safe HTTP status and media-type failure basics', [
+    str_contains($httpFailureDiscoveryAnswer['message'], 'HTTP 502; Content-Type: text/html'),
+    str_contains($httpFailureDiscoveryAnswer['message'], 'untrusted reverse-proxy page'),
+], [true, false]);
+
+$httpFailureHealth = new class(new Request(
+    'https',
+    'firewall.example.net',
+    [],
+    $httpFailureValues,
+    [],
+    '',
+    'POST'
+), $httpFailureProbe) extends HealthController {
+    public function __construct(Request $request, private ProviderProbe $probe)
+    {
+        parent::__construct($request);
+    }
+
+    protected function providerProbe(): ProviderProbe
+    {
+        return $this->probe;
+    }
+};
+$httpFailureHealthAnswer = $httpFailureHealth->probeAction();
+$httpFailureHealthRow = probeRow($httpFailureHealthAnswer['checks'], 'Live provider preflight');
+Checks::that('Connection health exposes the same safe HTTP failure basics', [
+    str_contains($httpFailureHealthRow['note'], 'HTTP 502; Content-Type: text/html'),
+    str_contains($httpFailureHealthRow['note'], 'untrusted reverse-proxy page'),
+], [true, false]);
 
 $requests = [];
 $transport = static function (
@@ -481,6 +590,8 @@ $readiness = ProviderProbe::healthReadiness(
 );
 Checks::that('health checks current client completeness', $readiness[0]['status'], 'success');
 Checks::that('health accepts the current configured WebGUI origin', $readiness[1]['status'], 'success');
+Checks::that('health exposes every effective WebGUI origin as a configuration check', $readiness[2],
+    ProviderProbe::webGuiOriginsCheck($complete));
 $rejectedReadiness = ProviderProbe::healthReadiness($complete, null);
 Checks::that('health rejects a current WebGUI origin outside the effective origins', $rejectedReadiness[1], [
     'label' => 'WebGUI transport',
@@ -540,6 +651,48 @@ Checks::that('health results remain secret-free', str_contains(
     json_encode($answer, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
     $secret
 ), false);
+$authorizationFailureProvider = array_replace($provider, [
+    'pushed_authorization_request_endpoint' => null,
+]);
+unset($authorizationFailureProvider['pushed_authorization_request_endpoint']);
+$authorizationFailureTransport = static function (string $method, string $url) use (
+    $issuer,
+    $authorizationFailureProvider
+): array {
+    if ($url === $issuer . '/.well-known/openid-configuration') {
+        return jsonAnswer($authorizationFailureProvider);
+    }
+    if ($url === $issuer . '/keys') {
+        return jsonAnswer(['keys' => [[
+            'kty' => 'RSA',
+            'kid' => 'probe-key',
+            'use' => 'sig',
+            'alg' => 'RS256',
+            'n' => JwtVerifier::base64UrlEncode("\x80" . str_repeat("\x01", 255)),
+            'e' => 'AQAB',
+        ]]]);
+    }
+    throw new RuntimeException('authorization transport failed');
+};
+$authorizationFailureSettings = ProviderProbe::settings([
+    'openidconnect_provider_url' => $issuer,
+    'openidconnect_client_id' => 'diagnostic-client',
+    'openidconnect_client_secret' => $secret,
+    'openidconnect_par_mode' => 'disabled',
+    'openidconnect_response_mode' => 'query',
+]);
+$authorizationFailureChecks = (new ProviderProbe(
+    new HttpClient($authorizationFailureTransport, true)
+))->checks($authorizationFailureSettings, 'https://firewall.example.net/api/openidconnect/auth/callback/main');
+Checks::that('an authorization transport failure remains attributed to registration',
+    probeRow($authorizationFailureChecks, 'Authorization registration'), [
+        'label' => 'Authorization registration',
+        'value' => 'Live check failed',
+        'status' => 'error',
+        'note' => 'authorization transport failed',
+        'actors' => ['opnsense', 'idp'],
+        'verification' => 'live',
+    ]);
 $jarm = ProviderProbe::settings([
     'openidconnect_provider_url' => $issuer,
     'openidconnect_provider_profile' => 'general',

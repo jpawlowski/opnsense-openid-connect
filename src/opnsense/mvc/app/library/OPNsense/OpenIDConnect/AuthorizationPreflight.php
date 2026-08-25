@@ -81,6 +81,7 @@ final class AuthorizationPreflight
         $response = $this->http->getFirstResponse($url, self::MAX_BYTES, [
             'Accept: text/html, application/xhtml+xml, application/json',
         ]);
+        $responseNote = sprintf(gettext(' Provider response: %s.'), $response->diagnosticSummary());
 
         if (in_array($response->status, self::REDIRECT_STATUSES, true)) {
             $location = $response->headers['location'] ?? null;
@@ -93,7 +94,7 @@ final class AuthorizationPreflight
                     gettext('Client ID and callback accepted'),
                     gettext(
                         'A silent authorization request returned to the exact callback without authenticating a user.'
-                    ),
+                    ) . $responseNote,
                     'live'
                 );
             }
@@ -103,14 +104,15 @@ final class AuthorizationPreflight
                     gettext('Client registration rejected'),
                     gettext(
                         'The authorization endpoint rejected the Client ID, callback, or preliminary request before sign-in.'
-                    ),
+                    ) . $responseNote,
                     'live'
                 );
             }
             return $this->result(
                 'warning',
                 gettext('Provider response was inconclusive'),
-                gettext('The provider redirected the silent request somewhere other than the exact OPNsense callback.'),
+                gettext('The provider redirected the silent request somewhere other than the exact OPNsense callback.')
+                    . $responseNote,
                 'live'
             );
         }
@@ -121,7 +123,7 @@ final class AuthorizationPreflight
                 gettext('Client registration rejected'),
                 gettext(
                     'The authorization endpoint rejected the Client ID, callback, or preliminary request before sign-in.'
-                ),
+                ) . $responseNote,
                 'live'
             );
         }
@@ -129,7 +131,8 @@ final class AuthorizationPreflight
         return $this->result(
             'warning',
             gettext('Provider response was inconclusive'),
-            gettext('The provider did not return the silent request to OPNsense; the full browser test is still required.'),
+            gettext('The provider did not return the silent request to OPNsense; the full browser test is still required.')
+                . $responseNote,
             'live'
         );
     }

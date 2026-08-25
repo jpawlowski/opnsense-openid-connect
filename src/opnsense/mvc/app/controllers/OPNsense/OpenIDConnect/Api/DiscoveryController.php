@@ -23,7 +23,8 @@ class DiscoveryController extends PrivateApiControllerBase
         try {
             $settings = ProviderProbe::settings($this->formValues());
             $redirectUri = RelyingParty::acceptedRedirectUri($settings, $this->request);
-            $checks = (new ProviderProbe(new HttpClient()))->checks($settings, $redirectUri);
+            $checks = [ProviderProbe::webGuiOriginsCheck($settings)];
+            $checks = array_merge($checks, $this->providerProbe()->checks($settings, $redirectUri));
             return ProviderProbe::answer(
                 $checks,
                 gettext('Server connectivity accepted'),
@@ -36,6 +37,11 @@ class DiscoveryController extends PrivateApiControllerBase
                 'message' => gettext('Discovery was not accepted: ') . $error->getMessage(),
             ];
         }
+    }
+
+    protected function providerProbe(): ProviderProbe
+    {
+        return new ProviderProbe(new HttpClient());
     }
 
     /** @return array<string,string> */

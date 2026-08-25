@@ -109,7 +109,7 @@ $system = \OPNsense\Core\Config::getInstance()->object()->system;
 $system->hostname = 'firewall';
 $system->domain = 'example.net';
 $system->webgui = (object)[
-    'althostnames' => 'admin.example.net secondary.example.net',
+    'althostnames' => 'admin.example.net secondary.example.net 198.51.100.9',
     'port' => '8443',
 ];
 \OidcTestNetwork::$virtualIps = [['subnet' => '198.51.100.8']];
@@ -131,6 +131,22 @@ Checks::that(
 );
 Checks::that('a different external port needs an explicit additional or custom origin',
     RelyingParty::acceptedRedirectUri($inherited, new Request('https', 'admin.example.net:9443')), null);
+Checks::that('standard HTTPS stays closed for inherited names unless it is explicitly enabled',
+    RelyingParty::acceptedRedirectUri($inherited, new Request('https', 'admin.example.net')), null);
+$standardHttps = connector([
+    'openidconnect_origin_policy' => 'opnsense',
+    'openidconnect_standard_https_port' => '1',
+]);
+Checks::that('the standard-port option adds the configured fully qualified hostname',
+    RelyingParty::acceptedRedirectUri($standardHttps, new Request('https', 'firewall.example.net')),
+    'https://firewall.example.net/api/openidconnect/auth/callback/main');
+Checks::that('the standard-port option adds configured alternate DNS hostnames',
+    RelyingParty::acceptedRedirectUri($standardHttps, new Request('https', 'admin.example.net')),
+    'https://admin.example.net/api/openidconnect/auth/callback/main');
+Checks::that('the standard-port option does not widen an alternate IP address',
+    RelyingParty::acceptedRedirectUri($standardHttps, new Request('https', '198.51.100.9')), null);
+Checks::that('the standard-port option does not widen a local interface address',
+    RelyingParty::acceptedRedirectUri($standardHttps, new Request('https', '192.0.2.1')), null);
 Checks::that(
     'following OPNsense does not mean trusting an arbitrary Host header',
     RelyingParty::acceptedRedirectUri($inherited, new Request('https', 'unlisted.example.net')),

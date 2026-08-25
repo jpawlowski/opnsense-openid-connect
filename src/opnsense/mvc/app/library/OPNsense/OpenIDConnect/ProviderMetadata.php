@@ -40,16 +40,25 @@ final class ProviderMetadata
             $allowStaleOnFailure,
             static function (HttpResponse $candidate) use ($issuer, $issuerTemplate): void {
                 if ($candidate->contentType !== 'application/json') {
-                    throw new ProtocolException('Discovery did not return application/json');
+                    throw new ProtocolException(sprintf(
+                        'Discovery returned %s; expected application/json',
+                        $candidate->diagnosticSummary()
+                    ));
                 }
                 self::validated($issuer, $candidate->jsonObject(), $issuerTemplate);
             }
         );
         if ($response->status !== 200) {
-            throw new ProtocolException(sprintf('Discovery returned HTTP %d', $response->status));
+            throw new ProtocolException(sprintf(
+                'Discovery returned %s; expected HTTP 200',
+                $response->diagnosticSummary()
+            ));
         }
         if ($response->contentType !== 'application/json') {
-            throw new ProtocolException('Discovery did not return application/json');
+            throw new ProtocolException(sprintf(
+                'Discovery returned %s; expected application/json',
+                $response->diagnosticSummary()
+            ));
         }
         $values = $response->jsonObject();
         return self::validated($issuer, $values, $issuerTemplate);

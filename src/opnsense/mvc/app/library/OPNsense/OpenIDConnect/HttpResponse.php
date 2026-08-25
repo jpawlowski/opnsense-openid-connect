@@ -37,9 +37,27 @@ final class HttpResponse
         return min(3600, max(0, $timestamp - ($now ?? time())));
     }
 
+    /** A bounded, body-free description suitable for an administrator-facing diagnostic. */
+    public function diagnosticSummary(): string
+    {
+        $summary = sprintf(
+            'HTTP %d; Content-Type: %s',
+            $this->status,
+            $this->contentType !== '' ? $this->contentType : 'missing'
+        );
+        $retryAfter = $this->retryAfterSeconds();
+        if ($retryAfter !== null) {
+            $summary .= sprintf('; Retry-After: %d seconds', $retryAfter);
+        }
+        return $summary;
+    }
+
     /** @return array<mixed> */
     public function jsonObject(): array
     {
+        if ($this->contentType !== 'application/json' && !str_ends_with($this->contentType, '+json')) {
+            throw new ProtocolException('The provider did not return a JSON media type');
+        }
         try {
             $decoded = json_decode($this->body, true, 64, JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {

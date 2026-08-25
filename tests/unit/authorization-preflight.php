@@ -62,10 +62,26 @@ $rejected = (new AuthorizationPreflight(new HttpClient(static fn(): array => [
     'location' => '',
 ])))->check($preflightSettings, $preflightMetadata, $preflightCallback);
 Checks::that('an authorization-endpoint rejection blocks the browser test', $rejected['status'], 'error');
+Checks::that('a rejected authorization preflight exposes safe HTTP basics', str_contains(
+    $rejected['note'],
+    'Provider response: HTTP 400; Content-Type: text/html.'
+), true);
 Checks::that('an untrusted provider error body is not reflected', str_contains(
     json_encode($rejected, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
     'untrusted provider detail'
 ), false);
+
+$missingType = (new AuthorizationPreflight(new HttpClient(static fn(): array => [
+    'status' => 502,
+    'content_type' => '',
+    'body' => '',
+    'location' => '',
+    'headers' => ['retry-after' => '30'],
+])))->check($preflightSettings, $preflightMetadata, $preflightCallback);
+Checks::that('a missing response media type and bounded retry hint remain visible', str_contains(
+    $missingType['note'],
+    'HTTP 502; Content-Type: missing; Retry-After: 30 seconds'
+), true);
 
 $callbackRejection = (new AuthorizationPreflight(new HttpClient(static function (
     string $method,
