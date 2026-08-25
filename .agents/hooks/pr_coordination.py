@@ -14,6 +14,14 @@ NOTICE = {
     "de": "*Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.*",
 }
 TRUSTED_ASSOCIATIONS = {"COLLABORATOR", "MEMBER", "OWNER"}
+GITHUB_PULL_URL_PATTERN = (
+    r"https?://github[.]com/(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?P<number>[0-9]+)"
+    r"(?:[/?#][^\s<>)]*)?"
+)
+MARKDOWN_PULL_REFERENCE = re.compile(rf"!?\[[^]\n]*\]\({GITHUB_PULL_URL_PATTERN}\)")
+AUTOLINK_PULL_REFERENCE = re.compile(rf"<{GITHUB_PULL_URL_PATTERN}>")
+PULL_URL_REFERENCE = re.compile(GITHUB_PULL_URL_PATTERN)
+GH_NUMBER_REFERENCE = re.compile(r"(?<![\w-])GH-(?P<number>[0-9]+)\b", re.IGNORECASE)
 HASH_NUMBER_REFERENCE = re.compile(
     r"(?<![\w&])(?:(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+))?#(?P<number>[0-9]+)\b"
 )
@@ -148,12 +156,16 @@ def pull_reference(number):
 
 def without_hash_number_references(value):
     """Keep coordination prose from creating GitHub cross-reference events."""
-    def replacement(match):
+    def qualified_replacement(match):
         repository = match.group("repository")
         reference = pull_reference(match.group("number"))
         return f"{repository} {reference}" if repository else reference
 
-    return HASH_NUMBER_REFERENCE.sub(replacement, str(value or ""))
+    value = MARKDOWN_PULL_REFERENCE.sub(qualified_replacement, str(value or ""))
+    value = AUTOLINK_PULL_REFERENCE.sub(qualified_replacement, value)
+    value = PULL_URL_REFERENCE.sub(qualified_replacement, value)
+    value = GH_NUMBER_REFERENCE.sub(lambda match: pull_reference(match.group("number")), value)
+    return HASH_NUMBER_REFERENCE.sub(qualified_replacement, value)
 
 
 def render_final(record, overlap, reason, reconsider, changed_fact="", changed_criterion="", language="en"):

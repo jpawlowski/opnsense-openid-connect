@@ -1429,19 +1429,36 @@ module.update_registry(repository, update)
     coordination = load_agent_module(
         "pr_coordination_test", ROOT / ".agents" / "hooks" / "pr_coordination.py",
     )
+    reference_examples = {
+        "#42": "PR 42",
+        "jpawlowski/opnsense-openid-connect#42": "jpawlowski/opnsense-openid-connect PR 42",
+        "GH-42": "PR 42",
+        "https://github.com/jpawlowski/opnsense-openid-connect/pull/42":
+            "jpawlowski/opnsense-openid-connect PR 42",
+        "<https://github.com/jpawlowski/opnsense-openid-connect/pull/42/files>":
+            "jpawlowski/opnsense-openid-connect PR 42",
+        "[review](https://github.com/jpawlowski/opnsense-openid-connect/pull/42)":
+            "jpawlowski/opnsense-openid-connect PR 42",
+    }
+    check("every GitHub pull-request reference form becomes non-linking prose",
+          {value: coordination.without_hash_number_references(value) for value in reference_examples},
+          reference_examples)
     record = {"id": "42-57-order", "order": [42, 57], "state": "final", "supersedes": []}
     body = coordination.render_final(
         record,
-        "both change the authentication hook",
-        "jpawlowski/opnsense-openid-connect#42 already has a current-head review",
-        "#42 closes or changes the shared contract",
+        "GH-42 and https://github.com/jpawlowski/opnsense-openid-connect/pull/57 change the authentication hook",
+        "[the first change](https://github.com/jpawlowski/opnsense-openid-connect/pull/42) already has a review",
+        "<https://github.com/jpawlowski/opnsense-openid-connect/pull/42/files> closes or changes the contract",
     )
     check("the public record gives one exact human-facing order",
           all(value in body for value in ("PR 42 → PR 57", "Merge PR 42 first", "Do not merge", "explicit human")),
           True)
-    check("coordination prose cannot create hash-number cross-references",
-          ("#42" not in body, "jpawlowski/opnsense-openid-connect PR 42 already has" in body,
-           "PR 42 closes" in body), (True, True, True))
+    check("coordination prose cannot create pull-request cross-references",
+          (all(value not in body for value in ("#42", "GH-42", "github.com", "](")),
+           "PR 42 and jpawlowski/opnsense-openid-connect PR 57 change" in body,
+           "jpawlowski/opnsense-openid-connect PR 42 already has" in body,
+           "jpawlowski/opnsense-openid-connect PR 42 closes" in body),
+          (True, True, True, True))
     check("the public record carries the required agent notice",
           body.rstrip().endswith(coordination.NOTICE["en"]), True)
     mirrored = [
