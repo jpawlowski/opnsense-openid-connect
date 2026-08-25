@@ -135,8 +135,8 @@ async function configureServer(page) {
   )))).size).toBe(1);
   const endpoints = page.locator('.oidc-endpoints');
   await expect(endpoints).toBeVisible({ timeout: 15_000 });
-  await expect(endpoints.locator('.oidc-endpoint-row')).toHaveCount(4);
-  await expect(endpoints.getByRole('button', { name: /^Copy / })).toHaveCount(4);
+  await expect(endpoints.locator('.oidc-endpoint-row')).toHaveCount(5);
+  await expect(endpoints.getByRole('button', { name: /^Copy / })).toHaveCount(5);
   const firstEndpointValue = await endpoints.locator('[data-oidc-endpoint="0"]').textContent();
   await page.evaluate(() => {
     Object.defineProperty(navigator, 'clipboard', {
@@ -217,10 +217,23 @@ async function configureServer(page) {
   await expect(customButtonText.locator('xpath=ancestor::tr')).toBeHidden();
   const restoreProfile = page.getByRole('button', { name: 'Restore profile defaults' });
   await expect(restoreProfile).toBeDisabled();
+  const scopesInput = page.locator('input[name="openidconnect_scopes"]');
+  const scopesPicker = scopesInput.locator('xpath=following-sibling::select[contains(@class, "tokenize")]');
+  await scopesPicker.evaluate(select => {
+    select.querySelector('option[value="name"]').selected = false;
+    window.jQuery(select).trigger('tokenize:tokens:change');
+  });
+  await expect(scopesInput).toHaveValue('openid,email');
+  await expect(restoreProfile).toBeEnabled();
+  await restoreProfile.click();
+  let restoreDialog = page.getByRole('dialog', { name: 'Restore profile defaults' });
+  await restoreDialog.getByRole('button', { name: 'OK' }).click();
+  await expect(scopesInput).toHaveValue('openid,email,name');
+  await expect(restoreProfile).toBeDisabled();
   await page.locator('input[name="openidconnect_username_claim"]').fill('sub');
   await expect(restoreProfile).toBeEnabled();
   await restoreProfile.click();
-  const restoreDialog = page.getByRole('dialog', { name: 'Restore profile defaults' });
+  restoreDialog = page.getByRole('dialog', { name: 'Restore profile defaults' });
   await expect(restoreDialog).toContainText('Replace edited values');
   await expect(page.locator('input[name="openidconnect_username_claim"]')).toHaveValue('sub');
   await restoreDialog.getByRole('button', { name: 'OK' }).click();

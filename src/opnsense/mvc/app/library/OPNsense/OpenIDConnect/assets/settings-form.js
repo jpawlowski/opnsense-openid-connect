@@ -251,7 +251,7 @@
         /* the original input stays put as the field that gets submitted */
         $(input).attr('type', 'hidden').after(picker);
         picker.on('tokenize:tokens:change change', function () {
-            $(input).val((picker.val() || []).join(','));
+            $(input).val((picker.val() || []).join(',')).trigger('change');
         });
     }
 
