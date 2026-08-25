@@ -389,6 +389,8 @@ Checks::that('an existing account starts with its current memberships selected',
 Checks::that('one or more selected groups are saved with a binding',
     $groupManager->createSubjectBinding($issuer, 'group-subject', (string)Directory::$users[1]->uid,
         ['Admins', 'Operators'], []), true);
+Checks::that('the membership comparison explicitly reloads after taking the configuration lock',
+    OPNsense\Core\Config::getInstance()->lastLockReload, true);
 Checks::that('adding one account preserves every other group member', membersOf('Admins'), ['1000', '1001']);
 Checks::that('membership is also added to a second selected group', membersOf('Operators'), ['65000', '1001']);
 Checks::that('a conflicting binding cannot apply its requested membership changes',

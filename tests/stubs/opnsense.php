@@ -155,6 +155,7 @@ namespace OPNsense\Core {
         private static ?Config $instance = null;
         private object $root;
         public int $saves = 0;
+        public ?bool $lastLockReload = null;
 
         private function __construct()
         {
@@ -206,8 +207,9 @@ namespace OPNsense\Core {
             return $certificate;
         }
 
-        public function lock(): void
+        public function lock($reload = true): void
         {
+            $this->lastLockReload = (bool)$reload;
         }
 
         public function unlock(): void

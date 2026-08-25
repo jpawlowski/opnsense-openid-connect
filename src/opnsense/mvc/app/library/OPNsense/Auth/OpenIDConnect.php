@@ -2692,7 +2692,9 @@ class OpenIDConnect extends Base implements IAuthConnector
     ): bool {
         $config = Config::getInstance();
         try {
-            $config->lock();
+            /* The expected-membership check has to see the file state from after the exclusive lock,
+             * otherwise another administrator's completed change could still be replaced. */
+            $config->lock(true);
             $root = $config->object();
             $account = null;
             $selectedGroups = null;
