@@ -2691,20 +2691,24 @@ class OpenIDConnect extends Base implements IAuthConnector
         ?array $expectedGroups = null
     ): bool {
         $config = Config::getInstance();
+        $syncAccount = null;
+        $completed = false;
         try {
             /* The expected-membership check has to see the file state from after the exclusive lock,
              * otherwise another administrator's completed change could still be replaced. */
             $config->lock(true);
             $root = $config->object();
-            $account = null;
+            $account = $uid === '' ? null : static::userByUidIn($root, $uid);
+            if ($uid !== '' && ($account === null || !$this->accountMayBeUsed($account))) {
+                return false;
+            }
             $selectedGroups = null;
             if ($groups !== null) {
-                $account = static::userByUidIn($root, $uid);
                 $selectedGroups = static::normalizeManagedGroups($root, $groups);
                 $expected = $expectedGroups === null
                     ? null : static::normalizeManagedGroups($root, $expectedGroups);
                 $current = static::managedGroupMembershipsIn($root, $uid);
-                if ($account === null || $selectedGroups === null || $expected === null
+                if ($selectedGroups === null || $expected === null
                     || array_diff_key($current, $expected) !== [] || array_diff_key($expected, $current) !== []) {
                     return false;
                 }
@@ -2734,11 +2738,14 @@ class OpenIDConnect extends Base implements IAuthConnector
                 $this->settings['openidconnect_subject_bindings'] = $stored;
                 syslog(LOG_NOTICE, 'OIDC: administrator ' . $audit);
                 if ($groupsChanged) {
-                    (new Backend())->configdpRun('auth user changed', [(string)$account->name]);
+                    $syncAccount = (string)$account->name;
                 }
-                return true;
+                $completed = true;
+                break;
             }
-            return false;
+            if (!$completed) {
+                return false;
+            }
         } catch (\Throwable $e) {
             syslog(LOG_ERR, sprintf('OIDC: saving managed subject bindings failed (%s)', $e->getMessage()));
             return false;
@@ -2747,6 +2754,14 @@ class OpenIDConnect extends Base implements IAuthConnector
                 $config->unlock();
             }
         }
+        if ($syncAccount !== null) {
+            try {
+                (new Backend())->configdpRun('auth user changed', [$syncAccount]);
+            } catch (\Throwable $e) {
+                syslog(LOG_ERR, sprintf('OIDC: synchronizing local account groups failed (%s)', $e->getMessage()));
+            }
+        }
+        return true;
     }
 
     private static function userByUidIn(object $root, string $uid): ?object

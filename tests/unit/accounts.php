@@ -318,6 +318,8 @@ Checks::that('the newly returned uid can be bound without another account lookup
 Checks::that('selected existing groups are applied with the new account binding', membersOf('Admins'), ['1001']);
 Checks::that('the native account synchronization is requested after membership changes', Recorder::$backendCalls[1],
     ['event' => 'auth user changed', 'params' => ['new-local-account']]);
+Checks::that('the native account synchronization runs after the configuration lock is released',
+    Recorder::$backendLockStates[1] ?? null, false);
 Checks::that('the new account resolves through its durable binding',
     $accountManager->localAccountFor(claims(['sub' => 'new-local-subject'])), 'new-local-account');
 Checks::that('the managed creation path never reuses an existing local account',
@@ -418,6 +420,14 @@ Checks::that('selecting no group is valid',
     $groupManager->updateSubjectBinding((string)($groupBinding['id'] ?? ''), $issuer, 'group-subject',
         (string)Directory::$users[1]->uid, [], ['Operators']), true);
 Checks::that('an empty selection removes this account from every local group', membersOf('Operators'), ['65000']);
+OPNsense\Core\Config::$lockHook = static function (): void {
+    Directory::$users[1]->disabled = '1';
+};
+Checks::that('an account disabled while the editor was open is revalidated after the locked reload',
+    $groupManager->updateSubjectBinding((string)($groupBinding['id'] ?? ''), $issuer, 'group-subject',
+        (string)Directory::$users[1]->uid, ['Operators'], []), false);
+Checks::that('the refused stale save grants no group to the newly disabled account', membersOf('Operators'), ['65000']);
+Directory::$users[1]->disabled = '';
 
 $entraManager = connector([
     'openidconnect_provider_profile' => 'entra',

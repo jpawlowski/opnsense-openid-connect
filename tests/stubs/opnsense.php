@@ -80,11 +80,13 @@ namespace OPNsense\Auth {
     {
         public static array $groupCalls = [];
         public static array $backendCalls = [];
+        public static array $backendLockStates = [];
 
         public static function reset(): void
         {
             self::$groupCalls = [];
             self::$backendCalls = [];
+            self::$backendLockStates = [];
         }
     }
 
@@ -153,9 +155,11 @@ namespace OPNsense\Core {
     class Config
     {
         private static ?Config $instance = null;
+        public static $lockHook = null;
         private object $root;
         public int $saves = 0;
         public ?bool $lastLockReload = null;
+        public bool $locked = false;
 
         private function __construct()
         {
@@ -181,6 +185,7 @@ namespace OPNsense\Core {
         public static function reset(): void
         {
             self::$instance = null;
+            self::$lockHook = null;
         }
 
         public function addAuthServer(array $settings): object
@@ -210,10 +215,17 @@ namespace OPNsense\Core {
         public function lock($reload = true): void
         {
             $this->lastLockReload = (bool)$reload;
+            $this->locked = true;
+            if (is_callable(self::$lockHook)) {
+                $hook = self::$lockHook;
+                self::$lockHook = null;
+                $hook();
+            }
         }
 
         public function unlock(): void
         {
+            $this->locked = false;
         }
 
         public function save(): void
@@ -232,6 +244,8 @@ namespace OPNsense\Core {
         public function configdpRun($event, $params = [])
         {
             \OPNsense\Auth\Recorder::$backendCalls[] = ['event' => $event, 'params' => $params];
+            \OPNsense\Auth\Recorder::$backendLockStates[] =
+                \OPNsense\Core\Config::getInstance()->locked;
 
             if ($event !== 'auth add user' || !\OPNsense\Auth\Directory::$creationWorks) {
                 return json_encode(['status' => 'failed']);
