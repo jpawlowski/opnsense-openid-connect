@@ -47,6 +47,31 @@ function opnsenseRequestContextOptions() {
   };
 }
 
+async function newObservedBrowserContext(browser, observedRequests) {
+  const context = await browser.newContext();
+  await context.route('**/*', async route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.hostname !== opnsense.hostname
+        || !url.pathname.startsWith('/api/openidconnect/')) {
+      await route.continue();
+      return;
+    }
+    const headers = { ...request.headers(), host: opnsense.host };
+    delete headers['content-length'];
+    const options = {
+      method: request.method(),
+      headers,
+      maxRedirects: 0,
+    };
+    const body = request.postDataBuffer();
+    if (body !== null) options.data = body;
+    const response = await observedRequests.fetch(request.url(), options);
+    await route.fulfill({ response });
+  });
+  return context;
+}
+
 async function getAfterProxyReady(context, url, options) {
   let response;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -120,6 +145,10 @@ function selectPickerButton(locator) {
   );
 }
 
+async function waitForOidcForm(page) {
+  await page.locator('.oidc-revert-changes').waitFor({ state: 'attached' });
+}
+
 async function configureServer(page) {
   let discoveryRequests = 0;
   page.on('request', request => {
@@ -128,11 +157,15 @@ async function configureServer(page) {
     }
   });
   await page.goto(`${origin}/system_authservers.php?act=new`);
+  await waitForOidcForm(page);
   await selectNative(page.locator('select[name="type"]'), 'openidconnect');
   const newServerRevert = page.getByRole('button', { name: 'Revert changes' });
   await expect(newServerRevert).toBeVisible();
-  await newServerRevert.click();
-  await expect(page).toHaveURL(/system_authservers\.php\?act=new$/);
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: 'load' }),
+    newServerRevert.click(),
+  ]);
+  await waitForOidcForm(page);
   await expect(page.locator('select[name="type"]')).toHaveValue('ldap');
   await expect(newServerRevert).toBeHidden();
   await selectNative(page.locator('select[name="type"]'), 'openidconnect');
@@ -338,6 +371,7 @@ async function configureServer(page) {
   await expect(microsoftContext.locator('xpath=ancestor::tr')).toBeVisible();
   await selectNative(microsoftAudience, 'common');
   await expect(requiredAuthentication).toHaveValue('');
+  await expect(page.locator('input[name="openidconnect_amr_values"]')).toHaveValue('');
   await expect(requiredAuthentication).toBeDisabled();
   await expect(selectPickerButton(requiredAuthentication)).toBeDisabled();
   await expect(page.locator('.oidc-authentication-requirement-boundary'))
@@ -553,6 +587,7 @@ async function configureServer(page) {
 
   // Callback routing is unambiguous only while every OIDC application code is unique.
   await page.goto(`${origin}/system_authservers.php?act=new`);
+  await waitForOidcForm(page);
   await selectNative(page.locator('select[name="type"]'), 'openidconnect');
   await page.locator('input[name="name"]').fill('duplicate-code-probe');
   await page.locator('input[name="openidconnect_app_code"]').fill(process.env.E2E_APPLICATION_CODE);
@@ -567,6 +602,7 @@ async function configureServer(page) {
   await expect(page.getByRole('row', { name: /duplicate-code-probe/ })).toHaveCount(0);
 
   await serverRow.getByRole('link', { name: 'Edit' }).click();
+  await waitForOidcForm(page);
   await expect(page.locator('input[name="openidconnect_provider_url"]')).toHaveValue('');
   await expect(page.locator('input[name="openidconnect_client_id"]')).toHaveValue('');
   await expect(page.locator('input[name="openidconnect_client_secret"]')).toHaveValue('');
@@ -617,7 +653,10 @@ async function configureServer(page) {
   await page.getByRole('button', { name: 'Test discovery' }).click();
   expectPrivateResponseHeaders(await draftDiscoveryResponsePromise);
   let dialog = page.getByRole('dialog');
-  await expect(dialog).toContainText('Enter Client ID and Client Secret');
+  await expect(dialog).toContainText('Enter the client ID before testing client authentication.');
+  await expect(dialog).toContainText(
+    'Enter Client ID and the selected client credential to run the live PAR check.'
+  );
   await expect(dialog.locator('.oidc-probe-check[data-verification="not-tested"]').first()).toBeVisible();
   const diagnosticColumns = await dialog.locator('.oidc-probe-check-actions').evaluateAll(actions => actions.map(action => ({
     statusLeft: action.querySelector('.label')?.getBoundingClientRect().left,
@@ -675,9 +714,9 @@ async function configureServer(page) {
   dialog = page.getByRole('dialog');
   await expect(dialog.locator('.oidc-probe-summary .label-success')).toBeVisible();
   await expect(dialog.locator('.oidc-discovery-results')).toBeVisible();
-  await expect(dialog.locator('.oidc-probe-check')).toHaveCount(17);
-  await expect(dialog.locator('.oidc-check-flow')).toHaveCount(17);
-  await expect(dialog.locator('.oidc-check-flow[aria-label]')).toHaveCount(17);
+  await expect(dialog.locator('.oidc-probe-check')).toHaveCount(21);
+  await expect(dialog.locator('.oidc-check-flow')).toHaveCount(21);
+  await expect(dialog.locator('.oidc-check-flow[aria-label]')).toHaveCount(21);
   await expect(dialog.locator('.oidc-check-actor')).not.toHaveCount(0);
   await expect(dialog.locator('.oidc-check-actor i[aria-hidden="true"]')).not.toHaveCount(0);
   await expect(dialog.locator('th').filter({ hasText: /(?:OPNsense|Browser|IdP)/ }))
@@ -689,6 +728,7 @@ async function configureServer(page) {
     ]))
   ));
   expect(resultSemantics).toEqual({
+    'Effective WebGUI origins': ['browser,opnsense', 'configuration'],
     Discovery: ['opnsense,idp', 'live'],
     'Provider profile': ['opnsense', 'configuration'],
     'Authorization endpoint': ['browser,idp', 'not-tested'],
@@ -696,6 +736,8 @@ async function configureServer(page) {
     'UserInfo endpoint': ['opnsense,idp', 'not-tested'],
     'ID Token signatures': ['opnsense', 'metadata'],
     'Client authentication': ['opnsense', 'metadata'],
+    'Client assertion signatures': ['opnsense', 'metadata'],
+    'Certificate-bound access tokens': ['opnsense', 'metadata'],
     PKCE: ['opnsense', 'metadata'],
     'DPoP sender constraint': ['opnsense', 'metadata'],
     'Authorization response mode': ['idp,browser,opnsense', 'metadata'],
@@ -705,10 +747,11 @@ async function configureServer(page) {
     'Token revocation': ['opnsense,idp', 'not-tested'],
     'Signing keys': ['opnsense,idp', 'live'],
     'JWT-secured authorization request': ['opnsense', 'configuration'],
+    'Authorization registration': ['opnsense,idp', 'skipped'],
     'PAR endpoint': ['opnsense,idp', 'live'],
   });
   await expect(dialog.locator('.oidc-probe-check[data-status="success"]').first()).toBeVisible();
-  await expect(dialog.locator('.oidc-probe-check[data-status="info"]')).toHaveCount(0);
+  await expect(dialog.locator('.oidc-probe-check[data-status="info"]')).toHaveCount(1);
   const dpopDiscoveryRow = dialog.locator('.oidc-probe-check')
     .filter({ hasText: 'DPoP sender constraint' });
   await expect(dpopDiscoveryRow).toHaveCount(1);
@@ -716,7 +759,7 @@ async function configureServer(page) {
   await expect(dpopDiscoveryRow).toContainText('ES256');
   await expect(dialog).toContainText(issuer);
   await expect(dialog).toContainText('RS256');
-  await expect(dialog).toContainText('client_secret_post');
+  await expect(dialog).toContainText('client_secret_basic');
   await expect(dialog.getByText(/PAR will be used automatically/)).toBeHidden();
   const authorizationRow = dialog.locator('.oidc-probe-check').filter({ hasText: 'Authorization endpoint' });
   await expect(authorizationRow.locator('.oidc-probe-check-details')).toBeHidden();
@@ -875,7 +918,8 @@ async function testSignIn(page, {
       'Validated provider logout notifications end every matching OPNsense WebGUI session.'
     );
     await expect(resultDialog.getByRole('row', { name: /RP-initiated logout return/ })).toContainText('Passed');
-    await expect(resultDialog.getByRole('row', { name: /Front-channel logout/ })).toContainText('Passed');
+    await expect(resultDialog.getByRole('row', { name: /Front-channel logout/ }))
+      .toContainText('Not configured');
     await expect(resultDialog.getByRole('row', { name: /Back-channel logout/ })).toContainText('Passed');
     await expect(lifecyclePage.locator('input[name="name"]')).toHaveValue(process.env.E2E_SERVER_NAME);
     await lifecyclePage.close();
@@ -1122,17 +1166,32 @@ async function triggerSharedSignal() {
 }
 
 test('real OPNsense login, session binding and logout interoperability', async ({ browser }) => {
+  // ZAP observes only plugin endpoints. Sending the surrounding core UI through
+  // its pooled proxy can corrupt a large HTML or JavaScript response and turn a
+  // passive security observation into an unrelated browser failure.
   const unauthenticated = await playwrightRequest.newContext(opnsenseRequestContextOptions());
-  const formScript = await getAfterProxyReady(
+  const observedFormScript = await getAfterProxyReady(
     unauthenticated,
     `${origin}/api/openidconnect/auth/formscript`,
     { maxRedirects: 0 }
   );
-  expect(formScript.status()).toBe(200);
-  expect(formScript.headers()['content-type']).toContain('javascript');
-  expect(formScript.headers()['cache-control']).toContain('public');
-  expect(formScript.headers()['x-content-type-options']).toBe('nosniff');
-  expect(await formScript.text()).toContain('window.__oidcForm');
+  expect(observedFormScript.status()).toBe(200);
+  expect(observedFormScript.headers()['content-type']).toContain('javascript');
+  expect(observedFormScript.headers()['cache-control']).toContain('public');
+  expect(observedFormScript.headers()['x-content-type-options']).toBe('nosniff');
+  const curlArguments = ['--fail', '--silent', '--show-error', '--http1.0', '--insecure'];
+  if (process.env.E2E_OPNSENSE_BROWSER_IP) {
+    curlArguments.push(
+      '--resolve', `${opnsense.hostname}:${opnsense.port || '443'}:${process.env.E2E_OPNSENSE_BROWSER_IP}`
+    );
+  }
+  curlArguments.push(`${origin}/api/openidconnect/auth/formscript`);
+  const formScriptBody = (await runCommand('curl', curlArguments)).stdout;
+  expect(formScriptBody).toContain('window.__oidcForm');
+  expect(formScriptBody).toBe(await readFile(new URL(
+    '../../src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/assets/settings-form.js',
+    import.meta.url
+  ), 'utf8'));
   const builtInIcon = await unauthenticated.get(
     `${origin}/api/openidconnect/auth/builtinicon/keycloak`,
     { maxRedirects: 0 }
@@ -1174,11 +1233,22 @@ test('real OPNsense login, session binding and logout interoperability', async (
   expect(deniedHealth.status()).toBe(302);
   expect(deniedHealth.headers().location).toBe('/?url=/api/openidconnect/health/probe');
   expectPrivateResponseHeaders(deniedHealth);
-  const admin = await browser.newContext();
+  const admin = await newObservedBrowserContext(browser, unauthenticated);
+  await admin.route('**/api/openidconnect/auth/formscript*', route => route.fulfill({
+    status: 200,
+    contentType: 'application/javascript; charset=UTF-8',
+    body: formScriptBody,
+  }));
   const adminPage = await admin.newPage();
   await localLogin(adminPage);
   await configureServer(adminPage);
-  await setFrontChannel(true);
+  // Keycloak partitions clients between front- and back-channel logout. Prove
+  // its preferred server-to-server channel first, then enable the browser
+  // alternative for the later independent interoperability scenario.
+  await setFrontChannel(false);
+  await editServer(adminPage, async page => {
+    await selectNative(page.locator('select[name="openidconnect_logout_notifications"]'), 'backchannel');
+  });
   const invalidBackchannel = await unauthenticated.post(
     `${origin}/api/openidconnect/auth/backchannel/${process.env.E2E_APPLICATION_CODE}`,
     { form: { logout_token: '' }, maxRedirects: 0 }
@@ -1187,7 +1257,6 @@ test('real OPNsense login, session binding and logout interoperability', async (
   expectPrivateResponseHeaders(invalidBackchannel);
   expect(invalidBackchannel.headers()['content-type']).toContain('text/plain');
   expect(invalidBackchannel.headers()['content-security-policy']).toContain("frame-ancestors 'none'");
-  await unauthenticated.dispose();
   await testSignIn(adminPage, { expectNoLocalAccount: true, validateSignOut: true });
   await setKeycloakEmailVerification('false');
   await testSignIn(adminPage, {
@@ -1209,19 +1278,21 @@ test('real OPNsense login, session binding and logout interoperability', async (
       await page.locator('input[name="openidconnect_ssf_push_secret"]')
         .fill(process.env.E2E_SSF_PUSH_SECRET);
     }
+    await selectNative(page.locator('select[name="openidconnect_logout_notifications"]'), 'both');
     await page.locator('input[name="openidconnect_enabled"]').check();
   });
+  await setFrontChannel(true);
 
-  const localFallback = await browser.newContext();
+  const localFallback = await newObservedBrowserContext(browser, unauthenticated);
   const localPage = await localFallback.newPage();
   await localLogin(localPage);
   await localFallback.close();
 
-  const user = await browser.newContext();
+  const user = await newObservedBrowserContext(browser, unauthenticated);
   const userPage = await user.newPage();
   const callback = await providerLogin(userPage);
 
-  const replay = await browser.newContext();
+  const replay = await newObservedBrowserContext(browser, unauthenticated);
   const replayPage = await replay.newPage();
   const replayResponse = await replayPage.goto(callback);
   expect(replayResponse.status()).toBe(403);
@@ -1308,7 +1379,7 @@ test('real OPNsense login, session binding and logout interoperability', async (
     ));
     await managerButton.click();
     expectPrivateResponseHeaders(await approvalListResponsePromise);
-    const manager = page.getByRole('dialog');
+    const manager = page.locator('.oidc-identity-dialog');
     await expect(manager.getByRole('heading', { name: 'Bound identities' })).toBeVisible();
 
     // Manual creation is deliberately assisted, yet remains available for a
@@ -1322,9 +1393,10 @@ test('real OPNsense login, session binding and logout interoperability', async (
     await expect(editor).toContainText('exact sub');
     await expect(editor).toContainText('federation and subject-mode mappings');
     await editor.getByRole('textbox', { name: 'Paste the exact sub claim' }).fill(manualSubject);
-    await expect(editor.locator('select option', { hasText: process.env.E2E_TEST_USERNAME }))
+    const accountSelect = editor.locator('select:not([multiple])');
+    await expect(accountSelect.locator('option', { hasText: process.env.E2E_TEST_USERNAME }))
       .toHaveCount(0);
-    await editor.locator('select').selectOption({ label: 'Create a new local account…' });
+    await accountSelect.selectOption({ label: 'Create a new local account…' });
     await editor.locator('.oidc-account-creation input').fill(inlineUsername);
     await editor.getByRole('button', { name: 'Save binding' }).click();
     await expect(manager).toHaveAccessibleName('Manage identities');
@@ -1335,7 +1407,7 @@ test('real OPNsense login, session binding and logout interoperability', async (
     await expect(manager).toHaveAccessibleName('Edit identity binding');
     await manager.locator('.oidc-binding-editor')
       .getByRole('textbox', { name: 'Paste the exact sub claim' }).fill(editedSubject);
-    await expect(manager.locator('.oidc-binding-editor select')).toHaveValue(/\d+/);
+    await expect(accountSelect).toHaveValue(/\d+/);
     await manager.locator('.oidc-binding-editor').getByRole('button', { name: 'Save binding' }).click();
     await expect(manager).toHaveAccessibleName('Manage identities');
     manualRow = manager.locator('tbody tr').filter({ hasText: editedSubject });
@@ -1350,8 +1422,9 @@ test('real OPNsense login, session binding and logout interoperability', async (
     const established = manager.locator('tbody tr');
     await expect(established).toHaveCount(1);
     await established.getByRole('button', { name: 'Remove' }).click();
-    await page.getByRole('dialog', { name: 'Remove identity binding' })
-      .getByRole('button', { name: 'OK' }).click();
+    const establishedRemoveDialog = page.getByRole('dialog', { name: 'Remove identity binding' });
+    await establishedRemoveDialog.getByRole('button', { name: 'OK' }).click();
+    await expect(establishedRemoveDialog).toBeHidden();
     await expect(manager).toContainText('No identity is currently bound to a local account.');
     await manager.getByRole('button', { name: 'Done' }).click();
     await expect(manager).toBeHidden();
@@ -1362,19 +1435,21 @@ test('real OPNsense login, session binding and logout interoperability', async (
   await userPage.goto(origin);
   await userPage.getByRole('link', { name: `Login using ${process.env.E2E_SERVER_NAME}` }).click();
   const providerUsername = userPage.getByRole('textbox', { name: 'Username' });
-  const genericRefusal = userPage.getByText('There is no local account for this user, or it may not be used.');
-  await expect(providerUsername.or(genericRefusal))
+  const unavailable = userPage.getByRole('heading', { name: 'WebGUI sign-in not completed' });
+  await expect(providerUsername.or(unavailable))
     .toBeVisible();
   if (await providerUsername.isVisible()) {
     await providerUsername.fill(process.env.E2E_TEST_USERNAME);
     await userPage.getByRole('textbox', { name: 'Password' }).fill(process.env.E2E_TEST_PASSWORD);
     await userPage.getByRole('button', { name: 'Sign In' }).click();
   }
-  await expect(genericRefusal).toBeVisible();
+  await expect(unavailable).toBeVisible();
+  await expect(userPage.locator('.oidc-account-unavailable .reference code')).toHaveText(/^[0-9a-f]{20}$/);
   const approvalCallbackResponse = await approvalCallbackPromise;
   expect(approvalCallbackResponse.status()).toBe(403);
+  expectStandaloneHtmlHeaders(approvalCallbackResponse);
   await expect(userPage.locator('body')).not.toContainText('Administrator approval required');
-  await expect(userPage.locator('body')).not.toContainText(/Approval request|[a-f0-9]{20}/);
+  await expect(userPage.locator('body')).not.toContainText('Approval request');
 
   await adminPage.goto(`${origin}/system_authservers.php`);
   await adminPage.getByRole('row', { name: new RegExp(process.env.E2E_SERVER_NAME) })
@@ -1429,4 +1504,5 @@ test('real OPNsense login, session binding and logout interoperability', async (
 
   await user.close();
   await admin.close();
+  await unauthenticated.dispose();
 });

@@ -278,6 +278,12 @@ printf '%s\n' "$default_role" | jq '[.]' | keycloak_curl -ksSf -o /dev/null -X P
 e2e_scp_to "$work_dir/ca.crt" "$remote_ca"
 e2e_scp_to "$script_dir/remote-cleanup.php" "$remote_cleanup"
 e2e_ssh "chmod 600 '$remote_ca' '$remote_cleanup'; certctl rehash"
+if [ "$keycloak_host" = provider.opnsense.test ]; then
+  # Late boot services may regenerate /etc/hosts after vm.py first prepared it.
+  # Reassert only the fixed disposable-lab mapping at the actual network boundary.
+  e2e_ssh \
+    "grep -q '[[:space:]]provider\\.opnsense\\.test' /etc/hosts || printf '10.0.2.2\\tprovider.opnsense.test\\n' >> /etc/hosts"
+fi
 e2e_ssh "fetch -qo- '${keycloak_origin}/realms/${E2E_KEYCLOAK_REALM}/.well-known/openid-configuration' >/dev/null"
 e2e_ssh \
   "fetch -qo- '${keycloak_origin}/realms/${E2E_KEYCLOAK_REALM}/.well-known/openid-configuration' >/dev/null"
