@@ -51,7 +51,27 @@ def github_write(path, body, token):
         raise RuntimeError(f"GitHub coordination comment failed ({error.reason})") from error
 
 
-def github_delete(path, token):
+def github_update_comment(comment_id, body, token):
+    api = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+    request = Request(
+        f"{api}/repos/{CANONICAL_REPOSITORY}/issues/comments/{int(comment_id)}",
+        data=json.dumps({"body": body}).encode(),
+        method="PATCH",
+    )
+    request.add_header("Accept", "application/vnd.github+json")
+    request.add_header("Authorization", f"Bearer {token}")
+    request.add_header("Content-Type", "application/json")
+    request.add_header("User-Agent", github_watch.USER_AGENT)
+    try:
+        with urlopen(request, timeout=GITHUB_TIMEOUT) as response:
+            return json.load(response)
+    except HTTPError as error:
+        raise RuntimeError(f"GitHub coordination comment update failed (HTTP {error.code})") from error
+    except URLError as error:
+        raise RuntimeError(f"GitHub coordination comment update failed ({error.reason})") from error
+
+
+def github_delete(path, token, subject="coordination lock release"):
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
     request = Request(
         f"{api}/repos/{CANONICAL_REPOSITORY}/{path.lstrip('/')}",
@@ -64,9 +84,9 @@ def github_delete(path, token):
         with urlopen(request, timeout=GITHUB_TIMEOUT):
             return
     except HTTPError as error:
-        raise RuntimeError(f"GitHub coordination lock release failed (HTTP {error.code})") from error
+        raise RuntimeError(f"GitHub {subject} failed (HTTP {error.code})") from error
     except URLError as error:
-        raise RuntimeError(f"GitHub coordination lock release failed ({error.reason})") from error
+        raise RuntimeError(f"GitHub {subject} failed ({error.reason})") from error
 
 
 def lock_description(owner):
@@ -208,18 +228,24 @@ def publication_targets(prs, active, replaced):
 
 
 def recorded_publication(values_by_pull, identifier):
-    records = [
-        record
+    matches = [
+        (comment, record)
         for values in values_by_pull.values()
-        for _comment, record in matching_comments(values, identifier)
+        for comment, record in matching_comments(values, identifier)
     ]
-    if not records:
+    if not matches:
         return None
-    expected = records[0]
+    expected = matches[0][1]
     fields = ("order", "supersedes", "targets")
-    if any(any(record[field] != expected[field] for field in fields) for record in records[1:]):
+    if any(any(record[field] != expected[field] for field in fields) for _comment, record in matches[1:]):
         raise RuntimeError(f"coordination id {identifier} has inconsistent mirrored markers")
-    return expected
+    bodies_by_state = {}
+    for comment, record in matches:
+        bodies_by_state.setdefault(record["state"], set()).add(str(comment.get("body") or ""))
+    if any(len(bodies) != 1 for bodies in bodies_by_state.values()):
+        raise RuntimeError(f"coordination id {identifier} has inconsistent mirrored comment bodies")
+    body_state = "final" if "final" in bodies_by_state else next(iter(bodies_by_state))
+    return dict(expected, _body=next(iter(bodies_by_state[body_state])))
 
 
 def resumed_publication(values_by_pull, identifier):
@@ -257,8 +283,25 @@ def missing_order_participants(participants, prs, open_numbers):
     return sorted((participants & open_numbers) - set(prs))
 
 
-def publish_mirrored(numbers, body, identifier, token, values_by_pull):
+def validate_replacement(overlapping, replaced, order, changed_fact, changed_criterion, resumed=False):
+    """Keep the first complete recommendation unless new evidence changes its order."""
+    changed_fact = str(changed_fact or "").strip()
+    changed_criterion = str(changed_criterion or "").strip()
+    if resumed:
+        return
+    if not replaced:
+        if changed_fact or changed_criterion:
+            raise RuntimeError("replacement evidence requires at least one --supersedes record")
+        return
+    if not changed_fact or not changed_criterion:
+        raise RuntimeError("a replacement requires both --changed-fact and --changed-criterion")
+    if any(record["id"] in replaced and record["order"] == order for record in overlapping):
+        raise RuntimeError("the first published recommendation remains active when the merge order is unchanged")
+
+
+def publish_mirrored(numbers, body, identifier, token, values_by_pull, replace_ids=None):
     urls = []
+    replace_ids = set(replace_ids or [])
     desired = pr_coordination.parse_marker(body)
     if desired is None or desired["id"] != identifier:
         raise RuntimeError("mirrored publication body has no matching coordination marker")
@@ -267,15 +310,44 @@ def publish_mirrored(numbers, body, identifier, token, values_by_pull):
         for number in numbers:
             existing = matching_comments(values_by_pull.get(number, []), identifier)
             same_state = [item for item in existing if item[1]["state"] == desired["state"]]
+            predecessors = [
+                item
+                for replaced_id in replace_ids
+                for item in matching_comments(values_by_pull.get(number, []), replaced_id)
+            ]
             if same_state:
                 if not any(str(comment.get("body") or "") == body for comment, _record in same_state):
                     raise RuntimeError(f"coordination id {identifier} already has different content on #{number}")
-                comment = next(comment for comment, _record in same_state if str(comment.get("body") or "") == body)
+                matching = [
+                    comment for comment, _record in same_state if str(comment.get("body") or "") == body
+                ]
+                comment = min(matching, key=lambda value: int(value.get("id") or 0))
+                duplicates = [
+                    value for value, _record in (*existing, *predecessors)
+                    if int(value.get("id") or 0) != int(comment.get("id") or 0)
+                ]
+                for duplicate in duplicates:
+                    github_delete(
+                        f"issues/comments/{int(duplicate['id'])}", token, subject="coordination comment deletion",
+                    )
                 urls.append(str(comment.get("html_url") or f"pull request #{number}"))
                 continue
             if desired["state"] == "final" and any(record["state"] == "fulfilled" for _comment, record in existing):
                 raise RuntimeError(f"coordination id {identifier} is already fulfilled on #{number}")
-            result = github_write(f"issues/{number}/comments", {"body": body}, token)
+            reusable = predecessors
+            if desired["state"] == "fulfilled":
+                reusable = [item for item in existing if item[1]["state"] == "final"]
+            if reusable:
+                comment, _record = min(reusable, key=lambda item: int(item[0].get("id") or 0))
+                result = github_update_comment(int(comment["id"]), body, token)
+                for duplicate, _record in reusable:
+                    if int(duplicate.get("id") or 0) == int(comment["id"]):
+                        continue
+                    github_delete(
+                        f"issues/comments/{int(duplicate['id'])}", token, subject="coordination comment deletion",
+                    )
+            else:
+                result = github_write(f"issues/{number}/comments", {"body": body}, token)
             urls.append(str(result.get("html_url") or f"pull request #{number}"))
     except RuntimeError as error:
         raise RuntimeError(
@@ -342,6 +414,10 @@ def recommend_locked(arguments, token):
             "the replacement must include every open transitively coordinated pull request: "
             + ", ".join(map(str, missing))
         )
+    validate_replacement(
+        overlapping, replaced, order, arguments.changed_fact, arguments.changed_criterion,
+        resumed=resumed is not None,
+    )
 
     record = {
         "id": identifier,
@@ -353,12 +429,13 @@ def recommend_locked(arguments, token):
     remaining = [value for value in active if value["id"] not in replaced and value["id"] != identifier]
     if pr_coordination.has_cycle([*remaining, record]):
         raise RuntimeError("the recommended order would create a cycle with active coordination records")
-    body = pr_coordination.render_final(
+    body = resumed["_body"] if resumed is not None else pr_coordination.render_final(
         record, arguments.overlap.strip(), arguments.reason.strip(), arguments.reconsider.strip(),
+        changed_fact=arguments.changed_fact.strip(), changed_criterion=arguments.changed_criterion.strip(),
         language=arguments.language,
     )
     load_target_comments(values_by_pull, targets, token)
-    urls = publish_mirrored(targets, body, identifier, token, values_by_pull)
+    urls = publish_mirrored(targets, body, identifier, token, values_by_pull, replace_ids=replaced)
     print(f"published final coordination {identifier}")
     for url in urls:
         print(url)
@@ -415,6 +492,8 @@ def parser():
     recommendation.add_argument("--reason", required=True)
     recommendation.add_argument("--reconsider", required=True)
     recommendation.add_argument("--supersedes", action="append", default=[])
+    recommendation.add_argument("--changed-fact", default="")
+    recommendation.add_argument("--changed-criterion", default="")
     recommendation.add_argument("--id", help="resume an interrupted mirrored publication with its printed id")
     recommendation.add_argument("--language", choices=("en", "de"), default="en")
     recommendation.set_defaults(action=recommend)
