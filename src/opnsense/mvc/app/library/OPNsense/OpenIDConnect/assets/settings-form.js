@@ -826,7 +826,28 @@
             return picker;
         }
 
-        function accountCreationEditor(picker) {
+        function accountGroups(accounts, binding, uid) {
+            if (binding && uid === binding.uid) {
+                return Array.isArray(binding.groups) ? binding.groups : [];
+            }
+            var selected = accounts.find(function (candidate) { return candidate.uid === uid; });
+            return selected && Array.isArray(selected.groups) ? selected.groups : [];
+        }
+
+        function groupPicker(groups, selected, writable) {
+            var picker = $('<select multiple="multiple" class="selectpicker">');
+            groups.forEach(function (group) {
+                picker.append($('<option>').val(group).text(group));
+            });
+            picker.val(selected || []).prop('disabled', !writable);
+            return picker;
+        }
+
+        function selectGroups(picker, selected) {
+            picker.val(selected || []).selectpicker('refresh');
+        }
+
+        function accountCreationEditor(picker, groupSelectionOffered) {
             var username = $('<input class="form-control" type="text" autocomplete="off" spellcheck="false">')
                 .attr({ maxlength: 320, placeholder: options.approvalUsername || 'Username' })
                 .css({ width: '100%', maxWidth: 'none' });
@@ -834,8 +855,12 @@
                 .append($('<label>').text(options.approvalNewAccount || 'New local account'))
                 .append(username)
                 .append($('<p class="help-block">').text(
-                    options.approvalAccountCreationHelp
-                        || 'The account receives a scrambled password and no groups or privileges.'
+                    groupSelectionOffered
+                        ? (options.approvalAccountCreationWithGroupsHelp
+                            || 'The account receives a scrambled password. Selected existing groups are applied '
+                                + 'when the binding is saved.')
+                        : (options.approvalAccountCreationHelp
+                            || 'The account receives a scrambled password and no groups or privileges.')
                 ));
             function creating() {
                 return picker.val() === newAccountValue;
@@ -872,7 +897,7 @@
                     picker.find('option[value="' + created.uid + '"]').remove();
                     picker.find('option[value="' + newAccountValue + '"]')
                         .before($('<option>').val(created.uid).text(created.name));
-                    picker.val(created.uid).trigger('change');
+                    picker.val(created.uid).trigger('change', [true]);
                     deferred.resolve(created.uid, true);
                 } else {
                     deferred.reject((answer && answer.message)
@@ -905,7 +930,13 @@
                 binding ? binding.account : ''
             );
             account.css({ width: '100%', maxWidth: 'none' });
-            var creation = accountCreationEditor(account);
+            var creation = accountCreationEditor(account, true);
+            var availableGroups = Array.isArray(answer.groups) ? answer.groups : [];
+            var memberships = groupPicker(
+                availableGroups,
+                binding && Array.isArray(binding.groups) ? binding.groups : [],
+                answer.account_groups_writable === true
+            );
             var result = $('<div class="help-block oidc-binding-result">');
             var save = $('<button class="btn btn-primary" type="button">')
                 .text(options.bindingSave || 'Save binding');
@@ -927,7 +958,12 @@
             }
             issuer.on('input change', update);
             subject.on('input change', update);
-            account.on('change', update);
+            account.on('change', function (_, preserveGroups) {
+                if (!preserveGroups) {
+                    selectGroups(memberships, accountGroups(answer.accounts || [], binding, account.val()));
+                }
+                update();
+            });
             creation.username.on('input change', update);
             save.on('click', function () {
                 if (!valid()) {
@@ -938,12 +974,19 @@
                 update();
                 var action = binding ? 'update' : 'create';
                 resolveAccount(account, creation).done(function (uid, created) {
-                    request(action, {
+                    var data = {
                         binding_id: binding ? binding.id : '',
                         issuer: issuer.val().trim(),
                         subject: subject.val().trim(),
                         uid: uid
-                    }).done(function (savedBinding) {
+                    };
+                    if (answer.account_groups_writable === true) {
+                        data.groups_json = JSON.stringify(memberships.val() || []);
+                        data.groups_expected_json = JSON.stringify(
+                            created ? [] : accountGroups(answer.accounts || [], binding, uid)
+                        );
+                    }
+                    request(action, data).done(function (savedBinding) {
                         if (savedBinding && savedBinding.status === 'ok') {
                             load(dialog, 'bindings');
                         } else {
@@ -991,7 +1034,21 @@
             editor.append($('<div class="form-group">')
                 .append($('<label>').text(options.bindingAccount || 'Local account'))
                 .append(account));
-            editor.append(creation.container, result,
+            editor.append(creation.container);
+            editor.append($('<div class="form-group">')
+                .append($('<label>').text(options.bindingGroups || 'Local groups'))
+                .append(memberships)
+                .append($('<p class="help-block">').text(
+                    availableGroups.length === 0
+                        ? (options.bindingNoGroups || 'No local groups are available.')
+                        : (answer.account_groups_writable === true
+                            ? (options.bindingGroupsHelp
+                                || 'Optional. Existing memberships are preselected; saving replaces the selection.')
+                            : (options.bindingGroupsReadOnly
+                                || 'Memberships are shown read-only because account management is not permitted.'))
+                )));
+            memberships.selectpicker({ width: '100%' });
+            editor.append(result,
                 $('<div class="oidc-binding-editor-actions">').append(save, cancel));
             dialog.setTitle(
                 binding ? (options.bindingEditorEdit || 'Edit identity binding')
