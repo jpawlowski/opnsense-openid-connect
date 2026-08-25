@@ -1435,6 +1435,10 @@ module.update_registry(repository, update)
         "GH-42": "PR 42",
         "https://github.com/jpawlowski/opnsense-openid-connect/pull/42":
             "jpawlowski/opnsense-openid-connect PR 42",
+        "https://GitHub.com/jpawlowski/opnsense-openid-connect/pull/42":
+            "jpawlowski/opnsense-openid-connect PR 42",
+        "https://www.github.com/jpawlowski/opnsense-openid-connect/pull/42":
+            "jpawlowski/opnsense-openid-connect PR 42",
         "<https://github.com/jpawlowski/opnsense-openid-connect/pull/42/files>":
             "jpawlowski/opnsense-openid-connect PR 42",
         "[review](https://github.com/jpawlowski/opnsense-openid-connect/pull/42)":

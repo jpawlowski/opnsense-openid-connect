@@ -15,12 +15,13 @@ NOTICE = {
 }
 TRUSTED_ASSOCIATIONS = {"COLLABORATOR", "MEMBER", "OWNER"}
 GITHUB_PULL_URL_PATTERN = (
-    r"https?://github[.]com/(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?P<number>[0-9]+)"
+    r"https?://(?:www[.])?github[.]com/"
+    r"(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?P<number>[0-9]+)"
     r"(?:[/?#][^\s<>)]*)?"
 )
-MARKDOWN_PULL_REFERENCE = re.compile(rf"!?\[[^]\n]*\]\({GITHUB_PULL_URL_PATTERN}\)")
-AUTOLINK_PULL_REFERENCE = re.compile(rf"<{GITHUB_PULL_URL_PATTERN}>")
-PULL_URL_REFERENCE = re.compile(GITHUB_PULL_URL_PATTERN)
+MARKDOWN_PULL_REFERENCE = re.compile(rf"!?\[[^]\n]*\]\({GITHUB_PULL_URL_PATTERN}\)", re.IGNORECASE)
+AUTOLINK_PULL_REFERENCE = re.compile(rf"<{GITHUB_PULL_URL_PATTERN}>", re.IGNORECASE)
+PULL_URL_REFERENCE = re.compile(GITHUB_PULL_URL_PATTERN, re.IGNORECASE)
 GH_NUMBER_REFERENCE = re.compile(r"(?<![\w-])GH-(?P<number>[0-9]+)\b", re.IGNORECASE)
 HASH_NUMBER_REFERENCE = re.compile(
     r"(?<![\w&])(?:(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+))?#(?P<number>[0-9]+)\b"
