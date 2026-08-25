@@ -664,6 +664,19 @@ async function configureServer(page) {
   await expect(savedSignInTest).toBeEnabled();
   await expect(savedRevertChanges).toBeHidden();
 
+  const savedEditUrl = page.url();
+  await page.locator('input[name="name"]').evaluate(element => {
+    element.value = '';
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.locator('body')).toContainText('A server name must be provided.');
+  await expect(savedRevertChanges).toBeVisible();
+  await savedRevertChanges.click();
+  await expect(page).toHaveURL(savedEditUrl);
+  await expect(page.locator('input[name="name"]')).toHaveValue(process.env.E2E_SERVER_NAME);
+  await expect(savedRevertChanges).toBeHidden();
+
   const maxAge = page.locator('input[name="openidconnect_max_age"]');
   const savedMaxAge = await maxAge.inputValue();
   await maxAge.fill('60');

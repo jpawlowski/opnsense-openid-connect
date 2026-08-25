@@ -635,7 +635,7 @@
         var nameInput = field('name');
         var savedName = nameInput ? nameInput.value.trim() : '';
         var serverId = currentServerId();
-        var saved = serverId !== null && savedName !== '';
+        var saved = serverId !== null;
         var savedReady = false;
         var initialized = false;
         var baseline = null;
