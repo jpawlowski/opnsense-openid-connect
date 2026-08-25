@@ -28,7 +28,7 @@ if (resolverRules.length) {
   };
 }
 
-if (process.env.E2E_ZAP_PROXY) {
+if (process.env.E2E_ZAP_PROXY && !process.env.E2E_DOCUMENTATION_SCREENSHOTS) {
   use.proxy = {
     server: process.env.E2E_ZAP_PROXY,
     // Only OPNsense is in scope. Provider traffic remains direct so ZAP cannot

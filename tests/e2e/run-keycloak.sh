@@ -51,18 +51,43 @@ zap_container="opnsense-oidc-zap-${run_id}"
 remote_ca="/usr/local/share/certs/opnsense-oidc-e2e-${run_id}.crt"
 remote_cleanup="/tmp/opnsense-oidc-e2e-cleanup-${run_id}.php"
 
-E2E_KEYCLOAK_REALM="opnsense-e2e-${run_id}"
-E2E_KEYCLOAK_ADMIN_USERNAME="e2e-admin-${run_id}"
+E2E_RUN_ID=$run_id
+documentation_screenshot_output=${E2E_DOCUMENTATION_SCREENSHOTS:-}
+documentation_screenshot_names='login-and-recovery.png connection-health.png test-sign-in.png bound-identities.png pending-approvals.png'
+if [ -n "${E2E_DOCUMENTATION_SCREENSHOTS:-}" ]; then
+  case "$E2E_DOCUMENTATION_SCREENSHOTS" in
+    /*) ;;
+    *) printf 'E2E_DOCUMENTATION_SCREENSHOTS must be an absolute path.\n' >&2; exit 2 ;;
+  esac
+  mkdir -p "$documentation_screenshot_output"
+  E2E_KEYCLOAK_REALM=opnsense-documentation
+  E2E_KEYCLOAK_ADMIN_USERNAME=documentation-admin
+  E2E_KEYCLOAK_CLIENT_ID=opnsense-webgui
+  E2E_TEST_USERNAME=alex
+  E2E_TEST_USER_ID=2fa29e39-2b28-4770-9706-47ed6affb628
+  E2E_SERVER_NAME='Company identity'
+  E2E_APPLICATION_CODE=webgui
+else
+  E2E_KEYCLOAK_REALM="opnsense-e2e-${run_id}"
+  E2E_KEYCLOAK_ADMIN_USERNAME="e2e-admin-${run_id}"
+  E2E_KEYCLOAK_CLIENT_ID="opnsense-e2e-${run_id}"
+  E2E_TEST_USERNAME="oidc-e2e-${run_id}"
+  E2E_TEST_USER_ID=
+  E2E_SERVER_NAME="Keycloak E2E ${run_id}"
+  E2E_APPLICATION_CODE="e2e-${run_id}"
+fi
 E2E_KEYCLOAK_ADMIN_PASSWORD=$(openssl rand -base64 32 | tr -d '\n')
-E2E_KEYCLOAK_CLIENT_ID="opnsense-e2e-${run_id}"
-E2E_TEST_USERNAME="oidc-e2e-${run_id}"
 E2E_TEST_PASSWORD=$(openssl rand -base64 32 | tr -d '\n')
-E2E_SERVER_NAME="Keycloak E2E ${run_id}"
-E2E_APPLICATION_CODE="e2e-${run_id}"
 
-export E2E_OPNSENSE_USERNAME E2E_KEYCLOAK_REALM E2E_KEYCLOAK_ADMIN_USERNAME
+export E2E_RUN_ID E2E_OPNSENSE_USERNAME E2E_KEYCLOAK_REALM E2E_KEYCLOAK_ADMIN_USERNAME
 export E2E_KEYCLOAK_ADMIN_PASSWORD E2E_KEYCLOAK_CLIENT_ID
-export E2E_TEST_USERNAME E2E_TEST_PASSWORD E2E_SERVER_NAME E2E_APPLICATION_CODE
+export E2E_TEST_USERNAME E2E_TEST_USER_ID E2E_TEST_PASSWORD E2E_SERVER_NAME E2E_APPLICATION_CODE
+
+if [ -n "$documentation_screenshot_output" ]; then
+  E2E_DOCUMENTATION_SCREENSHOTS="$work_dir/documentation-screenshots"
+  mkdir -p "$E2E_DOCUMENTATION_SCREENSHOTS"
+  export E2E_DOCUMENTATION_SCREENSHOTS
+fi
 
 url_parts=$(node -e \
   'const u=new URL(process.argv[1]); console.log([u.hostname,u.port||"443",u.origin].join("\n"))' \
@@ -96,6 +121,11 @@ export E2E_KEYCLOAK_URL E2E_BACKCHANNEL_URL
 
 cleanup() {
   status=$?
+  if [ -n "$documentation_screenshot_output" ]; then
+    for screenshot_name in $documentation_screenshot_names; do
+      rm -f "$documentation_screenshot_output/.${screenshot_name}.${run_id}.tmp"
+    done
+  fi
   if [ "$E2E_KEEP" = "1" ]; then
     printf 'E2E resources retained for inspection in %s (exit %s).\n' "$work_dir" "$status" >&2
     exit "$status"
@@ -125,12 +155,13 @@ openssl x509 -req -days 2 -in "$work_dir/server.csr" \
 jq -n \
   --arg realm "$E2E_KEYCLOAK_REALM" \
   --arg admin "$E2E_KEYCLOAK_ADMIN_USERNAME" \
+  --arg user_id "$E2E_TEST_USER_ID" \
   --arg username "$E2E_TEST_USERNAME" \
   --arg password "$E2E_TEST_PASSWORD" \
   '{
     realm: $realm,
     enabled: true,
-    users: [{
+    users: [({
       username: $username,
       email: ($username + "@example.com"),
       emailVerified: true,
@@ -138,7 +169,7 @@ jq -n \
       lastName: "E2E",
       enabled: true,
       credentials: [{type: "password", value: $password, temporary: false}]
-    }]
+    } + if $user_id == "" then {} else {id: $user_id} end)]
   }' \
   > "$work_dir/realm.json"
 
@@ -307,13 +338,42 @@ for scanner in 10015 10019 10020 10021 10038 10055; do
     | jq -e '.Result == "OK"' >/dev/null
 done
 
+# ZAP's API can be ready before its first proxied TLS connection to the newly
+# started WebGUI succeeds. Warm that exact browser path so a transient origin
+# 502 cannot become the first Playwright assertion.
+attempt=0
+until curl -ksSf --noproxy '' --proxy "$E2E_ZAP_PROXY" \
+  "${E2E_OPNSENSE_URL}/api/openidconnect/auth/formscript" >/dev/null 2>&1; do
+  attempt=$((attempt + 1))
+  if [ "$(docker inspect -f '{{.State.Running}}' "$zap_container")" != "true" ]; then
+    docker logs "$zap_container" >&2
+    exit 1
+  fi
+  [ "$attempt" -lt 30 ] || { docker logs "$zap_container" >&2; exit 1; }
+  sleep 1
+done
+
 (cd "$script_dir" && npm ci --no-audit --no-fund >/dev/null && npx playwright install chromium >/dev/null)
 if [ -n "${E2E_AUDIT_EVIDENCE:-}" ]; then
   E2E_PLAYWRIGHT_AUDIT_RESULT="$work_dir/playwright-audit.json"
   export E2E_PLAYWRIGHT_AUDIT_RESULT
 fi
 (cd "$script_dir" && npx playwright test --config playwright.config.mjs)
-(cd "$script_dir" && node zap-report.mjs)
+if [ -z "${E2E_DOCUMENTATION_SCREENSHOTS:-}" ]; then
+  (cd "$script_dir" && node zap-report.mjs)
+fi
+
+if [ -n "$documentation_screenshot_output" ]; then
+  for screenshot_name in $documentation_screenshot_names; do
+    test -s "$E2E_DOCUMENTATION_SCREENSHOTS/$screenshot_name"
+    cp "$E2E_DOCUMENTATION_SCREENSHOTS/$screenshot_name" \
+      "$documentation_screenshot_output/.${screenshot_name}.${run_id}.tmp"
+  done
+  for screenshot_name in $documentation_screenshot_names; do
+    mv "$documentation_screenshot_output/.${screenshot_name}.${run_id}.tmp" \
+      "$documentation_screenshot_output/$screenshot_name"
+  done
+fi
 
 if [ -n "${E2E_AUDIT_EVIDENCE:-}" ]; then
   E2E_AUDIT_KEYCLOAK_IMAGE=$keycloak_image

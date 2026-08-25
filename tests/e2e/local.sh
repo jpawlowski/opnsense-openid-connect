@@ -10,11 +10,14 @@ backend=auto
 refresh=0
 keep=0
 runner_arguments=
+screenshots=
+selected_provider=
 
 usage() {
   printf '%s\n' \
     'usage: tests/e2e/local.sh [--backend auto|qemu|utm] [--refresh-opnsense]' \
-    '                          [--suite core|full] [--provider NAME] [--canary] [--keep]' >&2
+    '                          [--suite core|full] [--provider NAME] [--canary] [--keep]' \
+    '                          [--screenshots ABSOLUTE_DIRECTORY]' >&2
   exit 2
 }
 
@@ -29,10 +32,16 @@ while [ "$#" -gt 0 ]; do
     --suite|--provider)
       [ "$#" -ge 2 ] || usage
       runner_arguments="$runner_arguments $1 $2"
+      [ "$1" != --provider ] || selected_provider=$2
       shift 2
       ;;
     --canary) runner_arguments="$runner_arguments --canary"; shift ;;
     --keep) keep=1; runner_arguments="$runner_arguments --keep"; shift ;;
+    --screenshots)
+      [ "$#" -ge 2 ] || usage
+      screenshots=$2
+      shift 2
+      ;;
     -h|--help) usage ;;
     *) usage ;;
   esac
@@ -41,6 +50,35 @@ done
 case "$backend" in auto|qemu|utm) ;; *) usage ;; esac
 command -v python3 >/dev/null
 command -v node >/dev/null
+
+free_loopback_port() {
+  python3 -c \
+    'import socket; listener = socket.socket(); listener.bind(("127.0.0.1", 0)); print(listener.getsockname()[1])'
+}
+
+# The VM already receives its own overlay and random forwarded ports. Give the
+# provider and logout callback independent ports as well, so two local E2E runs
+# cannot attach to each other's disposable services.
+E2E_KEYCLOAK_PORT=${E2E_KEYCLOAK_PORT:-$(free_loopback_port)}
+E2E_BACKCHANNEL_PORT=${E2E_BACKCHANNEL_PORT:-$(free_loopback_port)}
+while [ "$E2E_BACKCHANNEL_PORT" = "$E2E_KEYCLOAK_PORT" ]; do
+  E2E_BACKCHANNEL_PORT=$(free_loopback_port)
+done
+export E2E_KEYCLOAK_PORT E2E_BACKCHANNEL_PORT
+
+if [ -n "$screenshots" ]; then
+  if [ "$selected_provider" != keycloak ]; then
+    printf '%s\n' 'Documentation screenshots require --provider keycloak.' >&2
+    exit 2
+  fi
+  case "$screenshots" in
+    /*) ;;
+    *) printf 'The screenshot directory must be an absolute path.\n' >&2; exit 2 ;;
+  esac
+  mkdir -p -- "$screenshots"
+  E2E_DOCUMENTATION_SCREENSHOTS=$screenshots
+  export E2E_DOCUMENTATION_SCREENSHOTS
+fi
 
 refresh_argument=
 [ "$refresh" = 0 ] || refresh_argument=--refresh

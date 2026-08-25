@@ -35,6 +35,24 @@ Use `tests/e2e/vm.py status` to see the cache and available backends. `--keep` r
 prints the exact stop command. Otherwise cleanup removes only the random run overlay, its generated SSH host-key file
 and the provider containers.
 
+### Documentation screenshots
+
+The deep Keycloak flow can also capture the five maintained documentation images after their normal assertions pass:
+
+    tests/e2e/local.sh --provider keycloak \
+        --screenshots "$(pwd)/docs/assets/screenshots"
+
+This mode uses stable synthetic labels such as `Company identity` and `alex`; it never exposes generated credentials.
+It still creates a fresh disposable VM overlay, randomly named containers and independent loopback ports, so another
+local E2E run cannot share its firewall, provider or logout callback. The output directory must be absolute. A
+successful run replaces `login-and-recovery.png`, `connection-health.png`, `test-sign-in.png`,
+`bound-identities.png` and `pending-approvals.png` at their exact paths. Captures remain staged in the disposable run
+directory until all five UI states pass, so a failed run leaves the maintained set untouched.
+
+The screenshot browser connects directly to its disposable VM; the separate API checks still use ZAP. Functional
+Playwright assertions remain active, while the passive ZAP report stays part of the ordinary deep Keycloak run instead
+of an image-generation prerequisite.
+
 ## Provider matrix
 
 The default `core` suite runs the two high-value implementations:
