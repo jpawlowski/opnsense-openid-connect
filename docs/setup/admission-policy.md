@@ -77,8 +77,11 @@ into them by this workflow.
 
 1. Select **Administrator approval for unknown identities**, save the server,
    and leave **Offer on the login page** disabled until testing is complete.
-2. The user completes a real login. OPNsense refuses the session and displays a
-   short request reference.
+2. The user completes a real login. OPNsense creates no session and displays
+   the uniform styled result with a fresh sign-in reference. The administrator
+   can correlate that public reference with the audit entry and, when approval
+   was queued, its separate internal request ID. The browser deliberately cannot
+   distinguish other unusable-account outcomes or recognize a repeated request.
 3. An authenticated administrator opens the saved server under **System >
    Access > Servers** and selects **Manage identities**.
 4. Compare the displayed provider hints, exact issuer and exact subject with
