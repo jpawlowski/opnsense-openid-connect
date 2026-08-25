@@ -89,7 +89,14 @@ comments, pushes, requests review or merges.
 
 Material overlap between open PRs gets one machine-readable recommendation
 mirrored in each PR. It gives the human one exact merge order, never
-alternatives. The later PR may keep working but does not merge first or chase
+alternatives. The first complete recommendation remains authoritative while
+the same evidence produces the same order. Any steward may replace it when new
+observable evidence changes that deterministic order, regardless of who
+published it; another preference or reading of the same evidence does not.
+The successor names the new fact and affected criterion and is a new immutable
+record. Agents never edit or delete earlier coordination comments. Its publisher
+owns all mirrored writes under the repository mutex; concurrent agents stand
+down and then adopt it. The later PR may keep working but does not merge first or chase
 the earlier PR's changing head; after its predecessor merges, it integrates
 once at a safe checkpoint. A replacement is also mirrored to PRs present only
 in the superseded order, preventing them from retaining obsolete coordination.

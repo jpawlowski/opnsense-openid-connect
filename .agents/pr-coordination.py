@@ -257,6 +257,20 @@ def missing_order_participants(participants, prs, open_numbers):
     return sorted((participants & open_numbers) - set(prs))
 
 
+def validate_replacement(overlapping, replaced, order, changed_fact, changed_criterion, resumed=False):
+    """Keep the first complete recommendation unless new evidence changes its order."""
+    changed_fact = str(changed_fact or "").strip()
+    changed_criterion = str(changed_criterion or "").strip()
+    if not replaced:
+        if changed_fact or changed_criterion:
+            raise RuntimeError("replacement evidence requires at least one --supersedes record")
+        return
+    if not changed_fact or not changed_criterion:
+        raise RuntimeError("a replacement requires both --changed-fact and --changed-criterion")
+    if not resumed and any(record["id"] in replaced and record["order"] == order for record in overlapping):
+        raise RuntimeError("the first published recommendation remains active when the merge order is unchanged")
+
+
 def publish_mirrored(numbers, body, identifier, token, values_by_pull):
     urls = []
     desired = pr_coordination.parse_marker(body)
@@ -342,6 +356,10 @@ def recommend_locked(arguments, token):
             "the replacement must include every open transitively coordinated pull request: "
             + ", ".join(map(str, missing))
         )
+    validate_replacement(
+        overlapping, replaced, order, arguments.changed_fact, arguments.changed_criterion,
+        resumed=resumed is not None,
+    )
 
     record = {
         "id": identifier,
@@ -355,6 +373,7 @@ def recommend_locked(arguments, token):
         raise RuntimeError("the recommended order would create a cycle with active coordination records")
     body = pr_coordination.render_final(
         record, arguments.overlap.strip(), arguments.reason.strip(), arguments.reconsider.strip(),
+        changed_fact=arguments.changed_fact.strip(), changed_criterion=arguments.changed_criterion.strip(),
         language=arguments.language,
     )
     load_target_comments(values_by_pull, targets, token)
@@ -415,6 +434,8 @@ def parser():
     recommendation.add_argument("--reason", required=True)
     recommendation.add_argument("--reconsider", required=True)
     recommendation.add_argument("--supersedes", action="append", default=[])
+    recommendation.add_argument("--changed-fact", default="")
+    recommendation.add_argument("--changed-criterion", default="")
     recommendation.add_argument("--id", help="resume an interrupted mirrored publication with its printed id")
     recommendation.add_argument("--language", choices=("en", "de"), default="en")
     recommendation.set_defaults(action=recommend)

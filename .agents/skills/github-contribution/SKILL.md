@@ -252,8 +252,17 @@ notice. It publishes one total order, never alternatives: prerequisite first,
 then the current-head reviewed or more merge-ready PR, then least total rework,
 then lower PR number as a deterministic tie-breaker. A replacement names every
 record it supersedes and is mirrored to every PR in both the new and superseded
-sets. The machine marker retains that complete target set so a retry or later
-fulfillment also reads and updates old-only or already closed PRs. The helper
+sets. The first completely published recommendation remains authoritative while
+the same evidence produces the same order. Any steward may replace it, regardless
+of its publisher, only when new observable evidence changes that deterministic
+order. A different preference or another reading of the same evidence is not a
+change. Pass `--changed-fact` and `--changed-criterion` with every replacement;
+the helper rejects a successor that preserves the existing order. Publish a new
+immutable record and never edit or delete the earlier comments. The replacing
+steward owns all mirrored writes; concurrent agents stand down under the mutex
+and adopt the completed successor. The machine marker retains the complete
+target set so a retry or later fulfillment also reads and updates old-only or
+already closed PRs. The helper
 requires every active record sharing a participant to be superseded by one order
 covering every open PR in the complete transitive group. Closed or merged former
 participants remain publication targets only. It refuses an order that would create a cycle and

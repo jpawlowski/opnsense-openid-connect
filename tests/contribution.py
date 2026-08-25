@@ -315,6 +315,13 @@ def main():
     check("overlapping pull requests give humans one order without agent merge authority",
           all("merge" in text and "order" in text and "explicit human" in text and "alternatives" in text
               for text in workflow_rules), True)
+    check("any steward may replace an order only when new evidence changes it",
+          all("any steward" in text and "new observable evidence" in text
+              and "same evidence" in text and "same order" in text
+              for text in workflow_rules), True)
+    check("replacement records preserve history and serialize competing publishers",
+          all("immutable" in text and "never edit or delete" in text
+              and "stand down" in text and "adopt" in text for text in workflow_rules), True)
     check("finished agent work has a conservative event-driven cleanup lifecycle",
           all("24-hour" in text and "seven-day" in text
               and "ignored" in text and "remote branch" in text

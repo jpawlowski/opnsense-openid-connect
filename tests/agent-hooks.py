@@ -1559,12 +1559,34 @@ module.update_registry(repository, update)
           publisher.missing_order_participants({42, 57, 63}, [57, 63], {57, 63}), [])
     check("an omitted open participant still blocks an incomplete replacement order",
           publisher.missing_order_participants({42, 57, 63}, [57], {57, 63}), [63])
+    replacement_errors = []
+    for replacement_arguments in (
+        ([57, 42], "", "dependency"),
+        ([57, 42], "the dependency direction changed", ""),
+        ([42, 57], "the dependency direction changed", "dependency"),
+    ):
+        try:
+            publisher.validate_replacement(
+                [{"id": "42-57-order", "order": [42, 57]}], {"42-57-order"},
+                *replacement_arguments,
+            )
+        except RuntimeError as error:
+            replacement_errors.append(str(error))
+    check("replacements need new evidence, its affected criterion and a changed order",
+          (len(replacement_errors), all("replacement" in error or "recommendation" in error
+                                        for error in replacement_errors)),
+          (3, True))
+    publisher.validate_replacement(
+        [{"id": "42-57-order", "order": [42, 57]}], {"42-57-order"}, [57, 42],
+        "the dependency direction changed", "dependency",
+    )
     replacement = {
         "id": "57-63-order", "order": [57, 63], "state": "final", "supersedes": ["42-57-order"],
         "targets": [42, 57, 63],
     }
     replacement_body = coordination.render_final(
         replacement, "the shared path moved", "the replacement minimizes rework", "the contract changes",
+        changed_fact="#42 closed without merging", changed_criterion="predecessor state",
     )
     retired_old_only = coordination.records_from_comments([
         mirrored[0],
@@ -1573,6 +1595,10 @@ module.update_registry(repository, update)
     ])
     check("the old-only pull request observes the replacement and retires its obsolete order",
           [(value["id"], value["order"]) for value in retired_old_only], [("57-63-order", [57, 63])])
+    check("the replacement explains why the first published order no longer applies",
+          all(value in replacement_body for value in (
+              "New fact: #42 closed without merging", "Affected decision criterion: predecessor state",
+          )), True)
     loaded_targets = []
     publisher.comments = lambda number, _token: loaded_targets.append(number) or []
     target_comments = {57: []}
@@ -1586,6 +1612,7 @@ module.update_registry(repository, update)
     }
     retry_body = coordination.render_final(
         retry_record, "the shared path moved", "the replacement minimizes rework", "the contract changes",
+        changed_fact="#42 closed without merging", changed_criterion="predecessor state",
     )
     retry_comment = {
         "id": 7, "created_at": "2026-08-24T13:30:00Z", "body": retry_body,
@@ -1601,7 +1628,8 @@ module.update_registry(repository, update)
     publisher.recommend_locked(SimpleNamespace(
         prs=[57, 63], order=[57, 63], id=retry_record["id"], supersedes=["42-57-order"],
         overlap="the shared path moved", reason="the replacement minimizes rework",
-        reconsider="the contract changes", language="en",
+        reconsider="the contract changes", changed_fact="#42 closed without merging",
+        changed_criterion="predecessor state", language="en",
     ), "token")
     check("a partially mirrored replacement recovers its hidden superseded ID and complete target set",
           (resumed_publications[0][0], resumed_publications[0][1]["targets"]),
@@ -1613,6 +1641,7 @@ module.update_registry(repository, update)
     }
     closed_partial_body = coordination.render_final(
         closed_partial, "the shared path moved", "the replacement minimizes rework", "the contract changes",
+        changed_fact="#42 closed without merging", changed_criterion="predecessor state",
     )
     closed_partial_comment = {
         "id": 8, "created_at": "2026-08-24T13:45:00Z", "body": closed_partial_body,
@@ -1632,7 +1661,7 @@ module.update_registry(repository, update)
         prs=[63, 71], order=[63, 71], id="63-71-1787590803-fedcba",
         supersedes=[closed_partial["id"]], overlap="the remaining shared path moved",
         reason="the closed participant cannot remain in the merge order", reconsider="the contract changes",
-        language="en",
+        changed_fact="#57 closed without merging", changed_criterion="group membership", language="en",
     ), "token")
     check("a new open order discovers and supersedes a partial marker on its closed first target",
           (closed_target_reads, successor_publications[0][0], successor_publications[0][1]["supersedes"]),
@@ -1666,6 +1695,7 @@ module.update_registry(repository, update)
     }
     closed_final_body = coordination.render_final(
         closed_fulfillment, "the shared path moved", "the replacement minimizes rework", "the contract changes",
+        changed_fact="#42 closed without merging", changed_criterion="predecessor state",
     )
     closed_fulfilled_body = coordination.render_fulfilled(closed_fulfillment)
     closed_fulfillment_comments = {
