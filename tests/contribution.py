@@ -315,6 +315,10 @@ def main():
     check("overlapping pull requests give humans one order without agent merge authority",
           all("merge" in text and "order" in text and "explicit human" in text and "alternatives" in text
               for text in workflow_rules), True)
+    check("merge coordination avoids accidental GitHub cross-reference events",
+          all("hash-number" in text and "cross-reference" in text and "PR N" in original
+              and "hidden" in text and "marker" in text
+              for original, text in zip((contribution_skill, agents, contributing), workflow_rules)), True)
     check("any steward may replace an order only when new evidence changes it",
           all("any steward" in text and "new observable evidence" in text
               and "same evidence" in text and "same order" in text

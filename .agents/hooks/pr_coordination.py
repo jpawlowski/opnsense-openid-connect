@@ -14,6 +14,7 @@ NOTICE = {
     "de": "*Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.*",
 }
 TRUSTED_ASSOCIATIONS = {"COLLABORATOR", "MEMBER", "OWNER"}
+HASH_NUMBER_REFERENCE = re.compile(r"(?<![\w&])#([0-9]+)\b")
 
 
 def validate_order(prs, order):
@@ -139,26 +140,39 @@ def coordinated_pairs(records):
     return pairs
 
 
+def pull_reference(number):
+    return f"PR {int(number)}"
+
+
+def without_hash_number_references(value):
+    """Keep coordination prose from creating GitHub cross-reference events."""
+    return HASH_NUMBER_REFERENCE.sub(lambda match: pull_reference(match.group(1)), str(value or ""))
+
+
 def render_final(record, overlap, reason, reconsider, changed_fact="", changed_criterion="", language="en"):
     if language not in NOTICE:
         raise ValueError("coordination language must be en or de")
     _prs, order = validate_order(record["order"], record["order"])
     record = dict(record, order=order, state="final")
-    references = " and ".join(f"#{number}" for number in order)
-    sequence = " → ".join(f"#{number}" for number in order)
+    reference_joiner = " und " if language == "de" else " and "
+    references = reference_joiner.join(pull_reference(number) for number in order)
+    sequence = " → ".join(pull_reference(number) for number in order)
     supersedes = record.get("supersedes", [])
-    changed_fact = str(changed_fact or "").strip()
-    changed_criterion = str(changed_criterion or "").strip()
+    overlap = without_hash_number_references(overlap)
+    reason = without_hash_number_references(reason)
+    reconsider = without_hash_number_references(reconsider)
+    changed_fact = without_hash_number_references(changed_fact).strip()
+    changed_criterion = without_hash_number_references(changed_criterion).strip()
     if supersedes and (not changed_fact or not changed_criterion):
         raise ValueError("a replacement recommendation must name its changed fact and decision criterion")
     if not supersedes and (changed_fact or changed_criterion):
         raise ValueError("changed evidence belongs only to a replacement recommendation")
     if language == "de":
-        steps = [f"1. Zuerst #{order[0]} mergen."]
+        steps = [f"1. Zuerst {pull_reference(order[0])} mergen."]
         for index, number in enumerate(order[1:], 2):
             steps.append(
-                f"{index}. Nach dem Merge aller Vorgänger #{number} darauf aktualisieren und validieren; "
-                f"danach #{number} mergen."
+                f"{index}. Nach dem Merge aller Vorgänger {pull_reference(number)} darauf aktualisieren und "
+                f"validieren; danach {pull_reference(number)} mergen."
             )
         replaced = (
             "Diese Empfehlung ersetzt: " + ", ".join(f"`{value}`" for value in supersedes) + ". "
@@ -181,11 +195,11 @@ def render_final(record, overlap, reason, reconsider, changed_fact="", changed_c
             NOTICE[language],
         ]
     else:
-        steps = [f"1. Merge #{order[0]} first."]
+        steps = [f"1. Merge {pull_reference(order[0])} first."]
         for index, number in enumerate(order[1:], 2):
             steps.append(
-                f"{index}. After every predecessor has merged, update and validate #{number} against them; "
-                f"then merge #{number}."
+                f"{index}. After every predecessor has merged, update and validate {pull_reference(number)} "
+                f"against them; then merge {pull_reference(number)}."
             )
         replaced = (
             "This recommendation supersedes: " + ", ".join(f"`{value}`" for value in supersedes) + ". "
@@ -214,7 +228,7 @@ def render_fulfilled(record, language="en"):
     if language not in NOTICE:
         raise ValueError("coordination language must be en or de")
     record = dict(record, state="fulfilled")
-    sequence = " → ".join(f"#{number}" for number in record["order"])
+    sequence = " → ".join(pull_reference(number) for number in record["order"])
     text = (
         f"Koordination `{record['id']}` für {sequence} ist erfüllt."
         if language == "de" else f"Coordination `{record['id']}` for {sequence} is fulfilled."

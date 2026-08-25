@@ -175,6 +175,11 @@ participants remain publication targets but never re-enter the new merge order.
 Fulfillment derives the original PRs from its ID and accepts matching fulfilled
 copies as recovery metadata, so it can finish old-only targets after every
 original PR has closed or already received its fulfilled marker.
+Visible coordination prose identifies participants as `PR N`, never with a
+hash-number reference, Markdown link or pull-request URL. A merge conflict or
+changed-path overlap does not by itself justify GitHub cross-reference events.
+The hidden marker retains the numeric identities, and the renderer normalizes
+hash-number references in supplied explanations before publication.
 Only markers whose GitHub author association is
 owner, member or collaborator are authoritative. The helper prints its identifier
 before the first comment; if mirroring is interrupted, rerun the same command with

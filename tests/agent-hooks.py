@@ -1422,8 +1422,10 @@ module.update_registry(repository, update)
         "#42 closes or changes the shared contract",
     )
     check("the public record gives one exact human-facing order",
-          all(value in body for value in ("#42 → #57", "Merge #42 first", "Do not merge", "explicit human")),
+          all(value in body for value in ("PR 42 → PR 57", "Merge PR 42 first", "Do not merge", "explicit human")),
           True)
+    check("coordination prose cannot create hash-number cross-references",
+          ("#42" not in body, "PR 42 already has" in body, "PR 42 closes" in body), (True, True, True))
     check("the public record carries the required agent notice",
           body.rstrip().endswith(coordination.NOTICE["en"]), True)
     mirrored = [
@@ -1457,6 +1459,8 @@ module.update_registry(repository, update)
     check("contradictory recommendations are detected as a cycle",
           coordination.has_cycle([record, reverse]), True)
     fulfilled = coordination.render_fulfilled(record)
+    check("fulfilled coordination also avoids pull-request cross-references",
+          ("PR 42 → PR 57" in fulfilled, "#42" not in fulfilled), (True, True))
     check("a fulfilled event retires the active recommendation", coordination.records_from_comments([
         *mirrored,
         {"id": 4, "created_at": "2026-08-24T11:00:00Z", "body": fulfilled,
@@ -1625,7 +1629,7 @@ module.update_registry(repository, update)
           [(value["id"], value["order"]) for value in retired_old_only], [("57-63-order", [57, 63])])
     check("the replacement explains why the first published order no longer applies",
           all(value in replacement_body for value in (
-              "New fact: #42 closed without merging", "Affected decision criterion: predecessor state",
+              "New fact: PR 42 closed without merging", "Affected decision criterion: predecessor state",
           )), True)
     loaded_targets = []
     publisher.comments = lambda number, _token: loaded_targets.append(number) or []
@@ -1643,7 +1647,7 @@ module.update_registry(repository, update)
         changed_fact="#42 closed without merging", changed_criterion="predecessor state",
     )
     retry_body = retry_body.replace(
-        " New fact: #42 closed without merging Affected decision criterion: predecessor state", "",
+        " New fact: PR 42 closed without merging Affected decision criterion: predecessor state", "",
     )
     retry_comment = {
         "id": 7, "created_at": "2026-08-24T13:30:00Z", "body": retry_body,
