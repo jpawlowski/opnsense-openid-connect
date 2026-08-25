@@ -1748,7 +1748,9 @@ class OpenIDConnect extends Base implements IAuthConnector
             'lifecycleTestLabel' => gettext('Validate sign-out'),
             'lifecycleResultLabel' => gettext('OpenID Connect lifecycle test'),
             'lifecycleResultHelp' => gettext(
-                'The disposable logout observation completed without replacing or ending the current OPNsense WebGUI session.'
+                'Validated provider logout notifications end every matching OPNsense WebGUI session. If the ' .
+                'administrator session that started this test used the same provider identity and session, it may ' .
+                'be signed out before this result can be displayed.'
             ),
             'lifecycleReturnLabel' => gettext('RP-initiated logout return'),
             'frontchannelLabel' => gettext('Front-channel logout'),

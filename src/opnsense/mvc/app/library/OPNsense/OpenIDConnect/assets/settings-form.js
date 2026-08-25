@@ -2395,7 +2395,7 @@
                 title: options.lifecycleResultLabel || 'OpenID Connect lifecycle test',
                 message: $('<div>').append(
                     $('<p>').text(options.lifecycleResultHelp
-                        || 'The disposable test did not change the OPNsense WebGUI session.'),
+                        || 'Validated provider logout notifications can end the administrator WebGUI session.'),
                     table
                 ),
                 type: final

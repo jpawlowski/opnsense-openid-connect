@@ -289,8 +289,14 @@ offers RP-initiated logout, **Validate sign-out** opens a separate tab. Its
 short-lived test grant ends the provider session, forces the dedicated registered
 return to this server row, and reports which configured front/back-channel
 notifications passed their normal validation. It never indexes a disposable
-local login. If sign-out is not validated, the identity provider may retain its
-own SSO session, so use a private browser window when a later test must begin
+local login. A validated notification still ends every matching existing
+OPNsense WebGUI session, possibly including the administrator session which
+started the test when it used the same provider identity and session. Start the
+lifecycle test from a local-password WebGUI session, or one which does not match
+the tested provider identity and session, when the result page must remain
+authenticated. The provider may also end its wider SSO session or sessions for
+other clients. If sign-out is not validated, the identity provider may retain
+its own SSO session, so use a private browser window when a later test must begin
 without that provider session. Before leaving OPNsense, the sign-in half
 runs the same reduced public-registration check when possible. If the provider
 rejects the Client ID or callback there, the form shows the failure without a

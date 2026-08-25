@@ -192,10 +192,12 @@ by the current form remains under **Readiness** as attention or failure. The bro
 does not need to reach Discovery. Test sign-in becomes available after the server has first been saved,
 is complete and has no unsaved changes. Its disabled-state tooltip names the missing requirement, and
 **Revert changes** beside **Save** restores the complete saved form. It may be used while the provider
-remains disabled and validates a real browser flow without changing the WebGUI
-session or local identity state. Its optional **Validate sign-out** action uses
+remains disabled; its sign-in half validates a real browser flow without changing
+the WebGUI session or local identity state. Its optional **Validate sign-out** action uses
 the always-displayed lifecycle return URI and reports only logout notifications
-which passed the normal channel validation. A Client ID or callback rejected during the
+which passed the normal channel validation. Such a notification ends every
+matching existing OPNsense WebGUI session, including the initiating administrator
+session when it used the same provider identity and session. A Client ID or callback rejected during the
 preflight leaves the browser on the form. A client credential rejected only
 during the code exchange produces a dedicated failure result with an exact
 return link. Without the optional sign-out half, the provider may retain its own SSO session.

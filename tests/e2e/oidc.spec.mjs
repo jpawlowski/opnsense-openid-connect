@@ -787,7 +787,10 @@ async function testSignIn(page, {
   await expect(page.locator('body')).toContainText('PKCE binding');
   await expect(page.locator('body')).toContainText(process.env.E2E_TEST_USERNAME);
   await expect(page.locator('body')).toContainText(
-    'No login session, local account, subject binding or group membership was changed.'
+    'The sign-in half created no login session and changed no local account, subject binding or group membership.'
+  );
+  await expect(page.locator('body')).toContainText(
+    'A validated provider notification ends every matching OPNsense session, possibly including the administrator session'
   );
   if (validateSignOut) {
     const lifecyclePagePromise = page.context().waitForEvent('page');
@@ -796,6 +799,9 @@ async function testSignIn(page, {
     await lifecyclePage.waitForLoadState('domcontentloaded');
     const resultDialog = lifecyclePage.getByRole('dialog', { name: 'OpenID Connect lifecycle test' });
     await expect(resultDialog).toBeVisible({ timeout: 20_000 });
+    await expect(resultDialog).toContainText(
+      'Validated provider logout notifications end every matching OPNsense WebGUI session.'
+    );
     await expect(resultDialog.getByRole('row', { name: /RP-initiated logout return/ })).toContainText('Passed');
     await expect(resultDialog.getByRole('row', { name: /Front-channel logout/ })).toContainText('Passed');
     await expect(resultDialog.getByRole('row', { name: /Back-channel logout/ })).toContainText('Passed');

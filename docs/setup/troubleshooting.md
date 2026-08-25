@@ -45,12 +45,16 @@ Edit the saved OIDC server and use **Test discovery** for provider metadata or
 a WebGUI session and does not create or modify local users, bindings or groups.
 Save or revert every form change before starting it; the action deliberately
 tests only the saved connector and returns to the same edit form afterward.
-After a success, **Validate sign-out** requests provider logout without ending
-the current OPNsense WebGUI session and distinguishes a validated
-front/back-channel notification from one which was configured locally but never
-observed. The provider may end its wider SSO session or sessions for other
-clients according to its logout semantics. Register the separately displayed
-lifecycle-test post-logout URI exactly before using it.
+After a success, **Validate sign-out** requests provider logout and distinguishes
+a validated front/back-channel notification from one which was configured
+locally but never observed. A validated notification ends every matching
+OPNsense WebGUI session, possibly including the administrator session which
+started the test when it used the same provider identity and session. Start from
+a local-password WebGUI session, or one which does not match the tested provider
+identity and session, when this result page must remain authenticated. The
+provider may also end its wider SSO session or sessions for other clients.
+Register the separately displayed lifecycle-test post-logout URI exactly before
+using it.
 
 ## The provider shows a Client ID error before sign-in
 

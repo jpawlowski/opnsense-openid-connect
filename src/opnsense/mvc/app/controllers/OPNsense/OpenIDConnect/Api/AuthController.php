@@ -945,10 +945,11 @@ class AuthController extends ApiControllerBase
                 . '</span> ' . $escape($status[$rowStatus]['label']) . '</span></td></tr>';
         }
         $logoutCard = $lifecycleId !== ''
-            ? '<div class="card info"><span class="mark" aria-hidden="true">i</span><div><strong>'
-                . $escape(gettext('Optional sign-out validation is ready')) . '</strong><span>'
+            ? '<div class="card warning"><span class="mark" aria-hidden="true">!</span><div><strong>'
+                . $escape(gettext('Sign-out can end WebGUI sessions')) . '</strong><span>'
                 . $escape(gettext(
-                    'A separate tab can end the provider session and observe configured logout notifications.'
+                    'A validated provider notification ends every matching OPNsense session, possibly including ' .
+                    'the administrator session that starts this test.'
                 ))
                 . '</span></div></div>'
             : '<div class="card warning"><span class="mark" aria-hidden="true">!</span><div><strong>'
@@ -998,8 +999,10 @@ class AuthController extends ApiControllerBase
             . $escape(gettext('Protocol validation passed')) . '</strong><span>'
             . $escape(gettext('Authorization response, PKCE, code exchange, ID Token and claims source were accepted.'))
             . '</span></div></div><div class="card info"><span class="mark" aria-hidden="true">i</span><div><strong>'
-            . $escape(gettext('OPNsense remained unchanged')) . '</strong><span>'
-            . $escape(gettext('No login session, local account, subject binding or group membership was changed.'))
+            . $escape(gettext('Sign-in test kept OPNsense unchanged')) . '</strong><span>'
+            . $escape(gettext(
+                'The sign-in half created no login session and changed no local account, subject binding or group membership.'
+            ))
             . '</span></div></div>' . $logoutCard . '</div><section class="details"><h2>' . $escape(gettext('Verified details'))
             . '</h2><table class="oidc-signin-results"><tbody>' . $table . '</tbody></table></section><div class="actions">'
             . '<a href="' . $escape($returnTarget) . '">' . $escape(gettext('Return to authentication servers'))
