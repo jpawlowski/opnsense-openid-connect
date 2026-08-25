@@ -223,6 +223,73 @@ $legacyDiscoveryValues = inspect($legacyDiscoveryController, 'formValues');
 Checks::that('the authenticated discovery API retains its legacy URL parameter',
     ProviderProbe::settings($legacyDiscoveryValues)->issuerUrl(), $issuer);
 
+$httpFailureIssuer = 'https://http-failure.example.net';
+$httpFailureValues = [
+    'openidconnect_provider_url' => $httpFailureIssuer,
+    'openidconnect_client_id' => 'http-failure-client',
+    'openidconnect_client_secret' => 'http-failure-secret',
+    'openidconnect_par_mode' => 'disabled',
+    'openidconnect_origin_policy' => 'custom',
+    'openidconnect_redirect_urls' => 'https://firewall.example.net',
+    'openidconnect_tls_offloading' => '1',
+];
+$httpFailureProbe = new ProviderProbe(new HttpClient(static fn(): array => [
+    'status' => 502,
+    'content_type' => 'text/html',
+    'body' => '<html>untrusted reverse-proxy page</html>',
+    'location' => '',
+]));
+$httpFailureDiscovery = new class(new Request(
+    'https',
+    'firewall.example.net',
+    [],
+    $httpFailureValues,
+    [],
+    '',
+    'POST'
+), $httpFailureProbe) extends DiscoveryController {
+    public function __construct(Request $request, private ProviderProbe $probe)
+    {
+        parent::__construct($request);
+    }
+
+    protected function providerProbe(): ProviderProbe
+    {
+        return $this->probe;
+    }
+};
+$httpFailureDiscoveryAnswer = $httpFailureDiscovery->probeAction();
+Checks::that('Discovery exposes safe HTTP status and media-type failure basics', [
+    str_contains($httpFailureDiscoveryAnswer['message'], 'HTTP 502; Content-Type: text/html'),
+    str_contains($httpFailureDiscoveryAnswer['message'], 'untrusted reverse-proxy page'),
+], [true, false]);
+
+$httpFailureHealth = new class(new Request(
+    'https',
+    'firewall.example.net',
+    [],
+    $httpFailureValues,
+    [],
+    '',
+    'POST'
+), $httpFailureProbe) extends HealthController {
+    public function __construct(Request $request, private ProviderProbe $probe)
+    {
+        parent::__construct($request);
+    }
+
+    protected function providerProbe(): ProviderProbe
+    {
+        return $this->probe;
+    }
+};
+$httpFailureHealthAnswer = $httpFailureHealth->probeAction();
+$httpFailureHealthRow = probeRow($httpFailureHealthAnswer['checks'], 'Live provider preflight');
+Checks::that('Connection health exposes the same safe HTTP failure basics', [
+    str_contains($httpFailureHealthRow['note'], 'HTTP 502; Content-Type: text/html'),
+    str_contains($httpFailureHealthRow['note'], 'untrusted reverse-proxy page'),
+], [true, false]);
+
 $requests = [];
 $transport = static function (
     string $method,

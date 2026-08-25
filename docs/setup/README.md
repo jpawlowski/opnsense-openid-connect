@@ -242,6 +242,9 @@ Every result keeps only the actor path beneath the check name. The arrow
 distinguishes requests made by OPNsense from browser paths and provider
 responses. Open the row's info control to see two deliberately separate facts:
 the source used for the result and whether that endpoint was actually called.
+Live-response details also show the HTTP status and normalized `Content-Type`;
+a missing header is reported as missing, and a bounded `Retry-After` is retained
+when present. Response bodies and arbitrary provider headers are never reflected.
 An advertised endpoint can pass readiness because the validated live Discovery
 document contains a compatible value without pretending that a browser, code,
 token or logout path ran. Optional capabilities absent from Discovery are grouped

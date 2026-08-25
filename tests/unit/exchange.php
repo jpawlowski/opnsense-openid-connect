@@ -518,6 +518,16 @@ Checks::that(
     ))->jsonObject(),
     ['keys' => []]
 );
+Checks::that(
+    'HTTP diagnostics expose status and a missing media type without reflecting a body',
+    (new OPNsense\OpenIDConnect\HttpResponse(
+        502,
+        '',
+        '<html>private proxy body</html>',
+        'https://id.example.net/data'
+    ))->diagnosticSummary(),
+    'HTTP 502; Content-Type: missing'
+);
 Checks::throws(
     'the client never fetches a local file',
     fn() => (new HttpClient(fn() => jsonAnswer([])))->get('file:///conf/config.xml', 100),
@@ -1026,6 +1036,19 @@ Checks::that('every unusable local-account outcome can receive the same styled r
     str_contains($approvalHtml, 'WebGUI sign-in not completed'),
     str_contains($approvalHtml, '0123456789abcdefabcd'),
 ], [[403, 'Forbidden'], true, true]);
+$pendingReferences = inspect($approvalController, 'accountUnavailableReferences', 'stable-internal-request');
+$otherReferences = inspect($approvalController, 'accountUnavailableReferences', '');
+Checks::that('pending and other refusals both receive fresh same-shaped public references', [
+    preg_match('/^[0-9a-f]{20}$/D', $pendingReferences[0]),
+    preg_match('/^[0-9a-f]{20}$/D', $otherReferences[0]),
+    $pendingReferences[0] !== $otherReferences[0],
+    $pendingReferences[0] !== 'stable-internal-request',
+], [1, 1, true, true]);
+Checks::that('only the privileged audit reason maps a public reference to the internal request', [
+    str_contains($pendingReferences[1], 'stable-internal-request'),
+    str_contains($pendingReferences[1], $pendingReferences[0]),
+    str_contains($otherReferences[1], $otherReferences[0]),
+], [true, true, true]);
 
 $wrongUserInfoType = new RelyingParty(
     $endpointSettings,

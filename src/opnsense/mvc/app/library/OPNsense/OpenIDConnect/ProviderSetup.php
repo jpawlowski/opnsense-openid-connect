@@ -66,7 +66,8 @@ final class ProviderSetup
         bool $postLogoutRedirect,
         string $logoutChannel = 'backchannel',
         string $sectorOrigin = '',
-        array $settings = []
+        array $settings = [],
+        string $preferredOrigin = ''
     ): array {
         $profile = strtolower(trim($profile));
         if (!in_array($profile, self::PROFILES, true)) {
@@ -91,6 +92,7 @@ final class ProviderSetup
         if ($origins === []) {
             throw new \InvalidArgumentException('Open this form through HTTPS or enter at least one custom WebGUI origin.');
         }
+        $origins = self::preferOrigin($origins, $preferredOrigin);
         if (!in_array($logoutChannel, self::LOGOUT_CHANNELS, true)) {
             throw new \InvalidArgumentException('Unknown logout channel.');
         }
@@ -205,6 +207,32 @@ final class ProviderSetup
         return array_keys($accepted);
     }
 
+    /** @param string[] $origins @return string[] */
+    private static function preferOrigin(array $origins, string $preferred): array
+    {
+        $preferred = trim($preferred);
+        if ($preferred === '') {
+            return $origins;
+        }
+        $normalised = self::normaliseOrigins([$preferred])[0];
+        $index = array_search($normalised, $origins, true);
+        if ($index === false) {
+            throw new \InvalidArgumentException(
+                'The WebGUI origin used to download this setup is not in the accepted origin list.'
+            );
+        }
+        if ($index > 0) {
+            array_splice($origins, $index, 1);
+            array_unshift($origins, $normalised);
+        }
+        return $origins;
+    }
+
+    private static function loginUrl(string $origin, string $displayName): string
+    {
+        return $origin . '/api/openidconnect/auth/login?provider=' . rawurlencode($displayName);
+    }
+
     private static function isHttpsOrigin(string $value): bool
     {
         if ($value === '' || self::hasControlCharacters($value) || !filter_var($value, FILTER_VALIDATE_URL)) {
@@ -247,6 +275,7 @@ final class ProviderSetup
         $providerId = $slug . '-provider';
         $emailMappingId = $slug . '-verified-email-scope';
         $providerName = 'OPNsense WebGUI (' . $slug . ')';
+        $loginUrl = self::loginUrl($origins[0], $displayName);
         $redirects = [];
         foreach ($origins as $origin) {
             $redirects[] = [
@@ -335,6 +364,7 @@ final class ProviderSetup
             '    attrs:',
             '      name: ' . self::yamlString($displayName),
             '      provider: !KeyOf ' . self::yamlString($providerId),
+            '      meta_launch_url: ' . self::yamlString($loginUrl),
             '      policy_engine_mode: any',
             '',
         ]);
@@ -399,6 +429,9 @@ final class ProviderSetup
             'clientId' => $slug,
             'name' => $displayName,
             'description' => 'OPNsense WebGUI login through OpenID Connect',
+            'rootUrl' => $origins[0],
+            'baseUrl' => self::loginUrl($origins[0], $displayName),
+            'alwaysDisplayInConsole' => true,
             'enabled' => true,
             'protocol' => 'openid-connect',
             'clientAuthenticatorType' => 'client-secret',

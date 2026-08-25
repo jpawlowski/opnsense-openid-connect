@@ -327,13 +327,10 @@ class AuthController extends ApiControllerBase
         if ($account === null) {
             /* localAccountFor() has already said in the log which of its reasons it was */
             $pending = $settings->pendingApprovalId();
-            $reference = $pending !== '' ? $pending : bin2hex(random_bytes(10));
-            $this->auditRefusal(
-                $name,
-                sprintf('%s [%s]', $pending !== ''
-                    ? 'identity queued for administrator approval'
-                    : 'no local account this login may use', $reference)
-            );
+            /* A registry ID is stable across retries. Exposing it only for the pending case
+             * would let the browser distinguish that case from every other refusal. */
+            [$reference, $auditReason] = self::accountUnavailableReferences($pending);
+            $this->auditRefusal($name, $auditReason);
             return $this->accountUnavailableResult($reference);
         }
 
@@ -1003,6 +1000,20 @@ class AuthController extends ApiControllerBase
             . '</li><li>' . $escape(gettext('After the administrator confirms access, start a new sign-in from the login page.'))
             . '</li></ol><a href="/">' . $escape(gettext('Return to login'))
             . '</a></div></section></main></body></html>';
+    }
+
+    /** @return array{string,string} fresh public reference and privileged audit reason */
+    private static function accountUnavailableReferences(string $pending): array
+    {
+        $reference = bin2hex(random_bytes(10));
+        $reason = $pending !== ''
+            ? sprintf(
+                'identity queued for administrator approval [%s]; public sign-in reference [%s]',
+                $pending,
+                $reference
+            )
+            : sprintf('no local account this login may use; public sign-in reference [%s]', $reference);
+        return [$reference, $reason];
     }
 
     /** Explain a successful provider authentication that local OPNsense ACLs do not admit. */

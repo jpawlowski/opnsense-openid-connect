@@ -57,12 +57,13 @@ final class ProviderProbe
         );
         $checks = $this->metadataChecks($settings, $metadata);
         try {
-            $keyCount = (new JwtVerifier($this->http))->probeKeySet($metadata->jwksUri());
+            $keySet = (new JwtVerifier($this->http))->probeKeySetDetails($metadata->jwksUri());
             $checks[] = self::check(
                 gettext('Signing keys'),
-                sprintf(gettext('%d usable key(s)'), $keyCount),
+                sprintf(gettext('%d usable key(s)'), $keySet['count']),
                 'success',
-                gettext('The JWKS endpoint was fetched live and contains supported signing material.'),
+                gettext('The JWKS endpoint contains supported signing material. Provider response: ')
+                    . $keySet['response']->diagnosticSummary() . '.',
                 ['opnsense', 'idp'],
                 'live'
             );
@@ -309,7 +310,10 @@ final class ProviderProbe
                 gettext('Discovery'),
                 $metadata->issuer(),
                 'success',
-                gettext('The document was fetched live and its issuer matches exactly.'),
+                gettext(
+                    'The document was fetched live and its issuer matches exactly. Provider response: HTTP 200; '
+                    . 'Content-Type: application/json.'
+                ),
                 ['opnsense', 'idp'],
                 'live'
             ),
@@ -617,6 +621,7 @@ final class ProviderProbe
         try {
             $client->probe($metadata, $redirectUri);
             ProviderRuntimeState::parAvailable($key);
+            $response = $client->lastResponse();
             $check = self::check(
                 gettext('PAR endpoint'),
                 gettext('Live authenticated request accepted'),
@@ -624,7 +629,10 @@ final class ProviderProbe
                 gettext(
                     'PAR will be used automatically. The returned request URI was deliberately discarded; ' .
                     'no browser transaction was created.'
-                ),
+                ) . ($response === null ? '' : sprintf(
+                    gettext(' Provider response: %s.'),
+                    $response->diagnosticSummary()
+                )),
                 ['opnsense', 'idp'],
                 'live'
             );

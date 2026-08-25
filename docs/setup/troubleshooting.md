@@ -53,6 +53,11 @@ request checks Client ID, Client Secret and callback together. Otherwise OPNsens
 sends a silent, no-user authorization request that can check the public Client ID
 and exact callback but cannot prove the secret. A rejection at this stage remains
 in the authentication-server form instead of sending the browser to the provider.
+Expand the failed row: its safe response summary names the HTTP status and
+normalized `Content-Type`, reports a missing type explicitly and includes a
+bounded `Retry-After` when one was returned. `text/html` commonly means that a
+reverse proxy or branded error page answered where JSON was expected. Provider
+response bodies and other arbitrary headers are deliberately not displayed.
 
 The Client Secret is normally presented only after the provider has issued a real
 authorization code. If that token exchange returns `invalid_client`, **Test
@@ -121,15 +126,16 @@ authorization denial from a failed identity-provider authentication.
 
 With **Administrator approval for unknown identities**, a successfully
 authenticated but unbound identity creates no WebGUI session. The browser's
-**WebGUI sign-in not completed** page shows a short reference. If this identity
-was newly queued, the saved authentication server lists the same reference
-under **Manage identities**. After an administrator verifies and binds it,
-start a new sign-in.
+**WebGUI sign-in not completed** page shows a fresh short reference. An
+administrator looks up that public reference in the audit log; when the identity
+was queued, the same entry names the separate internal request shown under
+**Manage identities**. After an administrator verifies and binds it, start a new
+sign-in.
 
 The page intentionally does not confirm that an approval was queued. Missing,
 disabled, expired, privileged and otherwise unusable local accounts receive the
-same page and a same-shaped reference; the administrator correlates it with the
-approval list or audit log.
+same page and a fresh same-shaped reference on every attempt; the administrator
+correlates it through the audit log.
 
 ## Recovery
 

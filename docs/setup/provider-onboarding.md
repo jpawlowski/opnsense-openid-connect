@@ -34,14 +34,27 @@ enter its values in OPNsense. No test is required merely to save either draft.
 | authentik | Blueprint YAML | **Admin interface > Customization > Blueprints > Import > File upload** | This applies once and does not create a visible Blueprint instance. The generated resources use `state: created`; an existing application and its generated credentials are left unchanged |
 | Keycloak | Partial realm import JSON | Select the intended realm, then **Realm settings > Action > Partial import** | Select **Skip** for an existing resource; the file also declares `ifResourceExists: SKIP` for API or `kcadm` imports |
 
+A newly downloaded file is therefore not an update mechanism. For a small
+change such as another redirect address, edit the existing provider/client in
+its administration interface. To recreate the generated configuration instead,
+first remove the old generated application and provider in authentik, or the old
+client in Keycloak, and then import the new file. Re-creation generates a new
+client secret (and, in authentik, may generate a new Client ID), so copy the new
+credentials to OPNsense before testing. If the authentik setup uses the generated
+verified e-mail scope mapping, remove that application-specific mapping as well
+before re-importing it; do not remove authentik's built-in scope mappings.
+
 Both formats use exact redirect addresses, a confidential client, Authorization
 Code flow and PKCE S256 where the provider exposes that setting. Neither uses a
 wildcard. With the default address policy, the automatically inherited origins
 and any additions become exact registered addresses. The currently opened
-origin is first when OPNsense accepts it. With a custom policy, only the entered
-origins are registered. In either mode the first origin is the canonical
-front-channel or back-channel logout notification address; all origins receive
-authorization and optional post-logout redirect entries.
+HTTPS origin must be accepted and is placed first. With a custom policy, only
+the entered origins are registered. In either mode that first origin is the
+canonical launch and front-channel or back-channel logout address; all origins
+receive authorization and optional post-logout redirect entries. The generated
+authentik Application `meta_launch_url` and Keycloak client Home URL start the
+local OPNsense login endpoint on that origin. They are intentionally different
+from the callback that receives the provider's authorization response.
 
 The authentik file replaces its fail-closed standard e-mail mapping with an
 application-specific mapping. It reports `email_verified=true` only when the

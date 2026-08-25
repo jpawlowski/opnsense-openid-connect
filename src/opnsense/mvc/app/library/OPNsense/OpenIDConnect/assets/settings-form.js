@@ -1240,11 +1240,14 @@
             .append($('<span>').text(options.setupGuideLabel || 'Open setup guide'));
 
         function setupData() {
+            var origins = effectiveOrigins();
+            var current = normalizedOrigin(window.location.origin);
             return {
                 profile: profile.value,
                 application_code: field('openidconnect_app_code').value,
                 display_name: field('name') ? field('name').value : '',
-                origins: effectiveOrigins().join(','),
+                origins: origins.join(','),
+                preferred_origin: current || '',
                 sector_origin: field('openidconnect_sector_origin').value,
                 post_logout_redirect: $(field('openidconnect_logout_redirect')).is(':checked') ? '1' : '0',
                 logout_channel: channel.val(),
