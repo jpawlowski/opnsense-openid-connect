@@ -20,6 +20,12 @@ for (const name of required) {
     throw new Error(`${name} is required; start this test through tests/e2e/run.sh`);
   }
 }
+const publicInbound = process.env.E2E_CLUSTER === 'public-inbound';
+if (publicInbound) {
+  for (const name of ['E2E_SSF_ISSUER', 'E2E_SSF_AUDIENCE', 'E2E_SSF_PUSH_SECRET', 'E2E_SSF_TRIGGER_SECRET']) {
+    if (!process.env[name]) throw new Error(`${name} is required for public-inbound`);
+  }
+}
 
 const opnsense = new URL(process.env.E2E_OPNSENSE_URL);
 const keycloak = new URL(process.env.E2E_KEYCLOAK_URL);
@@ -39,6 +45,17 @@ function opnsenseRequestContextOptions() {
     ignoreHTTPSErrors: true,
     proxy: { server: process.env.E2E_ZAP_PROXY },
   };
+}
+
+async function getAfterProxyReady(context, url, options) {
+  let response;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    response = await context.get(url, options);
+    if (response.status() !== 502 || attempt === 2) return response;
+    await response.dispose();
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  throw new Error('unreachable proxy retry state');
 }
 
 function expectPrivateResponseHeaders(response, { legacyNoCache = true } = {}) {
@@ -147,8 +164,9 @@ async function configureServer(page) {
     });
   });
   const firstEndpointCopy = endpoints.getByRole('button', { name: /^Copy / }).first();
+  const firstEndpointCopyElement = await firstEndpointCopy.elementHandle();
   await firstEndpointCopy.click();
-  await expect(firstEndpointCopy).toContainText('Copied');
+  await expect.poll(() => firstEndpointCopyElement.evaluate(element => element.textContent)).toContain('Copied');
   expect(await page.evaluate(() => window.__oidcCopiedEndpoint)).toBe(firstEndpointValue);
   await expect(page.locator('input[name="openidconnect_tls_offloading"]')
     .locator('xpath=ancestor::tr')).toBeHidden();
@@ -1088,9 +1106,25 @@ async function removeLocalPrivileges() {
   await runCommand('ssh', sshArguments);
 }
 
+async function triggerSharedSignal() {
+  const transmitter = new URL(process.env.E2E_SSF_ISSUER);
+  const apiOrigin = process.env.E2E_PROVIDER_BROWSER_IP
+    ? transmitter.origin.replace(transmitter.hostname, process.env.E2E_PROVIDER_BROWSER_IP)
+    : transmitter.origin;
+  const headers = {
+    Authorization: `Bearer ${process.env.E2E_SSF_TRIGGER_SECRET}`,
+    ...(process.env.E2E_PROVIDER_BROWSER_IP ? { Host: transmitter.host } : {}),
+  };
+  const api = await playwrightRequest.newContext({ ignoreHTTPSErrors: true, extraHTTPHeaders: headers });
+  const triggered = await api.post(`${apiOrigin}/trigger`);
+  expect(triggered.status()).toBe(204);
+  await api.dispose();
+}
+
 test('real OPNsense login, session binding and logout interoperability', async ({ browser }) => {
   const unauthenticated = await playwrightRequest.newContext(opnsenseRequestContextOptions());
-  const formScript = await unauthenticated.get(
+  const formScript = await getAfterProxyReady(
+    unauthenticated,
     `${origin}/api/openidconnect/auth/formscript`,
     { maxRedirects: 0 }
   );
@@ -1167,6 +1201,14 @@ test('real OPNsense login, session binding and logout interoperability', async (
   });
   await setKeycloakEmailVerification('true');
   await editServer(adminPage, async page => {
+    if (publicInbound) {
+      await page.locator('input[name="openidconnect_ssf_enabled"]').check();
+      await page.locator('input[name="openidconnect_ssf_issuer"]').fill(process.env.E2E_SSF_ISSUER);
+      await page.locator('input[name="openidconnect_ssf_audience"]').fill(process.env.E2E_SSF_AUDIENCE);
+      await selectNative(page.locator('select[name="openidconnect_ssf_delivery_method"]'), 'push');
+      await page.locator('input[name="openidconnect_ssf_push_secret"]')
+        .fill(process.env.E2E_SSF_PUSH_SECRET);
+    }
     await page.locator('input[name="openidconnect_enabled"]').check();
   });
 
@@ -1205,6 +1247,7 @@ test('real OPNsense login, session binding and logout interoperability', async (
   await terminateProviderSession();
   await userPage.reload();
   await expect(userPage).toHaveTitle(/Login/);
+  if (publicInbound) await triggerSharedSignal();
 
   await setFrontChannel(true);
   await providerLogin(userPage);

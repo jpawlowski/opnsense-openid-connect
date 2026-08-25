@@ -32,6 +32,7 @@ export E2E_AUDIT_EXECUTION_STARTED_AT
 
 E2E_OPNSENSE_USERNAME=${E2E_OPNSENSE_USERNAME:-root}
 E2E_BACKCHANNEL_PORT=${E2E_BACKCHANNEL_PORT:-19443}
+E2E_SSF_PORT=${E2E_SSF_PORT:-20443}
 E2E_KEEP=${E2E_KEEP:-0}
 
 command -v docker >/dev/null
@@ -48,8 +49,10 @@ work_dir=$(mktemp -d "${TMPDIR:-/tmp}/opnsense-oidc-e2e.XXXXXX")
 keycloak_container="opnsense-oidc-keycloak-${run_id}"
 proxy_container="opnsense-oidc-proxy-${run_id}"
 zap_container="opnsense-oidc-zap-${run_id}"
+ssf_container="opnsense-oidc-ssf-${run_id}"
 remote_ca="/usr/local/share/certs/opnsense-oidc-e2e-${run_id}.crt"
 remote_cleanup="/tmp/opnsense-oidc-e2e-cleanup-${run_id}.php"
+public_inbound_state="$work_dir/public-inbound.json"
 
 E2E_KEYCLOAK_REALM="opnsense-e2e-${run_id}"
 E2E_KEYCLOAK_ADMIN_USERNAME="e2e-admin-${run_id}"
@@ -59,6 +62,9 @@ E2E_TEST_USERNAME="oidc-e2e-${run_id}"
 E2E_TEST_PASSWORD=$(openssl rand -base64 32 | tr -d '\n')
 E2E_SERVER_NAME="Keycloak E2E ${run_id}"
 E2E_APPLICATION_CODE="e2e-${run_id}"
+E2E_SSF_AUDIENCE="opnsense-ssf-${run_id}"
+E2E_SSF_PUSH_SECRET=$(openssl rand -base64 32 | tr '/+' '_-' | tr -d '=\n')
+E2E_SSF_TRIGGER_SECRET=$(openssl rand -base64 32 | tr '/+' '_-' | tr -d '=\n')
 
 export E2E_OPNSENSE_USERNAME E2E_KEYCLOAK_REALM E2E_KEYCLOAK_ADMIN_USERNAME
 export E2E_KEYCLOAK_ADMIN_PASSWORD E2E_KEYCLOAK_CLIENT_ID
@@ -75,6 +81,7 @@ opnsense_origin=$(node -e \
   "$E2E_OPNSENSE_URL")
 opnsense_authority=$(node -e 'console.log(new URL(process.argv[1]).host)' "$E2E_OPNSENSE_URL")
 opnsense_host=$(node -e 'console.log(new URL(process.argv[1]).hostname)' "$E2E_OPNSENSE_URL")
+opnsense_port=$(node -e 'const u=new URL(process.argv[1]); console.log(u.port||"443")' "$E2E_OPNSENSE_URL")
 
 keycloak_curl() {
   if [ -n "${E2E_PROVIDER_BROWSER_IP:-}" ]; then
@@ -89,10 +96,14 @@ case "$keycloak_host" in
   *[!0-9.]*) certificate_san="DNS:${keycloak_host}" ;;
   *) certificate_san="IP:${keycloak_host}" ;;
 esac
+case "$opnsense_host" in
+  *:*) certificate_san="${certificate_san},IP:${opnsense_host}" ;;
+  *[!0-9.]*) certificate_san="${certificate_san},DNS:${opnsense_host}" ;;
+  *) certificate_san="${certificate_san},IP:${opnsense_host}" ;;
+esac
 
 E2E_KEYCLOAK_URL=$keycloak_origin
-E2E_BACKCHANNEL_URL="https://${keycloak_host}:${E2E_BACKCHANNEL_PORT}"
-export E2E_KEYCLOAK_URL E2E_BACKCHANNEL_URL
+export E2E_KEYCLOAK_URL
 
 cleanup() {
   status=$?
@@ -105,7 +116,9 @@ cleanup() {
   remote_package="/tmp/os-openid-connect-e2e-${run_id}.pkg"
   e2e_ssh "rm -f '$remote_cleanup' '$remote_ca' '$remote_package'; certctl rehash" \
     >/dev/null 2>&1 || true
-  docker rm -f "$keycloak_container" "$proxy_container" "$zap_container" >/dev/null 2>&1 || true
+  docker rm -f "$keycloak_container" "$proxy_container" "$zap_container" "$ssf_container" \
+    >/dev/null 2>&1 || true
+  python3 "$script_dir/public-inbound.py" stop --state "$public_inbound_state" >/dev/null 2>&1 || true
   rm -rf "$work_dir"
   exit "$status"
 }
@@ -142,11 +155,55 @@ jq -n \
   }' \
   > "$work_dir/realm.json"
 
+if [ "${E2E_CLUSTER:-direct}" = public-inbound ]; then
+  E2E_BACKCHANNEL_URL=$(python3 "$script_dir/public-inbound.py" start \
+    --run-id "$run_id" --application-code "$E2E_APPLICATION_CODE" \
+    --opnsense-url "$opnsense_origin" --work-dir "$work_dir" --state "$public_inbound_state")
+  python3 "$script_dir/public-inbound-canary.py" --origin "$E2E_BACKCHANNEL_URL" \
+    --application-code "$E2E_APPLICATION_CODE"
+else
+  E2E_BACKCHANNEL_URL="https://${keycloak_host}:${E2E_BACKCHANNEL_PORT}"
+fi
+export E2E_BACKCHANNEL_URL
+
+if [ "${E2E_CLUSTER:-direct}" = public-inbound ]; then
+  E2E_SSF_ISSUER="https://${keycloak_host}:${E2E_SSF_PORT}/ssf"
+  E2E_SSF_OIDC_ISSUER="${keycloak_origin}/realms/${E2E_KEYCLOAK_REALM}"
+  E2E_SSF_PUSH_URL="${E2E_BACKCHANNEL_URL}/api/openidconnect/ssf/push/${E2E_APPLICATION_CODE}"
+  ssf_image=$(python3 "$script_dir/providers/image.py" node)
+  docker run -d --name "$ssf_container" -p "${E2E_SSF_PORT}:4443" \
+    -e "E2E_SSF_ISSUER=${E2E_SSF_ISSUER}" \
+    -e "E2E_SSF_AUDIENCE=${E2E_SSF_AUDIENCE}" \
+    -e "E2E_SSF_PUSH_SECRET=${E2E_SSF_PUSH_SECRET}" \
+    -e "E2E_SSF_TRIGGER_SECRET=${E2E_SSF_TRIGGER_SECRET}" \
+    -e "E2E_SSF_OIDC_ISSUER=${E2E_SSF_OIDC_ISSUER}" \
+    -e "E2E_SSF_PUSH_URL=${E2E_SSF_PUSH_URL}" \
+    -e E2E_SSF_CERTIFICATE=/tls/server.crt -e E2E_SSF_KEY=/tls/server.key \
+    -v "$work_dir/server.crt:/tls/server.crt:ro" \
+    -v "$work_dir/server.key:/tls/server.key:ro" \
+    -v "$script_dir/ssf-transmitter.mjs:/e2e/ssf-transmitter.mjs:ro" \
+    "$ssf_image" node /e2e/ssf-transmitter.mjs >/dev/null
+  attempt=0
+  until keycloak_curl -ksSf --resolve \
+      "${keycloak_host}:${E2E_SSF_PORT}:${E2E_PROVIDER_BROWSER_IP:-127.0.0.1}" \
+      "https://${keycloak_host}:${E2E_SSF_PORT}/health" >/dev/null 2>&1; do
+    attempt=$((attempt + 1))
+    [ "$attempt" -lt 30 ] || { docker logs "$ssf_container" >&2; exit 1; }
+    sleep 1
+  done
+  export E2E_SSF_ISSUER E2E_SSF_AUDIENCE E2E_SSF_PUSH_SECRET E2E_SSF_TRIGGER_SECRET
+fi
+
+proxy_origin_listener=
+[ "$opnsense_port" = 8443 ] || proxy_origin_listener="listen ${opnsense_port} ssl;"
 cat > "$work_dir/nginx.conf" <<EOF
 events {}
 http {
+  access_log off;
+  error_log /dev/null crit;
   server {
     listen 8443 ssl;
+    ${proxy_origin_listener}
     ssl_certificate /etc/nginx/tls/server.crt;
     ssl_certificate_key /etc/nginx/tls/server.key;
     location / {
@@ -159,7 +216,10 @@ http {
 EOF
 
 nginx_image='nginx@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236'
-docker run -d --name "$proxy_container" -p "${E2E_BACKCHANNEL_PORT}:8443" \
+proxy_publish=
+[ "${E2E_CLUSTER:-direct}" = public-inbound ] || proxy_publish="-p ${E2E_BACKCHANNEL_PORT}:8443"
+# shellcheck disable=SC2086 -- the optional publication is one numeric port mapping.
+docker run -d --name "$proxy_container" $proxy_publish \
   --add-host "${opnsense_host}:host-gateway" \
   -v "$work_dir/nginx.conf:/etc/nginx/nginx.conf:ro" \
   -v "$work_dir/server.crt:/etc/nginx/tls/server.crt:ro" \
@@ -256,7 +316,8 @@ case "$opnsense_host" in
   *:*) ;;
   *[!0-9.]*)
     if [ -n "${E2E_PROVIDER_BROWSER_IP:-}" ]; then
-      opnsense_address=host-gateway
+      opnsense_address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \
+        "$proxy_container")
     else
       opnsense_address=$(python3 -c \
         'import socket,sys; print(socket.getaddrinfo(sys.argv[1],None,type=socket.SOCK_STREAM)[0][4][0])' \
@@ -266,19 +327,13 @@ case "$opnsense_host" in
     ;;
 esac
 # shellcheck disable=SC2086 -- the optional argument is one URL-validated host mapping
-# Docker Desktop's route to QEMU's loopback forwarding can leave response bytes on a pooled ZAP origin connection.
-# Closing only that passive-proxy hop keeps concurrent WebGUI assets from being mistaken for a later HTTP status line.
+# ZAP reaches the nginx relay directly inside Docker. Only nginx crosses Docker
+# Desktop's route to QEMU, avoiding an unstable pooled ZAP origin connection.
 docker run -d --name "$zap_container" -p 127.0.0.1::8080 $zap_host_args \
   "$zap_image" zap.sh -daemon -host 0.0.0.0 -port 8080 \
   -config api.disablekey=true \
   -config 'api.addrs.addr.name=.*' \
-  -config api.addrs.addr.regex=true \
-  -config 'replacer.full_list(0).description=Close OPNsense origin connections' \
-  -config 'replacer.full_list(0).enabled=true' \
-  -config 'replacer.full_list(0).matchtype=REQ_HEADER' \
-  -config 'replacer.full_list(0).matchstr=Connection' \
-  -config 'replacer.full_list(0).regex=false' \
-  -config 'replacer.full_list(0).replacement=close' >/dev/null
+  -config api.addrs.addr.regex=true >/dev/null
 zap_port=$(docker port "$zap_container" 8080/tcp | sed -n '1s/.*://p')
 test -n "$zap_port"
 E2E_ZAP_PROXY="http://127.0.0.1:${zap_port}"
@@ -324,4 +379,19 @@ if [ -n "${E2E_AUDIT_EVIDENCE:-}" ]; then
   export E2E_AUDIT_OPNSENSE_VERSION E2E_AUDIT_KEYCLOAK_IMAGE E2E_AUDIT_ZAP_IMAGE
   export E2E_AUDIT_PLAYWRIGHT_VERSION
   (cd "$script_dir" && node audit-evidence.mjs)
+fi
+
+if [ -n "${E2E_PROVIDER_RESULT:-}" ]; then
+  provider_capabilities='--capability back_logout=pass'
+  if [ "${E2E_CLUSTER:-direct}" = direct ]; then
+    provider_capabilities="$provider_capabilities --capability login=pass --capability pkce=pass"
+    provider_capabilities="$provider_capabilities --capability rp_logout=pass --capability front_logout=pass"
+  else
+    provider_capabilities="$provider_capabilities --capability shared_signals=pass"
+  fi
+  # shellcheck disable=SC2086 -- capability arguments are fixed above.
+  python3 "$script_dir/provider-result.py" --provider keycloak --source local \
+    --cluster "${E2E_CLUSTER:-direct}" --subject-name keycloak \
+    --subject-revision "version:$(python3 "$script_dir/providers/image.py" keycloak --metadata | jq -r .tag)" \
+    --profile keycloak $provider_capabilities --output "$E2E_PROVIDER_RESULT"
 fi

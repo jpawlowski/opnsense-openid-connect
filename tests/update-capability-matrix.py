@@ -31,6 +31,10 @@ PROVIDER_REVISION = re.compile(
 )
 SAFE_CONFIGURATION_FIELDS = {"provider_profile", "guide", "client_type", "flow", "feature_mode"}
 LIVE_EVIDENCE_FIELDS = {"feature", "tested_on", "provider_revision", "artifact"}
+EMULATOR_EVIDENCE_FIELDS = {"feature", "tested_on", "emulator_revision", "artifact", "adaptation"}
+APPLE_EMULATOR_ADAPTATION = (
+    "Generic profile plus reviewed PKCE and Form Post discovery metadata missing from emulate 0.10.0"
+)
 FEATURE_MODES = {"enabled", "automatic", "required"}
 EXECUTED_TESTS = set()
 REQUIREMENT_FIELDS = {"id", "section", "strength", "applicable", "evidence", "claimed", "rationale", "deviation"}
@@ -422,6 +426,67 @@ def validate_live_evidence_record(provider, feature_id, status, record, root=ROO
             raise CatalogError(f"{label}: artifact is not bound to the named provider adaptation")
 
 
+def validate_emulator_evidence_record(provider, feature_id, record, root=ROOT):
+    label = f"{provider['id']}/{feature_id}"
+    if provider["id"] not in {"entra", "okta", "apple"}:
+        raise CatalogError(f"{label}: this provider has no reviewed emulator")
+    if not isinstance(record, dict) or set(record) != EMULATOR_EVIDENCE_FIELDS:
+        raise CatalogError(f"{label}: emulator evidence record must use only the publishable schema")
+    if record["feature"] != feature_id:
+        raise CatalogError(f"{label}: emulator evidence record names another feature")
+    historical_date(validate_record_text(record, "tested_on", label), f"{label}: tested_on")
+    revision = validate_record_text(record, "emulator_revision", label)
+    if not PROVIDER_REVISION.fullmatch(revision):
+        raise CatalogError(f"{label}: emulator revision is not pinned")
+    relative, artifact_path = repository_file(record.get("artifact"), label, root)
+    if relative.parent != PROVIDER_EVIDENCE_DIRECTORY or relative.suffix != ".json":
+        raise CatalogError(f"{label}: emulator evidence must be retained in tests/evidence/providers")
+    try:
+        artifact = read_json(artifact_path)
+    except (FileNotFoundError, json.JSONDecodeError, OSError) as error:
+        raise CatalogError(f"{label}: emulator evidence artifact is missing or invalid JSON") from error
+    fields = {
+        "schema_version", "evidence_type", "repository_revision", "repository_dirty", "harness_digest",
+        "provider", "source", "subject", "cluster", "tested_on", "configuration_profile", "results",
+        "provider_adaptation",
+    }
+    if (
+        not isinstance(artifact, dict) or set(artifact) != fields
+        or artifact.get("schema_version") != 1 or artifact.get("evidence_type") != "provider_test_run"
+        or artifact.get("provider") != provider["id"] or artifact.get("source") != "emulated"
+        or artifact.get("cluster") != "direct" or artifact.get("repository_dirty") is not False
+        or artifact.get("configuration_profile") != ("general" if provider["id"] == "apple" else provider["id"])
+        or artifact.get("tested_on") != record["tested_on"]
+        or not re.fullmatch(r"[a-f0-9]{40,64}", artifact.get("repository_revision", ""))
+        or not re.fullmatch(r"[a-f0-9]{64}", artifact.get("harness_digest", ""))
+    ):
+        raise CatalogError(f"{label}: emulator artifact is not bound to its sanitized test run")
+    subject = artifact.get("subject")
+    expected_subject = "entra-local" if provider["id"] == "entra" else "vercel-labs-emulate"
+    if (
+        not isinstance(subject, dict) or set(subject) != {"name", "revision"}
+        or subject.get("name") != expected_subject or subject.get("revision") != revision
+    ):
+        raise CatalogError(f"{label}: emulator artifact has an invalid test subject")
+    adaptation = record.get("adaptation")
+    if adaptation != artifact.get("provider_adaptation") or (
+        adaptation is not None
+        and (not isinstance(adaptation, str) or adaptation.strip() != adaptation or not 1 <= len(adaptation) <= 256)
+    ):
+        raise CatalogError(f"{label}: emulator artifact adaptation is not safe and exact")
+    expected_adaptation = APPLE_EMULATOR_ADAPTATION if provider["id"] == "apple" else None
+    if adaptation != expected_adaptation:
+        raise CatalogError(f"{label}: emulator evidence differs from its reviewed adaptation")
+    results = artifact.get("results")
+    if (
+        not isinstance(results, list)
+        or not any(item == {"feature": feature_id, "outcome": "pass"} for item in results)
+        or any(not isinstance(item, dict) or set(item) != {"feature", "outcome"} for item in results)
+        or any(item["outcome"] not in {"pass", "unavailable", "incompatible"} for item in results)
+    ):
+        raise CatalogError(f"{label}: emulator artifact does not prove the named emulated capability")
+
+
 def validate_providers(data, standard_ids):
     feature_ids = unique(data["features"], "feature")
     if set(data["capability_defaults"]) != feature_ids:
@@ -486,6 +551,16 @@ def validate_providers(data, standard_ids):
                 raise CatalogError(f"{provider['id']}/{feature_id}: interoperability evidence has no matching claim")
             validate_live_evidence_record(provider, feature_id, status, record)
             evidenced_features.add(feature_id)
+        emulator_records = provider.get("emulator_evidence", [])
+        if not isinstance(emulator_records, list):
+            raise CatalogError(f"{provider['id']}: emulator_evidence must be a list")
+        emulator_features = set()
+        for record in emulator_records:
+            feature_id = record.get("feature") if isinstance(record, dict) else None
+            if feature_id not in feature_ids or feature_id in emulator_features:
+                raise CatalogError(f"{provider['id']}: emulator_evidence has an invalid or duplicate feature")
+            validate_emulator_evidence_record(provider, feature_id, record)
+            emulator_features.add(feature_id)
         for feature_id, status in provider["capabilities"].items():
             if status not in EVIDENCE:
                 raise CatalogError(f"{provider['id']}/{feature_id}: invalid evidence status {status}")
@@ -505,7 +580,12 @@ def cell(defaults, documentation, provider, feature_id):
     status = provider["capabilities"].get(feature_id, defaults[feature_id])
     symbol = EVIDENCE_SYMBOL[status]
     source = documentation[provider["id"]].get(feature_id)
-    return f"[{symbol}]({source})" if source else symbol
+    rendered = f"[{symbol}]({source})" if source else symbol
+    emulator = next((record for record in provider.get("emulator_evidence", []) if record["feature"] == feature_id), None)
+    if emulator:
+        artifact = pathlib.PurePosixPath(emulator["artifact"])
+        rendered += f" [🧪](../evidence/providers/{artifact.name})"
+    return rendered
 
 
 def resolved_status(providers, provider, feature_id):
@@ -595,9 +675,9 @@ def render(standards, providers):
         "",
         "### Provider interoperability matrix",
         "",
-        "The cells describe provider evidence, not plugin standards conformance: ✅ retained live test; 🟦 retained live test",
-        "with a named adapter; 📘 vendor documentation only; ◇ conditional; ❌ unavailable; ⚠️ incompatible; ? unknown.",
-        "A provider guide alone is never rendered green.",
+        "The cells describe provider evidence, not plugin standards conformance: ✅ retained real-provider test; 🟦 retained",
+        "real-provider test with a named adapter; 🧪 retained emulator test; 📘 vendor documentation only; ◇ conditional;",
+        "❌ unavailable; ⚠️ incompatible; ? unknown. Emulator evidence is additional and never makes a cell green.",
         "",
         "| Provider | " + " | ".join(feature["title"] for feature in features) + " |",
         "|---|" + "---:|" * len(features),

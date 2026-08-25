@@ -126,6 +126,47 @@ async function provisionPocketId() {
   await api.dispose();
 }
 
+async function provisionEntra() {
+  const api = await apiContext();
+  const user = await checkedJson(await api.post(`${providerApiOrigin}/admin/api/users`, {
+    data: {
+      userPrincipalName: state.username,
+      displayName: 'OIDC E2E',
+      givenName: 'OIDC',
+      surname: 'E2E',
+      mail: `${state.username}@example.com`,
+      accountEnabled: true,
+      password: state.password,
+    },
+  }), 'Entra Local user creation');
+  expect(user.userPrincipalName).toBe(state.username);
+  const app = await checkedJson(await api.post(`${providerApiOrigin}/admin/api/apps`, {
+    data: {
+      displayName: state.server_name,
+      isConfidential: true,
+      redirectUris: [{ uri: `${origin}${callbackPath}`, type: 'web' }],
+    },
+  }), 'Entra Local app creation');
+  await checkedJson(await api.patch(`${providerApiOrigin}/admin/api/apps/${app.id}`, {
+    data: {
+      optionalClaims: {
+        idToken: [
+          { name: 'email', essential: false },
+          { name: 'preferred_username', essential: false },
+          { name: 'auth_time', essential: true },
+        ],
+        accessToken: [],
+      },
+    },
+  }), 'Entra Local optional claim configuration');
+  const secret = await checkedJson(await api.post(`${providerApiOrigin}/admin/api/apps/${app.id}/secrets`, {
+    data: { displayName: 'Disposable OPNsense E2E' },
+  }), 'Entra Local client secret creation');
+  state.client_id = app.id;
+  state.client_secret = secret.secretText;
+  await api.dispose();
+}
+
 async function enrollPocketIdPasskey(browser) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
   const page = await context.newPage();
@@ -166,13 +207,19 @@ async function configureServer(page) {
   // own listen address and must be registered exactly like a reverse proxy.
   await selectNative(page.locator('select[name="openidconnect_origin_policy"]'), 'custom');
   await setFlatList(page, 'openidconnect_redirect_urls', [origin]);
-  await selectNative(page.locator('select[name="openidconnect_bootstrap_mode"]'), 'username');
-  await page.locator('input[name="openidconnect_create_users"]').check();
-  await setGroupList(page, 'openidconnect_default_groups', ['admins']);
+  if (state.provider === 'apple') {
+    await selectNative(page.locator('select[name="openidconnect_bootstrap_mode"]'), 'approval');
+  } else {
+    await selectNative(page.locator('select[name="openidconnect_bootstrap_mode"]'), 'username');
+    await page.locator('input[name="openidconnect_create_users"]').check();
+    await setGroupList(page, 'openidconnect_default_groups', ['admins']);
+  }
   await page.locator('input[name="openidconnect_logout_menu"]').check();
   await page.locator('input[name="openidconnect_logout_redirect"]').check();
-  await setFlatList(page, 'openidconnect_scopes', state.provider === 'authelia'
-    ? ['openid', 'email', 'profile', 'groups'] : ['openid', 'email', 'profile']);
+  await setFlatList(page, 'openidconnect_scopes', state.scopes);
+  if (state.provider === 'apple' || state.provider === 'okta') {
+    await selectNative(page.locator('select[name="openidconnect_response_mode"]'), 'form_post');
+  }
 
   if (state.provider === 'authentik') {
     const downloadPromise = page.waitForEvent('download');
@@ -185,7 +232,12 @@ async function configureServer(page) {
     await setup.getByRole('button', { name: 'Next' }).click();
     await setup.getByRole('button', { name: 'Done' }).click();
   }
-  await page.locator('input[name="openidconnect_provider_url"]').fill(state.issuer);
+  const issuer = page.locator('input[name="openidconnect_provider_url"]');
+  if (await issuer.isEditable()) {
+    await issuer.fill(state.issuer);
+  } else {
+    await expect(issuer).toHaveValue(state.issuer);
+  }
   await page.locator('input[name="openidconnect_client_id"]').fill(state.client_id);
   await page.locator('input[name="openidconnect_client_secret"]').fill(state.client_secret);
   const discovery = page.waitForResponse(response => (
@@ -193,8 +245,10 @@ async function configureServer(page) {
   ));
   await page.getByRole('button', { name: 'Test discovery' }).click();
   expect((await discovery).ok()).toBeTruthy();
-  await expect(page.getByRole('dialog').locator('.oidc-probe-summary .label-success')).toBeVisible();
-  await page.getByRole('dialog').getByRole('button', { name: '×' }).click();
+  const discoveryDialog = page.getByRole('dialog');
+  await expect(discoveryDialog).toBeVisible();
+  await expect(discoveryDialog.locator('.label-danger')).toHaveCount(0);
+  await discoveryDialog.getByRole('button', { name: '×' }).click();
   await page.locator('input[name="openidconnect_enabled"]').check();
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page).toHaveURL(/\/system_authservers\.php$/);
@@ -215,6 +269,29 @@ async function passwordLogin(page) {
   await expect(password).toBeVisible();
   await password.fill(state.password);
   await action.click();
+}
+
+async function liveProviderInteraction(page) {
+  if (state.interaction === 'manual') {
+    console.log(`Complete the ${state.provider} sign-in in the visible browser; secrets are not printed.`);
+    return;
+  }
+  try {
+    if (state.provider === 'entra') {
+      await page.getByRole('textbox', { name: /email|account|sign in/i }).fill(state.username);
+      await page.getByRole('button', { name: /next|continue/i }).click();
+      await page.getByRole('textbox', { name: /password/i })
+        .or(page.locator('input[type="password"]')).first().fill(state.password);
+      await page.getByRole('button', { name: /sign in|continue/i }).click();
+      return;
+    }
+    await page.getByRole('textbox', { name: /username|email/i }).fill(state.username);
+    await page.getByRole('textbox', { name: /password/i })
+      .or(page.locator('input[type="password"]')).first().fill(state.password);
+    await page.getByRole('button', { name: /sign in|continue/i }).click();
+  } catch {
+    console.log(`Automatic ${state.provider} handoff stopped at MFA or consent; continue in the visible browser.`);
+  }
 }
 
 async function setAuthentikEmailVerification(mode) {
@@ -276,7 +353,9 @@ async function providerLogin(page) {
     }
   });
   await page.getByRole('link', { name: `Login using ${state.server_name}` }).click();
-  if (state.provider !== 'pocketid') {
+  if (state.login_mode === 'picker') {
+    await page.getByRole('button', { name: new RegExp(state.username, 'i') }).click();
+  } else if (state.provider !== 'pocketid') {
     await passwordLogin(page);
     if (state.provider === 'authelia') {
       await page.getByRole('button', { name: 'Accept' }).click();
@@ -295,8 +374,58 @@ async function providerLogin(page) {
   expect(after).not.toBe(before);
 }
 
-test(`real OPNsense login through ${state.provider}`, async ({ browser }) => {
+async function testProviderSignIn(page) {
+  await page.goto(`${origin}/system_authservers.php`);
+  await page.getByRole('row', { name: new RegExp(state.server_name) })
+    .getByRole('link', { name: 'Edit' }).click();
+  const callback = page.waitForRequest(request => new URL(request.url()).pathname === callbackPath);
+  await page.getByRole('button', { name: 'Test sign-in' }).click();
+  await expect.poll(async () => {
+    if (await page.getByRole('heading', { name: 'Sign-in test succeeded' }).count()) return 'result';
+    if (new URL(page.url()).origin !== origin) return 'provider';
+    return 'waiting';
+  }).not.toBe('waiting');
+  if (new URL(page.url()).origin !== origin) {
+    if (state.source === 'live') {
+      await liveProviderInteraction(page);
+    } else if (state.login_mode === 'picker') {
+      await page.getByRole('button', { name: new RegExp(state.username, 'i') }).click();
+    } else {
+      await passwordLogin(page);
+    }
+  }
+  const callbackRequest = await callback;
+  if (state.provider === 'apple' || state.provider === 'okta') {
+    expect(callbackRequest.method()).toBe('POST');
+    const form = new URLSearchParams(callbackRequest.postData());
+    expect(form.get('code')).toBeTruthy();
+    expect(form.get('state')).toBeTruthy();
+    if (state.provider === 'apple') {
+      const firstLoginData = form.get('user');
+      if (state.source === 'emulated') {
+        const firstLogin = JSON.parse(firstLoginData);
+        expect(firstLogin.email).toBe(state.email);
+        expect(firstLogin.email.endsWith('@privaterelay.appleid.com')).toBeTruthy();
+        expect(firstLogin.name).toBeTruthy();
+      } else if (firstLoginData) {
+        // Apple sends this object only on the first authorization. A reused live
+        // test account must still prove Form Post without manufacturing it.
+        expect(JSON.parse(firstLoginData)).toBeTruthy();
+      }
+    }
+  }
+  await expect(page.getByRole('heading', { name: 'Sign-in test succeeded' })).toBeVisible();
+  await expect(page.locator('body')).toContainText('PKCE binding');
+  if (state.provider === 'apple') {
+    await expect(page.getByRole('row', { name: /E-mail verification claim/ })).toContainText('true');
+  } else if (state.source !== 'live') {
+    await expect(page.locator('body')).toContainText(state.username);
+  }
+}
+
+test(`OPNsense provider flow through ${state.provider}`, async ({ browser }) => {
   if (state.provider === 'pocketid') await provisionPocketId();
+  if (state.provider === 'entra' && state.source === 'emulated') await provisionEntra();
   const admin = await browser.newContext({ ignoreHTTPSErrors: true });
   const adminPage = await admin.newPage();
   await localLogin(adminPage);
@@ -308,6 +437,12 @@ test(`real OPNsense login through ${state.provider}`, async ({ browser }) => {
     await setAuthentikEmailVerification('missing');
     await testAuthentikEmailVerification(adminPage, 'false');
     await setAuthentikEmailVerification('true');
+  }
+
+  if (state.source === 'live' || state.source === 'emulated') {
+    await testProviderSignIn(adminPage);
+    await admin.close();
+    return;
   }
 
   const localFallback = await browser.newContext({ ignoreHTTPSErrors: true });

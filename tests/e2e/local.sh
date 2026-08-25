@@ -14,7 +14,9 @@ runner_arguments=
 usage() {
   printf '%s\n' \
     'usage: tests/e2e/local.sh [--backend auto|qemu|utm] [--refresh-opnsense]' \
-    '                          [--suite core|full] [--provider NAME] [--canary] [--keep]' >&2
+    '                          [--suite core|full] [--provider NAME]' \
+    '                          [--source auto|local|emulated|live]' \
+    '                          [--cluster direct|public-inbound|all] [--canary] [--keep]' >&2
   exit 2
 }
 
@@ -26,7 +28,7 @@ while [ "$#" -gt 0 ]; do
       shift 2
       ;;
     --refresh-opnsense) refresh=1; shift ;;
-    --suite|--provider)
+    --suite|--provider|--source|--cluster)
       [ "$#" -ge 2 ] || usage
       runner_arguments="$runner_arguments $1 $2"
       shift 2

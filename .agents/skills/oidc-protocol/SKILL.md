@@ -68,6 +68,13 @@ WebGUI. When those boundaries change, run `tests/integration/opnsense.php` on a
 supported OPNsense installation; use the disposable E2E flow described in
 `tests/e2e/README.md` when browser/session behavior changes.
 
+Run `python3 .agents/test-impact.py` before settling the manual portion of the
+validation plan. Treat its answer as a path-based minimum to review, not as a
+substitute for identifying the actual trust boundary. Explain in the issue's
+maintained `Validation plan` why installed integration or provider E2E is
+required, including the exact provider, source and network cluster. Do not
+start those manual tiers from a Stop hook.
+
 If the implementation starts depending on new OPNsense core behavior, also
 follow the `core-dependency` skill and add the dependency to the watchdog's
 `TOUCHPOINTS`.

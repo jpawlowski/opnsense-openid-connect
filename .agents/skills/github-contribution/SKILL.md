@@ -80,6 +80,17 @@ publication batch. Remove stale contradictions; do not stack correction
 comments or create a replacement detail comment. Replies in the discussion
 remain ordinary comments and do not become part of this maintained supplement.
 
+For implementation work, keep a `Validation plan` subsection in that same
+issue detail comment. Name the changed technical boundary, minimum tier, exact
+provider/source/cluster, why the next-lower tier cannot prove it, and whether a
+tunnel, live profile or manual browser handoff is required. Run the read-only
+`.agents/test-impact.py` helper as an input, then apply semantic judgment.
+Announce a planned destructive run before starting it. Once the issue scope and
+plan are accepted, repeated runs of the same selection need no new question.
+A later scope change that raises the tier needs one updated detail comment and
+one new approval. Never relabel required evidence as optional because the lab
+is unavailable; keep the gate open and an agent-authored pull request draft.
+
 ## Claiming active work
 
 Before starting, inspect the issue's assignees, Development links, and recent

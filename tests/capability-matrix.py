@@ -475,6 +475,50 @@ def main():
             )
         ), True)
 
+        emulator_artifact = {
+            "schema_version": 1,
+            "evidence_type": "provider_test_run",
+            "repository_revision": "1" * 40,
+            "repository_dirty": False,
+            "harness_digest": "2" * 64,
+            "provider": "okta",
+            "source": "emulated",
+            "subject": {"name": "vercel-labs-emulate", "revision": "version:0.10.0"},
+            "cluster": "direct",
+            "tested_on": "2026-08-24",
+            "configuration_profile": "okta",
+            "provider_adaptation": None,
+            "results": [{"feature": "login", "outcome": "pass"}],
+        }
+        retained_artifact(evidence_root, emulator_artifact)
+        emulator_record = {
+            "feature": "login",
+            "tested_on": "2026-08-24",
+            "emulator_revision": "version:0.10.0",
+            "artifact": "tests/evidence/providers/provider-result.json",
+            "adaptation": None,
+        }
+        emulator_provider = {"id": "okta"}
+        check("a pinned emulator run may be shown as additional evidence", refused(
+            lambda: matrix.validate_emulator_evidence_record(
+                emulator_provider, "login", emulator_record, evidence_root
+            )
+        ), False)
+        rendered = matrix.cell(
+            {"login": "unknown"}, {"okta": {"login": "https://example.test/documentation"}},
+            {"id": "okta", "capabilities": {"login": "documented"},
+             "emulator_evidence": [emulator_record]}, "login",
+        )
+        check("emulator evidence supplements documentation without turning the cell green",
+              "📘" in rendered and "🧪" in rendered and "✅" not in rendered, True)
+        emulator_artifact["results"] = [{"feature": "login", "outcome": "live"}]
+        retained_artifact(evidence_root, emulator_artifact)
+        check("an emulator artifact cannot invent a real-provider status", refused(
+            lambda: matrix.validate_emulator_evidence_record(
+                emulator_provider, "login", emulator_record, evidence_root
+            )
+        ), True)
+
     group("Security comparison preserves trade-offs")
     ranked_standards = copy.deepcopy(standards)
     for standard in ranked_standards["standards"]:
