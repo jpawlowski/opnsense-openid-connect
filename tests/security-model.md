@@ -93,6 +93,10 @@ inside the isolated test boundary.
 - Tokens needed for logout are present in the authenticated PHP session. A
   local root compromise or arbitrary WebGUI code execution already crosses the
   firewall's security boundary and can read them.
+- The optional lifecycle test retains one ID Token for at most ten minutes in a
+  bounded mode-`0600` registry so it can send `id_token_hint`; subject and `sid`
+  selectors are digests, the test creates no local login session, and only its
+  authenticated one-time start can release the provider logout address.
 - Front-channel logout depends on browser iframe/CSP behaviour and is less
   reliable than back-channel logout. Prefer back-channel where available.
 - Removing access at the provider does not end an already established local
