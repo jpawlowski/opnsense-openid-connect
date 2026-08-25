@@ -310,6 +310,15 @@ auto-merge or enters a merge queue without an explicit human instruction naming
 the PR. Monitoring, review, repair, coordination and a request to make the PR
 ready do not imply permission to merge.
 
+Visible coordination prose identifies participants with non-linking `PR N`
+names. Never use a hash-number reference, Markdown link or pull-request URL
+merely to name a coordinated participant: GitHub would create reciprocal
+cross-reference events, while a merge conflict or changed-path overlap does not
+establish a useful semantic relationship. The hidden marker retains the numeric
+identities. The renderer normalizes hash-number references from `--overlap`,
+`--reason`, `--reconsider`, `--changed-fact` and `--changed-criterion`; still
+write those inputs as non-linking prose so the published text is intentional.
+
 ### Worktree retirement
 
 Treat cleanup as a separate, event-driven lifecycle; never add a scheduler.

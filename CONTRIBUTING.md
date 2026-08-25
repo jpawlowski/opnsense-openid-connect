@@ -107,8 +107,13 @@ one of those PRs closes. Active orders sharing any participant form one
 transitive group and must be replaced by a single order covering all of its open
 PRs; former participants remain mirroring targets but never re-enter the order.
 A predecessor closing unmerged invalidates that order immediately. Only
-repository-associated publishers are trusted;
-an interrupted mirroring resumes under its printed identifier by updating the
+repository-associated publishers are trusted. Visible coordination uses
+non-linking `PR N` names rather than hash-number
+references, Markdown links or pull-request URLs. Technical overlap alone does
+not justify reciprocal GitHub cross-reference events; numeric identities remain
+in the hidden machine marker and hash-number references in supplied explanations
+are normalized before publication. An interrupted mirroring resumes under its
+printed identifier by updating the
 remaining comments in place. Recommendation and fulfillment hold an atomic repository mutex across
 their remote snapshot and all mirrored writes; a concurrent publisher waits, and
 a lock left by a failed process is inspected rather than stolen. No agent merges, enables auto-merge or queues a

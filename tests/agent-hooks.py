@@ -1429,16 +1429,64 @@ module.update_registry(repository, update)
     coordination = load_agent_module(
         "pr_coordination_test", ROOT / ".agents" / "hooks" / "pr_coordination.py",
     )
+    reference_examples = {
+        "#42": "PR 42",
+        "jpawlowski/opnsense-openid-connect#42": "jpawlowski/opnsense-openid-connect PR 42",
+        "GH-42": "PR 42",
+        "https://github.com/jpawlowski/opnsense-openid-connect/pull/42":
+            "jpawlowski/opnsense-openid-connect PR 42",
+        "https://GitHub.com/jpawlowski/opnsense-openid-connect/pull/42":
+            "jpawlowski/opnsense-openid-connect PR 42",
+        "https://www.github.com/jpawlowski/opnsense-openid-connect/pull/42":
+            "jpawlowski/opnsense-openid-connect PR 42",
+        "www.github.com/jpawlowski/opnsense-openid-connect/pull/42":
+            "jpawlowski/opnsense-openid-connect PR 42",
+        "<https://github.com/jpawlowski/opnsense-openid-connect/pull/42/files>":
+            "jpawlowski/opnsense-openid-connect PR 42",
+        "[review](https://github.com/jpawlowski/opnsense-openid-connect/pull/42)":
+            "jpawlowski/opnsense-openid-connect PR 42",
+        "[review](/jpawlowski/opnsense-openid-connect/pull/42)":
+            "jpawlowski/opnsense-openid-connect PR 42",
+        "[review](//github.com/jpawlowski/opnsense-openid-connect/pull/42)":
+            "jpawlowski/opnsense-openid-connect PR 42",
+        "[review](</jpawlowski/opnsense-openid-connect/pull/42>)":
+            "jpawlowski/opnsense-openid-connect PR 42",
+        "[review](<//github.com/jpawlowski/opnsense-openid-connect/pull/42>)":
+            "jpawlowski/opnsense-openid-connect PR 42",
+        "[review]( </jpawlowski/opnsense-openid-connect/pull/42> \"current participant\")":
+            "jpawlowski/opnsense-openid-connect PR 42",
+        "[review](\n//github.com/jpawlowski/opnsense-openid-connect/pull/42\n'current participant'\n)":
+            "jpawlowski/opnsense-openid-connect PR 42",
+        "[participant][pr]\n\n[pr]: /jpawlowski/opnsense-openid-connect/pull/42":
+            "jpawlowski/opnsense-openid-connect PR 42\n\n",
+        "[participant][PR]\n\n[pr]: //www.github.com/jpawlowski/opnsense-openid-connect/pull/42/files":
+            "jpawlowski/opnsense-openid-connect PR 42\n\n",
+        "[participant][pr]\n\n[pr]:\n /jpawlowski/opnsense-openid-connect/pull/42":
+            "jpawlowski/opnsense-openid-connect PR 42\n\n",
+        "[participant][PR]\n\n[pr]:\n//github.com/jpawlowski/opnsense-openid-connect/pull/42":
+            "jpawlowski/opnsense-openid-connect PR 42\n\n",
+        "[documentation][docs]\n\n[docs]: /docs/review":
+            "[documentation][docs]\n\n[docs]: /docs/review",
+    }
+    check("every GitHub pull-request reference form becomes non-linking prose",
+          {value: coordination.without_hash_number_references(value) for value in reference_examples},
+          reference_examples)
     record = {"id": "42-57-order", "order": [42, 57], "state": "final", "supersedes": []}
     body = coordination.render_final(
         record,
-        "both change the authentication hook",
-        "#42 already has a current-head review",
-        "#42 closes or changes the shared contract",
+        "GH-42 and https://github.com/jpawlowski/opnsense-openid-connect/pull/57 change the authentication hook",
+        "[the first change](https://github.com/jpawlowski/opnsense-openid-connect/pull/42) already has a review",
+        "<https://github.com/jpawlowski/opnsense-openid-connect/pull/42/files> closes or changes the contract",
     )
     check("the public record gives one exact human-facing order",
-          all(value in body for value in ("#42 → #57", "Merge #42 first", "Do not merge", "explicit human")),
+          all(value in body for value in ("PR 42 → PR 57", "Merge PR 42 first", "Do not merge", "explicit human")),
           True)
+    check("coordination prose cannot create pull-request cross-references",
+          (all(value not in body for value in ("#42", "GH-42", "github.com", "](")),
+           "PR 42 and jpawlowski/opnsense-openid-connect PR 57 change" in body,
+           "jpawlowski/opnsense-openid-connect PR 42 already has" in body,
+           "jpawlowski/opnsense-openid-connect PR 42 closes" in body),
+          (True, True, True, True))
     check("the public record carries the required agent notice",
           body.rstrip().endswith(coordination.NOTICE["en"]), True)
     mirrored = [
@@ -1472,6 +1520,8 @@ module.update_registry(repository, update)
     check("contradictory recommendations are detected as a cycle",
           coordination.has_cycle([record, reverse]), True)
     fulfilled = coordination.render_fulfilled(record)
+    check("fulfilled coordination also avoids pull-request cross-references",
+          ("PR 42 → PR 57" in fulfilled, "#42" not in fulfilled), (True, True))
     check("a fulfilled event retires the active recommendation", coordination.records_from_comments([
         *mirrored,
         {"id": 4, "created_at": "2026-08-24T11:00:00Z", "body": fulfilled,
@@ -1558,6 +1608,34 @@ module.update_registry(repository, update)
     check("a partial mirrored recommendation resumes without duplicating its first comment",
           (published_paths, resumed_urls[0]),
           (["issues/57/comments"], "https://example.invalid/existing"))
+    legacy_body = resumable_body.replace("PR 42", "#42").replace("PR 57", "#57")
+    sanitized_body = coordination.without_hash_number_references(legacy_body)
+    updated_resume_comments = []
+    publisher.github_update_comment = lambda comment_id, _body, _token: (
+        updated_resume_comments.append((comment_id, _body))
+        or {"html_url": f"https://example.invalid/comments/{comment_id}"}
+    )
+    published_paths.clear()
+    publisher.publish_mirrored(
+        [42, 57], sanitized_body, resumable_record["id"], "token",
+        {42: [dict(existing[42][0], body=legacy_body)], 57: []}, update_existing=True,
+    )
+    check("a resumed legacy recommendation updates its old copy before filling missing targets",
+          (updated_resume_comments, published_paths),
+          ([(5, sanitized_body)], ["issues/57/comments"]))
+    inconsistent_resume = resumable_body.replace("same file", "different contract")
+    updated_resume_comments.clear()
+    try:
+        publisher.publish_mirrored(
+            [42], sanitized_body, resumable_record["id"], "token",
+            {42: [dict(existing[42][0], body=inconsistent_resume)]}, update_existing=True,
+        )
+        inconsistent_resume_error = ""
+    except RuntimeError as error:
+        inconsistent_resume_error = str(error)
+    check("a resumed publication rejects a late target with inconsistent visible content",
+          (updated_resume_comments, "may be partially published" in inconsistent_resume_error),
+          ([], True))
     check("a replacement is mirrored to old-only and new-only pull requests",
           publisher.publication_targets(
               [57, 63], [{"id": "old-order", "order": [42, 57]}], {"old-order"},
@@ -1625,6 +1703,21 @@ module.update_registry(repository, update)
     updated_comments.clear()
     published_paths.clear()
     fulfilled_body = coordination.render_fulfilled(replacement)
+    legacy_fulfilled_body = (
+        fulfilled_body.replace("PR 42", "#42").replace("PR 57", "#57").replace("PR 63", "#63")
+    )
+    publisher.publish_mirrored(
+        [42, 57], fulfilled_body, replacement["id"], "token",
+        {
+            42: [{"id": 1, "body": legacy_fulfilled_body, "author_association": "OWNER"}],
+            57: [],
+        },
+        update_existing=True,
+    )
+    check("a legacy fulfilled publication updates its old copy and reaches missing targets",
+          (updated_comments, published_paths), ([1], ["issues/57/comments"]))
+    updated_comments.clear()
+    published_paths.clear()
     publisher.publish_mirrored(
         [42], fulfilled_body, replacement["id"], "token",
         {42: [{"id": 1, "body": replacement_body, "author_association": "OWNER"}]},
@@ -1640,7 +1733,7 @@ module.update_registry(repository, update)
           [(value["id"], value["order"]) for value in retired_old_only], [("57-63-order", [57, 63])])
     check("the replacement explains why the first published order no longer applies",
           all(value in replacement_body for value in (
-              "New fact: #42 closed without merging", "Affected decision criterion: predecessor state",
+              "New fact: PR 42 closed without merging", "Affected decision criterion: predecessor state",
           )), True)
     loaded_targets = []
     publisher.comments = lambda number, _token: loaded_targets.append(number) or []
@@ -1658,28 +1751,39 @@ module.update_registry(repository, update)
         changed_fact="#42 closed without merging", changed_criterion="predecessor state",
     )
     retry_body = retry_body.replace(
-        " New fact: #42 closed without merging Affected decision criterion: predecessor state", "",
+        " New fact: PR 42 closed without merging Affected decision criterion: predecessor state", "",
     )
+    retry_body = retry_body.replace("PR 42", "#42").replace("PR 57", "#57").replace("PR 63", "#63")
     retry_comment = {
         "id": 7, "created_at": "2026-08-24T13:30:00Z", "body": retry_body,
         "author_association": "OWNER",
     }
+    normalized_retry_comment = {
+        "id": 8, "created_at": "2026-08-24T13:31:00Z",
+        "body": coordination.without_hash_number_references(retry_body),
+        "author_association": "OWNER",
+    }
     publisher.open_pulls = lambda _token: [{"number": 57}, {"number": 63}]
-    publisher.comment_sets = lambda _pulls, _token: {57: [mirrored[1], retry_comment], 63: []}
+    publisher.comment_sets = lambda _pulls, _token: {
+        57: [mirrored[1], retry_comment], 63: [normalized_retry_comment],
+    }
     publisher.comments = lambda number, _token: [retry_comment] if number == 42 else []
     resumed_publications = []
-    publisher.publish_mirrored = lambda numbers, body, identifier, _token, _values, replace_ids=None: (
-        resumed_publications.append((numbers, body, coordination.parse_marker(body), identifier, replace_ids)) or []
+    publisher.publish_mirrored = lambda numbers, body, identifier, _token, _values, **keywords: (
+        resumed_publications.append(
+            (numbers, body, coordination.parse_marker(body), identifier, keywords)
+        ) or []
     )
     publisher.recommend_locked(SimpleNamespace(
         prs=[57, 63], order=[57, 63], id=retry_record["id"], supersedes=["42-57-order"],
         overlap="the shared path moved", reason="the replacement minimizes rework",
         reconsider="the contract changes", changed_fact="", changed_criterion="", language="en",
     ), "token")
-    check("a legacy partial replacement reuses its exact body and complete target set",
-          (resumed_publications[0][0], resumed_publications[0][1] == retry_body,
+    check("a legacy partial replacement normalizes its body and preserves its complete target set",
+          (resumed_publications[0][0], resumed_publications[0][1],
            resumed_publications[0][2]["targets"], resumed_publications[0][4]),
-          ([42, 57, 63], True, [42, 57, 63], {"42-57-order"}))
+          ([42, 57, 63], coordination.without_hash_number_references(retry_body),
+           [42, 57, 63], {"replace_ids": {"42-57-order"}, "update_existing": True}))
 
     closed_partial = {
         "id": "57-63-1787590802-abcdef", "order": [57, 63], "state": "final",
@@ -1700,7 +1804,7 @@ module.update_registry(repository, update)
         closed_target_reads.append(number) or ([closed_partial_comment] if number == 57 else [])
     )
     successor_publications = []
-    publisher.publish_mirrored = lambda numbers, body, identifier, _token, _values, replace_ids=None: (
+    publisher.publish_mirrored = lambda numbers, body, identifier, _token, _values, **_keywords: (
         successor_publications.append((numbers, coordination.parse_marker(body), identifier)) or []
     )
     publisher.recommend_locked(SimpleNamespace(
@@ -1727,13 +1831,13 @@ module.update_registry(repository, update)
         int(pull["number"]): publisher.comments(int(pull["number"]), token) for pull in pulls
     }
     fulfillment_publication = []
-    publisher.publish_mirrored = lambda numbers, _body, identifier, _token, values: (
-        fulfillment_publication.append((numbers, identifier, sorted(values))) or []
+    publisher.publish_mirrored = lambda numbers, _body, identifier, _token, values, **keywords: (
+        fulfillment_publication.append((numbers, identifier, sorted(values), keywords)) or []
     )
     publisher.fulfill(SimpleNamespace(id="57-63-order", language="en"))
     check("fulfillment reaches and loads every recorded replacement target",
           (fulfillment_reads, fulfillment_publication),
-          ([57, 63, 42], [([42, 57, 63], "57-63-order", [42, 57, 63])]))
+          ([57, 63, 42], [([42, 57, 63], "57-63-order", [42, 57, 63], {"update_existing": True})]))
 
     closed_fulfillment = {
         "id": "57-63-1787590804-123abc", "order": [57, 63], "state": "final",
@@ -1759,13 +1863,15 @@ module.update_registry(repository, update)
         closed_fulfillment_reads.append(number) or closed_fulfillment_comments[number]
     )
     closed_fulfillment_publications = []
-    publisher.publish_mirrored = lambda numbers, _body, identifier, _token, values: (
-        closed_fulfillment_publications.append((numbers, identifier, sorted(values))) or []
+    publisher.publish_mirrored = lambda numbers, _body, identifier, _token, values, **keywords: (
+        closed_fulfillment_publications.append((numbers, identifier, sorted(values), keywords)) or []
     )
     publisher.fulfill_locked(SimpleNamespace(id=closed_fulfillment["id"], language="en"), "token")
     check("fulfillment resumes from closed fulfilled originals and reaches the remaining final target",
           (closed_fulfillment_reads, closed_fulfillment_publications),
-          ([57, 63, 42], [([57, 63, 42], closed_fulfillment["id"], [42, 57, 63])]))
+          ([57, 63, 42], [(
+              [57, 63, 42], closed_fulfillment["id"], [42, 57, 63], {"update_existing": True},
+          )]))
 
     group("Codex review requests leave one temporary trigger and preserve review evidence")
     review_requests = load_agent_module(
