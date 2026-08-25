@@ -1563,6 +1563,21 @@ module.update_registry(repository, update)
     check("a partial mirrored recommendation resumes without duplicating its first comment",
           (published_paths, resumed_urls[0]),
           (["issues/57/comments"], "https://example.invalid/existing"))
+    legacy_body = resumable_body.replace("PR 42", "#42").replace("PR 57", "#57")
+    sanitized_body = coordination.without_hash_number_references(legacy_body)
+    updated_resume_comments = []
+    publisher.github_update_comment = lambda comment_id, _body, _token: (
+        updated_resume_comments.append((comment_id, _body))
+        or {"html_url": f"https://example.invalid/comments/{comment_id}"}
+    )
+    published_paths.clear()
+    publisher.publish_mirrored(
+        [42, 57], sanitized_body, resumable_record["id"], "token",
+        {42: [dict(existing[42][0], body=legacy_body)], 57: []}, update_existing=True,
+    )
+    check("a resumed legacy recommendation updates its old copy before filling missing targets",
+          (updated_resume_comments, published_paths),
+          ([(5, sanitized_body)], ["issues/57/comments"]))
     check("a replacement is mirrored to old-only and new-only pull requests",
           publisher.publication_targets(
               [57, 63], [{"id": "old-order", "order": [42, 57]}], {"old-order"},
@@ -1665,6 +1680,7 @@ module.update_registry(repository, update)
     retry_body = retry_body.replace(
         " New fact: PR 42 closed without merging Affected decision criterion: predecessor state", "",
     )
+    retry_body = retry_body.replace("PR 42", "#42").replace("PR 57", "#57").replace("PR 63", "#63")
     retry_comment = {
         "id": 7, "created_at": "2026-08-24T13:30:00Z", "body": retry_body,
         "author_association": "OWNER",
@@ -1673,18 +1689,21 @@ module.update_registry(repository, update)
     publisher.comment_sets = lambda _pulls, _token: {57: [mirrored[1], retry_comment], 63: []}
     publisher.comments = lambda number, _token: [retry_comment] if number == 42 else []
     resumed_publications = []
-    publisher.publish_mirrored = lambda numbers, body, identifier, _token, _values, replace_ids=None: (
-        resumed_publications.append((numbers, body, coordination.parse_marker(body), identifier, replace_ids)) or []
+    publisher.publish_mirrored = lambda numbers, body, identifier, _token, _values, **keywords: (
+        resumed_publications.append(
+            (numbers, body, coordination.parse_marker(body), identifier, keywords)
+        ) or []
     )
     publisher.recommend_locked(SimpleNamespace(
         prs=[57, 63], order=[57, 63], id=retry_record["id"], supersedes=["42-57-order"],
         overlap="the shared path moved", reason="the replacement minimizes rework",
         reconsider="the contract changes", changed_fact="", changed_criterion="", language="en",
     ), "token")
-    check("a legacy partial replacement reuses its exact body and complete target set",
-          (resumed_publications[0][0], resumed_publications[0][1] == retry_body,
+    check("a legacy partial replacement normalizes its body and preserves its complete target set",
+          (resumed_publications[0][0], resumed_publications[0][1],
            resumed_publications[0][2]["targets"], resumed_publications[0][4]),
-          ([42, 57, 63], True, [42, 57, 63], {"42-57-order"}))
+          ([42, 57, 63], coordination.without_hash_number_references(retry_body),
+           [42, 57, 63], {"replace_ids": {"42-57-order"}, "update_existing": True}))
 
     closed_partial = {
         "id": "57-63-1787590802-abcdef", "order": [57, 63], "state": "final",
@@ -1705,7 +1724,7 @@ module.update_registry(repository, update)
         closed_target_reads.append(number) or ([closed_partial_comment] if number == 57 else [])
     )
     successor_publications = []
-    publisher.publish_mirrored = lambda numbers, body, identifier, _token, _values, replace_ids=None: (
+    publisher.publish_mirrored = lambda numbers, body, identifier, _token, _values, **_keywords: (
         successor_publications.append((numbers, coordination.parse_marker(body), identifier)) or []
     )
     publisher.recommend_locked(SimpleNamespace(

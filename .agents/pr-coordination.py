@@ -299,7 +299,7 @@ def validate_replacement(overlapping, replaced, order, changed_fact, changed_cri
         raise RuntimeError("the first published recommendation remains active when the merge order is unchanged")
 
 
-def publish_mirrored(numbers, body, identifier, token, values_by_pull, replace_ids=None):
+def publish_mirrored(numbers, body, identifier, token, values_by_pull, replace_ids=None, update_existing=False):
     urls = []
     replace_ids = set(replace_ids or [])
     desired = pr_coordination.parse_marker(body)
@@ -316,12 +316,17 @@ def publish_mirrored(numbers, body, identifier, token, values_by_pull, replace_i
                 for item in matching_comments(values_by_pull.get(number, []), replaced_id)
             ]
             if same_state:
-                if not any(str(comment.get("body") or "") == body for comment, _record in same_state):
-                    raise RuntimeError(f"coordination id {identifier} already has different content on #{number}")
                 matching = [
                     comment for comment, _record in same_state if str(comment.get("body") or "") == body
                 ]
-                comment = min(matching, key=lambda value: int(value.get("id") or 0))
+                if matching:
+                    comment = min(matching, key=lambda value: int(value.get("id") or 0))
+                    result = comment
+                elif update_existing:
+                    comment, _record = min(same_state, key=lambda item: int(item[0].get("id") or 0))
+                    result = github_update_comment(int(comment["id"]), body, token)
+                else:
+                    raise RuntimeError(f"coordination id {identifier} already has different content on #{number}")
                 duplicates = [
                     value for value, _record in (*existing, *predecessors)
                     if int(value.get("id") or 0) != int(comment.get("id") or 0)
@@ -330,7 +335,7 @@ def publish_mirrored(numbers, body, identifier, token, values_by_pull, replace_i
                     github_delete(
                         f"issues/comments/{int(duplicate['id'])}", token, subject="coordination comment deletion",
                     )
-                urls.append(str(comment.get("html_url") or f"pull request #{number}"))
+                urls.append(str(result.get("html_url") or f"pull request #{number}"))
                 continue
             if desired["state"] == "final" and any(record["state"] == "fulfilled" for _comment, record in existing):
                 raise RuntimeError(f"coordination id {identifier} is already fulfilled on #{number}")
@@ -429,13 +434,19 @@ def recommend_locked(arguments, token):
     remaining = [value for value in active if value["id"] not in replaced and value["id"] != identifier]
     if pr_coordination.has_cycle([*remaining, record]):
         raise RuntimeError("the recommended order would create a cycle with active coordination records")
-    body = resumed["_body"] if resumed is not None else pr_coordination.render_final(
-        record, arguments.overlap.strip(), arguments.reason.strip(), arguments.reconsider.strip(),
-        changed_fact=arguments.changed_fact.strip(), changed_criterion=arguments.changed_criterion.strip(),
-        language=arguments.language,
+    body = (
+        pr_coordination.without_hash_number_references(resumed["_body"])
+        if resumed is not None else pr_coordination.render_final(
+            record, arguments.overlap.strip(), arguments.reason.strip(), arguments.reconsider.strip(),
+            changed_fact=arguments.changed_fact.strip(), changed_criterion=arguments.changed_criterion.strip(),
+            language=arguments.language,
+        )
     )
     load_target_comments(values_by_pull, targets, token)
-    urls = publish_mirrored(targets, body, identifier, token, values_by_pull, replace_ids=replaced)
+    urls = publish_mirrored(
+        targets, body, identifier, token, values_by_pull, replace_ids=replaced,
+        update_existing=resumed is not None,
+    )
     print(f"published final coordination {identifier}")
     for url in urls:
         print(url)
