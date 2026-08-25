@@ -60,12 +60,19 @@ Checks::that('only the authenticated start receives the secret-bearing logout ma
     'signed.id.token',
     'https://firewall.example.net/api/openidconnect/auth/logouttestcallback/main',
 ]);
+Checks::that('the one-time start atomically removes the persisted ID Token', str_contains(
+    (string)file_get_contents((string)constant('OPENIDCONNECT_TEST_LIFECYCLE_REGISTRY')),
+    'signed.id.token'
+), false);
 Checks::throws('the same lifecycle logout cannot be started twice',
     fn() => LifecycleTestRegistry::start($testId), 'already started');
 
 LifecycleTestRegistry::observe('other', 'frontchannel', 'https://id.example.net', 'provider-session', null);
 LifecycleTestRegistry::observe('main', 'frontchannel', 'https://other.example.net', 'provider-session', null);
 LifecycleTestRegistry::observe('main', 'frontchannel', 'https://id.example.net', 'other-session', null);
+LifecycleTestRegistry::observe(
+    'main', 'backchannel', 'https://id.example.net', 'other-session', 'opaque-subject'
+);
 Checks::that('lookalike logout notifications cannot satisfy the test',
     LifecycleTestRegistry::status($testId)['observed'], []);
 LifecycleTestRegistry::observe('main', 'frontchannel', 'https://id.example.net', 'provider-session', null);

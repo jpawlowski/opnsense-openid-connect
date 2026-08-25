@@ -88,6 +88,7 @@ final class LifecycleTestRegistry
             }
             $records[$id]['started'] = time();
             $found = $records[$id];
+            unset($records[$id]['id_token']);
         });
         if (!is_array($found)) {
             throw new ProtocolException('The lifecycle test is missing, expired, or already started');
@@ -127,7 +128,9 @@ final class LifecycleTestRegistry
                     && $record['sid_digest'] !== '' && hash_equals($sidDigest, $record['sid_digest']);
                 $subjectMatches = $subjectDigest !== '' && is_string($record['subject_digest'] ?? null)
                     && hash_equals($subjectDigest, $record['subject_digest']);
-                if ($sidMatches || $subjectMatches) {
+                /* Logout Token and session invalidation semantics give sid precedence.
+                 * A subject-wide match is valid only when the notification has no sid. */
+                if ($sidDigest !== '' ? $sidMatches : $subjectMatches) {
                     $record['observed'][$channel] = time();
                 }
             }
