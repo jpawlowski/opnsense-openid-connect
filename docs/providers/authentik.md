@@ -15,7 +15,7 @@ application code `main`, every generated URL must end in `/main` instead.
 
 ### Optional shortcut: import a generated Blueprint
 
-Open OPNsense under the WebGUI address to register, select the authentik
+Open OPNsense under the accepted HTTPS WebGUI FQDN to register, select the authentik
 profile, enter the **Application code**, and select **Download provider setup**.
 Choose Back-channel only
 if the authentik server trusts and can reach the WebGUI; otherwise choose
@@ -30,7 +30,11 @@ In authentik open **Admin interface > Customization > Blueprints > Import**, use
 confidential OAuth2/OpenID provider and linked application, exact Authorization
 and optional Post Logout redirects, the standard OpenID and profile mappings, a
 dedicated verified e-mail mapping and an asymmetric signing key. authentik
-generates the Client ID and Client Secret.
+generates the Client ID and Client Secret. The Application's explicit Launch URL
+is the OPNsense login-start endpoint under the accepted WebGUI origin from which
+the Blueprint was downloaded, not its callback URL. That origin's callback is
+also the first redirect entry. The application tile is named after that FQDN and
+uses the package-owned OPNsense mark from the same origin.
 
 The dedicated `email` mapping sends `email_verified=true` only when the
 authentik user's custom `email_verified` attribute is the JSON boolean `true`.
@@ -56,7 +60,12 @@ After import, open the generated provider and copy those credentials to
 OPNsense. The exact issuer is
 `https://auth.example.com/application/o/opnsense-<application-code>/`; copy the
 value shown by authentik rather than constructing it by hand. A repeated import
-leaves the existing provider and its credentials unchanged.
+leaves the existing provider and its credentials unchanged; it does not add new
+redirect addresses or apply other changed settings. Update a small change on the
+existing provider. To replace it from a newly generated Blueprint, delete the
+generated application, provider and application-specific verified e-mail scope
+mapping first, import again, and copy the newly generated Client ID and Client
+Secret back to OPNsense. Do not delete authentik's built-in scope mappings.
 
 The Blueprint deliberately creates no authentik policy binding. Restrict the
 generated application to the users or groups who may administer this firewall;

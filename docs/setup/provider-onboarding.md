@@ -10,7 +10,7 @@ Provider setup and OPNsense configuration are deliberately independent:
 1. Add an OpenID Connect authentication server and leave **Offer on the login
    page** off.
 2. Enter a server name, **Application code** and provider profile. Open OPNsense
-   under an origin inherited from its WebGUI settings. If the provider must use
+   under an accepted HTTPS WebGUI FQDN inherited from its WebGUI settings. If the provider must use
    a reverse proxy, a different external port or a restricted set, enter the
    relevant origins and optionally select **Custom origins for this provider**.
    Issuer, Client ID and Client Secret may still be empty.
@@ -34,16 +34,36 @@ enter its values in OPNsense. No test is required merely to save either draft.
 | authentik | Blueprint YAML | **Admin interface > Customization > Blueprints > Import > File upload** | This applies once and does not create a visible Blueprint instance. The generated resources use `state: created`; an existing application and its generated credentials are left unchanged |
 | Keycloak | Partial realm import JSON | Select the intended realm, then **Realm settings > Action > Partial import** | Select **Skip** for an existing resource; the file also declares `ifResourceExists: SKIP` for API or `kcadm` imports |
 
+A newly downloaded file is therefore not an update mechanism. For a small
+change such as another redirect address, edit the existing provider/client in
+its administration interface. To recreate the generated configuration instead,
+first remove the old generated application and provider in authentik, or the old
+client in Keycloak, and then import the new file. Re-creation generates a new
+client secret (and, in authentik, may generate a new Client ID), so copy the new
+credentials to OPNsense before testing. If the authentik setup uses the generated
+verified e-mail scope mapping, remove that application-specific mapping as well
+before re-importing it; do not remove authentik's built-in scope mappings.
+
 Both formats use exact redirect addresses, a confidential client, Authorization
 Code flow and PKCE S256 where the provider exposes that setting. Neither uses a
 wildcard. With the default address policy, the automatically inherited origins
 and any additions become exact registered addresses. The currently opened
-origin is first when OPNsense accepts it. With a custom policy, only the entered
-origins are registered. In either mode the first origin is the canonical
-front-channel or back-channel logout notification address; all origins receive
-authorization redirects and the dedicated lifecycle-test post-logout return.
-The ordinary origin-root post-logout entry remains conditional on **Return here
-after logout**.
+HTTPS origin must be an accepted FQDN and is placed first. A short hostname, IP
+literal or origin absent from the effective policy stops generation. With a
+custom policy, only the entered origins are registered. In either mode that
+first origin is the canonical launch and front-channel or back-channel logout
+address. All origins receive authorization redirects and the dedicated
+lifecycle-test post-logout return; the ordinary origin-root post-logout entry
+remains conditional on **Return here after logout**. The generated
+authentik Application `meta_launch_url` and Keycloak client Home URL start the
+local OPNsense login endpoint on that origin. They are intentionally different
+from the callback that receives the provider's authorization response.
+
+The FQDN becomes the visible authentik application or Keycloak client name. Both
+imports also reference the reviewed package-owned OPNsense SVG from that exact
+origin. The browser can retrieve the image without a WebGUI session, but the
+firewall still has to be reachable from the browser's network; the URL does not
+make a private WebGUI publicly routable.
 
 The authentik file replaces its fail-closed standard e-mail mapping with an
 application-specific mapping. It reports `email_verified=true` only when the

@@ -88,6 +88,7 @@ HOST_CAPABILITIES = {
         "What the provider offers",
         "Default groups belong to the login that creates the account",
     ),
+    "manager-group-policy": ("Administrator-selected local groups",),
     "webgui-access-policy": ("local WebGUI authorization",),
     "form-post-transaction": ("Login transactions, PKCE and mix-up protection",),
     "logout-token-policy": (

@@ -63,6 +63,7 @@ ANCHOR_VERSION="$STATE/core.version"
 TOUCHPOINTS="
 /usr/local/www/authgui.inc
 /usr/local/www/system_authservers.php
+/usr/local/opnsense/www/js/bootstrap.min.js
 /usr/local/opnsense/mvc/app/library/OPNsense/Auth/AuthenticationFactory.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Auth/Base.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Auth/IAuthConnector.php
@@ -77,10 +78,12 @@ TOUCHPOINTS="
 /usr/local/opnsense/mvc/app/library/OPNsense/Core/SanitizeFilter.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Core/Config.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Trust/Store.php
+/usr/local/opnsense/mvc/app/controllers/OPNsense/Auth/Api/UserController.php
 /usr/local/opnsense/mvc/app/controllers/OPNsense/Base/ApiControllerBase.php
 /usr/local/opnsense/mvc/app/models/OPNsense/Base/Menu/MenuItem.php
 /usr/local/opnsense/mvc/app/models/OPNsense/Auth/FieldTypes/UidField.php
 /usr/local/opnsense/mvc/app/models/OPNsense/Auth/FieldTypes/UsernameField.php
+/usr/local/opnsense/mvc/app/models/OPNsense/Auth/Group.xml
 /usr/local/opnsense/mvc/app/models/OPNsense/Auth/User.php
 /usr/local/opnsense/mvc/app/models/OPNsense/Auth/User.xml
 /usr/local/opnsense/mvc/app/models/OPNsense/Core/ACL.php

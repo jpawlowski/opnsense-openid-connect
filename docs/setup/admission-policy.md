@@ -67,18 +67,24 @@ honours **user-config-readonly**. These checks are repeated by the API; hiding
 or showing the button is not the security boundary. Inline local-account
 creation additionally requires **System: Access: Management**.
 
-An inline-created account receives a scrambled password and no groups or
-privileges. It cannot sign in with a local password and receives no WebGUI
-access merely because it was bound. Assign the intended local groups or direct
-privileges under **System > Access > Users**; provider claims are never copied
-into them by this workflow.
+When **Add an identity** creates an account, it receives a scrambled password
+and starts with no local-password access. The same editor can optionally select
+zero, one or several existing local groups. Selecting an existing account shows
+its current memberships first, so saving an unchanged selection preserves them;
+changing the selection replaces only that account's memberships. This workflow
+never creates a group and never copies provider claims into local groups. Group
+privileges can grant WebGUI access, while direct user privileges remain managed
+under **System > Access > Users**.
 
 ### Recommended first-login workflow
 
 1. Select **Administrator approval for unknown identities**, save the server,
    and leave **Offer on the login page** disabled until testing is complete.
-2. The user completes a real login. OPNsense refuses the session and displays a
-   short request reference.
+2. The user completes a real login. OPNsense creates no session and displays
+   the uniform styled result with a fresh sign-in reference. The administrator
+   can correlate that public reference with the audit entry and, when approval
+   was queued, its separate internal request ID. The browser deliberately cannot
+   distinguish other unusable-account outcomes or recognize a repeated request.
 3. An authenticated administrator opens the saved server under **System >
    Access > Servers** and selects **Manage identities**.
 4. Compare the displayed provider hints, exact issuer and exact subject with

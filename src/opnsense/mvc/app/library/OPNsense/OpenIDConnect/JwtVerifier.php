@@ -269,7 +269,12 @@ class JwtVerifier
     /** @return array<int,mixed> */
     private function keys(string $jwksUri, bool $force = false): array
     {
-        $jwks = $this->http->getCached(
+        return $this->keysFromResponse($this->keySetResponse($jwksUri, $force));
+    }
+
+    private function keySetResponse(string $jwksUri, bool $force): HttpResponse
+    {
+        return $this->http->getCached(
             $jwksUri,
             self::MAX_JWKS_BYTES,
             $this->cacheNamespace,
@@ -278,17 +283,22 @@ class JwtVerifier
             !$force,
             fn(HttpResponse $candidate): array => $this->keysFromResponse($candidate)
         );
-        return $this->keysFromResponse($jwks);
     }
 
     /** @return array<int,mixed> */
     private function keysFromResponse(HttpResponse $jwks): array
     {
         if ($jwks->status !== 200) {
-            throw new ProtocolException(sprintf('The provider key set returned HTTP %d', $jwks->status));
+            throw new ProtocolException(sprintf(
+                'The provider key set returned %s; expected HTTP 200',
+                $jwks->diagnosticSummary()
+            ));
         }
         if (!in_array($jwks->contentType, ['application/json', 'application/jwk-set+json'], true)) {
-            throw new ProtocolException('The provider key set did not return JSON');
+            throw new ProtocolException(sprintf(
+                'The provider key set returned %s; expected a JSON key-set media type',
+                $jwks->diagnosticSummary()
+            ));
         }
         $keys = $jwks->jsonObject()['keys'] ?? null;
         if (!is_array($keys)) {
@@ -303,7 +313,14 @@ class JwtVerifier
     /** Force a live key-set fetch for the authenticated setup test, without needing a token. */
     public function probeKeySet(string $jwksUri): int
     {
-        $keys = $this->keys($jwksUri, true);
+        return $this->probeKeySetDetails($jwksUri)['count'];
+    }
+
+    /** @return array{count:int,response:HttpResponse} */
+    public function probeKeySetDetails(string $jwksUri): array
+    {
+        $response = $this->keySetResponse($jwksUri, true);
+        $keys = $this->keysFromResponse($response);
         if ($keys === [] || count($keys) > 128) {
             throw new ProtocolException('The provider key set contains no usable bounded key list');
         }
@@ -324,7 +341,7 @@ class JwtVerifier
         if ($usable === []) {
             throw new ProtocolException('The provider key set contains no supported signing key');
         }
-        return count($usable);
+        return ['count' => count($usable), 'response' => $response];
     }
 
     /** @return array<string,mixed> verified OpenID Connect Back-Channel Logout claims */

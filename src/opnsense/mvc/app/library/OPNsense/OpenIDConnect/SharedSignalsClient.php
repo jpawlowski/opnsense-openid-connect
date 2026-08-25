@@ -267,6 +267,9 @@ final class SharedSignalsClient
         if ($response->status !== 200) {
             $this->unexpected($response, 'poll stream', []);
         }
+        if ($response->contentType !== 'application/json') {
+            throw new ProtocolException('The poll endpoint did not return application/json');
+        }
         try {
             $body = json_decode($response->body, false, 64, JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {

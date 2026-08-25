@@ -24,7 +24,11 @@ port. It never contains `/api/...` or another path. Normally leave **WebGUI
 address policy** at **Follow OPNsense WebGUI settings**. The plugin then accepts
 OPNsense's hostname and domain, short hostname, alternate hostnames, actual
 local interface addresses and virtual IPs. Every origin uses the configured
-WebGUI port, or the HTTPS standard port 443 when none is configured. The
+WebGUI port, or the HTTPS standard port 443 when none is configured. When the
+native HTTPS port is non-standard, **Also accept port 443 for configured WebGUI
+hostnames** can additionally expose the configured DNS names through a trusted
+standard-port reverse proxy without duplicating them. It never widens local or
+virtual IP addresses. The
 provider setup download and endpoint preview put the currently opened origin
 first only when it is one of these accepted origins.
 
@@ -37,6 +41,9 @@ WebGUI settings. A value is `https://firewall.example.com`, not a callback URL.
 Scheme and port are part of the exact origin; certificate trust remains a
 separate matter. An arbitrary IP address is never accepted merely because it
 is syntactically valid: it must belong to OPNsense or be entered explicitly.
+Both **Test discovery** and **Connection health** show the resulting exact set
+as **Effective WebGUI origins**. Register the corresponding callback for every
+origin that administrators will use at the identity provider.
 
 An IP address is valid here. It can also be covered by a certificate when the
 certificate contains that IP address as an IP Subject Alternative Name. With a
@@ -236,6 +243,9 @@ Every result keeps only the actor path beneath the check name. The arrow
 distinguishes requests made by OPNsense from browser paths and provider
 responses. Open the row's info control to see two deliberately separate facts:
 the source used for the result and whether that endpoint was actually called.
+Live-response details also show the HTTP status and normalized `Content-Type`;
+a missing header is reported as missing, and a bounded `Retry-After` is retained
+when present. Response bodies and arbitrary provider headers are never reflected.
 An advertised endpoint can pass readiness because the validated live Discovery
 document contains a compatible value without pretending that a browser, code,
 token or logout path ran. Optional capabilities absent from Discovery are grouped
@@ -265,10 +275,13 @@ flow even while **Offer on the login page** remains disabled. It checks the
 authorization response (including JARM when selected), PKCE binding, code
 exchange, ID Token and configured claims source. Unsaved changes disable the
 action so that the displayed form and the saved connector under test cannot
-disagree. The result shows the exact issuer, subject and configured
-username claim plus the actual response mode, PAR/JAR/DPoP outcome, token
-authentication method, issued token kinds and selected signed claims. It
-deliberately does not create a WebGUI login session or
+disagree. Use **Revert changes** beside **Save** to reload the complete saved
+form. Hover over or focus the unavailable action to see whether it needs that
+revert, a first save, or missing required values such as the Client ID or
+credential. The result shows the exact issuer, subject and configured username
+claim plus the actual response mode, PAR/JAR/DPoP outcome, token authentication
+method, issued token kinds and selected signed claims. It deliberately does not
+create a WebGUI login session or
 change a local account, subject binding or group membership. It is available
 only while the saved form is unchanged; save or exactly revert edits first.
 This makes it safe to run before deciding the admission policy. When Discovery
@@ -276,7 +289,9 @@ offers RP-initiated logout, **Validate sign-out** opens a separate tab. Its
 short-lived test grant ends the provider session, forces the dedicated registered
 return to this server row, and reports which configured front/back-channel
 notifications passed their normal validation. It never indexes a disposable
-local login. Before leaving OPNsense, the sign-in half
+local login. If sign-out is not validated, the identity provider may retain its
+own SSO session, so use a private browser window when a later test must begin
+without that provider session. Before leaving OPNsense, the sign-in half
 runs the same reduced public-registration check when possible. If the provider
 rejects the Client ID or callback there, the form shows the failure without a
 browser redirect. If it accepts authorization but rejects the confidential

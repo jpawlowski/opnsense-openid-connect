@@ -110,6 +110,13 @@ async function configureServer(page) {
   });
   await page.goto(`${origin}/system_authservers.php?act=new`);
   await selectNative(page.locator('select[name="type"]'), 'openidconnect');
+  const newServerRevert = page.getByRole('button', { name: 'Revert changes' });
+  await expect(newServerRevert).toBeVisible();
+  await newServerRevert.click();
+  await expect(page).toHaveURL(/system_authservers\.php\?act=new$/);
+  await expect(page.locator('select[name="type"]')).toHaveValue('ldap');
+  await expect(newServerRevert).toBeHidden();
+  await selectNative(page.locator('select[name="type"]'), 'openidconnect');
   await expect(page.locator('input[name="openidconnect_provider_url"]')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Connection health' })).toBeDisabled();
   await expect(page.locator('[data-oidc-action-section="diagnostics"]')).toBeVisible();
@@ -312,9 +319,14 @@ async function configureServer(page) {
   const setupResponsePromise = page.waitForResponse(response => (
     new URL(response.url()).pathname === '/api/openidconnect/setup/generate'
   ));
+  const setupRequestPromise = page.waitForRequest(request => (
+    new URL(request.url()).pathname === '/api/openidconnect/setup/generate'
+  ));
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download provider setup' }).click();
   expectPrivateResponseHeaders(await setupResponsePromise);
+  const setupRequest = await setupRequestPromise;
+  expect(new URLSearchParams(setupRequest.postData() || '').get('preferred_origin')).toBe(origin);
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^opnsense-.+-keycloak-partial-import\.json$/);
   const setup = JSON.parse(await readFile(await download.path(), 'utf8'));
@@ -325,6 +337,15 @@ async function configureServer(page) {
   expect(generatedClient.redirectUris).toContain(`${origin}${callbackPath}`);
   expect(generatedClient.webOrigins[0]).toBe(origin);
   expect(generatedClient.webOrigins).toContain(origin);
+  expect(generatedClient.rootUrl).toBe(origin);
+  expect(generatedClient.name).toBe(new URL(origin).hostname);
+  expect(generatedClient.baseUrl).toBe(
+    `${origin}/api/openidconnect/auth/login?provider=${encodeURIComponent(process.env.E2E_SERVER_NAME)}`
+  );
+  expect(generatedClient.attributes.logoUri).toBe(
+    `${origin}/api/openidconnect/auth/builtinicon/opnsense`
+  );
+  expect(generatedClient.alwaysDisplayInConsole).toBe(true);
   expect(generatedClient.redirectUris.every(uri => uri.endsWith(callbackPath))).toBeTruthy();
   await importGeneratedKeycloakClient(setup);
   const keycloakSetupDialog = page.getByRole('dialog');
@@ -371,6 +392,15 @@ async function configureServer(page) {
   await page.getByRole('button', { name: 'Download provider setup' }).click();
   const authentikDownload = await authentikDownloadPromise;
   expect(authentikDownload.suggestedFilename()).toMatch(/-authentik-blueprint\.yaml$/);
+  const authentikBlueprint = await readFile(await authentikDownload.path(), 'utf8');
+  expect(authentikBlueprint).toContain(
+    `meta_launch_url: '${origin}/api/openidconnect/auth/login?provider=`
+      + `${encodeURIComponent(process.env.E2E_SERVER_NAME)}'`
+  );
+  expect(authentikBlueprint).toContain(`name: '${new URL(origin).hostname}'`);
+  expect(authentikBlueprint).toContain(
+    `icon: '${origin}/api/openidconnect/auth/builtinicon/opnsense'`
+  );
   const authentikSetupDialog = page.getByRole('dialog');
   const authentikSetupResult = authentikSetupDialog.locator(
     '.oidc-setup-result[data-provider="authentik"]'
@@ -470,12 +500,28 @@ async function configureServer(page) {
   await expect(page.locator('input[name="openidconnect_client_secret"]')).toHaveValue('');
   await expect(page.locator('input[name="openidconnect_max_age"]')).toHaveValue('14400');
   const signInTestButton = page.getByRole('button', { name: 'Test sign-in' });
+  const signInTestHelp = page.locator('.oidc-signin-test-help');
+  const revertChanges = page.getByRole('button', { name: 'Revert changes' });
   await expect(signInTestButton).toBeDisabled();
+  await expect(signInTestHelp).toHaveAttribute('aria-label', /Complete and save.*Client ID/);
+  await expect(revertChanges).toBeHidden();
+  await signInTestHelp.hover();
+  await expect(page.locator('.tooltip')).toBeVisible();
+  await expect(page.locator('.tooltip')).toContainText('Complete and save');
+  await signInTestHelp.focus();
+  await expect(page.locator('.tooltip')).toContainText('Complete and save');
 
   await page.locator('input[name="openidconnect_provider_url"]')
     .fill(`${issuer}/.well-known/openid-configuration`);
   await expect(signInTestButton).toBeDisabled();
-  await expect(signInTestButton).toHaveAttribute('title', /Save or revert your changes/);
+  await expect(signInTestButton).toHaveAttribute('title', /Complete and save.*Client ID/);
+  await expect(signInTestHelp).toHaveAttribute('aria-label', /Complete and save.*Client ID/);
+  await expect(revertChanges).toBeVisible();
+  await revertChanges.click();
+  await expect(page.locator('input[name="openidconnect_provider_url"]')).toHaveValue('');
+  await expect(revertChanges).toBeHidden();
+  await page.locator('input[name="openidconnect_provider_url"]')
+    .fill(`${issuer}/.well-known/openid-configuration`);
   const refusedTestResponsePromise = page.waitForResponse(response => (
     new URL(response.url()).pathname === '/api/openidconnect/test/start'
   ));
@@ -501,6 +547,12 @@ async function configureServer(page) {
   let dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('Enter Client ID and Client Secret');
   await expect(dialog.locator('.oidc-probe-check[data-verification="not-tested"]').first()).toBeVisible();
+  const diagnosticColumns = await dialog.locator('.oidc-probe-check-actions').evaluateAll(actions => actions.map(action => ({
+    statusLeft: action.querySelector('.label')?.getBoundingClientRect().left,
+    infoLeft: action.querySelector('.oidc-probe-info').getBoundingClientRect().left,
+  })).filter(position => Number.isFinite(position.statusLeft)));
+  expect(new Set(diagnosticColumns.map(position => Math.round(position.statusLeft))).size).toBe(1);
+  expect(new Set(diagnosticColumns.map(position => Math.round(position.infoLeft))).size).toBe(1);
   await dialog.getByRole('button', { name: '×' }).click();
 
   await page.locator('input[name="openidconnect_client_id"]').fill(process.env.E2E_KEYCLOAK_CLIENT_ID);
@@ -615,15 +667,36 @@ async function configureServer(page) {
   await expect(page.locator('input[name="openidconnect_logout_redirect"]')).toBeChecked();
   await expect(page.locator('select[name="openidconnect_logout_notifications"]')).toHaveValue('both');
   const savedSignInTest = page.getByRole('button', { name: 'Test sign-in' });
+  const savedSignInHelp = page.locator('.oidc-signin-test-help');
+  const savedRevertChanges = page.getByRole('button', { name: 'Revert changes' });
   await expect(savedSignInTest).toBeEnabled();
+  await expect(savedRevertChanges).toBeHidden();
+
+  const savedEditUrl = page.url();
+  await page.locator('input[name="name"]').evaluate(element => {
+    element.value = '';
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.locator('body')).toContainText('A server name must be provided.');
+  await expect(savedRevertChanges).toBeVisible();
+  await savedRevertChanges.click();
+  await expect(page).toHaveURL(savedEditUrl);
+  await expect(page.locator('input[name="name"]')).toHaveValue(process.env.E2E_SERVER_NAME);
+  await expect(savedRevertChanges).toBeHidden();
 
   const maxAge = page.locator('input[name="openidconnect_max_age"]');
   const savedMaxAge = await maxAge.inputValue();
   await maxAge.fill('60');
   await expect(savedSignInTest).toBeDisabled();
   await expect(savedSignInTest).toHaveAttribute('title', /Save or revert your changes/);
+  await expect(savedSignInHelp).toHaveAttribute('aria-label', /Save or revert your changes/);
+  await expect(savedRevertChanges).toBeVisible();
+  await savedSignInHelp.hover();
+  await expect(page.locator('.tooltip')).toContainText('Save or revert your changes');
   await maxAge.fill(savedMaxAge);
   await expect(savedSignInTest).toBeEnabled();
+  await expect(savedRevertChanges).toBeHidden();
 
   const selectAccount = page.locator('input[name="openidconnect_select_account"]');
   await selectAccount.check();
@@ -857,6 +930,9 @@ async function importGeneratedKeycloakClient(setup) {
   const client = await representation.json();
   expect(client.redirectUris).toEqual(setup.clients[0].redirectUris);
   expect(client.webOrigins).toEqual(setup.clients[0].webOrigins);
+  expect(client.rootUrl).toBe(setup.clients[0].rootUrl);
+  expect(client.baseUrl).toBe(setup.clients[0].baseUrl);
+  expect(client.alwaysDisplayInConsole).toBe(true);
   expect(client.defaultClientScopes).toEqual(setup.clients[0].defaultClientScopes);
   expect([...client.optionalClientScopes].sort()).toEqual([...setup.clients[0].optionalClientScopes].sort());
   expect(client.attributes['dpop.bound.access.tokens']).toBe('true');

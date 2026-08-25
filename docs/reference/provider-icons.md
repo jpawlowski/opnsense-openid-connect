@@ -15,6 +15,12 @@ light interior details are transparent cut-outs rather than opaque white
 layers. Original colours remain selectable. **Generic OpenID Connect** uses
 the official OpenID `i+D` mark rather than an invented `OIDC` letter tile.
 
+Generated authentik applications and Keycloak clients use a separate package-owned
+OPNsense SVG at `/api/openidconnect/auth/builtinicon/opnsense`. Their import files
+reference the absolute URL below the accepted WebGUI FQDN used for generation. The
+route needs no WebGUI session and performs no third-party fetch; normal firewall,
+VPN and routing policy still decides whether a browser can reach it.
+
 ## Installation-specific branding
 
 **Icon URL** remains editable. Use one of these forms:
@@ -63,6 +69,8 @@ The assets were retrieved on 24 August 2026 from these sources:
   Slack, Yahoo and ZITADEL: [Dashboard Icons][dashboard-icons], commit `8223c9c`, Apache-2.0
   collection. Keycloak retains its coloured interlocking ribbons without the opaque faceted
   backdrop; Oracle places its official oval in a compact inverse-colour tile.
+- OPNsense application tile: [official OPNsense core artwork][opnsense-icon], commit
+  `01fc795f34dae4184de79a710105f00a69c90400`, BSD-2-Clause.
 
 Collection licences do not waive third-party trademark or brand-guideline
 restrictions. Names and marks remain trademarks of their respective owners.
@@ -73,4 +81,5 @@ endorsement. An installation may still replace a bundled mark through
 [dashboard-icons]: https://github.com/homarr-labs/dashboard-icons
 [ibm-app-icons]: https://www.ibm.com/design/language/iconography/app-icons/library/
 [microsoft-sign-in]: https://learn.microsoft.com/en-us/entra/identity-platform/howto-add-branding-in-apps
+[opnsense-icon]: https://github.com/opnsense/core/blob/01fc795f34dae4184de79a710105f00a69c90400/src/opnsense/www/themes/opnsense/build/images/icon-logo.svg
 [simple-icons]: https://github.com/simple-icons/simple-icons/tree/13.21.0

@@ -127,9 +127,14 @@
 
     function effectiveOrigins() {
         var policy = field('openidconnect_origin_policy');
+        var standardPort = field('openidconnect_standard_https_port');
         var entered = listEntries(field('openidconnect_redirect_urls').value);
+        var inherited = (options.opnsenseOrigins || []).slice();
+        if (standardPort && $(standardPort).is(':checked')) {
+            inherited = inherited.concat(options.opnsenseStandardHttpsOrigins || []);
+        }
         var origins = !policy || policy.value !== 'custom'
-            ? uniqueOrigins((options.opnsenseOrigins || []).concat(entered))
+            ? uniqueOrigins(inherited.concat(entered))
             : uniqueOrigins(entered);
         var current = normalizedOrigin(window.location.origin);
         var currentIndex = current ? origins.indexOf(current) : -1;
@@ -138,6 +143,19 @@
             origins.unshift(current);
         }
         return origins;
+    }
+
+    function currentSetupOrigin() {
+        var current = normalizedOrigin(window.location.origin);
+        if (!current || effectiveOrigins().indexOf(current) === -1) {
+            return null;
+        }
+        var hostname = new URL(current).hostname.replace(/\.$/, '');
+        if (hostname.indexOf('.') === -1 || hostname.indexOf(':') !== -1
+            || /^\d+(?:\.\d+){3}$/.test(hostname)) {
+            return null;
+        }
+        return current;
     }
 
     function currentTransportReady() {
@@ -174,6 +192,7 @@
         }
         $(field('openidconnect_redirect_urls')).on('input change', update);
         $(field('openidconnect_origin_policy')).on('change', update);
+        $(field('openidconnect_standard_https_port')).on('change', update);
     }
 
     function currentServerId() {
@@ -271,6 +290,37 @@
                 .appendTo(sections);
         }
         return section;
+    }
+
+    /* A disabled button does not reliably receive pointer or keyboard events, so its
+     * title cannot explain why the action is unavailable. Let a focusable wrapper own
+     * the tooltip while leaving the real button disabled for form semantics. */
+    function withActionHelp(button, className) {
+        var wrapper = $('<span class="oidc-action-help">').addClass(className || '').append(button);
+        var tooltipReady = false;
+
+        function update(message, disabled) {
+            var explanation = String(message || '').replace(/`/g, '');
+            wrapper.toggleClass('oidc-action-help-disabled', disabled).attr({
+                'aria-label': explanation,
+                title: explanation
+            });
+            if (disabled) {
+                wrapper.attr('tabindex', '0');
+            } else {
+                wrapper.removeAttr('tabindex');
+            }
+            button.attr('title', explanation);
+            if (typeof wrapper.tooltip === 'function') {
+                if (!tooltipReady) {
+                    wrapper.tooltip({ container: 'body', placement: 'top', trigger: 'hover focus' });
+                    tooltipReady = true;
+                }
+                wrapper.attr({ 'data-original-title': explanation, title: '' });
+            }
+        }
+
+        return { element: wrapper, update: update };
     }
 
     function resultStatus(status) {
@@ -428,7 +478,8 @@
             'openidconnect_response_mode', 'openidconnect_claims_source', 'openidconnect_max_age',
             'openidconnect_select_account', 'openidconnect_required_authentication', 'openidconnect_acr_request',
             'openidconnect_acr_values', 'openidconnect_amr_values', 'openidconnect_entra_auth_context',
-            'openidconnect_origin_policy', 'openidconnect_redirect_urls', 'openidconnect_tls_offloading'
+            'openidconnect_origin_policy', 'openidconnect_standard_https_port',
+            'openidconnect_redirect_urls', 'openidconnect_tls_offloading'
         ];
         var data = {};
         names.forEach(function (name) {
@@ -594,15 +645,29 @@
             return { establishBaseline: function () {} };
         }
         var form = submit.closest('form');
-        var address = new URL(window.location.href);
         var nameInput = field('name');
         var savedName = nameInput ? nameInput.value.trim() : '';
-        var saved = address.searchParams.get('act') === 'edit'
-            && /^\d+$/.test(address.searchParams.get('id') || '') && savedName !== '';
+        var serverId = currentServerId();
+        var saved = serverId !== null;
         var savedReady = false;
         var initialized = false;
         var baseline = null;
         var running = false;
+        var revert = $('<button>')
+            .attr({
+                type: 'button',
+                class: 'btn btn-default auth_options auth_openidconnect oidc-revert-changes'
+            })
+            .text(options.revertChangesLabel || 'Revert changes')
+            .hide()
+            .on('click', function () {
+                var target = new URL('/system_authservers.php', window.location.origin);
+                target.searchParams.set('act', saved ? 'edit' : 'new');
+                if (saved) {
+                    target.searchParams.set('id', String(serverId));
+                }
+                window.location.assign(target.href);
+            });
         var button = $('<button>')
             .attr({
                 type: 'button',
@@ -650,6 +715,7 @@
                     updateAvailability();
                 });
             });
+        var buttonHelp = withActionHelp(button, 'oidc-signin-test-help');
         function currentFieldsComplete() {
             return currentClientFieldsComplete();
         }
@@ -661,7 +727,7 @@
                 return '';
             }
             new FormData(form).forEach(function (value, name) {
-                if (name.indexOf('openidconnect_') === 0) {
+                if (name === 'name' || name === 'type' || name.indexOf('openidconnect_') === 0) {
                     values.push([name, String(value)]);
                 }
             });
@@ -674,40 +740,48 @@
         }
 
         function formChanged() {
-            return saved && (baseline === null || formState() !== baseline);
+            return initialized && (baseline === null || formState() !== baseline);
         }
         function updateAvailability() {
             var changed = formChanged();
             var ready = saved && initialized && !changed && savedReady;
-            button.prop('disabled', running || !ready);
+            var disabled = running || !ready;
+            var typeInput = field('type');
+            button.prop('disabled', disabled);
+            revert.toggle(!!typeInput && typeInput.value === 'openidconnect' && changed && !running);
             if (!running) {
                 button.text(options.signInTestLabel || 'Test sign-in');
             }
             var explanation;
-            if (!saved) {
-                explanation = options.signInTestSaveHelp || 'Save this server before testing sign-in.';
-            } else if (!initialized) {
+            if (!initialized) {
                 explanation = options.formPreparing || 'Preparing form state...';
+            } else if (!currentFieldsComplete()) {
+                explanation = options.signInTestIncompleteHelp
+                    || 'Complete and save the issuer, client ID and selected client credential before testing sign-in.';
             } else if (changed) {
                 explanation = options.signInTestChangedHelp
                     || 'Save or revert your changes before testing sign-in.';
+            } else if (!saved) {
+                explanation = options.signInTestSaveHelp || 'Save this server before testing sign-in.';
             } else if (!currentTransportReady()) {
                 explanation = options.signInTestTransportHelp
                     || 'Save a complete secure WebGUI transport configuration before testing sign-in.';
-            } else if (!currentFieldsComplete() || !savedReady) {
+            } else if (!savedReady) {
                 explanation = options.signInTestIncompleteHelp
                     || 'Complete and save the issuer, client ID and selected client credential before testing sign-in.';
             } else {
                 explanation = options.signInTestHelp
                     || 'Runs a complete browser sign-in without changing OPNsense.';
             }
-            button.attr('title', explanation.replace(/`/g, ''));
+            buttonHelp.update(explanation, disabled);
         }
 
         function establishBaseline() {
             initialized = true;
-            if (saved && options.formLoadedFromSavedState === true) {
+            if (options.formLoadedState === true) {
                 baseline = formState();
+            }
+            if (saved && options.formLoadedFromSavedState === true) {
                 savedReady = currentFieldsComplete() && currentTransportReady();
             }
             updateAvailability();
@@ -715,7 +789,8 @@
 
         submit.closest('form').on('input change tokenize:tokens:change', updateAvailability);
         formActionSection('diagnostics', options.diagnosticsActionsHeading || 'Test and diagnostics')
-            .find('.oidc-form-actions').append(button);
+            .find('.oidc-form-actions').append(buttonHelp.element);
+        submit.after(revert);
         updateAvailability();
         return { establishBaseline: establishBaseline };
     }
@@ -765,7 +840,28 @@
             return picker;
         }
 
-        function accountCreationEditor(picker) {
+        function accountGroups(accounts, binding, uid) {
+            if (binding && uid === binding.uid) {
+                return Array.isArray(binding.groups) ? binding.groups : [];
+            }
+            var selected = accounts.find(function (candidate) { return candidate.uid === uid; });
+            return selected && Array.isArray(selected.groups) ? selected.groups : [];
+        }
+
+        function groupPicker(groups, selected, writable) {
+            var picker = $('<select multiple="multiple" class="selectpicker">');
+            groups.forEach(function (group) {
+                picker.append($('<option>').val(group).text(group));
+            });
+            picker.val(selected || []).prop('disabled', !writable);
+            return picker;
+        }
+
+        function selectGroups(picker, selected) {
+            picker.val(selected || []).selectpicker('refresh');
+        }
+
+        function accountCreationEditor(picker, groupSelectionOffered) {
             var username = $('<input class="form-control" type="text" autocomplete="off" spellcheck="false">')
                 .attr({ maxlength: 320, placeholder: options.approvalUsername || 'Username' })
                 .css({ width: '100%', maxWidth: 'none' });
@@ -773,8 +869,12 @@
                 .append($('<label>').text(options.approvalNewAccount || 'New local account'))
                 .append(username)
                 .append($('<p class="help-block">').text(
-                    options.approvalAccountCreationHelp
-                        || 'The account receives a scrambled password and no groups or privileges.'
+                    groupSelectionOffered
+                        ? (options.approvalAccountCreationWithGroupsHelp
+                            || 'The account receives a scrambled password. Selected existing groups are applied '
+                                + 'when the binding is saved.')
+                        : (options.approvalAccountCreationHelp
+                            || 'The account receives a scrambled password and no groups or privileges.')
                 ));
             function creating() {
                 return picker.val() === newAccountValue;
@@ -811,7 +911,7 @@
                     picker.find('option[value="' + created.uid + '"]').remove();
                     picker.find('option[value="' + newAccountValue + '"]')
                         .before($('<option>').val(created.uid).text(created.name));
-                    picker.val(created.uid).trigger('change');
+                    picker.val(created.uid).trigger('change', [true]);
                     deferred.resolve(created.uid, true);
                 } else {
                     deferred.reject((answer && answer.message)
@@ -844,7 +944,13 @@
                 binding ? binding.account : ''
             );
             account.css({ width: '100%', maxWidth: 'none' });
-            var creation = accountCreationEditor(account);
+            var creation = accountCreationEditor(account, true);
+            var availableGroups = Array.isArray(answer.groups) ? answer.groups : [];
+            var memberships = groupPicker(
+                availableGroups,
+                binding && Array.isArray(binding.groups) ? binding.groups : [],
+                answer.account_groups_writable === true
+            );
             var result = $('<div class="help-block oidc-binding-result">');
             var save = $('<button class="btn btn-primary" type="button">')
                 .text(options.bindingSave || 'Save binding');
@@ -866,7 +972,12 @@
             }
             issuer.on('input change', update);
             subject.on('input change', update);
-            account.on('change', update);
+            account.on('change', function (_, preserveGroups) {
+                if (!preserveGroups) {
+                    selectGroups(memberships, accountGroups(answer.accounts || [], binding, account.val()));
+                }
+                update();
+            });
             creation.username.on('input change', update);
             save.on('click', function () {
                 if (!valid()) {
@@ -877,12 +988,19 @@
                 update();
                 var action = binding ? 'update' : 'create';
                 resolveAccount(account, creation).done(function (uid, created) {
-                    request(action, {
+                    var data = {
                         binding_id: binding ? binding.id : '',
                         issuer: issuer.val().trim(),
                         subject: subject.val().trim(),
                         uid: uid
-                    }).done(function (savedBinding) {
+                    };
+                    if (answer.account_groups_writable === true) {
+                        data.groups_json = JSON.stringify(memberships.val() || []);
+                        data.groups_expected_json = JSON.stringify(
+                            created ? [] : accountGroups(answer.accounts || [], binding, uid)
+                        );
+                    }
+                    request(action, data).done(function (savedBinding) {
                         if (savedBinding && savedBinding.status === 'ok') {
                             load(dialog, 'bindings');
                         } else {
@@ -930,7 +1048,21 @@
             editor.append($('<div class="form-group">')
                 .append($('<label>').text(options.bindingAccount || 'Local account'))
                 .append(account));
-            editor.append(creation.container, result,
+            editor.append(creation.container);
+            editor.append($('<div class="form-group">')
+                .append($('<label>').text(options.bindingGroups || 'Local groups'))
+                .append(memberships)
+                .append($('<p class="help-block">').text(
+                    availableGroups.length === 0
+                        ? (options.bindingNoGroups || 'No local groups are available.')
+                        : (answer.account_groups_writable === true
+                            ? (options.bindingGroupsHelp
+                                || 'Optional. Existing memberships are preselected; saving replaces the selection.')
+                            : (options.bindingGroupsReadOnly
+                                || 'Memberships are shown read-only because account management is not permitted.'))
+                )));
+            memberships.selectpicker({ width: '100%' });
+            editor.append(result,
                 $('<div class="oidc-binding-editor-actions">').append(save, cancel));
             dialog.setTitle(
                 binding ? (options.bindingEditorEdit || 'Edit identity binding')
@@ -1233,11 +1365,13 @@
             .append($('<span>').text(options.setupGuideLabel || 'Open setup guide'));
 
         function setupData() {
+            var origins = effectiveOrigins();
             return {
                 profile: profile.value,
                 application_code: field('openidconnect_app_code').value,
                 display_name: field('name') ? field('name').value : '',
-                origins: effectiveOrigins().join(','),
+                origins: origins.join(','),
+                preferred_origin: currentSetupOrigin() || '',
                 sector_origin: field('openidconnect_sector_origin').value,
                 post_logout_redirect: $(field('openidconnect_logout_redirect')).is(':checked') ? '1' : '0',
                 logout_channel: channel.val(),
@@ -1264,6 +1398,17 @@
 
         function generate(download) {
             synchronizeLogoutChannel();
+            if (!currentSetupOrigin()) {
+                BootstrapDialog.show({
+                    title: download
+                        ? (options.setupLabel || 'Download provider setup')
+                        : (options.setupGuideLabel || 'Open setup guide'),
+                    message: $('<div>').text(options.setupOriginMismatchHelp ||
+                        'Open this form through an accepted HTTPS WebGUI FQDN.').html(),
+                    type: BootstrapDialog.TYPE_WARNING
+                });
+                return;
+            }
             var appCode = field('openidconnect_app_code');
             if (appCode && applicationCodeConflict(appCode.value)) {
                 $(appCode).trigger('input').trigger('focus');
@@ -1749,6 +1894,7 @@
         $(field('openidconnect_app_code')).on('input change', update);
         $(field('openidconnect_redirect_urls')).on('input change', update);
         $(field('openidconnect_origin_policy')).on('change', update);
+        $(field('openidconnect_standard_https_port')).on('change', update);
         $(field('openidconnect_sector_origin')).on('change', update);
         $(field('openidconnect_ssf_enabled')).on('change', update);
         $(field('openidconnect_ssf_delivery_method')).on('change', update);
@@ -1840,6 +1986,12 @@
             var buttonTextMode = field('openidconnect_button_text_mode').value || 'localized';
             var buttonTextCustomizable = (options.fixedButtonProfiles || []).indexOf(provider) === -1;
             toggleFieldRow('openidconnect_tls_offloading', options.webGuiProtocol === 'http');
+            toggleFieldRow(
+                'openidconnect_standard_https_port',
+                options.webGuiProtocol === 'https'
+                    && Number(options.webGuiPort || 443) !== 443
+                    && field('openidconnect_origin_policy').value !== 'custom'
+            );
             toggleFieldRow('openidconnect_microsoft_audience', provider === 'entra');
             toggleFieldRow('openidconnect_acr_request', authenticationRequired && provider !== 'entra');
             toggleFieldRow('openidconnect_acr_values', authenticationRequired && provider !== 'entra');

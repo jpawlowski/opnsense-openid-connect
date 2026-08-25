@@ -1,8 +1,10 @@
 # Troubleshooting
 
-The browser receives a generic message and a random reference. The detailed
-reason is written to the OPNsense audit/system log so the callback cannot be
-used to enumerate accounts or configuration.
+The browser receives a styled generic result and a random reference. The
+detailed reason is written to the OPNsense audit/system log so the callback
+cannot be used to enumerate accounts or configuration. Approval-pending,
+missing, disabled, expired, privileged and otherwise unusable local-account
+outcomes deliberately use the same page, status and reference shape.
 
 Temporarily enable **Trace the exchange**, reproduce once, then disable it. The
 trace records flow shape and claim names, not tokens, secrets or unnecessary
@@ -16,6 +18,10 @@ Check these first:
 - Under the default WebGUI address policy, the browser name is the configured
   OPNsense hostname/domain, an alternate hostname, a local interface address or
   a virtual IP, and the browser port is OPNsense's configured WebGUI port.
+  When that native HTTPS port is non-standard but a trusted proxy exposes the
+  configured DNS names on 443, enable **Also accept port 443 for configured
+  WebGUI hostnames**. Confirm the result under **Effective WebGUI origins** in
+  Test discovery or Connection health and register its callback at the provider.
   An additional or custom address contains only an origin such as
   `https://firewall.example.com`, not `/api/openidconnect/...`.
 - The browser trusts or has accepted the WebGUI certificate.
@@ -51,6 +57,11 @@ request checks Client ID, Client Secret and callback together. Otherwise OPNsens
 sends a silent, no-user authorization request that can check the public Client ID
 and exact callback but cannot prove the secret. A rejection at this stage remains
 in the authentication-server form instead of sending the browser to the provider.
+Expand the failed row: its safe response summary names the HTTP status and
+normalized `Content-Type`, reports a missing type explicitly and includes a
+bounded `Retry-After` when one was returned. `text/html` commonly means that a
+reverse proxy or branded error page answered where JSON was expected. Provider
+response bodies and other arbitrary headers are deliberately not displayed.
 
 The Client Secret is normally presented only after the provider has issued a real
 authorization code. If that token exchange returns `invalid_client`, **Test
@@ -114,6 +125,21 @@ Under **System > Access**, check the mapped local user and its local groups:
 If only the initially requested page is forbidden, the plugin automatically
 uses another OPNsense-authorized landing page. The audit log distinguishes this
 authorization denial from a failed identity-provider authentication.
+
+## Sign-in is waiting for administrator approval
+
+With **Administrator approval for unknown identities**, a successfully
+authenticated but unbound identity creates no WebGUI session. The browser's
+**WebGUI sign-in not completed** page shows a fresh short reference. An
+administrator looks up that public reference in the audit log; when the identity
+was queued, the same entry names the separate internal request shown under
+**Manage identities**. After an administrator verifies and binds it, start a new
+sign-in.
+
+The page intentionally does not confirm that an approval was queued. Missing,
+disabled, expired, privileged and otherwise unusable local accounts receive the
+same page and a fresh same-shaped reference on every attempt; the administrator
+correlates it through the audit log.
 
 ## Recovery
 

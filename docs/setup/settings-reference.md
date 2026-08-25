@@ -35,6 +35,7 @@ defaults below.
 | Scopes | profile preset, normally `openid,email,profile` | another scope such as `groups` is required; `openid` is always included |
 | Always show account selection | Off | users commonly have several accounts at the provider and should choose explicitly on every new login; this sends `prompt=select_account` |
 | WebGUI address policy | Follow OPNsense WebGUI settings | select Custom origins for this provider only to replace the inherited set for a provider restriction, reverse proxy or different external port |
+| Also accept port 443 for configured WebGUI hostnames | Off; shown only when OPNsense serves HTTPS on a non-standard port in Follow mode | a trusted reverse proxy exposes the configured hostname, hostname and domain, or alternate DNS hostnames on standard HTTPS port 443; local and virtual IPs remain on the native WebGUI port |
 | Trusted reverse-proxy TLS offloading | Off and hidden while OPNsense itself serves HTTPS | only for an HTTP backend exclusively reachable through one trusted public HTTPS proxy; Custom origins and explicit public HTTPS addresses are mandatory, the proxy must preserve Host and add Secure to the session cookie, and source-network ACLs require trusted client-address propagation |
 | Additional or overridden WebGUI origins | empty; Follow mode inherits configured names, actual local interface addresses and virtual IPs at the WebGUI port | add exact browser-facing HTTPS origins in Follow mode, or define the complete replacement set in Custom mode; never enter callback paths |
 | Pairwise subject sector | Off; the choices are the effective exact WebGUI origins | a provider should issue pairwise `sub` values and accepts a sector identifier URI; choose a stable origin before creating the provider client, save the server as a disabled draft, and do not change it after identity bindings exist |
@@ -175,7 +176,9 @@ setup** and **Open setup guide** are actions, not stored settings. None runs
 during Save. Test discovery live-fetches Discovery and JWKS from OPNsense and
 checks the selected Request Object key. It uses the current unsaved client
 values for an authenticated PAR check when applicable and also works without
-client credentials. Where PAR does not already cover it, a silent authorization
+client credentials. Test discovery and Connection health both list the exact
+effective WebGUI origins from which browser sign-in can start. Where PAR does
+not already cover it, a silent authorization
 request checks whether the provider accepts the public Client ID and exact
 callback without authenticating a user. Connection health becomes
 available when the current form contains Exact issuer URL, Client ID and Client
@@ -187,7 +190,8 @@ logout path needs Test sign-in. Optional capabilities absent from Discovery appe
 in a separate **Not offered by the provider** section; a missing capability required
 by the current form remains under **Readiness** as attention or failure. The browser
 does not need to reach Discovery. Test sign-in becomes available after the server has first been saved,
-is complete and has no unsaved changes. It may be used while the provider
+is complete and has no unsaved changes. Its disabled-state tooltip names the missing requirement, and
+**Revert changes** beside **Save** restores the complete saved form. It may be used while the provider
 remains disabled and validates a real browser flow without changing the WebGUI
 session or local identity state. Its optional **Validate sign-out** action uses
 the always-displayed lifecycle return URI and reports only logout notifications
@@ -242,9 +246,13 @@ lists durable bindings, supports assisted creation/editing/removal and handles
 pending approvals when the Administrator approval policy is active. It is not a
 stored setting and requires OPNsense's **System: Authentication Servers**
 privilege; write actions additionally honour **user-config-readonly**. Creating
-a local account inside a new binding or approval also requires **System: Access:
-Management**. The account starts with a scrambled password and no groups or
-privileges, which remain explicit local choices. See the
+a local account inside a new binding or approval, or changing group membership
+while adding an identity, also requires **System: Access: Management**. **Add an
+identity** offers an optional multi-select containing only existing local groups.
+It starts empty for a new account and shows the current memberships of a selected
+existing account; saving replaces that account's selection without creating any
+group. A new account still receives a scrambled password, and selected groups may
+grant their local privileges. See the
 [admission policy guide](admission-policy.md).
 
 Back-channel and front-channel logout are notifications from the provider to

@@ -22,7 +22,8 @@ final class ProviderProbe
         'openidconnect_response_mode', 'openidconnect_claims_source', 'openidconnect_max_age',
         'openidconnect_select_account', 'openidconnect_required_authentication', 'openidconnect_acr_request',
         'openidconnect_acr_values', 'openidconnect_amr_values', 'openidconnect_entra_auth_context',
-        'openidconnect_origin_policy', 'openidconnect_redirect_urls', 'openidconnect_tls_offloading',
+        'openidconnect_origin_policy', 'openidconnect_standard_https_port',
+        'openidconnect_redirect_urls', 'openidconnect_tls_offloading',
     ];
 
     private $clientAssertionFactory;
@@ -56,12 +57,13 @@ final class ProviderProbe
         );
         $checks = $this->metadataChecks($settings, $metadata);
         try {
-            $keyCount = (new JwtVerifier($this->http))->probeKeySet($metadata->jwksUri());
+            $keySet = (new JwtVerifier($this->http))->probeKeySetDetails($metadata->jwksUri());
             $checks[] = self::check(
                 gettext('Signing keys'),
-                sprintf(gettext('%d usable key(s)'), $keyCount),
+                sprintf(gettext('%d usable key(s)'), $keySet['count']),
                 'success',
-                gettext('The JWKS endpoint was fetched live and contains supported signing material.'),
+                gettext('The JWKS endpoint contains supported signing material. Provider response: ')
+                    . $keySet['response']->diagnosticSummary() . '.',
                 ['opnsense', 'idp'],
                 'live'
             );
@@ -76,15 +78,24 @@ final class ProviderProbe
             );
         }
         $checks[] = $this->requestObjectCheck($settings, $metadata);
-        $authorization = (new AuthorizationPreflight($this->http))->check($settings, $metadata, $redirectUri);
-        $checks[] = self::check(
-            gettext('Authorization registration'),
-            $authorization['value'],
-            $authorization['status'],
-            $authorization['note'],
-            ['opnsense', 'idp'],
-            $authorization['verification']
-        );
+        try {
+            $authorization = (new AuthorizationPreflight($this->http))->check($settings, $metadata, $redirectUri);
+            $checks[] = self::check(
+                gettext('Authorization registration'),
+                $authorization['value'],
+                $authorization['status'],
+                $authorization['note'],
+                ['opnsense', 'idp'],
+                $authorization['verification']
+            );
+        } catch (\Throwable $error) {
+            $checks[] = self::failureCheck(
+                gettext('Authorization registration'),
+                $error->getMessage(),
+                ['opnsense', 'idp'],
+                'live'
+            );
+        }
         $checks[] = $this->parCheck($settings, $metadata, $redirectUri);
         return $checks;
     }
@@ -147,7 +158,24 @@ final class ProviderProbe
                 ['browser', 'opnsense'],
                 'configuration'
             ),
+            self::webGuiOriginsCheck($settings),
         ];
+    }
+
+    /** @return array<string,mixed> */
+    public static function webGuiOriginsCheck(OpenIDConnect $settings): array
+    {
+        $origins = $settings->effectiveWebGuiOrigins();
+        return self::check(
+            gettext('Effective WebGUI origins'),
+            $origins === [] ? gettext('None') : implode(', ', $origins),
+            $origins === [] ? 'error' : 'success',
+            $origins === []
+                ? gettext('No browser origin is accepted for OpenID Connect sign-in.')
+                : gettext('OpenID Connect sign-in can start from exactly these browser origins.'),
+            ['browser', 'opnsense'],
+            'configuration'
+        );
     }
 
     /** @return array<string,mixed> */
@@ -282,7 +310,10 @@ final class ProviderProbe
                 gettext('Discovery'),
                 $metadata->issuer(),
                 'success',
-                gettext('The document was fetched live and its issuer matches exactly.'),
+                gettext(
+                    'The document was fetched live and its issuer matches exactly. Provider response: HTTP 200; '
+                    . 'Content-Type: application/json.'
+                ),
                 ['opnsense', 'idp'],
                 'live'
             ),
@@ -590,6 +621,7 @@ final class ProviderProbe
         try {
             $client->probe($metadata, $redirectUri);
             ProviderRuntimeState::parAvailable($key);
+            $response = $client->lastResponse();
             $check = self::check(
                 gettext('PAR endpoint'),
                 gettext('Live authenticated request accepted'),
@@ -597,7 +629,10 @@ final class ProviderProbe
                 gettext(
                     'PAR will be used automatically. The returned request URI was deliberately discarded; ' .
                     'no browser transaction was created.'
-                ),
+                ) . ($response === null ? '' : sprintf(
+                    gettext(' Provider response: %s.'),
+                    $response->diagnosticSummary()
+                )),
                 ['opnsense', 'idp'],
                 'live'
             );

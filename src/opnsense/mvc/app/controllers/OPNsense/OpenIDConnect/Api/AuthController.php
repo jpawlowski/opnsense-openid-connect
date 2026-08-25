@@ -32,7 +32,7 @@ use OPNsense\OpenIDConnect\WebGuiAccess;
  *   /api/openidconnect/auth/logout    end here and at the provider
  *   /api/openidconnect/auth/logouttestcallback return from a disposable lifecycle test
  *   /api/openidconnect/auth/icon      hand on a provider's logo for the login button
- *   /api/openidconnect/auth/builtinicon hand out a package-owned provider mark
+ *   /api/openidconnect/auth/builtinicon hand out a package-owned provider or OPNsense mark
  *   /api/openidconnect/auth/formscript serve the static authentication-server form application
  *   /api/openidconnect/auth/sector    publish callback URIs for pairwise subjects
  *
@@ -336,8 +336,12 @@ class AuthController extends ApiControllerBase
         $account = $settings->localAccountFor($claims, $exchange->issuer(), $exchange->subject());
         if ($account === null) {
             /* localAccountFor() has already said in the log which of its reasons it was */
-            $this->auditRefusal($name, 'no local account this login may use');
-            return $this->refuse(403, 'Forbidden', 'There is no local account for this user, or it may not be used.');
+            $pending = $settings->pendingApprovalId();
+            /* A registry ID is stable across retries. Exposing it only for the pending case
+             * would let the browser distinguish that case from every other refusal. */
+            [$reference, $auditReason] = self::accountUnavailableReferences($pending);
+            $this->auditRefusal($name, $auditReason);
+            return $this->accountUnavailableResult($reference);
         }
 
         try {
@@ -548,7 +552,7 @@ class AuthController extends ApiControllerBase
         return $answer['body'];
     }
 
-    /** Serve the reviewed SVG which a provider profile selects by default. */
+    /** Serve one reviewed SVG selected by a provider profile or generated provider application. */
     public function builtiniconAction(string $profile = '')
     {
         $path = OpenIDConnect::providerIconPath($profile);
@@ -1079,6 +1083,67 @@ class AuthController extends ApiControllerBase
         $value = preg_replace('/[\x00-\x1f\x7f]/', ' ', (string)$value);
 
         return strlen($value) > 512 ? substr($value, 0, 509) . '...' : $value;
+    }
+
+    /** Give every unusable local-account outcome the same helpful browser result. */
+    private function accountUnavailableResult(string $reference): string
+    {
+        $this->response->setStatusCode(403, 'Forbidden');
+        $this->response->setContentType('text/html', 'UTF-8');
+        $this->response->setHeader(
+            'Content-Security-Policy',
+            "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+        );
+        if ($this->request->isPost()) {
+            header_remove('Set-Cookie');
+        }
+        $escape = static fn(string $value): string => htmlspecialchars(
+            $value,
+            ENT_QUOTES | ENT_SUBSTITUTE,
+            'UTF-8'
+        );
+        return '<!doctype html><html><head><meta charset="utf-8">'
+            . '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            . '<title>' . $escape(gettext('WebGUI sign-in not completed')) . '</title>'
+            . '<style>:root{color-scheme:light dark;--bg:#f3f5f7;--panel:#fff;--text:#263238;--muted:#5d6b73;'
+            . '--line:#d8dee2;--accent:#805400;--accent-bg:#fff4d6}*{box-sizing:border-box}body{margin:0;background:var(--bg);'
+            . 'color:var(--text);font:16px/1.55 system-ui,-apple-system,sans-serif}main{max-width:44rem;margin:4rem auto;padding:0 1rem}'
+            . '.panel{background:var(--panel);border:1px solid var(--line);border-radius:.7rem;box-shadow:0 .25rem 1.25rem #00000012;'
+            . 'overflow:hidden}.hero{display:flex;gap:1rem;align-items:center;padding:1.6rem;background:var(--accent-bg);border-bottom:1px solid var(--line)}'
+            . '.mark{display:grid;place-items:center;flex:0 0 3rem;height:3rem;border-radius:50%;background:var(--accent);color:#fff;'
+            . 'font-size:1.5rem;font-weight:800}.hero h1{margin:0;color:var(--accent);font-size:1.55rem}.hero p{margin:.2rem 0 0;color:var(--muted)}'
+            . '.content{padding:1.6rem}.reference{margin:1rem 0;padding:1rem;border:1px solid var(--line);border-radius:.4rem;background:var(--accent-bg)}'
+            . '.reference strong{display:block;margin-bottom:.25rem}.reference code{font-size:1.15rem;font-weight:700;overflow-wrap:anywhere}'
+            . 'ol{padding-left:1.3rem}li+li{margin-top:.45rem}a{display:inline-block;margin-top:.5rem;padding:.6rem .85rem;background:#337ab7;'
+            . 'color:#fff;text-decoration:none;border-radius:.3rem;font-weight:600}@media(max-width:600px){main{margin:1rem auto}.hero{align-items:flex-start}}'
+            . '@media(prefers-color-scheme:dark){:root{--bg:#172126;--panel:#202c32;--text:#edf2f4;--muted:#bdc9ce;'
+            . '--line:#405159;--accent:#ffd166;--accent-bg:#493a13}}</style></head><body><main><section class="panel oidc-account-unavailable">'
+            . '<header class="hero"><span class="mark" aria-hidden="true">!</span><div><h1>'
+            . $escape(gettext('WebGUI sign-in not completed')) . '</h1><p>'
+            . $escape(gettext('The identity provider accepted the sign-in, but this firewall did not create a session.'))
+            . '</p></div></header><div class="content"><p>'
+            . $escape(gettext('An administrator may need to review this identity. Give them this sign-in reference:'))
+            . '</p><div class="reference"><strong>' . $escape(gettext('Sign-in reference')) . '</strong><code>'
+            . $escape($reference) . '</code></div><ol><li>'
+            . $escape(gettext('An administrator checks pending identity approvals and the OPNsense audit log.'))
+            . '</li><li>' . $escape(gettext('The administrator verifies whether this identity may use a local account.'))
+            . '</li><li>' . $escape(gettext('After the administrator confirms access, start a new sign-in from the login page.'))
+            . '</li></ol><a href="/">' . $escape(gettext('Return to login'))
+            . '</a></div></section></main></body></html>';
+    }
+
+    /** @return array{string,string} fresh public reference and privileged audit reason */
+    private static function accountUnavailableReferences(string $pending): array
+    {
+        $reference = bin2hex(random_bytes(10));
+        $reason = $pending !== ''
+            ? sprintf(
+                'identity queued for administrator approval [%s]; public sign-in reference [%s]',
+                $pending,
+                $reference
+            )
+            : sprintf('no local account this login may use; public sign-in reference [%s]', $reference);
+        return [$reference, $reason];
     }
 
     /** Explain a successful provider authentication that local OPNsense ACLs do not admit. */

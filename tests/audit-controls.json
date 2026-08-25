@@ -20,6 +20,7 @@
         "stable-subject-binding",
         "account-admission-policy",
         "group-scope-policy",
+        "manager-group-policy",
         "webgui-access-policy",
         "form-post-transaction",
         "logout-token-policy",
@@ -446,6 +447,28 @@
           }
         },
         {
+          "slug": "manager-group-policy",
+          "claim": "The identity manager shows current memberships and atomically applies a complete optional selection limited to existing local groups under the native account-management privilege.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/Auth/OpenIDConnect.php",
+            "src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/ApprovalController.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["manager-group-policy"],
+                "validation": ["tests/unit/accounts.php"]
+              },
+              {
+                "tier": "installed-integration",
+                "capabilities": ["runtime-core-acl"],
+                "validation": ["tests/integration/opnsense.php"]
+              }
+            ]
+          }
+        },
+        {
           "slug": "webgui-access-policy",
           "claim": "Provider authentication alone grants no WebGUI access; effective OPNsense user, group, page and source-network authorization must also produce a safe local landing page.",
           "implementation": [
@@ -749,7 +772,7 @@
         },
         {
           "slug": "provider-onboarding-invariants",
-          "claim": "Named provider presets cover every provider-dependent field, and generated Keycloak or authentik setup files contain exact redirects without embedding a client secret.",
+          "claim": "Named provider presets cover every provider-dependent field, and generated Keycloak or authentik setup files bind visible naming, branding and exact redirects to the active accepted WebGUI FQDN without embedding a client secret.",
           "implementation": [
             "src/opnsense/mvc/app/library/OPNsense/Auth/OpenIDConnect.php",
             "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/ProviderSetup.php"

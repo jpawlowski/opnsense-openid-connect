@@ -499,6 +499,36 @@ Checks::that(
 
 Checks::group('Bounded HTTPS transport');
 Checks::throws(
+    'JSON-shaped text is refused before decoding',
+    fn() => (new OPNsense\OpenIDConnect\HttpResponse(
+        200,
+        'text/html',
+        '{"answer":true}',
+        'https://id.example.net/data'
+    ))->jsonObject(),
+    'JSON media type'
+);
+Checks::that(
+    'a registered structured JSON media type is accepted by the common decoder',
+    (new OPNsense\OpenIDConnect\HttpResponse(
+        200,
+        'application/jwk-set+json',
+        '{"keys":[]}',
+        'https://id.example.net/keys'
+    ))->jsonObject(),
+    ['keys' => []]
+);
+Checks::that(
+    'HTTP diagnostics expose status and a missing media type without reflecting a body',
+    (new OPNsense\OpenIDConnect\HttpResponse(
+        502,
+        '',
+        '<html>private proxy body</html>',
+        'https://id.example.net/data'
+    ))->diagnosticSummary(),
+    'HTTP 502; Content-Type: missing'
+);
+Checks::throws(
     'the client never fetches a local file',
     fn() => (new HttpClient(fn() => jsonAnswer([])))->get('file:///conf/config.xml', 100),
     'HTTPS'
@@ -518,8 +548,13 @@ $redirected = new HttpClient(function ($method, $url) use (&$redirects): array {
 Checks::that('a relative HTTPS redirect is resolved manually', $redirected->get('https://id.example.net/start', 100)->url, 'https://id.example.net/finish');
 Checks::that('each redirect target is fetched separately', $redirects, 2);
 $firstRedirectCalls = 0;
-$firstRedirect = (new HttpClient(function () use (&$firstRedirectCalls): array {
+$firstRedirectHeaders = [];
+$firstRedirect = (new HttpClient(function ($method, $url, $body, array $headers) use (
+    &$firstRedirectCalls,
+    &$firstRedirectHeaders
+): array {
     $firstRedirectCalls++;
+    $firstRedirectHeaders = $headers;
     return [
         'status' => 302,
         'content_type' => 'text/html',
@@ -530,6 +565,18 @@ $firstRedirect = (new HttpClient(function () use (&$firstRedirectCalls): array {
 Checks::that('a front-channel probe retains the first redirect location',
     $firstRedirect->headers['location'], 'https://id.example.net/callback?state=opaque');
 Checks::that('a front-channel probe never follows the provider redirect', $firstRedirectCalls, 1);
+Checks::that('a front-channel probe asks for a browser response rather than JSON',
+    in_array('Accept: text/html, application/xhtml+xml', $firstRedirectHeaders, true), true);
+$largeFirstResponse = (new HttpClient(static fn(): array => [
+    'status' => 400,
+    'content_type' => 'text/html',
+    'body' => str_repeat('branded provider error', 4096),
+    'location' => '',
+]))->getFirstResponse('https://id.example.net/authorize', 65536);
+Checks::that('a front-channel probe discards an unused oversized error body', [
+    $largeFirstResponse->status,
+    $largeFirstResponse->body,
+], [400, '']);
 Checks::throws(
     'a redirect cannot downgrade transport security',
     fn() => (new HttpClient(fn() => [
@@ -982,6 +1029,26 @@ Checks::that('the failed test returns to the exact saved authentication-server r
     str_contains($testFailureHtml, 'href="/system_authservers.php?act=edit&amp;id=3"'), true);
 Checks::that('the failed diagnostic page does not trigger proxy interception with an HTTP error status',
     $testFailureController->response->status, null);
+$approvalController = new AuthController();
+$approvalHtml = inspect($approvalController, 'accountUnavailableResult', '0123456789abcdefabcd');
+Checks::that('every unusable local-account outcome can receive the same styled result', [
+    $approvalController->response->status,
+    str_contains($approvalHtml, 'WebGUI sign-in not completed'),
+    str_contains($approvalHtml, '0123456789abcdefabcd'),
+], [[403, 'Forbidden'], true, true]);
+$pendingReferences = inspect($approvalController, 'accountUnavailableReferences', 'stable-internal-request');
+$otherReferences = inspect($approvalController, 'accountUnavailableReferences', '');
+Checks::that('pending and other refusals both receive fresh same-shaped public references', [
+    preg_match('/^[0-9a-f]{20}$/D', $pendingReferences[0]),
+    preg_match('/^[0-9a-f]{20}$/D', $otherReferences[0]),
+    $pendingReferences[0] !== $otherReferences[0],
+    $pendingReferences[0] !== 'stable-internal-request',
+], [1, 1, true, true]);
+Checks::that('only the privileged audit reason maps a public reference to the internal request', [
+    str_contains($pendingReferences[1], 'stable-internal-request'),
+    str_contains($pendingReferences[1], $pendingReferences[0]),
+    str_contains($otherReferences[1], $otherReferences[0]),
+], [true, true, true]);
 
 $wrongUserInfoType = new RelyingParty(
     $endpointSettings,
