@@ -1768,6 +1768,16 @@ class OpenIDConnect extends Base implements IAuthConnector
             'bindingIssuer' => gettext('Exact issuer'),
             'bindingSubject' => gettext('Subject (sub)'),
             'bindingAccount' => gettext('Local account'),
+            'bindingGroups' => gettext('Local groups'),
+            'bindingGroupsHelp' => gettext(
+                'Optional. Existing memberships are preselected. Saving replaces this account\'s complete local ' .
+                'group selection; only groups that already exist can be selected.'
+            ),
+            'bindingGroupsReadOnly' => gettext(
+                'Existing memberships are shown read-only. Changing them requires the System: Access: Management ' .
+                'privilege.'
+            ),
+            'bindingNoGroups' => gettext('No local groups are available. This workflow does not create groups.'),
             'bindingUnavailable' => gettext('Stored account is no longer available'),
             'bindingLegacy' => gettext('Legacy mapping; save an edit to normalize it'),
             'bindingSave' => gettext('Save binding'),
@@ -1804,6 +1814,10 @@ class OpenIDConnect extends Base implements IAuthConnector
             'approvalAccountCreationHelp' => gettext(
                 'The account receives a scrambled password and no groups or privileges. Assign its local WebGUI ' .
                 'access under System > Access > Users after saving the binding.'
+            ),
+            'approvalAccountCreationWithGroupsHelp' => gettext(
+                'The account receives a scrambled password. Optional memberships selected below are applied when ' .
+                'the binding is saved; local groups may grant WebGUI privileges.'
             ),
             'approvalAccountCreateFailed' => gettext('Enter a new valid local username and try again.'),
             'approvalAccountCreatedBindingFailed' => gettext(
@@ -2145,7 +2159,21 @@ class OpenIDConnect extends Base implements IAuthConnector
         return PendingIdentityRegistry::listing($this->applicationCode());
     }
 
-    /** @return array<int,array{uid:string,name:string}> */
+    /** @return string[] existing local groups that an administrator may choose */
+    public function manageableGroups(): array
+    {
+        $groups = [];
+        foreach (Config::getInstance()->object()->system->group ?? [] as $group) {
+            $name = (string)($group->name ?? '');
+            if ($name !== '') {
+                $groups[$name] = $name;
+            }
+        }
+        natcasesort($groups);
+        return array_values($groups);
+    }
+
+    /** @return array<int,array{uid:string,name:string,groups:string[]}> */
     public function approvableAccounts(): array
     {
         $accounts = [];
@@ -2163,7 +2191,11 @@ class OpenIDConnect extends Base implements IAuthConnector
             $uid = (string)($user->uid ?? '');
             $name = (string)($user->name ?? '');
             if ($uid !== '' && ctype_digit($uid) && $name !== '' && !isset($boundUids[$uid])) {
-                $accounts[] = ['uid' => $uid, 'name' => $name];
+                $accounts[] = [
+                    'uid' => $uid,
+                    'name' => $name,
+                    'groups' => $this->managedAccountGroups($uid),
+                ];
             }
         }
         usort($accounts, static fn(array $a, array $b): int => strcasecmp($a['name'], $b['name']));
@@ -2209,6 +2241,7 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'uid' => $user === null ? '' : (string)($user->uid ?? ''),
                 'account' => $user === null ? $parts[1] : (string)($user->name ?? $parts[1]),
                 'account_available' => $user !== null,
+                'groups' => $user === null ? [] : $this->managedAccountGroups((string)($user->uid ?? '')),
                 'canonical' => $canonical,
             ];
         }
@@ -2286,18 +2319,25 @@ class OpenIDConnect extends Base implements IAuthConnector
         return hash_equals($this->issuerUrl(), $issuer) ? $issuer : null;
     }
 
-    public function createSubjectBinding(string $issuer, string $subject, string $uid): bool
-    {
-        return $this->saveManagedBinding('', $issuer, $subject, $uid);
+    public function createSubjectBinding(
+        string $issuer,
+        string $subject,
+        string $uid,
+        ?array $groups = null,
+        ?array $expectedGroups = null
+    ): bool {
+        return $this->saveManagedBinding('', $issuer, $subject, $uid, $groups, $expectedGroups);
     }
 
     public function updateSubjectBinding(
         string $bindingId,
         string $issuer,
         string $subject,
-        string $uid
+        string $uid,
+        ?array $groups = null,
+        ?array $expectedGroups = null
     ): bool {
-        return $this->saveManagedBinding($bindingId, $issuer, $subject, $uid);
+        return $this->saveManagedBinding($bindingId, $issuer, $subject, $uid, $groups, $expectedGroups);
     }
 
     public function deleteSubjectBinding(string $bindingId): bool
@@ -2615,7 +2655,9 @@ class OpenIDConnect extends Base implements IAuthConnector
         string $bindingId,
         string $issuer,
         string $subject,
-        string $uid
+        string $uid,
+        ?array $groups = null,
+        ?array $expectedGroups = null
     ): bool {
         $issuer = $this->normalizeBindingIssuer($issuer) ?? '';
         $subject = static::normalizeSubjectIdentifier($subject) ?? '';
@@ -2660,16 +2702,41 @@ class OpenIDConnect extends Base implements IAuthConnector
             }
             $lines[] = $canonical;
             return $lines;
-        }, sprintf('%s subject binding for local uid %s', $bindingId === '' ? 'created' : 'updated', $uid));
+        }, sprintf('%s subject binding for local uid %s', $bindingId === '' ? 'created' : 'updated', $uid),
+            $uid, $groups, $expectedGroups);
     }
 
-    /** Atomically mutate only this saved authentication server's binding field. */
-    private function replaceBindingLines(callable $mutation, string $audit): bool
-    {
+    /** Atomically mutate this saved server's bindings and an optional local-account group selection. */
+    private function replaceBindingLines(
+        callable $mutation,
+        string $audit,
+        string $uid = '',
+        ?array $groups = null,
+        ?array $expectedGroups = null
+    ): bool {
         $config = Config::getInstance();
+        $syncAccount = null;
+        $completed = false;
         try {
-            $config->lock();
+            /* The expected-membership check has to see the file state from after the exclusive lock,
+             * otherwise another administrator's completed change could still be replaced. */
+            $config->lock(true);
             $root = $config->object();
+            $account = $uid === '' ? null : static::userByUidIn($root, $uid);
+            if ($uid !== '' && ($account === null || !$this->accountMayBeUsed($account))) {
+                return false;
+            }
+            $selectedGroups = null;
+            if ($groups !== null) {
+                $selectedGroups = static::normalizeManagedGroups($root, $groups);
+                $expected = $expectedGroups === null
+                    ? null : static::normalizeManagedGroups($root, $expectedGroups);
+                $current = static::managedGroupMembershipsIn($root, $uid);
+                if ($selectedGroups === null || $expected === null
+                    || array_diff_key($current, $expected) !== [] || array_diff_key($expected, $current) !== []) {
+                    return false;
+                }
+            }
             foreach ($root->system->authserver ?? [] as $server) {
                 if (!$this->bindingServerMatches($server)) {
                     continue;
@@ -2683,15 +2750,26 @@ class OpenIDConnect extends Base implements IAuthConnector
                     return false;
                 }
                 $stored = implode("\n", $replacement);
-                if ($stored !== implode("\n", $lines)) {
+                $bindingChanged = $stored !== implode("\n", $lines);
+                if ($bindingChanged) {
                     $server->openidconnect_subject_bindings = $stored;
+                }
+                $groupsChanged = $selectedGroups !== null
+                    && static::replaceManagedGroupMemberships($root, $uid, $selectedGroups);
+                if ($bindingChanged || $groupsChanged) {
                     $config->save();
                 }
                 $this->settings['openidconnect_subject_bindings'] = $stored;
                 syslog(LOG_NOTICE, 'OIDC: administrator ' . $audit);
-                return true;
+                if ($groupsChanged) {
+                    $syncAccount = (string)$account->name;
+                }
+                $completed = true;
+                break;
             }
-            return false;
+            if (!$completed) {
+                return false;
+            }
         } catch (\Throwable $e) {
             syslog(LOG_ERR, sprintf('OIDC: saving managed subject bindings failed (%s)', $e->getMessage()));
             return false;
@@ -2700,6 +2778,109 @@ class OpenIDConnect extends Base implements IAuthConnector
                 $config->unlock();
             }
         }
+        if ($syncAccount !== null) {
+            try {
+                (new Backend())->configdpRun('auth user changed', [$syncAccount]);
+            } catch (\Throwable $e) {
+                syslog(LOG_ERR, sprintf('OIDC: synchronizing local account groups failed (%s)', $e->getMessage()));
+            }
+        }
+        return true;
+    }
+
+    private static function userByUidIn(object $root, string $uid): ?object
+    {
+        if ($uid === '' || !ctype_digit($uid)) {
+            return null;
+        }
+        foreach ($root->system->user ?? [] as $user) {
+            if (isset($user->uid) && hash_equals($uid, (string)$user->uid)) {
+                return $user;
+            }
+        }
+        return null;
+    }
+
+    /** @return array<string,bool>|null exact selected group names, or null for an invalid selection */
+    private static function normalizeManagedGroups(object $root, array $groups): ?array
+    {
+        $known = [];
+        foreach ($root->system->group ?? [] as $group) {
+            $name = (string)($group->name ?? '');
+            if ($name !== '') {
+                $known[$name] = true;
+            }
+        }
+
+        $selected = [];
+        foreach ($groups as $group) {
+            if (!is_string($group) || !array_key_exists($group, $known)) {
+                return null;
+            }
+            $selected[$group] = true;
+        }
+        return $selected;
+    }
+
+    /**
+     * Apply the complete selection the same way core's local-user editor does: memberships
+     * live on existing group records, and one user UID is the only value this operation owns.
+     *
+     * @param array<string,bool> $selected exact existing group names
+     */
+    private static function replaceManagedGroupMemberships(object $root, string $uid, array $selected): bool
+    {
+        $changed = false;
+        foreach ($root->system->group ?? [] as $group) {
+            $name = (string)($group->name ?? '');
+            $members = explode(',', implode(',', (array)($group->member ?? [])));
+            $hadMembership = in_array($uid, $members, true);
+            $wantsMembership = array_key_exists($name, $selected);
+            if ($hadMembership === $wantsMembership) {
+                continue;
+            }
+            $members = array_values(array_filter(
+                $members,
+                static fn(string $member): bool => $member !== '' && !hash_equals($uid, $member)
+            ));
+            if ($wantsMembership) {
+                $members[] = $uid;
+            }
+            $group->member = implode(',', $members);
+            $changed = true;
+            syslog(LOG_NOTICE, sprintf(
+                'OIDC: administrator %s local account %s group %s',
+                $wantsMembership ? 'linked' : 'unlinked',
+                $uid,
+                $name
+            ));
+        }
+        return $changed;
+    }
+
+    /** @return array<string,bool> exact current group names for one local UID */
+    private static function managedGroupMembershipsIn(object $root, string $uid): array
+    {
+        $groups = [];
+        foreach ($root->system->group ?? [] as $group) {
+            $name = (string)($group->name ?? '');
+            $members = explode(',', implode(',', (array)($group->member ?? [])));
+            if ($name !== '' && in_array($uid, $members, true)) {
+                $groups[$name] = true;
+            }
+        }
+        return $groups;
+    }
+
+    /** @return string[] current memberships of one local UID */
+    private function managedAccountGroups(string $uid): array
+    {
+        if ($uid === '' || !ctype_digit($uid)) {
+            return [];
+        }
+        $groups = array_keys(static::managedGroupMembershipsIn(Config::getInstance()->object(), $uid));
+        natcasesort($groups);
+        return array_values($groups);
     }
 
     private function bindingServerMatches(object $server): bool

@@ -20,6 +20,7 @@
         "stable-subject-binding",
         "account-admission-policy",
         "group-scope-policy",
+        "manager-group-policy",
         "webgui-access-policy",
         "form-post-transaction",
         "logout-token-policy",
@@ -441,6 +442,28 @@
                 "tier": "host-independent",
                 "capabilities": ["group-scope-policy"],
                 "validation": ["tests/unit/groups.php"]
+              }
+            ]
+          }
+        },
+        {
+          "slug": "manager-group-policy",
+          "claim": "The identity manager shows current memberships and atomically applies a complete optional selection limited to existing local groups under the native account-management privilege.",
+          "implementation": [
+            "src/opnsense/mvc/app/library/OPNsense/Auth/OpenIDConnect.php",
+            "src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/ApprovalController.php"
+          ],
+          "evidence": {
+            "all_of": [
+              {
+                "tier": "host-independent",
+                "capabilities": ["manager-group-policy"],
+                "validation": ["tests/unit/accounts.php"]
+              },
+              {
+                "tier": "installed-integration",
+                "capabilities": ["runtime-core-acl"],
+                "validation": ["tests/integration/opnsense.php"]
               }
             ]
           }

@@ -11,9 +11,10 @@
  *
  * Deliberately minimal: enough to load our classes and to call the methods under test, and
  * no more. A stub that grew into a simulation would start passing tests the real thing
- * would fail. Anything that genuinely needs core - account creation, group membership,
- * session handling - is not unit tested here; that is what the watchdog on the firewall is
- * for, and it fetches the real login page rather than a model of one.
+ * would fail. Calls that genuinely need core - account creation, login-time group sync and
+ * session handling - are only recorded here; that is what the watchdog on the firewall is
+ * for. Saved group records are present solely so package-owned manager mutations can be
+ * checked without pretending to implement core's synchronization behavior.
  */
 
 namespace OPNsense\Auth {
@@ -79,11 +80,13 @@ namespace OPNsense\Auth {
     {
         public static array $groupCalls = [];
         public static array $backendCalls = [];
+        public static array $backendLockStates = [];
 
         public static function reset(): void
         {
             self::$groupCalls = [];
             self::$backendCalls = [];
+            self::$backendLockStates = [];
         }
     }
 
@@ -100,6 +103,9 @@ namespace OPNsense\Auth {
         /** @var object[] */
         public static array $users = [];
 
+        /** @var object[] */
+        public static array $groups = [];
+
         /** whether "auth add user" is to succeed */
         public static bool $creationWorks = true;
 
@@ -109,6 +115,7 @@ namespace OPNsense\Auth {
         public static function reset(): void
         {
             self::$users = [];
+            self::$groups = [];
             self::$creationWorks = true;
             self::$creationOutput = null;
             \OPNsense\Core\Config::reset();
@@ -118,6 +125,14 @@ namespace OPNsense\Auth {
         public static function add(array $fields): void
         {
             self::$users[] = (object)($fields + ['uid' => (string)(1000 + count(self::$users))]);
+        }
+
+        public static function addGroup(array $fields): void
+        {
+            self::$groups[] = (object)($fields + [
+                'gid' => (string)(2000 + count(self::$groups)),
+                'member' => [],
+            ]);
         }
     }
 }
@@ -140,13 +155,17 @@ namespace OPNsense\Core {
     class Config
     {
         private static ?Config $instance = null;
+        public static $lockHook = null;
         private object $root;
         public int $saves = 0;
+        public ?bool $lastLockReload = null;
+        public bool $locked = false;
 
         private function __construct()
         {
             $this->root = (object)['cert' => [], 'system' => (object)[
                 'user' => [],
+                'group' => [],
                 'authserver' => [],
             ]];
         }
@@ -159,12 +178,14 @@ namespace OPNsense\Core {
         public function object()
         {
             $this->root->system->user = \OPNsense\Auth\Directory::$users;
+            $this->root->system->group = \OPNsense\Auth\Directory::$groups;
             return $this->root;
         }
 
         public static function reset(): void
         {
             self::$instance = null;
+            self::$lockHook = null;
         }
 
         public function addAuthServer(array $settings): object
@@ -191,12 +212,20 @@ namespace OPNsense\Core {
             return $certificate;
         }
 
-        public function lock(): void
+        public function lock($reload = true): void
         {
+            $this->lastLockReload = (bool)$reload;
+            $this->locked = true;
+            if (is_callable(self::$lockHook)) {
+                $hook = self::$lockHook;
+                self::$lockHook = null;
+                $hook();
+            }
         }
 
         public function unlock(): void
         {
+            $this->locked = false;
         }
 
         public function save(): void
@@ -215,6 +244,8 @@ namespace OPNsense\Core {
         public function configdpRun($event, $params = [])
         {
             \OPNsense\Auth\Recorder::$backendCalls[] = ['event' => $event, 'params' => $params];
+            \OPNsense\Auth\Recorder::$backendLockStates[] =
+                \OPNsense\Core\Config::getInstance()->locked;
 
             if ($event !== 'auth add user' || !\OPNsense\Auth\Directory::$creationWorks) {
                 return json_encode(['status' => 'failed']);
