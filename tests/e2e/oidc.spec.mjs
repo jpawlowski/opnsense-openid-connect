@@ -110,6 +110,13 @@ async function configureServer(page) {
   });
   await page.goto(`${origin}/system_authservers.php?act=new`);
   await selectNative(page.locator('select[name="type"]'), 'openidconnect');
+  const newServerRevert = page.getByRole('button', { name: 'Revert changes' });
+  await expect(newServerRevert).toBeVisible();
+  await newServerRevert.click();
+  await expect(page).toHaveURL(/system_authservers\.php\?act=new$/);
+  await expect(page.locator('select[name="type"]')).toHaveValue('ldap');
+  await expect(newServerRevert).toBeHidden();
+  await selectNative(page.locator('select[name="type"]'), 'openidconnect');
   await expect(page.locator('input[name="openidconnect_provider_url"]')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Connection health' })).toBeDisabled();
   await expect(page.locator('[data-oidc-action-section="diagnostics"]')).toBeVisible();

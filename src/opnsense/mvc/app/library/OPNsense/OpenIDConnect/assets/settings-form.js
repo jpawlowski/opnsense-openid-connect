@@ -643,7 +643,7 @@
         var revert = $('<button>')
             .attr({
                 type: 'button',
-                class: 'btn btn-default oidc-revert-changes'
+                class: 'btn btn-default auth_options auth_openidconnect oidc-revert-changes'
             })
             .text(options.revertChangesLabel || 'Revert changes')
             .hide()
@@ -714,7 +714,7 @@
                 return '';
             }
             new FormData(form).forEach(function (value, name) {
-                if (name.indexOf('openidconnect_') === 0) {
+                if (name === 'name' || name === 'type' || name.indexOf('openidconnect_') === 0) {
                     values.push([name, String(value)]);
                 }
             });
@@ -733,8 +733,9 @@
             var changed = formChanged();
             var ready = saved && initialized && !changed && savedReady;
             var disabled = running || !ready;
+            var typeInput = field('type');
             button.prop('disabled', disabled);
-            revert.toggle(changed && !running);
+            revert.toggle(!!typeInput && typeInput.value === 'openidconnect' && changed && !running);
             if (!running) {
                 button.text(options.signInTestLabel || 'Test sign-in');
             }
