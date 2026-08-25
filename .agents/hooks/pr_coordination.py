@@ -24,6 +24,13 @@ RELATIVE_MARKDOWN_PULL_REFERENCE = re.compile(
     r"(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?P<number>[0-9]+)(?:[/?#][^\s<>)]*)?\)",
     re.IGNORECASE,
 )
+RELATIVE_REFERENCE_PULL_DEFINITION = re.compile(
+    r"^[ \t]{0,3}\[(?P<label>[^]\n]+)\]:[ \t]*<?(?://(?:www[.])?github[.]com)?/"
+    r"(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?P<number>[0-9]+)(?:[/?#][^\s<>]*)?>?"
+    r"(?:[ \t]+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^\)\n]*\)))?[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+REFERENCE_LINK_USE = re.compile(r"!?\[(?P<text>[^]\n]*)\]\[(?P<label>[^]\n]*)\]")
 MARKDOWN_PULL_REFERENCE = re.compile(rf"!?\[[^]\n]*\]\({GITHUB_PULL_URL_PATTERN}\)", re.IGNORECASE)
 AUTOLINK_PULL_REFERENCE = re.compile(rf"<{GITHUB_PULL_URL_PATTERN}>", re.IGNORECASE)
 PULL_URL_REFERENCE = re.compile(GITHUB_PULL_URL_PATTERN, re.IGNORECASE)
@@ -167,7 +174,20 @@ def without_hash_number_references(value):
         reference = pull_reference(match.group("number"))
         return f"{repository} {reference}" if repository else reference
 
-    value = RELATIVE_MARKDOWN_PULL_REFERENCE.sub(qualified_replacement, str(value or ""))
+    reference_definitions = {}
+
+    def remember_reference_definition(match):
+        label = " ".join(match.group("label").split()).casefold()
+        reference_definitions.setdefault(label, qualified_replacement(match))
+        return ""
+
+    def replace_reference_link(match):
+        label = match.group("label") or match.group("text")
+        return reference_definitions.get(" ".join(label.split()).casefold(), match.group(0))
+
+    value = RELATIVE_REFERENCE_PULL_DEFINITION.sub(remember_reference_definition, str(value or ""))
+    value = REFERENCE_LINK_USE.sub(replace_reference_link, value)
+    value = RELATIVE_MARKDOWN_PULL_REFERENCE.sub(qualified_replacement, value)
     value = MARKDOWN_PULL_REFERENCE.sub(qualified_replacement, value)
     value = AUTOLINK_PULL_REFERENCE.sub(qualified_replacement, value)
     value = PULL_URL_REFERENCE.sub(qualified_replacement, value)
