@@ -294,6 +294,22 @@ def main():
         "ping.svg", "pocketid.svg", "slack.svg", "wso2.svg", "yahoo.svg",
         "zitadel.svg",
     })
+    application_icons = {
+        pathlib.PurePosixPath(n).name
+        for n in contents
+        if "/OPNsense/OpenIDConnect/assets/application-icons/" in n and n.endswith(".svg")
+    }
+    check("generated provider applications have one package-owned icon", application_icons, {
+        "opnsense.svg",
+    })
+    opnsense_icons = [
+        contents[name].decode("utf-8", "replace")
+        for name in contents
+        if name.endswith("/assets/application-icons/opnsense.svg")
+    ]
+    check("the OPNsense application icon retains its source notice", len(opnsense_icons) == 1
+          and "Copyright (c) 2014-2026 Deciso B.V." in opnsense_icons[0]
+          and "01fc795f34dae4184de79a710105f00a69c90400" in opnsense_icons[0], True)
     apache_license_path = (
         "/usr/local/opnsense/mvc/app/library/OPNsense/OpenIDConnect/"
         "assets/provider-icons/LICENSE.apache-2.0"

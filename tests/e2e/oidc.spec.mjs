@@ -338,8 +338,12 @@ async function configureServer(page) {
   expect(generatedClient.webOrigins[0]).toBe(origin);
   expect(generatedClient.webOrigins).toContain(origin);
   expect(generatedClient.rootUrl).toBe(origin);
+  expect(generatedClient.name).toBe(new URL(origin).hostname);
   expect(generatedClient.baseUrl).toBe(
     `${origin}/api/openidconnect/auth/login?provider=${encodeURIComponent(process.env.E2E_SERVER_NAME)}`
+  );
+  expect(generatedClient.attributes.logoUri).toBe(
+    `${origin}/api/openidconnect/auth/builtinicon/opnsense`
   );
   expect(generatedClient.alwaysDisplayInConsole).toBe(true);
   expect(generatedClient.redirectUris.every(uri => uri.endsWith(callbackPath))).toBeTruthy();
@@ -392,6 +396,10 @@ async function configureServer(page) {
   expect(authentikBlueprint).toContain(
     `meta_launch_url: '${origin}/api/openidconnect/auth/login?provider=`
       + `${encodeURIComponent(process.env.E2E_SERVER_NAME)}'`
+  );
+  expect(authentikBlueprint).toContain(`name: '${new URL(origin).hostname}'`);
+  expect(authentikBlueprint).toContain(
+    `icon: '${origin}/api/openidconnect/auth/builtinicon/opnsense'`
   );
   const authentikSetupDialog = page.getByRole('dialog');
   const authentikSetupResult = authentikSetupDialog.locator(

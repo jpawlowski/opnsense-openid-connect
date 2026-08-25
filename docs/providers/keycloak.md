@@ -16,7 +16,7 @@ application code remains `main`, every generated OPNsense endpoint ends in
 
 ### Optional shortcut: import a generated client
 
-Open OPNsense under the WebGUI address to register, select the Keycloak profile,
+Open OPNsense under the accepted HTTPS WebGUI FQDN to register, select the Keycloak profile,
 enter the **Application code**, and select **Download provider setup**. The
 issuer, Client ID and Client
 Secret may still be empty while the OPNsense server remains disabled.
@@ -36,6 +36,8 @@ downloaded and **Home URL** to that origin's OPNsense login-start endpoint. This
 makes Keycloak's application link start a normal local OIDC transaction instead
 of sending the browser to a callback URL. The same origin's callback is first in
 **Valid Redirect URIs**, and the client remains visible in the Account Console.
+Its visible name is that FQDN, and its logo URI uses the package-owned OPNsense
+mark from the same origin.
 
 A repeated generated import does not update redirects or other client settings.
 Apply a small change directly to the existing client. To replace it from a newly
