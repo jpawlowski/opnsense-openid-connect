@@ -76,7 +76,7 @@ Checks::that('authentik uses the same-origin package-owned OPNsense application 
 Checks::that('authentik gets typed post logout addresses', substr_count(
     $authentik['content'],
     'redirect_uri_type: logout'
-), 2);
+), 4);
 Checks::that('authentik uses only the canonical origin for its notification', str_contains(
     $authentik['content'],
     'logout_uri: \'https://firewall.example.com/api/openidconnect/auth/backchannel/private-fw\''
@@ -113,6 +113,10 @@ $authentikWithoutEmail = ProviderSetup::generate(
     ],
     'https://firewall.example.com'
 );
+Checks::that('authentik always registers the disposable lifecycle return', str_contains(
+    $authentikWithoutEmail['content'],
+    '/api/openidconnect/auth/logouttestcallback/minimal'
+), true);
 Checks::that('authentik receives only the configured standard scope mappings', [
     str_contains($authentikWithoutEmail['content'], 'scope-openid'),
     str_contains($authentikWithoutEmail['content'], 'scope-profile'),
@@ -171,12 +175,12 @@ Checks::that('Keycloak binds access tokens to the proof key required by its adve
 Checks::that('Keycloak uses the same-origin package-owned OPNsense application icon',
     $client['attributes']['logoUri'],
     'https://firewall.example.net/api/openidconnect/auth/builtinicon/opnsense');
-Checks::that('no unused post logout address is registered', isset(
-    $client['attributes']['post.logout.redirect.uris']
-), false);
-Checks::that('no Keycloak logout-page preference is imposed without a return address', isset(
-    $client['attributes']['logout.confirmation.enabled']
-), false);
+Checks::that('Keycloak always registers the disposable lifecycle return for every exact origin',
+    $client['attributes']['post.logout.redirect.uris'],
+    'https://firewall.example.net/api/openidconnect/auth/logouttestcallback/Main_ONE'
+        . '##https://backup.example.net/api/openidconnect/auth/logouttestcallback/Main_ONE');
+Checks::that('Keycloak returns from the disposable lifecycle test without another confirmation page',
+    $client['attributes']['logout.confirmation.enabled'], 'false');
 Checks::that('front-channel is selected consistently', [
     $client['frontchannelLogout'],
     $client['attributes']['frontchannel.logout'],
@@ -225,7 +229,10 @@ $returningKeycloakClient = json_decode(
 Checks::that('Keycloak returns immediately when the generated setup requests it', [
     $returningKeycloakClient['attributes']['post.logout.redirect.uris'],
     $returningKeycloakClient['attributes']['logout.confirmation.enabled'],
-], ['https://firewall.example.net/', 'false']);
+], [
+    'https://firewall.example.net/api/openidconnect/auth/logouttestcallback/returning##https://firewall.example.net/',
+    'false',
+]);
 
 $pairwiseKeycloak = ProviderSetup::generate(
     'keycloak',

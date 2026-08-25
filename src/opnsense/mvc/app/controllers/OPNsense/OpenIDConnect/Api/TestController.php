@@ -12,6 +12,7 @@ use OPNsense\Auth\OpenIDConnect;
 use OPNsense\Core\Config;
 use OPNsense\OpenIDConnect\AuthorizationPreflight;
 use OPNsense\OpenIDConnect\HttpClient;
+use OPNsense\OpenIDConnect\LifecycleTestRegistry;
 use OPNsense\OpenIDConnect\ProviderMetadata;
 use OPNsense\OpenIDConnect\RelyingParty;
 
@@ -76,6 +77,52 @@ class TestController extends PrivateApiControllerBase
                 'status' => 'error',
                 'message' => gettext('The sign-in test could not be started: ') . $e->getMessage(),
             ];
+        }
+    }
+
+    /** Start the optional provider logout half from the still-authenticated settings page. */
+    public function logoutAction(): array
+    {
+        $this->response->setContentType('application/json', 'UTF-8');
+        $id = trim((string)$this->request->getPost('test_id', null, ''));
+        try {
+            $test = LifecycleTestRegistry::start($id);
+            $name = (string)($test['provider'] ?? '');
+            $settings = (new AuthenticationFactory())->get($name);
+            if (!$settings instanceof OpenIDConnect
+                || !hash_equals($settings->applicationCode(), (string)($test['app_code'] ?? ''))) {
+                throw new \RuntimeException(gettext('The saved authentication server no longer matches this test.'));
+            }
+            $exchange = new RelyingParty($settings, $this);
+            $exchange->requireIssuer((string)($test['issuer'] ?? ''));
+            if (!$exchange->supportsRpInitiatedLogout()) {
+                throw new \RuntimeException(gettext('Discovery no longer offers an RP-initiated logout endpoint.'));
+            }
+            $logoutUrl = $exchange->signOutUrl(
+                (string)($test['id_token'] ?? ''),
+                (string)($test['return_uri'] ?? ''),
+                $id
+            );
+            $this->session->close();
+            return ['status' => 'ok', 'logout_url_b64' => base64_encode($logoutUrl)];
+        } catch (\Throwable $e) {
+            syslog(LOG_NOTICE, sprintf('OIDC: lifecycle sign-out test could not be started (%s)', $e->getMessage()));
+            return [
+                'status' => 'error',
+                'message' => gettext('The sign-out test could not be started: ') . $e->getMessage(),
+            ];
+        }
+    }
+
+    /** Return only secret-free observations to the authenticated result modal. */
+    public function resultAction(): array
+    {
+        $this->response->setContentType('application/json', 'UTF-8');
+        $id = trim((string)$this->request->getPost('test_id', null, ''));
+        try {
+            return ['status' => 'ok', 'result' => LifecycleTestRegistry::status($id)];
+        } catch (\Throwable $e) {
+            return ['status' => 'error', 'message' => gettext('The lifecycle test result is unavailable.')];
         }
     }
 

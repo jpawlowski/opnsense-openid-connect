@@ -34,8 +34,9 @@ confidential web client.
   `request_object_signing_alg_values_supported`, register a dedicated OPNsense
   certificate public key under the `kid` shown in the firewall, and set
   `require_signed_request_object=true` only after that registration is active.
-- Optionally register the displayed front/back-channel logout URLs and the
-  WebGUI origin as post-logout redirect.
+- Register the displayed lifecycle-test return as an exact post-logout redirect.
+  Optionally register the displayed front/back-channel logout URLs and the
+  WebGUI origin when ordinary **Return here after logout** is enabled.
 - For provider-managed pairwise subjects, choose **Pairwise subject sector** and
   give the provider the resulting
   `https://<chosen-origin>/api/openidconnect/auth/sector/<application-code>`
@@ -84,6 +85,20 @@ Then select the tier in OPNsense and run **Test sign-in**. If the provider uses
 different documented context or method values, enter those exact values in the
 advanced fields. Keep **Provider policy only** when the provider merely performs
 MFA but does not bind the request, enforcement and signed evidence together.
+
+The successful result names the authorization response mode, actual PAR/JAR/DPoP
+use, token authentication, issued token kinds and selected signed claims without
+displaying a token. **Validate sign-out** then opens a separate tab, requests
+provider logout and attempts to return to this server row. A validated provider
+notification ends every matching OPNsense WebGUI session. This can include the
+administrator session that started the test when it used the same provider
+identity and session; the provider may also end its wider SSO session or sessions
+for other clients. Start from a local-password WebGUI session, or one which does
+not match the tested provider identity and session, when the result page must
+remain authenticated. A configured front/back-channel row passes only when that
+notification reached OPNsense and completed its normal issuer, session and
+signature validation. "Not observed" is therefore an actionable
+provider-registration result, not a successful test.
 
 ## Defaults and remaining settings
 
