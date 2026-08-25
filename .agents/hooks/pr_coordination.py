@@ -15,7 +15,7 @@ NOTICE = {
 }
 TRUSTED_ASSOCIATIONS = {"COLLABORATOR", "MEMBER", "OWNER"}
 GITHUB_PULL_URL_PATTERN = (
-    r"https?://(?:www[.])?github[.]com/"
+    r"(?:(?:https?://)(?:www[.])?|www[.])github[.]com/"
     r"(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?P<number>[0-9]+)"
     r"(?:[/?#][^\s<>)]*)?"
 )
