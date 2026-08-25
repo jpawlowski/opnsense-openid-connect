@@ -139,7 +139,7 @@ def coordinated_pairs(records):
     return pairs
 
 
-def render_final(record, overlap, reason, reconsider, language="en"):
+def render_final(record, overlap, reason, reconsider, changed_fact="", changed_criterion="", language="en"):
     if language not in NOTICE:
         raise ValueError("coordination language must be en or de")
     _prs, order = validate_order(record["order"], record["order"])
@@ -147,6 +147,12 @@ def render_final(record, overlap, reason, reconsider, language="en"):
     references = " and ".join(f"#{number}" for number in order)
     sequence = " → ".join(f"#{number}" for number in order)
     supersedes = record.get("supersedes", [])
+    changed_fact = str(changed_fact or "").strip()
+    changed_criterion = str(changed_criterion or "").strip()
+    if supersedes and (not changed_fact or not changed_criterion):
+        raise ValueError("a replacement recommendation must name its changed fact and decision criterion")
+    if not supersedes and (changed_fact or changed_criterion):
+        raise ValueError("changed evidence belongs only to a replacement recommendation")
     if language == "de":
         steps = [f"1. Zuerst #{order[0]} mergen."]
         for index, number in enumerate(order[1:], 2):
@@ -155,7 +161,8 @@ def render_final(record, overlap, reason, reconsider, language="en"):
                 f"danach #{number} mergen."
             )
         replaced = (
-            "Diese Empfehlung ersetzt: " + ", ".join(f"`{value}`" for value in supersedes) + "."
+            "Diese Empfehlung ersetzt: " + ", ".join(f"`{value}`" for value in supersedes) + ". "
+            f"Neue Tatsache: {changed_fact} Betroffenes Entscheidungskriterium: {changed_criterion}"
             if supersedes else "Diese Empfehlung ist die aktive Reihenfolge für diese Pull Requests."
         )
         sections = [
@@ -181,7 +188,8 @@ def render_final(record, overlap, reason, reconsider, language="en"):
                 f"then merge #{number}."
             )
         replaced = (
-            "This recommendation supersedes: " + ", ".join(f"`{value}`" for value in supersedes) + "."
+            "This recommendation supersedes: " + ", ".join(f"`{value}`" for value in supersedes) + ". "
+            f"New fact: {changed_fact} Affected decision criterion: {changed_criterion}"
             if supersedes else "This is the active order for these pull requests."
         )
         sections = [
