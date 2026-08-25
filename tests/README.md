@@ -79,7 +79,7 @@ the OPNsense classes (`tests/stubs/`):
 | `redirects.php` | choosing the address the provider returns to — the allow list, near-miss names, the empty-list fallback, a Host header that is not a host name, and whom a token was issued for |
 | `claims.php` | reading claims from the id_token as well as UserInfo, and keeping protocol claims out |
 | `exchange.php` | discovery, bounded HTTPS, PKCE, one-time transactions, mix-up protection, signed JARM responses, ID Token claims and logout-token claims |
-| `accounts.php` | which local account a login is, and whether it may be used at all: disabled, expired, root, verified-address matching, first-login creation, strict admission, and the bounded administrator-approval workflow |
+| `accounts.php` | which local account a login is, and whether it may be used at all: disabled, expired, root, verified-address matching, first-login creation, strict admission, the bounded administrator-approval workflow, and explicit existing-group selection in the identity manager |
 | `groups.php` | what is handed to core when group membership is synced — the spelling it compares against, and the scope it is allowed to act in |
 | `loginpage.php` | what the login page is handed: which icon, which markup, and that a provider name cannot open a tag |
 | `provider-setup.php` | no-secret authentik and Keycloak imports, exact redirects, fail-closed verified e-mail projection, idempotent policy and input boundaries |

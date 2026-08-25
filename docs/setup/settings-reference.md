@@ -243,9 +243,13 @@ lists durable bindings, supports assisted creation/editing/removal and handles
 pending approvals when the Administrator approval policy is active. It is not a
 stored setting and requires OPNsense's **System: Authentication Servers**
 privilege; write actions additionally honour **user-config-readonly**. Creating
-a local account inside a new binding or approval also requires **System: Access:
-Management**. The account starts with a scrambled password and no groups or
-privileges, which remain explicit local choices. See the
+a local account inside a new binding or approval, or changing group membership
+while adding an identity, also requires **System: Access: Management**. **Add an
+identity** offers an optional multi-select containing only existing local groups.
+It starts empty for a new account and shows the current memberships of a selected
+existing account; saving replaces that account's selection without creating any
+group. A new account still receives a scrambled password, and selected groups may
+grant their local privileges. See the
 [admission policy guide](admission-policy.md).
 
 Back-channel and front-channel logout are notifications from the provider to
