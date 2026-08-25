@@ -1,10 +1,10 @@
 # Troubleshooting
 
-The browser normally receives a generic message and a random reference. The
+The browser receives a styled generic result and a random reference. The
 detailed reason is written to the OPNsense audit/system log so the callback
-cannot be used to enumerate accounts or configuration. A newly queued identity
-is the deliberate exception: after successful provider authentication, its
-styled approval page shows only a random workflow reference and no account data.
+cannot be used to enumerate accounts or configuration. Approval-pending,
+missing, disabled, expired, privileged and otherwise unusable local-account
+outcomes deliberately use the same page, status and reference shape.
 
 Temporarily enable **Trace the exchange**, reproduce once, then disable it. The
 trace records flow shape and claim names, not tokens, secrets or unnecessary
@@ -120,15 +120,16 @@ authorization denial from a failed identity-provider authentication.
 ## Sign-in is waiting for administrator approval
 
 With **Administrator approval for unknown identities**, a successfully
-authenticated but unbound identity creates no WebGUI session. The browser shows
-an **Administrator approval required** page with a short request reference, and
-the saved authentication server lists the same request under **Manage
-identities**. After an administrator verifies and binds it, start a new sign-in.
+authenticated but unbound identity creates no WebGUI session. The browser's
+**WebGUI sign-in not completed** page shows a short reference. If this identity
+was newly queued, the saved authentication server lists the same reference
+under **Manage identities**. After an administrator verifies and binds it,
+start a new sign-in.
 
-This page confirms only that the current authenticated identity entered the
-configured approval workflow. Missing, disabled, expired, privileged or
-otherwise unusable local accounts retain the same generic refusal and expose no
-account details.
+The page intentionally does not confirm that an approval was queued. Missing,
+disabled, expired, privileged and otherwise unusable local accounts receive the
+same page and a same-shaped reference; the administrator correlates it with the
+approval list or audit log.
 
 ## Recovery
 

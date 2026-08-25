@@ -326,11 +326,15 @@ class AuthController extends ApiControllerBase
         $account = $settings->localAccountFor($claims, $exchange->issuer(), $exchange->subject());
         if ($account === null) {
             /* localAccountFor() has already said in the log which of its reasons it was */
-            if ($settings->pendingApprovalId() !== '') {
-                return $this->approvalRequiredResult($settings->pendingApprovalId());
-            }
-            $this->auditRefusal($name, 'no local account this login may use');
-            return $this->refuse(403, 'Forbidden', 'There is no local account for this user, or it may not be used.');
+            $pending = $settings->pendingApprovalId();
+            $reference = $pending !== '' ? $pending : bin2hex(random_bytes(10));
+            $this->auditRefusal(
+                $name,
+                sprintf('%s [%s]', $pending !== ''
+                    ? 'identity queued for administrator approval'
+                    : 'no local account this login may use', $reference)
+            );
+            return $this->accountUnavailableResult($reference);
         }
 
         try {
@@ -954,13 +958,10 @@ class AuthController extends ApiControllerBase
         return strlen($value) > 512 ? substr($value, 0, 509) . '...' : $value;
     }
 
-    /** Explain that an authenticated identity entered the deliberate approval workflow. */
-    private function approvalRequiredResult(string $requestId): string
+    /** Give every unusable local-account outcome the same helpful browser result. */
+    private function accountUnavailableResult(string $reference): string
     {
-        /* This is a completed, queued workflow rather than an account refusal. HTTP 202
-         * also prevents a reverse proxy from replacing the useful page with its generic
-         * 4xx branding. */
-        $this->response->setStatusCode(202, 'Accepted');
+        $this->response->setStatusCode(403, 'Forbidden');
         $this->response->setContentType('text/html', 'UTF-8');
         $this->response->setHeader(
             'Content-Security-Policy',
@@ -976,7 +977,7 @@ class AuthController extends ApiControllerBase
         );
         return '<!doctype html><html><head><meta charset="utf-8">'
             . '<meta name="viewport" content="width=device-width,initial-scale=1">'
-            . '<title>' . $escape(gettext('Administrator approval required')) . '</title>'
+            . '<title>' . $escape(gettext('WebGUI sign-in not completed')) . '</title>'
             . '<style>:root{color-scheme:light dark;--bg:#f3f5f7;--panel:#fff;--text:#263238;--muted:#5d6b73;'
             . '--line:#d8dee2;--accent:#805400;--accent-bg:#fff4d6}*{box-sizing:border-box}body{margin:0;background:var(--bg);'
             . 'color:var(--text);font:16px/1.55 system-ui,-apple-system,sans-serif}main{max-width:44rem;margin:4rem auto;padding:0 1rem}'
@@ -989,17 +990,17 @@ class AuthController extends ApiControllerBase
             . 'ol{padding-left:1.3rem}li+li{margin-top:.45rem}a{display:inline-block;margin-top:.5rem;padding:.6rem .85rem;background:#337ab7;'
             . 'color:#fff;text-decoration:none;border-radius:.3rem;font-weight:600}@media(max-width:600px){main{margin:1rem auto}.hero{align-items:flex-start}}'
             . '@media(prefers-color-scheme:dark){:root{--bg:#172126;--panel:#202c32;--text:#edf2f4;--muted:#bdc9ce;'
-            . '--line:#405159;--accent:#ffd166;--accent-bg:#493a13}}</style></head><body><main><section class="panel oidc-approval-required">'
+            . '--line:#405159;--accent:#ffd166;--accent-bg:#493a13}}</style></head><body><main><section class="panel oidc-account-unavailable">'
             . '<header class="hero"><span class="mark" aria-hidden="true">!</span><div><h1>'
-            . $escape(gettext('Administrator approval required')) . '</h1><p>'
-            . $escape(gettext('The identity provider accepted the sign-in, but this firewall has not admitted the identity.'))
+            . $escape(gettext('WebGUI sign-in not completed')) . '</h1><p>'
+            . $escape(gettext('The identity provider accepted the sign-in, but this firewall did not create a session.'))
             . '</p></div></header><div class="content"><p>'
-            . $escape(gettext('No WebGUI session was created. Give this request reference to a firewall administrator:'))
-            . '</p><div class="reference"><strong>' . $escape(gettext('Approval request')) . '</strong><code>'
-            . $escape($requestId) . '</code></div><ol><li>'
-            . $escape(gettext('An administrator opens the saved OpenID Connect server and reviews identity approvals.'))
-            . '</li><li>' . $escape(gettext('The administrator verifies the exact provider identity and binds or denies it.'))
-            . '</li><li>' . $escape(gettext('After approval, start a new sign-in from the login page.'))
+            . $escape(gettext('An administrator may need to review this identity. Give them this sign-in reference:'))
+            . '</p><div class="reference"><strong>' . $escape(gettext('Sign-in reference')) . '</strong><code>'
+            . $escape($reference) . '</code></div><ol><li>'
+            . $escape(gettext('An administrator checks pending identity approvals and the OPNsense audit log.'))
+            . '</li><li>' . $escape(gettext('The administrator verifies whether this identity may use a local account.'))
+            . '</li><li>' . $escape(gettext('After the administrator confirms access, start a new sign-in from the login page.'))
             . '</li></ol><a href="/">' . $escape(gettext('Return to login'))
             . '</a></div></section></main></body></html>';
     }

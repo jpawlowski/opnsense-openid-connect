@@ -1020,12 +1020,12 @@ Checks::that('the failed test returns to the exact saved authentication-server r
 Checks::that('the failed diagnostic page does not trigger proxy interception with an HTTP error status',
     $testFailureController->response->status, null);
 $approvalController = new AuthController();
-$approvalHtml = inspect($approvalController, 'approvalRequiredResult', '0123456789abcdefabcd');
-Checks::that('a queued identity receives the dedicated administrator-approval page', [
+$approvalHtml = inspect($approvalController, 'accountUnavailableResult', '0123456789abcdefabcd');
+Checks::that('every unusable local-account outcome can receive the same styled result', [
     $approvalController->response->status,
-    str_contains($approvalHtml, 'Administrator approval required'),
+    str_contains($approvalHtml, 'WebGUI sign-in not completed'),
     str_contains($approvalHtml, '0123456789abcdefabcd'),
-], [[202, 'Accepted'], true, true]);
+], [[403, 'Forbidden'], true, true]);
 
 $wrongUserInfoType = new RelyingParty(
     $endpointSettings,
