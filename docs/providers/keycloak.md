@@ -31,6 +31,17 @@ confidential client with a derived ID such as `opnsense-keycloak` and generates
 its secret. Copy the secret from the client's **Credentials** tab, and copy the
 realm's exact issuer into OPNsense.
 
+The import sets **Root URL** to the accepted WebGUI origin from which it was
+downloaded and **Home URL** to that origin's OPNsense login-start endpoint. This
+makes Keycloak's application link start a normal local OIDC transaction instead
+of sending the browser to a callback URL. The same origin's callback is first in
+**Valid Redirect URIs**, and the client remains visible in the Account Console.
+
+A repeated generated import does not update redirects or other client settings.
+Apply a small change directly to the existing client. To replace it from a newly
+generated file, delete that client first, import the new file with **Skip**, and
+copy its newly generated secret back to OPNsense before testing.
+
 The import keeps Keycloak's `basic` client scope as a default because current
 Keycloak versions use it for the mandatory `sub` claim and the `auth_time`
 evidence required by OPNsense maximum-age validation. It links the standard

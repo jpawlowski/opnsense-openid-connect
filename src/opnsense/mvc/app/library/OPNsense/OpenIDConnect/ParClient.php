@@ -15,6 +15,7 @@ final class ParClient
     public const MAX_BYTES = 262144;
     private ClientAuthenticator $clientAuthenticator;
     private bool $credentialsExercised = false;
+    private ?HttpResponse $lastResponse = null;
     private RequestObjectSigner $requestObjectSigner;
 
     public function __construct(
@@ -32,6 +33,7 @@ final class ParClient
     public function push(ProviderMetadata $metadata, string $endpoint, array $parameters): string
     {
         $this->credentialsExercised = false;
+        $this->lastResponse = null;
         $headers = ['Accept: application/json'];
         $authentication = $this->authentication($metadata);
         $endpoint = $authentication->endpoint($metadata, 'pushed_authorization_request_endpoint') ?? $endpoint;
@@ -54,9 +56,13 @@ final class ParClient
             $headers,
             $authentication->certificate()
         );
+        $this->lastResponse = $response;
         if ($response->status === 429 || $response->status >= 500) {
             throw new ProviderUnavailableException(
-                sprintf('The pushed authorization request endpoint returned HTTP %d', $response->status),
+                sprintf(
+                    'The pushed authorization request endpoint returned %s',
+                    $response->diagnosticSummary()
+                ),
                 $response->retryAfterSeconds()
             );
         }
@@ -71,12 +77,15 @@ final class ParClient
                 }
             }
             throw new ProtocolException(sprintf(
-                'The pushed authorization request endpoint returned HTTP %d',
-                $response->status
+                'The pushed authorization request endpoint returned %s; expected HTTP 201',
+                $response->diagnosticSummary()
             ));
         }
         if ($response->contentType !== 'application/json') {
-            throw new ProtocolException('The pushed authorization request endpoint did not return application/json');
+            throw new ProtocolException(sprintf(
+                'The pushed authorization request endpoint returned %s; expected application/json',
+                $response->diagnosticSummary()
+            ));
         }
         $answer = $response->jsonObject();
         $requestUri = $answer['request_uri'] ?? null;
@@ -93,6 +102,11 @@ final class ParClient
     public function credentialsExercised(): bool
     {
         return $this->credentialsExercised;
+    }
+
+    public function lastResponse(): ?HttpResponse
+    {
+        return $this->lastResponse;
     }
 
     public function probe(ProviderMetadata $metadata, string $redirectUri): void

@@ -127,9 +127,14 @@
 
     function effectiveOrigins() {
         var policy = field('openidconnect_origin_policy');
+        var standardPort = field('openidconnect_standard_https_port');
         var entered = listEntries(field('openidconnect_redirect_urls').value);
+        var inherited = (options.opnsenseOrigins || []).slice();
+        if (standardPort && $(standardPort).is(':checked')) {
+            inherited = inherited.concat(options.opnsenseStandardHttpsOrigins || []);
+        }
         var origins = !policy || policy.value !== 'custom'
-            ? uniqueOrigins((options.opnsenseOrigins || []).concat(entered))
+            ? uniqueOrigins(inherited.concat(entered))
             : uniqueOrigins(entered);
         var current = normalizedOrigin(window.location.origin);
         var currentIndex = current ? origins.indexOf(current) : -1;
@@ -174,6 +179,7 @@
         }
         $(field('openidconnect_redirect_urls')).on('input change', update);
         $(field('openidconnect_origin_policy')).on('change', update);
+        $(field('openidconnect_standard_https_port')).on('change', update);
     }
 
     function currentServerId() {
@@ -428,7 +434,8 @@
             'openidconnect_response_mode', 'openidconnect_claims_source', 'openidconnect_max_age',
             'openidconnect_select_account', 'openidconnect_required_authentication', 'openidconnect_acr_request',
             'openidconnect_acr_values', 'openidconnect_amr_values', 'openidconnect_entra_auth_context',
-            'openidconnect_origin_policy', 'openidconnect_redirect_urls', 'openidconnect_tls_offloading'
+            'openidconnect_origin_policy', 'openidconnect_standard_https_port',
+            'openidconnect_redirect_urls', 'openidconnect_tls_offloading'
         ];
         var data = {};
         names.forEach(function (name) {
@@ -1233,11 +1240,14 @@
             .append($('<span>').text(options.setupGuideLabel || 'Open setup guide'));
 
         function setupData() {
+            var origins = effectiveOrigins();
+            var current = normalizedOrigin(window.location.origin);
             return {
                 profile: profile.value,
                 application_code: field('openidconnect_app_code').value,
                 display_name: field('name') ? field('name').value : '',
-                origins: effectiveOrigins().join(','),
+                origins: origins.join(','),
+                preferred_origin: current || '',
                 sector_origin: field('openidconnect_sector_origin').value,
                 post_logout_redirect: $(field('openidconnect_logout_redirect')).is(':checked') ? '1' : '0',
                 logout_channel: channel.val(),
@@ -1747,6 +1757,7 @@
         $(field('openidconnect_app_code')).on('input change', update);
         $(field('openidconnect_redirect_urls')).on('input change', update);
         $(field('openidconnect_origin_policy')).on('change', update);
+        $(field('openidconnect_standard_https_port')).on('change', update);
         $(field('openidconnect_sector_origin')).on('change', update);
         $(field('openidconnect_ssf_enabled')).on('change', update);
         $(field('openidconnect_ssf_delivery_method')).on('change', update);
@@ -1838,6 +1849,12 @@
             var buttonTextMode = field('openidconnect_button_text_mode').value || 'localized';
             var buttonTextCustomizable = (options.fixedButtonProfiles || []).indexOf(provider) === -1;
             toggleFieldRow('openidconnect_tls_offloading', options.webGuiProtocol === 'http');
+            toggleFieldRow(
+                'openidconnect_standard_https_port',
+                options.webGuiProtocol === 'https'
+                    && Number(options.webGuiPort || 443) !== 443
+                    && field('openidconnect_origin_policy').value !== 'custom'
+            );
             toggleFieldRow('openidconnect_microsoft_audience', provider === 'entra');
             toggleFieldRow('openidconnect_acr_request', authenticationRequired && provider !== 'entra');
             toggleFieldRow('openidconnect_acr_values', authenticationRequired && provider !== 'entra');
