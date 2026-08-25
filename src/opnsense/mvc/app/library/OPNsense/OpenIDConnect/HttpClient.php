@@ -70,7 +70,11 @@ class HttpClient
     /** Return the provider's first answer so callers can inspect a front-channel redirect without following it. */
     public function getFirstResponse(string $url, int $maxBytes, array $headers = []): HttpResponse
     {
-        return $this->request('GET', $url, null, $headers, $maxBytes, null, false);
+        /* The authorization response body is neither trusted nor inspected. Discarding it
+         * lets a useful status survive a proxy's large branded error page without placing
+         * that unbounded page in memory. */
+        array_unshift($headers, 'Accept: text/html, application/xhtml+xml');
+        return $this->request('GET', $url, null, $headers, $maxBytes, null, false, false);
     }
 
     public function postForm(
@@ -108,7 +112,8 @@ class HttpClient
         array $headers,
         int $maxBytes,
         ?ClientCertificate $clientCertificate = null,
-        bool $followRedirects = true
+        bool $followRedirects = true,
+        bool $captureBody = true
     ): HttpResponse {
         if ($maxBytes < 1) {
             throw new \InvalidArgumentException('A positive response limit is required');
@@ -123,7 +128,8 @@ class HttpClient
                 $body,
                 $headers,
                 $maxBytes,
-                $clientCertificate
+                $clientCertificate,
+                $captureBody
             );
             if (!is_int($response['status']) || $response['status'] < 0 || $response['status'] > 599
                 || !is_string($response['body']) || strlen($response['body']) > $maxBytes
@@ -182,7 +188,8 @@ class HttpClient
         ?string $postBody,
         array $headers,
         int $maxBytes,
-        ?ClientCertificate $clientCertificate = null
+        ?ClientCertificate $clientCertificate = null,
+        bool $captureBody = true
     ): array {
         if ($this->transport !== null) {
             $answer = ($this->transport)(
@@ -197,10 +204,16 @@ class HttpClient
                 throw new ProtocolException('The test transport returned no response');
             }
 
-            return $answer + ['status' => 0, 'content_type' => '', 'body' => '', 'location' => '', 'headers' => []];
+            $answer += ['status' => 0, 'content_type' => '', 'body' => '', 'location' => '', 'headers' => []];
+            if (!$captureBody) {
+                $answer['body'] = '';
+            }
+            return $answer;
         }
 
         $received = '';
+        $discardedBytes = 0;
+        $discardLimitReached = false;
         $location = '';
         $responseHeaders = [];
         $handle = curl_init($url);
@@ -210,7 +223,8 @@ class HttpClient
             CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
             CURLOPT_TIMEOUT => self::TOTAL_TIMEOUT,
             CURLOPT_USERAGENT => 'OPNsense-OpenID-Connect/1.0',
-            CURLOPT_HTTPHEADER => array_merge(['Accept: application/json'], $headers),
+            CURLOPT_HTTPHEADER => self::hasHeader($headers, 'Accept')
+                ? $headers : array_merge(['Accept: application/json'], $headers),
             CURLOPT_HEADERFUNCTION => static function ($handle, string $line) use (&$location, &$responseHeaders): int {
                 $separator = strpos($line, ':');
                 if ($separator !== false) {
@@ -235,7 +249,21 @@ class HttpClient
 
                 return strlen($line);
             },
-            CURLOPT_WRITEFUNCTION => static function ($handle, string $chunk) use (&$received, $maxBytes): int {
+            CURLOPT_WRITEFUNCTION => static function ($handle, string $chunk) use (
+                &$received,
+                &$discardedBytes,
+                &$discardLimitReached,
+                $maxBytes,
+                $captureBody
+            ): int {
+                if (!$captureBody) {
+                    if ($discardedBytes + strlen($chunk) > $maxBytes) {
+                        $discardLimitReached = true;
+                        return 0;
+                    }
+                    $discardedBytes += strlen($chunk);
+                    return strlen($chunk);
+                }
                 if (strlen($received) + strlen($chunk) > $maxBytes) {
                     return 0;
                 }
@@ -259,7 +287,12 @@ class HttpClient
         $problemCode = curl_errno($handle);
         unset($handle);
 
-        if ($ok === false) {
+        /* A header-only consumer deliberately stops after its bounded allowance.
+         * curl still supplies the completed status and headers received before the
+         * first body chunk was refused. */
+        $boundedDiscard = !$captureBody && $discardLimitReached
+            && $problemCode === CURLE_WRITE_ERROR && $status >= 100;
+        if ($ok === false && !$boundedDiscard) {
             $reason = strlen($received) >= $maxBytes ? 'response exceeded its size limit' : $problem;
             $message = 'The provider request failed: ' . ($reason ?: 'network error');
             $temporary = [
@@ -314,6 +347,16 @@ class HttpClient
     {
         foreach ($headers as $header) {
             if (is_string($header) && preg_match('/^(Authorization|Cookie|DPoP|Proxy-Authorization):/i', $header)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function hasHeader(array $headers, string $name): bool
+    {
+        foreach ($headers as $header) {
+            if (is_string($header) && preg_match('/^' . preg_quote($name, '/') . '\s*:/i', $header)) {
                 return true;
             }
         }

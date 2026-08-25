@@ -470,6 +470,7 @@ $installationSpecificFields = [
     'openidconnect_certificate_bound_access_tokens',
     'openidconnect_request_object_key',
     'openidconnect_origin_policy',
+    'openidconnect_standard_https_port',
     'openidconnect_tls_offloading',
     'openidconnect_redirect_urls',
     'openidconnect_sector_origin',
@@ -1082,6 +1083,13 @@ Checks::that('a private-key JWT client can start a sign-in test without a static
 ])->isSignInTestReady(), true);
 Checks::that('a new server follows OPNsense WebGUI names',
     $draftOptions['openidconnect_origin_policy']['default'], 'opnsense');
+Checks::that('a new server does not widen inherited names to port 443',
+    $draftOptions['openidconnect_standard_https_port']['default'], '0');
+Checks::that('the standard HTTPS hostname rule is off unless selected',
+    connector([])->acceptsStandardHttpsPortForWebGuiHostnames(), false);
+Checks::that('the standard HTTPS hostname rule retains an explicit selection', connector([
+    'openidconnect_standard_https_port' => '1',
+])->acceptsStandardHttpsPortForWebGuiHostnames(), true);
 
 $icon = validator('openidconnect_icon_svg');
 Checks::that('an empty icon is fine', $icon(''), []);
