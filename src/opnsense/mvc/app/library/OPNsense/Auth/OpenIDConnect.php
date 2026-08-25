@@ -1722,6 +1722,7 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'Saving is not required.'
             ),
             'signInTestLabel' => gettext('Test sign-in'),
+            'revertChangesLabel' => gettext('Revert changes'),
             'signInTestHelp' => gettext(
                 'Checks the public client registration before leaving this form, then runs the real browser flow ' .
                 'and validates PKCE, the code exchange, ID Token and configured claims source. A rejected token ' .
@@ -1745,6 +1746,8 @@ class OpenIDConnect extends Base implements IAuthConnector
             ),
             'signInTestChangedHelp' => gettext('Save or revert your changes before testing sign-in.'),
             'formPreparing' => gettext('Preparing form state...'),
+            'formLoadedState' => ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET'
+                && is_string($_GET['act'] ?? null) && in_array($_GET['act'], ['new', 'edit'], true),
             'formLoadedFromSavedState' => ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET'
                 && is_string($_GET['act'] ?? null) && $_GET['act'] === 'edit'
                 && is_string($_GET['id'] ?? null)
