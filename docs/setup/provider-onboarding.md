@@ -41,7 +41,9 @@ and any additions become exact registered addresses. The currently opened
 origin is first when OPNsense accepts it. With a custom policy, only the entered
 origins are registered. In either mode the first origin is the canonical
 front-channel or back-channel logout notification address; all origins receive
-authorization and optional post-logout redirect entries.
+authorization redirects and the dedicated lifecycle-test post-logout return.
+The ordinary origin-root post-logout entry remains conditional on **Return here
+after logout**.
 
 The authentik file replaces its fail-closed standard e-mail mapping with an
 application-specific mapping. It reports `email_verified=true` only when the

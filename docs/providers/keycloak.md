@@ -93,11 +93,12 @@ In the intended realm, go to **Clients > Create client** and use:
 | DPoP Bound Access Tokens | On |
 | Valid redirect URIs | `https://firewall.example.com/api/openidconnect/auth/callback/keycloak` |
 | Web origins | `https://firewall.example.com` |
-| Valid post logout redirect URIs | `https://firewall.example.com/` only when OPNsense **Return here after logout** will be enabled |
+| Valid post logout redirect URIs | `https://firewall.example.com/api/openidconnect/auth/logouttestcallback/keycloak`; additionally `https://firewall.example.com/` when OPNsense **Return here after logout** will be enabled |
 
-Use exact addresses, not `*`. The trailing slash in the post-logout address is
-intentional. Do not put either OPNsense logout notification URL under **Valid
-redirect URIs**.
+Use exact addresses, not `*`. The lifecycle address is always needed for the
+optional disposable sign-out test; the trailing slash in the ordinary
+post-logout address is intentional. Do not put either OPNsense logout
+notification URL under **Valid redirect URIs**.
 
 On the **Credentials** tab, copy the generated client secret to OPNsense. Under
 the client's advanced OpenID Connect settings, set **Proof Key for Code Exchange

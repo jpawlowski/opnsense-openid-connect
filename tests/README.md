@@ -79,6 +79,7 @@ the OPNsense classes (`tests/stubs/`):
 | `redirects.php` | choosing the address the provider returns to — the allow list, near-miss names, the empty-list fallback, a Host header that is not a host name, and whom a token was issued for |
 | `claims.php` | reading claims from the id_token as well as UserInfo, and keeping protocol claims out |
 | `exchange.php` | discovery, bounded HTTPS, PKCE, one-time transactions, mix-up protection, signed JARM responses, ID Token claims and logout-token claims |
+| `lifecycle-test.php` | bounded disposable logout grants, one-time start, exact return, and independently observed front/back-channel notifications without a local login session |
 | `accounts.php` | which local account a login is, and whether it may be used at all: disabled, expired, root, verified-address matching, first-login creation, strict admission, and the bounded administrator-approval workflow |
 | `groups.php` | what is handed to core when group membership is synced — the spelling it compares against, and the scope it is allowed to act in |
 | `loginpage.php` | what the login page is handed: which icon, which markup, and that a provider name cannot open a tag |
@@ -167,7 +168,7 @@ OPNsense WebGUI, and drives the complete browser flow with Playwright. A pinned
 local OWASP ZAP proxy passively validates the response headers emitted along
 that authenticated traffic without requiring a publicly reachable firewall or
 a publicly trusted certificate. It covers
-the non-mutating sign-in tester, login, PKCE, automatic first binding,
+the non-mutating sign-in/lifecycle tester, actual PAR reporting, login, PKCE, automatic first binding,
 administrator approval, conditional provider fields, social-login labels,
 session rotation, replay rejection, both Keycloak logout channels, Form POST,
 POST client authentication and the local-password recovery path. This deliberately

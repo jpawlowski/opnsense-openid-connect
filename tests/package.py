@@ -272,6 +272,8 @@ def main():
           "/var/lib/php/sessions/.openidconnect-security-events" in deinstall)
     check("uninstalling takes the form-post transaction index with it",
           "/var/lib/php/sessions/.openidconnect-transactions" in deinstall)
+    check("uninstalling takes the lifecycle test index with it",
+          "/var/lib/php/sessions/.openidconnect-lifecycle-tests" in deinstall)
     check("uninstalling takes pending identity hints with it",
           "/var/lib/php/sessions/.openidconnect-pending-identities" in deinstall)
     check("but an upgrade keeps it", "PKG_UPGRADE" in deinstall)

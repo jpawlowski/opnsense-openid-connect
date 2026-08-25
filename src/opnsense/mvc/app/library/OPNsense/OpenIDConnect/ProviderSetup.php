@@ -253,6 +253,11 @@ final class ProviderSetup
                 'url' => $origin . '/api/openidconnect/auth/callback/' . rawurlencode($applicationCode),
                 'type' => 'authorization',
             ];
+            $redirects[] = [
+                'url' => $origin . '/api/openidconnect/auth/logouttestcallback/'
+                    . rawurlencode($applicationCode),
+                'type' => 'logout',
+            ];
             if ($postLogoutRedirect) {
                 $redirects[] = ['url' => $origin . '/', 'type' => 'logout'];
             }
@@ -364,6 +369,8 @@ final class ProviderSetup
         $postLogout = [];
         foreach ($origins as $origin) {
             $callbacks[] = $origin . '/api/openidconnect/auth/callback/' . rawurlencode($applicationCode);
+            $postLogout[] = $origin . '/api/openidconnect/auth/logouttestcallback/'
+                . rawurlencode($applicationCode);
             if ($postLogoutRedirect) {
                 $postLogout[] = $origin . '/';
             }
@@ -386,14 +393,12 @@ final class ProviderSetup
             $attributes['backchannel.logout.url'] = $origins[0]
                 . '/api/openidconnect/auth/backchannel/' . rawurlencode($applicationCode);
         }
-        if ($postLogout !== []) {
-            $attributes['post.logout.redirect.uris'] = implode('##', $postLogout);
-            // Keycloak 26.5 introduced an independent confirmation landing page.
-            // Leaving it enabled would consume a valid post_logout_redirect_uri
-            // until the user clicks again, contradicting OPNsense's explicit
-            // Return here after logout setting.
-            $attributes['logout.confirmation.enabled'] = 'false';
-        }
+        $attributes['post.logout.redirect.uris'] = implode('##', $postLogout);
+        // Keycloak 26.5 introduced an independent confirmation landing page.
+        // Leaving it enabled would consume a valid post_logout_redirect_uri
+        // until the user clicks again, contradicting the explicit test return and
+        // OPNsense's optional ordinary Return here after logout setting.
+        $attributes['logout.confirmation.enabled'] = 'false';
 
         $client = [
             'clientId' => $slug,

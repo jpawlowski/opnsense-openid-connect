@@ -189,10 +189,12 @@ by the current form remains under **Readiness** as attention or failure. The bro
 does not need to reach Discovery. Test sign-in becomes available after the server has first been saved,
 is complete and has no unsaved changes. It may be used while the provider
 remains disabled and validates a real browser flow without changing the WebGUI
-session or local identity state. A Client ID or callback rejected during the
+session or local identity state. Its optional **Validate sign-out** action uses
+the always-displayed lifecycle return URI and reports only logout notifications
+which passed the normal channel validation. A Client ID or callback rejected during the
 preflight leaves the browser on the form. A client credential rejected only
 during the code exchange produces a dedicated failure result with an exact
-return link. The provider may retain its own SSO session.
+return link. Without the optional sign-out half, the provider may retain its own SSO session.
 OPNsense's generic **System > Access > Tester** is a username/password tester and
 does not apply to OIDC. The setup
 download and its independently reopenable guide are offered only where an

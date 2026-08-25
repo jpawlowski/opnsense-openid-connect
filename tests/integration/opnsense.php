@@ -592,7 +592,7 @@ $check(PendingIdentityRegistry::find($pendingId, 'runtime') !== null, 'pending i
 $check(PendingIdentityRegistry::remove($pendingId, 'runtime'), 'pending identity is removed');
 foreach ([
     '.openidconnect-sessions', '.openidconnect-logout-tokens', '.openidconnect-security-events',
-    '.openidconnect-transactions', '.openidconnect-pending-identities',
+    '.openidconnect-transactions', '.openidconnect-lifecycle-tests', '.openidconnect-pending-identities',
 ] as $file) {
     $path = rtrim((string)ini_get('session.save_path'), '/') . '/' . $file;
     $check(is_file($path) && (fileperms($path) & 0777) === 0600, $file . ' has mode 0600');

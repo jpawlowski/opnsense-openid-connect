@@ -274,6 +274,16 @@ class RelyingParty
             $authorizationUrl = $this->directAuthorizationUrl($metadata, $parameters);
         }
 
+        $transaction['authorization_details'] = [
+            'par_mode' => $parMode,
+            'par_advertised' => $parEndpoint !== null,
+            'par_required' => $parRequired,
+            'par_used' => $usedPar,
+            'par_bypassed' => $bypass || ($parEndpoint !== null && $parMode === 'auto' && !$parRequired && !$usedPar),
+            'request_object_used' => $usedRequestObject,
+            'dpop_used' => $this->dpop !== null,
+        ];
+
         /* A failed PAR must leave no state that could later be mistaken for a pending login. */
         if ($formPost) {
             TransactionRegistry::store($state, $transaction);
@@ -824,18 +834,34 @@ class RelyingParty
 
     public function signOut(string $idToken, ?string $returnTo): void
     {
+        $this->response->redirect($this->signOutUrl($idToken, $returnTo));
+    }
+
+    /** Build an RP-initiated logout address without changing the caller's response. */
+    public function signOutUrl(string $idToken, ?string $returnTo, string $state = ''): string
+    {
         $this->metadata ??= $this->discoverMetadata();
         $endpoint = $this->metadata->endSessionEndpoint();
         if ($endpoint === null) {
-            $this->response->redirect($returnTo ?? '/');
-            return;
+            return $returnTo ?? '/';
         }
         $parameters = ['id_token_hint' => $idToken];
         if ($returnTo !== null) {
             HttpClient::assertHttpsUrl($returnTo);
             $parameters['post_logout_redirect_uri'] = $returnTo;
         }
-        $this->response->redirect(HttpClient::appendQueryParameters($endpoint, $parameters));
+        if ($state !== '') {
+            if (!preg_match('/^[A-Za-z0-9_-]{43}$/D', $state) || $returnTo === null) {
+                throw new ProtocolException('The logout return state is invalid');
+            }
+            $parameters['state'] = $state;
+        }
+        return HttpClient::appendQueryParameters($endpoint, $parameters);
+    }
+
+    public function supportsRpInitiatedLogout(): bool
+    {
+        return $this->metadata?->endSessionEndpoint() !== null;
     }
 
     public function ownOrigin(): string { return (string)static::originOf($this->redirectUri); }

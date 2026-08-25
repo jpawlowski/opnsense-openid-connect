@@ -39,6 +39,10 @@ Edit the saved OIDC server and use **Test discovery** for provider metadata or
 a WebGUI session and does not create or modify local users, bindings or groups.
 Save or revert every form change before starting it; the action deliberately
 tests only the saved connector and returns to the same edit form afterward.
+After a success, **Validate sign-out** can end the disposable provider session
+and distinguish a validated front/back-channel notification from one which was
+configured locally but never observed. Register the separately displayed
+lifecycle-test post-logout URI exactly before using it.
 
 ## The provider shows a Client ID error before sign-in
 
