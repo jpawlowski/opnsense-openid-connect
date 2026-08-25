@@ -548,9 +548,10 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'name' => gettext('WebGUI address policy'),
                 'help' => gettext(
                     'Following OPNsense automatically uses its hostname and domain, short hostname, alternate ' .
-                    'hostnames, local interface addresses and virtual IPs when the WebGUI itself uses HTTPS. ' .
-                    'The current accepted browser address is shown first. Choose Custom for provider-specific ' .
-                    'restrictions, a reverse proxy or an external port OPNsense does not know.'
+                    'hostnames, local interface addresses and virtual IPs when the WebGUI itself uses HTTPS. Every ' .
+                    'inherited address keeps the configured WebGUI port. The current accepted browser address is ' .
+                    'shown first. Choose Custom for provider-specific restrictions, a reverse proxy or an external ' .
+                    'port OPNsense does not know.'
                 ),
                 'type' => 'dropdown',
                 'default' => 'opnsense',
@@ -560,6 +561,19 @@ class OpenIDConnect extends Base implements IAuthConnector
                 ],
                 'validate' => fn($value) => in_array($value ?: 'opnsense', self::ORIGIN_POLICIES, true)
                     ? [] : [gettext('Unknown WebGUI address policy.')],
+            ],
+            'openidconnect_standard_https_port' => [
+                'name' => gettext('Also accept port 443 for configured WebGUI hostnames'),
+                'help' => gettext(
+                    'Shown when OPNsense serves HTTPS on a non-standard port. Also accept its configured hostname, ' .
+                    'hostname and domain, and alternate DNS hostnames on the standard HTTPS port 443. Use this for ' .
+                    'a trusted reverse proxy which exposes those same names on port 443. Local interface and ' .
+                    'virtual IP addresses remain limited to the configured WebGUI port; any other external port ' .
+                    'still needs an explicit additional origin.'
+                ),
+                'type' => 'checkbox',
+                'default' => '0',
+                'validate' => fn($value) => [],
             ],
             'openidconnect_tls_offloading' => [
                 'name' => gettext('Trusted reverse-proxy TLS offloading'),
@@ -1935,7 +1949,9 @@ class OpenIDConnect extends Base implements IAuthConnector
                 'intentionally ignored.'
             ),
             'microsoftAudience' => $this->microsoftAudience(),
-            'opnsenseOrigins' => $this->opnsenseWebGuiOrigins(),
+            'opnsenseOrigins' => $this->opnsenseWebGuiOrigins(false),
+            'opnsenseStandardHttpsOrigins' => $this->opnsenseStandardHttpsHostnameOrigins(),
+            'webGuiPort' => $this->opnsenseWebGuiPort(),
             'endpointLabel' => gettext('Provider endpoint reference'),
             'noEndpointOrigin' => gettext(
                 'No accepted HTTPS WebGUI origin is available. Check the WebGUI address policy and origins.'
@@ -3246,7 +3262,10 @@ class OpenIDConnect extends Base implements IAuthConnector
             return $this->effectiveWebGuiOrigins();
         }
         $policy = (string)($_POST['openidconnect_origin_policy'] ?? 'opnsense');
-        $origins = $policy === 'custom' ? [] : $this->opnsenseWebGuiOrigins();
+        $standardPort = in_array(strtolower(trim((string)(
+            $_POST['openidconnect_standard_https_port'] ?? ''
+        ))), ['1', 'yes', 'true', 'on'], true);
+        $origins = $policy === 'custom' ? [] : $this->opnsenseWebGuiOrigins($standardPort);
         foreach (static::splitList((string)($_POST['openidconnect_redirect_urls'] ?? '')) as $origin) {
             $normalized = static::normalizeHttpsOrigin($origin);
             if ($normalized !== null) {
@@ -3836,6 +3855,11 @@ class OpenIDConnect extends Base implements IAuthConnector
         return $this->choice('openidconnect_origin_policy', self::ORIGIN_POLICIES, 'opnsense');
     }
 
+    public function acceptsStandardHttpsPortForWebGuiHostnames(): bool
+    {
+        return $this->flag('openidconnect_standard_https_port');
+    }
+
     /** @return string[] exact HTTPS origins accepted for this provider */
     public function effectiveWebGuiOrigins(): array
     {
@@ -3881,19 +3905,42 @@ class OpenIDConnect extends Base implements IAuthConnector
      *
      * @return string[]
      */
-    public function opnsenseWebGuiOrigins(): array
+    public function opnsenseWebGuiOrigins(?bool $includeStandardHttpsPort = null): array
     {
         if (!$this->nativeWebGuiUsesHttps()) {
             return [];
         }
         $port = $this->opnsenseWebGuiPort();
-        $hosts = array_merge($this->opnsenseWebGuiHostnames(), $this->opnsenseLocalIpAddresses());
+        $hostnames = $this->opnsenseWebGuiHostnames();
+        $hosts = array_merge($hostnames, $this->opnsenseLocalIpAddresses());
         $origins = [];
         foreach ($hosts as $host) {
             $address = filter_var($host, FILTER_VALIDATE_IP) && str_contains($host, ':')
                 ? '[' . $host . ']' : $host;
             $origin = 'https://' . $address . ($port === 443 ? '' : ':' . $port);
             $normalized = static::normalizeHttpsOrigin($origin);
+            if ($normalized !== null) {
+                $origins[] = $normalized;
+            }
+        }
+        if ($includeStandardHttpsPort ?? $this->acceptsStandardHttpsPortForWebGuiHostnames()) {
+            $origins = array_merge($origins, $this->opnsenseStandardHttpsHostnameOrigins($hostnames));
+        }
+        return array_values(array_unique($origins));
+    }
+
+    /** @param string[]|null $hostnames @return string[] DNS names OPNsense accepts, rendered at HTTPS port 443 */
+    private function opnsenseStandardHttpsHostnameOrigins(?array $hostnames = null): array
+    {
+        if (!$this->nativeWebGuiUsesHttps() || $this->opnsenseWebGuiPort() === 443) {
+            return [];
+        }
+        $origins = [];
+        foreach ($hostnames ?? $this->opnsenseWebGuiHostnames() as $hostname) {
+            if (filter_var($hostname, FILTER_VALIDATE_IP)) {
+                continue;
+            }
+            $normalized = static::normalizeHttpsOrigin('https://' . $hostname);
             if ($normalized !== null) {
                 $origins[] = $normalized;
             }

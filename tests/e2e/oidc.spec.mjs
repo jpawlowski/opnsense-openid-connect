@@ -312,9 +312,14 @@ async function configureServer(page) {
   const setupResponsePromise = page.waitForResponse(response => (
     new URL(response.url()).pathname === '/api/openidconnect/setup/generate'
   ));
+  const setupRequestPromise = page.waitForRequest(request => (
+    new URL(request.url()).pathname === '/api/openidconnect/setup/generate'
+  ));
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download provider setup' }).click();
   expectPrivateResponseHeaders(await setupResponsePromise);
+  const setupRequest = await setupRequestPromise;
+  expect(new URLSearchParams(setupRequest.postData() || '').get('preferred_origin')).toBe(origin);
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^opnsense-.+-keycloak-partial-import\.json$/);
   const setup = JSON.parse(await readFile(await download.path(), 'utf8'));
@@ -325,6 +330,11 @@ async function configureServer(page) {
   expect(generatedClient.redirectUris).toContain(`${origin}${callbackPath}`);
   expect(generatedClient.webOrigins[0]).toBe(origin);
   expect(generatedClient.webOrigins).toContain(origin);
+  expect(generatedClient.rootUrl).toBe(origin);
+  expect(generatedClient.baseUrl).toBe(
+    `${origin}/api/openidconnect/auth/login?provider=${encodeURIComponent(process.env.E2E_SERVER_NAME)}`
+  );
+  expect(generatedClient.alwaysDisplayInConsole).toBe(true);
   expect(generatedClient.redirectUris.every(uri => uri.endsWith(callbackPath))).toBeTruthy();
   await importGeneratedKeycloakClient(setup);
   const keycloakSetupDialog = page.getByRole('dialog');
@@ -371,6 +381,11 @@ async function configureServer(page) {
   await page.getByRole('button', { name: 'Download provider setup' }).click();
   const authentikDownload = await authentikDownloadPromise;
   expect(authentikDownload.suggestedFilename()).toMatch(/-authentik-blueprint\.yaml$/);
+  const authentikBlueprint = await readFile(await authentikDownload.path(), 'utf8');
+  expect(authentikBlueprint).toContain(
+    `meta_launch_url: '${origin}/api/openidconnect/auth/login?provider=`
+      + `${encodeURIComponent(process.env.E2E_SERVER_NAME)}'`
+  );
   const authentikSetupDialog = page.getByRole('dialog');
   const authentikSetupResult = authentikSetupDialog.locator(
     '.oidc-setup-result[data-provider="authentik"]'
@@ -517,6 +532,12 @@ async function configureServer(page) {
   let dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('Enter Client ID and Client Secret');
   await expect(dialog.locator('.oidc-probe-check[data-verification="not-tested"]').first()).toBeVisible();
+  const diagnosticColumns = await dialog.locator('.oidc-probe-check-actions').evaluateAll(actions => actions.map(action => ({
+    statusLeft: action.querySelector('.label')?.getBoundingClientRect().left,
+    infoLeft: action.querySelector('.oidc-probe-info').getBoundingClientRect().left,
+  })).filter(position => Number.isFinite(position.statusLeft)));
+  expect(new Set(diagnosticColumns.map(position => Math.round(position.statusLeft))).size).toBe(1);
+  expect(new Set(diagnosticColumns.map(position => Math.round(position.infoLeft))).size).toBe(1);
   await dialog.getByRole('button', { name: '×' }).click();
 
   await page.locator('input[name="openidconnect_client_id"]').fill(process.env.E2E_KEYCLOAK_CLIENT_ID);
@@ -866,6 +887,9 @@ async function importGeneratedKeycloakClient(setup) {
   const client = await representation.json();
   expect(client.redirectUris).toEqual(setup.clients[0].redirectUris);
   expect(client.webOrigins).toEqual(setup.clients[0].webOrigins);
+  expect(client.rootUrl).toBe(setup.clients[0].rootUrl);
+  expect(client.baseUrl).toBe(setup.clients[0].baseUrl);
+  expect(client.alwaysDisplayInConsole).toBe(true);
   expect(client.defaultClientScopes).toEqual(setup.clients[0].defaultClientScopes);
   expect([...client.optionalClientScopes].sort()).toEqual([...setup.clients[0].optionalClientScopes].sort());
   expect(client.attributes['dpop.bound.access.tokens']).toBe('true');

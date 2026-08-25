@@ -42,7 +42,8 @@ class SetupController extends PrivateApiControllerBase
                         (string)$this->request->getPost('openidconnect_acr_values', null, ''),
                     'openidconnect_amr_values' =>
                         (string)$this->request->getPost('openidconnect_amr_values', null, ''),
-                ]
+                ],
+                (string)$this->request->getPost('preferred_origin', null, '')
             );
             return ['status' => 'ok'] + $artifact;
         } catch (\Throwable $e) {
