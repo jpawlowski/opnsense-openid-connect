@@ -145,6 +145,19 @@
         return origins;
     }
 
+    function currentSetupOrigin() {
+        var current = normalizedOrigin(window.location.origin);
+        if (!current || effectiveOrigins().indexOf(current) === -1) {
+            return null;
+        }
+        var hostname = new URL(current).hostname.replace(/\.$/, '');
+        if (hostname.indexOf('.') === -1 || hostname.indexOf(':') !== -1
+            || /^\d+(?:\.\d+){3}$/.test(hostname)) {
+            return null;
+        }
+        return current;
+    }
+
     function currentTransportReady() {
         if (options.webGuiProtocol !== 'http') {
             return true;
@@ -1241,13 +1254,12 @@
 
         function setupData() {
             var origins = effectiveOrigins();
-            var current = normalizedOrigin(window.location.origin);
             return {
                 profile: profile.value,
                 application_code: field('openidconnect_app_code').value,
                 display_name: field('name') ? field('name').value : '',
                 origins: origins.join(','),
-                preferred_origin: current || '',
+                preferred_origin: currentSetupOrigin() || '',
                 sector_origin: field('openidconnect_sector_origin').value,
                 post_logout_redirect: $(field('openidconnect_logout_redirect')).is(':checked') ? '1' : '0',
                 logout_channel: channel.val(),
@@ -1274,6 +1286,17 @@
 
         function generate(download) {
             synchronizeLogoutChannel();
+            if (!currentSetupOrigin()) {
+                BootstrapDialog.show({
+                    title: download
+                        ? (options.setupLabel || 'Download provider setup')
+                        : (options.setupGuideLabel || 'Open setup guide'),
+                    message: $('<div>').text(options.setupOriginMismatchHelp ||
+                        'Open this form through an accepted HTTPS WebGUI FQDN.').html(),
+                    type: BootstrapDialog.TYPE_WARNING
+                });
+                return;
+            }
             var appCode = field('openidconnect_app_code');
             if (appCode && applicationCodeConflict(appCode.value)) {
                 $(appCode).trigger('input').trigger('focus');

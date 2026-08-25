@@ -30,7 +30,7 @@ use OPNsense\OpenIDConnect\WebGuiAccess;
  *   /api/openidconnect/auth/callback  finish it and turn the answer into a session
  *   /api/openidconnect/auth/logout    end here and at the provider
  *   /api/openidconnect/auth/icon      hand on a provider's logo for the login button
- *   /api/openidconnect/auth/builtinicon hand out a package-owned provider mark
+ *   /api/openidconnect/auth/builtinicon hand out a package-owned provider or OPNsense mark
  *   /api/openidconnect/auth/formscript serve the static authentication-server form application
  *   /api/openidconnect/auth/sector    publish callback URIs for pairwise subjects
  *
@@ -526,7 +526,7 @@ class AuthController extends ApiControllerBase
         return $answer['body'];
     }
 
-    /** Serve the reviewed SVG which a provider profile selects by default. */
+    /** Serve one reviewed SVG selected by a provider profile or generated provider application. */
     public function builtiniconAction(string $profile = '')
     {
         $path = OpenIDConnect::providerIconPath($profile);

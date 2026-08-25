@@ -61,7 +61,7 @@ final class ProviderSetup
     public static function generate(
         string $profile,
         string $applicationCode,
-        string $displayName,
+        string $serverName,
         array $origins,
         bool $postLogoutRedirect,
         string $logoutChannel = 'backchannel',
@@ -80,11 +80,11 @@ final class ProviderSetup
             throw new \InvalidArgumentException('The application code is not URL-safe.');
         }
 
-        $displayName = trim($displayName);
-        if ($displayName === '') {
-            $displayName = 'OPNsense WebGUI (' . $applicationCode . ')';
+        $serverName = trim($serverName);
+        if ($serverName === '') {
+            $serverName = 'OPNsense WebGUI (' . $applicationCode . ')';
         }
-        if (strlen($displayName) > 160 || self::hasControlCharacters($displayName)) {
+        if (strlen($serverName) > 160 || self::hasControlCharacters($serverName)) {
             throw new \InvalidArgumentException('The server name is too long or contains control characters.');
         }
 
@@ -93,6 +93,8 @@ final class ProviderSetup
             throw new \InvalidArgumentException('Open this form through HTTPS or enter at least one custom WebGUI origin.');
         }
         $origins = self::preferOrigin($origins, $preferredOrigin);
+        $applicationName = self::fqdnFromOrigin($origins[0]);
+        $iconUrl = self::applicationIconUrl($origins[0]);
         if (!in_array($logoutChannel, self::LOGOUT_CHANNELS, true)) {
             throw new \InvalidArgumentException('Unknown logout channel.');
         }
@@ -107,7 +109,9 @@ final class ProviderSetup
             ? self::authentik(
                 $applicationCode,
                 $slug,
-                $displayName,
+                $serverName,
+                $applicationName,
+                $iconUrl,
                 $origins,
                 $postLogoutRedirect,
                 $logoutChannel,
@@ -116,7 +120,9 @@ final class ProviderSetup
             : self::keycloak(
                 $applicationCode,
                 $slug,
-                $displayName,
+                $serverName,
+                $applicationName,
+                $iconUrl,
                 $origins,
                 $postLogoutRedirect,
                 $logoutChannel,
@@ -212,7 +218,9 @@ final class ProviderSetup
     {
         $preferred = trim($preferred);
         if ($preferred === '') {
-            return $origins;
+            throw new \InvalidArgumentException(
+                'Open this form through an accepted HTTPS WebGUI FQDN before generating provider setup.'
+            );
         }
         $normalised = self::normaliseOrigins([$preferred])[0];
         $index = array_search($normalised, $origins, true);
@@ -228,9 +236,26 @@ final class ProviderSetup
         return $origins;
     }
 
-    private static function loginUrl(string $origin, string $displayName): string
+    private static function fqdnFromOrigin(string $origin): string
     {
-        return $origin . '/api/openidconnect/auth/login?provider=' . rawurlencode($displayName);
+        $host = strtolower(rtrim((string)parse_url($origin, PHP_URL_HOST), '.'));
+        if ($host === '' || !str_contains($host, '.') || filter_var($host, FILTER_VALIDATE_IP)
+            || filter_var($host, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME) === false) {
+            throw new \InvalidArgumentException(
+                'The WebGUI origin used to generate provider setup must contain a fully qualified DNS hostname.'
+            );
+        }
+        return $host;
+    }
+
+    private static function loginUrl(string $origin, string $serverName): string
+    {
+        return $origin . '/api/openidconnect/auth/login?provider=' . rawurlencode($serverName);
+    }
+
+    private static function applicationIconUrl(string $origin): string
+    {
+        return $origin . '/api/openidconnect/auth/builtinicon/opnsense';
     }
 
     private static function isHttpsOrigin(string $value): bool
@@ -266,7 +291,9 @@ final class ProviderSetup
     private static function authentik(
         string $applicationCode,
         string $slug,
-        string $displayName,
+        string $serverName,
+        string $applicationName,
+        string $iconUrl,
         array $origins,
         bool $postLogoutRedirect,
         string $logoutChannel,
@@ -275,7 +302,7 @@ final class ProviderSetup
         $providerId = $slug . '-provider';
         $emailMappingId = $slug . '-verified-email-scope';
         $providerName = 'OPNsense WebGUI (' . $slug . ')';
-        $loginUrl = self::loginUrl($origins[0], $displayName);
+        $loginUrl = self::loginUrl($origins[0], $serverName);
         $redirects = [];
         foreach ($origins as $origin) {
             $redirects[] = [
@@ -297,7 +324,7 @@ final class ProviderSetup
             '# yaml-language-server: $schema=https://version-2026-8.goauthentik.io/blueprints/schema.json',
             'version: 1',
             'metadata:',
-            '  name: ' . self::yamlString($displayName),
+            '  name: ' . self::yamlString($applicationName),
             'entries:',
         ];
         if (in_array('email', $projection['scopes'], true)) {
@@ -362,9 +389,10 @@ final class ProviderSetup
             '      slug: ' . self::yamlString($slug),
             '    state: created',
             '    attrs:',
-            '      name: ' . self::yamlString($displayName),
+            '      name: ' . self::yamlString($applicationName),
             '      provider: !KeyOf ' . self::yamlString($providerId),
             '      meta_launch_url: ' . self::yamlString($loginUrl),
+            '      icon: ' . self::yamlString($iconUrl),
             '      policy_engine_mode: any',
             '',
         ]);
@@ -383,7 +411,9 @@ final class ProviderSetup
     private static function keycloak(
         string $applicationCode,
         string $slug,
-        string $displayName,
+        string $serverName,
+        string $applicationName,
+        string $iconUrl,
         array $origins,
         bool $postLogoutRedirect,
         string $logoutChannel,
@@ -411,6 +441,7 @@ final class ProviderSetup
                 . rawurlencode($applicationCode),
             'backchannel.logout.session.required' => 'true',
             'backchannel.logout.revoke.offline.tokens' => 'false',
+            'logoUri' => $iconUrl,
         ];
         if ($logoutChannel === 'backchannel') {
             $attributes['backchannel.logout.url'] = $origins[0]
@@ -427,10 +458,10 @@ final class ProviderSetup
 
         $client = [
             'clientId' => $slug,
-            'name' => $displayName,
+            'name' => $applicationName,
             'description' => 'OPNsense WebGUI login through OpenID Connect',
             'rootUrl' => $origins[0],
-            'baseUrl' => self::loginUrl($origins[0], $displayName),
+            'baseUrl' => self::loginUrl($origins[0], $serverName),
             'alwaysDisplayInConsole' => true,
             'enabled' => true,
             'protocol' => 'openid-connect',

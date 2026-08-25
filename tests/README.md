@@ -82,7 +82,7 @@ the OPNsense classes (`tests/stubs/`):
 | `accounts.php` | which local account a login is, and whether it may be used at all: disabled, expired, root, verified-address matching, first-login creation, strict admission, and the bounded administrator-approval workflow |
 | `groups.php` | what is handed to core when group membership is synced — the spelling it compares against, and the scope it is allowed to act in |
 | `loginpage.php` | what the login page is handed: which icon, which markup, and that a provider name cannot open a tag |
-| `provider-setup.php` | no-secret authentik and Keycloak imports, exact redirects, fail-closed verified e-mail projection, idempotent policy and input boundaries |
+| `provider-setup.php` | no-secret authentik and Keycloak imports, active-FQDN naming and branding, exact redirects, fail-closed verified e-mail projection, idempotent policy and input boundaries |
 
 **`tests/convention.py`** checks the rule that decides what a commit message
 may be, and what a release note makes of one. It is checked because the two
