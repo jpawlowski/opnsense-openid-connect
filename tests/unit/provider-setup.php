@@ -13,9 +13,12 @@ $authentik = ProviderSetup::generate(
     'authentik',
     'private-fw',
     "OPNsense administrator's WebGUI",
-    ['https://firewall.example.com', 'https://192.0.2.10:8443'],
+    ['https://192.0.2.10:8443', 'https://firewall.example.com'],
     true,
-    'backchannel'
+    'backchannel',
+    '',
+    [],
+    'https://firewall.example.com'
 );
 Checks::that('authentik receives a YAML blueprint', $authentik['media_type'], 'application/yaml');
 Checks::that('the authentik filename is stable', $authentik['filename'], 'opnsense-private-fw-authentik-blueprint.yaml');
@@ -49,6 +52,18 @@ Checks::that('authentik gets exact callback one', str_contains(
 Checks::that('authentik gets exact callback two', str_contains(
     $authentik['content'],
     'https://192.0.2.10:8443/api/openidconnect/auth/callback/private-fw'
+), true);
+Checks::that('authentik keeps the download origin callback first', strpos(
+    $authentik['content'],
+    'https://firewall.example.com/api/openidconnect/auth/callback/private-fw'
+) < strpos(
+    $authentik['content'],
+    'https://192.0.2.10:8443/api/openidconnect/auth/callback/private-fw'
+), true);
+Checks::that('authentik explicitly launches the canonical local login start', str_contains(
+    $authentik['content'],
+    "meta_launch_url: 'https://firewall.example.com/api/openidconnect/auth/login?provider="
+        . "OPNsense%20administrator%27s%20WebGUI'"
 ), true);
 Checks::that('authentik gets typed post logout addresses', substr_count(
     $authentik['content'],
@@ -100,9 +115,12 @@ $keycloak = ProviderSetup::generate(
     'keycloak',
     'Main_ONE',
     'OPNsense WebGUI',
-    ['https://firewall.example.net'],
+    ['https://backup.example.net', 'https://firewall.example.net'],
     false,
-    'frontchannel'
+    'frontchannel',
+    '',
+    [],
+    'https://firewall.example.net'
 );
 $keycloakJson = json_decode($keycloak['content'], true, 32, JSON_THROW_ON_ERROR);
 $client = $keycloakJson['clients'][0];
@@ -118,7 +136,25 @@ Checks::that('Keycloak is a confidential client', $client['publicClient'], false
 Checks::that('only authorization code is enabled', [
     $client['standardFlowEnabled'], $client['implicitFlowEnabled'], $client['directAccessGrantsEnabled'],
 ], [true, false, false]);
-Checks::that('Keycloak receives exact web origins', $client['webOrigins'], ['https://firewall.example.net']);
+Checks::that('Keycloak keeps the download origin first in callbacks and web origins', [
+    $client['redirectUris'],
+    $client['webOrigins'],
+], [[
+    'https://firewall.example.net/api/openidconnect/auth/callback/Main_ONE',
+    'https://backup.example.net/api/openidconnect/auth/callback/Main_ONE',
+], [
+    'https://firewall.example.net',
+    'https://backup.example.net',
+]]);
+Checks::that('Keycloak explicitly exposes the canonical local login start', [
+    $client['rootUrl'],
+    $client['baseUrl'],
+    $client['alwaysDisplayInConsole'],
+], [
+    'https://firewall.example.net',
+    'https://firewall.example.net/api/openidconnect/auth/login?provider=OPNsense%20WebGUI',
+    true,
+]);
 Checks::that('Keycloak binds access tokens to the proof key required by its advertised DPoP path',
     $client['attributes']['dpop.bound.access.tokens'], 'true');
 Checks::that('no unused post logout address is registered', isset(
@@ -197,6 +233,9 @@ Checks::that('Keycloak generates and persists its own pairwise salt',
 Checks::throws('a provider without an importer is refused', function (): void {
     ProviderSetup::generate('entra', 'main', 'Firewall', ['https://firewall.example.com'], false);
 }, 'no downloadable setup file');
+Checks::throws('a launch URL cannot be generated from a synthetic server name', function (): void {
+    ProviderSetup::generate('keycloak', 'main', '', ['https://firewall.example.com'], false);
+}, 'authentication server name');
 Checks::throws('an origin with a path is refused', function (): void {
     ProviderSetup::generate('authentik', 'main', 'Firewall', ['https://firewall.example.com/callback'], false);
 }, 'not an HTTPS origin');
@@ -274,6 +313,19 @@ Checks::throws('provider setup refuses a username claim absent from its scopes',
         ]
     );
 }, 'does not emit the configured username claim');
+Checks::throws('provider setup refuses a preferred download origin outside its accepted list', function (): void {
+    ProviderSetup::generate(
+        'keycloak',
+        'main',
+        'Firewall',
+        ['https://firewall.example.com'],
+        false,
+        'backchannel',
+        '',
+        [],
+        'https://unaccepted.example.com'
+    );
+}, 'not in the accepted origin list');
 Checks::throws('Keycloak setup refuses an unprojected group claim', function (): void {
     ProviderSetup::generate(
         'keycloak',
