@@ -17,6 +17,13 @@ Describe the problem in the issue. Here, describe only the change and how it
 resolves the issue. English and German are accepted; prefer English when in
 doubt.
 
+If important supporting context does not fit, publish one comment beginning
+with `## Details`, then link it from the relevant section as
+`Details: [maintained comment](permalink)`. Keep the change, resolution, actual
+validation and upgrade impact in this self-contained body. Whenever either part
+changes, edit the existing detail comment; do not add correction or replacement
+detail comments. The comment has no separate word limit, but keep it focused.
+
 Issue `type:*` labels describe a request and do not belong on its pull request.
 The title selects one `change:*` label. Under Area, deliberately keep `Same as
 issue` or replace it with one or two exact `area:*` labels when the implementation

@@ -53,6 +53,33 @@ out; `To decide` names one decision and recommends a direction at a high level.
 Keep counted issue prose to 175 words. The issue workflow helps with structure
 and length but does not close an issue or grant permission to start work.
 
+## Maintained detail comments
+
+The 175-word issue limit and 125-word pull-request limit apply to the main body.
+When important supporting context does not fit, an issue or pull request may use
+exactly one supplemental comment beginning with `## Details`. This is for a
+longer rationale, evaluated alternatives, logs, examples, a validation matrix,
+or similarly relevant context; it is not a way to combine unrelated scope or a
+second decision into one contribution.
+
+Keep the main body self-contained and scan-friendly. Its required fields remain
+meaningful without the comment: an issue keeps its outcome and one decision,
+and a pull request keeps its issue reference, area, change, resolution, actual
+validation, and upgrade impact. The detail comment has no separate word limit,
+but keep it structured and no longer than its subject needs.
+
+After publishing the comment, edit the most relevant body field or section to
+include `Details: [maintained comment](permalink)`. Revalidate the edited body as
+required. An agent-authored detail comment ends with the same language-matching
+notice as every other agent-authored comment.
+
+Treat the body and detail comment as one maintained contribution. Whenever
+facts, scope, decisions, implementation, validation, or upgrade impact change,
+inspect both and edit the existing detail comment in place in the same
+publication batch. Remove stale contradictions; do not stack correction
+comments or create a replacement detail comment. Replies in the discussion
+remain ordinary comments and do not become part of this maintained supplement.
+
 ## Claiming active work
 
 Before starting, inspect the issue's assignees, Development links, and recent

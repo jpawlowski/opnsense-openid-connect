@@ -31,6 +31,11 @@ impact. Intermediate branch commits may be ordinary work in progress; the
 pipeline judges the future squash commit shown by the pull request. A title or
 description edit triggers that check again.
 
+When important supporting context does not fit, use the maintained detail
+comment described below. Keep the pull-request body self-contained: its change,
+resolution, actual validation and upgrade impact still belong in the template
+sections.
+
 The `Area` section is a visible label request. Use `Same as issue` only when the
 implementation belongs to the linked issue's areas; otherwise list one or two
 exact `area:*` labels. This lets a fork contributor classify the implementation
@@ -171,6 +176,28 @@ Keep the complete issue to at most 175 counted prose words. The last field names
 one decision and suggests a direction at a high level; implementation detail
 belongs in the eventual change. Suspected vulnerabilities go through a private
 security advisory, never a public issue.
+
+### Maintained detail comments
+
+The issue and pull-request word limits apply to their main bodies. When a
+focused contribution has important supporting context that cannot fit there,
+publish one supplemental comment beginning with `## Details`. Link it from the
+most relevant main-body field or section as
+`Details: [maintained comment](permalink)`. Examples of suitable detail are a
+longer rationale, evaluated alternatives, logs, examples, or a validation
+matrix.
+
+The main body remains the self-contained, scan-friendly overview. Do not move a
+required decision, the pull request's change or resolution, actual validation,
+upgrade action, unrelated scope, or a second issue into the detail comment.
+The supplemental comment has no separate word limit, but keep it structured and
+as concise as its subject permits.
+
+Treat the main body and its detail comment as one maintained contribution.
+Whenever facts, scope, decisions, implementation, validation, or upgrade impact
+change, review both and edit the existing detail comment in place in the same
+update. Remove stale contradictions instead of adding correction comments or a
+replacement detail comment. Ordinary discussion continues in ordinary comments.
 
 ### Labels and triage
 

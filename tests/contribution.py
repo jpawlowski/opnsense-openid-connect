@@ -84,6 +84,9 @@ def main():
     check("the exact issue limit passes", lint.validate_issue(at_limit)["valid"], True)
     over_limit = issue_body(tldr="word " * 165)
     check("176 counted issue words fail", lint.validate_issue(over_limit)["valid"], False)
+    detail_link = "Details: [maintained comment](https://example.net/issues/42#issuecomment-7)"
+    check("an issue may link its maintained detail comment from a required field",
+          lint.validate_issue(issue_body(now=f"It fails.\n\n{detail_link}"))["valid"], True)
 
     group("Pull-request structure and title")
     valid = pull_request_body()
@@ -123,6 +126,11 @@ def main():
     over_pr_limit = pull_request_body(change="word " * 124, resolution="One two.")
     check("126 counted pull-request words fail",
           lint.validate_pull_request("fix: keep a concise change", over_pr_limit)["valid"], False)
+    check("a pull request may link its maintained detail comment from a required section",
+          lint.validate_pull_request(
+              "docs: explain maintained contribution details",
+              pull_request_body(change=f"Added the documented pattern.\n\n{detail_link}"),
+          )["valid"], True)
     same_issue = lambda repository, number: {
         "number": number, "created_at": "2026-01-01T00:00:00Z",
         "labels": [{"name": "type: bug"}, {"name": "area: oidc"}],
@@ -379,6 +387,15 @@ def main():
         (ROOT / ".github" / "ISSUE_TEMPLATE" / name).read_text(encoding="utf-8")
         for name in ("bug.yml", "change.yml")
     ]
+    detail_guidance = (contribution_skill, contributing, pull_request_template, *forms)
+    check("human and agent guidance shares one maintained detail-comment pattern",
+          all("`## Details`" in text
+              and "[maintained comment](permalink)" in text
+              and "no separate word limit" in text
+              and "existing detail comment" in text
+              for text in detail_guidance), True)
+    check("the agent entry point names the maintained-detail-comment pattern",
+          "maintained-detail-comment pattern" in agents, True)
     field_ids = [re.findall(r"^\s+id:\s+(\S+)$", form, re.M) for form in forms]
     check("both issue forms offer an area before the same five required fields",
           field_ids, [["area", "tldr", "where", "now", "want", "to_decide"]] * 2)
