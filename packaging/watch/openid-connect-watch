@@ -81,6 +81,7 @@ TOUCHPOINTS="
 /usr/local/opnsense/mvc/app/models/OPNsense/Base/Menu/MenuItem.php
 /usr/local/opnsense/mvc/app/models/OPNsense/Auth/FieldTypes/UidField.php
 /usr/local/opnsense/mvc/app/models/OPNsense/Auth/FieldTypes/UsernameField.php
+/usr/local/opnsense/mvc/app/models/OPNsense/Auth/Group.xml
 /usr/local/opnsense/mvc/app/models/OPNsense/Auth/User.php
 /usr/local/opnsense/mvc/app/models/OPNsense/Auth/User.xml
 /usr/local/opnsense/mvc/app/models/OPNsense/Core/ACL.php

@@ -674,6 +674,8 @@ $check(!$accountGuardMethod->invoke($managerGuard),
 $managerGuard->assumeUser($aclAccountWriterName);
 $check($accountGuardMethod->invoke($managerGuard),
     'inline account creation also accepts the native access-management privilege');
+$check($accountGuardMethod->invoke($managerGuard),
+    'the same native access-management privilege permits explicit local-group assignment');
 $managerGuard->assumeUser($aclProbeName);
 $check(!$accountGuardMethod->invoke($managerGuard),
     'the read-only guard also disables inline account creation');

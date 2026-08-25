@@ -67,11 +67,14 @@ honours **user-config-readonly**. These checks are repeated by the API; hiding
 or showing the button is not the security boundary. Inline local-account
 creation additionally requires **System: Access: Management**.
 
-An inline-created account receives a scrambled password and no groups or
-privileges. It cannot sign in with a local password and receives no WebGUI
-access merely because it was bound. Assign the intended local groups or direct
-privileges under **System > Access > Users**; provider claims are never copied
-into them by this workflow.
+When **Add an identity** creates an account, it receives a scrambled password
+and starts with no local-password access. The same editor can optionally select
+zero, one or several existing local groups. Selecting an existing account shows
+its current memberships first, so saving an unchanged selection preserves them;
+changing the selection replaces only that account's memberships. This workflow
+never creates a group and never copies provider claims into local groups. Group
+privileges can grant WebGUI access, while direct user privileges remain managed
+under **System > Access > Users**.
 
 ### Recommended first-login workflow
 
