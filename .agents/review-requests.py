@@ -100,7 +100,7 @@ def head_reviewed(head, events):
     return any(head.startswith(reviewed) or reviewed.startswith(head) for _created, reviewed in events)
 
 
-def classify_requests(comments, viewer, current_head, head_created, events):
+def classify_requests(comments, viewer, current_head, events):
     removable = []
     pending = []
     for comment in comments:
@@ -109,11 +109,12 @@ def classify_requests(comments, viewer, current_head, head_created, events):
         recognized, requested_head = request_head(comment.get("body"))
         if not recognized:
             continue
-        created = str(comment.get("created_at") or "")
         if requested_head:
             remove = requested_head != current_head or head_reviewed(requested_head, events)
         else:
-            remove = created < head_created or any(reviewed_at >= created for reviewed_at, _head in events)
+            # A legacy command has no durable evidence tying it to any head. Keeping it based on timestamps can
+            # suppress the exact-head request after a force-push, merge or move to an older commit.
+            remove = True
         (removable if remove else pending).append(comment)
     pending.sort(key=lambda value: (str(value.get("created_at") or ""), int(value.get("id") or 0)))
     removable.extend(pending[1:])
@@ -154,12 +155,8 @@ def review_state(number, token):
         raise RuntimeError("GitHub did not identify the publishing account")
     comments = paged(f"issues/{number}/comments", token)
     reviews = paged(f"pulls/{number}/reviews", token)
-    commit = github_api(f"commits/{head}", token)
-    commit_value = commit.get("commit") or {}
-    head_created = str((commit_value.get("committer") or {}).get("date")
-                       or (commit_value.get("author") or {}).get("date") or "")
     events = review_events(reviews, comments)
-    removable, pending = classify_requests(comments, viewer, head, head_created, events)
+    removable, pending = classify_requests(comments, viewer, head, events)
     return head, comments, events, removable, pending
 
 

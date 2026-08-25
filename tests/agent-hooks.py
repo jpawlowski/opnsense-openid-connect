@@ -1791,12 +1791,14 @@ module.update_registry(repository, update)
          "user": {"login": "publisher"}},
         {"id": 6, "created_at": "2026-08-24T09:30:00Z",
          "body": "@codex review\n\n" + review_requests.NOTICE["en"], "user": {"login": "publisher"}},
+        {"id": 7, "created_at": "2026-08-24T11:04:00Z",
+         "body": "@codex review\n\n" + review_requests.NOTICE["en"], "user": {"login": "publisher"}},
     ]
     removable, pending = review_requests.classify_requests(
-        comments, "publisher", current_head, "2026-08-24T10:00:00Z", [],
+        comments, "publisher", current_head, [],
     )
-    check("only own strict stale triggers and duplicate current requests are removable",
-          ([value["id"] for value in removable], [value["id"] for value in pending]), ([1, 6, 3], [2]))
+    check("only own strict stale triggers, unbound legacy triggers and duplicate current requests are removable",
+          ([value["id"] for value in removable], [value["id"] for value in pending]), ([1, 6, 7, 3], [2]))
     events = review_requests.review_events([
         {"user": {"login": "chatgpt-codex-connector"}, "commit_id": current_head,
          "submitted_at": "2026-08-24T12:00:00Z"},
@@ -1804,11 +1806,11 @@ module.update_registry(repository, update)
          "submitted_at": "2026-08-24T12:01:00Z"},
     ], [])
     removable, pending = review_requests.classify_requests(
-        comments, "publisher", current_head, "2026-08-24T10:00:00Z", events,
+        comments, "publisher", current_head, events,
     )
     check("a submitted Codex review fulfills the current trigger without selecting discussion or foreign comments",
           (events, sorted(value["id"] for value in removable), pending),
-          ([('2026-08-24T12:00:00Z', current_head)], [1, 2, 3, 6], []))
+          ([('2026-08-24T12:00:00Z', current_head)], [1, 2, 3, 6, 7], []))
 
     group("Finished worktrees retire before local branches and never delete remote branches")
     cleanup = load_agent_module(
