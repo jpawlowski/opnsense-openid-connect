@@ -160,9 +160,12 @@ observable evidence changes the deterministic order. A different preference or
 another reading of the same evidence is not a change. The replacement names the
 new fact and affected decision criterion, explicitly supersedes the earlier
 record and is mirrored to the union of the new PR set and every superseded
-record's PR set. It is a new immutable record; agents never edit or delete the
-earlier comments. The publisher owns the replacement through every mirrored
-write; concurrent agents stand down under the repository lock and then adopt it.
+record's PR set. Every PR retains one maintained coordination comment: the
+publisher updates the existing comment in place and removes duplicate
+coordination comments when groups join. New comments are created only for PRs
+that have no entry for the coordinated group. The publisher owns the replacement
+through every mirrored write; concurrent agents stand down under the repository
+lock and then adopt it.
 The marker retains the complete publication target set for
 idempotent retries and later fulfillment, including PRs that have since closed.
 Any active record sharing even one participant joins the same transitive
@@ -175,7 +178,8 @@ original PR has closed or already received its fulfilled marker.
 Only markers whose GitHub author association is
 owner, member or collaborator are authoritative. The helper prints its identifier
 before the first comment; if mirroring is interrupted, rerun the same command with
-`--id ID` so already published copies are verified and skipped. The helper writes
+`--id ID` so matching copies are verified and remaining comments are updated in
+place. The helper writes
 the current open PR set before old-only targets. A retry recovers hidden
 superseded IDs and the complete target set from its own already-published marker.
 If its first target has since closed, publish a new order for the remaining open

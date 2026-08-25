@@ -319,8 +319,8 @@ def main():
           all("any steward" in text and "new observable evidence" in text
               and "same evidence" in text and "same order" in text
               for text in workflow_rules), True)
-    check("replacement records preserve history and serialize competing publishers",
-          all("immutable" in text and "never edit or delete" in text
+    check("replacement records update one maintained entry and serialize competing publishers",
+          all("maintained" in text and "existing" in text and "comment" in text
               and "stand down" in text and "adopt" in text for text in workflow_rules), True)
     check("finished agent work has a conservative event-driven cleanup lifecycle",
           all("24-hour" in text and "seven-day" in text

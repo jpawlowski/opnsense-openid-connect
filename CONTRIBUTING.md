@@ -93,10 +93,12 @@ alternatives. The first complete recommendation remains authoritative while
 the same evidence produces the same order. Any steward may replace it when new
 observable evidence changes that deterministic order, regardless of who
 published it; another preference or reading of the same evidence does not.
-The successor names the new fact and affected criterion and is a new immutable
-record. Agents never edit or delete earlier coordination comments. Its publisher
-owns all mirrored writes under the repository mutex; concurrent agents stand
-down and then adopt it. The later PR may keep working but does not merge first or chase
+The successor names the new fact and affected criterion and is a new machine
+revision. Its publisher updates the existing maintained coordination comment in
+every PR, removes duplicates when groups join, and creates a comment only for a
+PR without an entry for the group. It owns all mirrored writes under the
+repository mutex; concurrent agents stand down and then adopt the completed
+revision. The later PR may keep working but does not merge first or chase
 the earlier PR's changing head; after its predecessor merges, it integrates
 once at a safe checkpoint. A replacement is also mirrored to PRs present only
 in the superseded order, preventing them from retaining obsolete coordination.
@@ -106,8 +108,8 @@ transitive group and must be replaced by a single order covering all of its open
 PRs; former participants remain mirroring targets but never re-enter the order.
 A predecessor closing unmerged invalidates that order immediately. Only
 repository-associated publishers are trusted;
-an interrupted mirroring resumes under its printed identifier without duplicate
-comments. Recommendation and fulfillment hold an atomic repository mutex across
+an interrupted mirroring resumes under its printed identifier by updating the
+remaining comments in place. Recommendation and fulfillment hold an atomic repository mutex across
 their remote snapshot and all mirrored writes; a concurrent publisher waits, and
 a lock left by a failed process is inspected rather than stolen. No agent merges, enables auto-merge or queues a
 merge without an explicit human instruction naming that PR. Review,
