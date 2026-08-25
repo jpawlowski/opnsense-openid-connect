@@ -40,6 +40,10 @@ final class ProviderSetup
         'profile' => 'goauthentik.io/providers/oauth2/scope-profile',
     ];
 
+    /** Reviewed upstream artwork stays public even when the WebGUI is reachable only on a private network. */
+    private const APPLICATION_ICON_URL = 'https://raw.githubusercontent.com/opnsense/core/'
+        . '01fc795f34dae4184de79a710105f00a69c90400/src/opnsense/www/themes/opnsense/build/images/icon-logo.svg';
+
     private const SUPPORTED_SCOPES = ['openid', 'email', 'profile'];
 
     private const STANDARD_CLAIM_SCOPES = [
@@ -96,7 +100,7 @@ final class ProviderSetup
         }
         $origins = self::preferOrigin($origins, $preferredOrigin);
         $applicationName = self::fqdnFromOrigin($origins[0]);
-        $iconUrl = self::applicationIconUrl($origins[0]);
+        $iconUrl = self::APPLICATION_ICON_URL;
         if (!in_array($logoutChannel, self::LOGOUT_CHANNELS, true)) {
             throw new \InvalidArgumentException('Unknown logout channel.');
         }
@@ -253,11 +257,6 @@ final class ProviderSetup
     private static function loginUrl(string $origin, string $serverName): string
     {
         return $origin . '/api/openidconnect/auth/login?provider=' . rawurlencode($serverName);
-    }
-
-    private static function applicationIconUrl(string $origin): string
-    {
-        return $origin . '/api/openidconnect/auth/builtinicon/opnsense';
     }
 
     private static function isHttpsOrigin(string $value): bool

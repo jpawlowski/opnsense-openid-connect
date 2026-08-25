@@ -29,6 +29,8 @@ const keycloakApiOrigin = process.env.E2E_PROVIDER_BROWSER_IP
 const origin = opnsense.origin;
 const issuer = `${keycloak.origin}/realms/${process.env.E2E_KEYCLOAK_REALM}`;
 const callbackPath = `/api/openidconnect/auth/callback/${process.env.E2E_APPLICATION_CODE}`;
+const applicationIconUrl = 'https://raw.githubusercontent.com/opnsense/core/'
+  + '01fc795f34dae4184de79a710105f00a69c90400/src/opnsense/www/themes/opnsense/build/images/icon-logo.svg';
 const runCommand = promisify(execFile);
 let keycloakClientSecret = '';
 
@@ -398,9 +400,7 @@ async function configureServer(page) {
   expect(generatedClient.baseUrl).toBe(
     `${origin}/api/openidconnect/auth/login?provider=${encodeURIComponent(process.env.E2E_SERVER_NAME)}`
   );
-  expect(generatedClient.attributes.logoUri).toBe(
-    `${origin}/api/openidconnect/auth/builtinicon/opnsense`
-  );
+  expect(generatedClient.attributes.logoUri).toBe(applicationIconUrl);
   expect(generatedClient.alwaysDisplayInConsole).toBe(true);
   expect(generatedClient.redirectUris.every(uri => uri.endsWith(callbackPath))).toBeTruthy();
   await importGeneratedKeycloakClient(setup);
@@ -454,9 +454,7 @@ async function configureServer(page) {
       + `${encodeURIComponent(process.env.E2E_SERVER_NAME)}'`
   );
   expect(authentikBlueprint).toContain(`name: '${new URL(origin).hostname}'`);
-  expect(authentikBlueprint).toContain(
-    `icon: '${origin}/api/openidconnect/auth/builtinicon/opnsense'`
-  );
+  expect(authentikBlueprint).toContain(`icon: '${applicationIconUrl}'`);
   const authentikSetupDialog = page.getByRole('dialog');
   const authentikSetupResult = authentikSetupDialog.locator(
     '.oidc-setup-result[data-provider="authentik"]'
