@@ -2406,6 +2406,7 @@
                         $(issuer).removeAttr('readonly');
                     }
                 }
+                updateRestoreState();
             }
             $(microsoftAudience).on('change', updateMicrosoftIssuer);
             $(profile).on('change', updateMicrosoftIssuer);

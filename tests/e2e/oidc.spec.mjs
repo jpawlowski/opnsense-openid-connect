@@ -309,9 +309,12 @@ async function configureServer(page) {
     .toHaveValue('https://login.microsoftonline.com/common/v2.0');
   await expect(page.locator('input[name="openidconnect_provider_url"]'))
     .toHaveAttribute('readonly', 'readonly');
+  await expect(restoreProfile).toBeEnabled();
   await selectNative(microsoftAudience, 'tenant');
   await expect(requiredAuthentication).toBeEnabled();
   await expect(selectPickerButton(requiredAuthentication)).toBeEnabled();
+  await expect(page.locator('input[name="openidconnect_provider_url"]')).toHaveValue('');
+  await expect(restoreProfile).toBeDisabled();
   await selectNative(microsoftAudience, 'common');
   await selectNative(page.locator('select[name="openidconnect_provider_profile"]'), 'keycloak');
   await expect(microsoftAudience.locator('xpath=ancestor::tr')).toBeHidden();
