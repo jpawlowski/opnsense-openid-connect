@@ -24,6 +24,7 @@ import github_watch  # noqa: E402
 CANONICAL_REPOSITORY = "jpawlowski/opnsense-openid-connect"
 GITHUB_TIMEOUT = 10
 MARKER = re.compile(r"<!-- agent-codex-review-request:v1 head=([0-9a-f]{40}) -->")
+SUBMITTED_REVIEW_STATES = {"APPROVED", "CHANGES_REQUESTED", "COMMENTED"}
 NOTICE = {
     "en": "*An AI agent wrote this text on my behalf; I am responsible for its content.*",
     "de": "*Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.*",
@@ -88,8 +89,11 @@ def review_events(reviews, comments):
     for review in reviews:
         login = str((review.get("user") or {}).get("login") or "").lower()
         head = str(review.get("commit_id") or "").lower()
-        if login in github_watch.CODEX_REVIEWERS and re.fullmatch(r"[0-9a-f]{40}", head):
-            events.append((str(review.get("submitted_at") or ""), head))
+        submitted = str(review.get("submitted_at") or "")
+        state = str(review.get("state") or "").upper()
+        if login in github_watch.CODEX_REVIEWERS and submitted and state in SUBMITTED_REVIEW_STATES \
+                and re.fullmatch(r"[0-9a-f]{40}", head):
+            events.append((submitted, head))
     for comment in comments:
         login = str((comment.get("user") or {}).get("login") or "").lower()
         match = github_watch.REVIEWED_COMMIT.search(str(comment.get("body") or ""))

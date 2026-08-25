@@ -1801,9 +1801,13 @@ module.update_registry(repository, update)
           ([value["id"] for value in removable], [value["id"] for value in pending]), ([1, 6, 7, 3], [2]))
     events = review_requests.review_events([
         {"user": {"login": "chatgpt-codex-connector"}, "commit_id": current_head,
-         "submitted_at": "2026-08-24T12:00:00Z"},
+         "submitted_at": "2026-08-24T12:00:00Z", "state": "COMMENTED"},
         {"user": {"login": "somebody-else"}, "commit_id": old_head,
-         "submitted_at": "2026-08-24T12:01:00Z"},
+         "submitted_at": "2026-08-24T12:01:00Z", "state": "COMMENTED"},
+        {"user": {"login": "chatgpt-codex-connector"}, "commit_id": old_head,
+         "submitted_at": "", "state": "PENDING"},
+        {"user": {"login": "chatgpt-codex-connector"}, "commit_id": old_head,
+         "submitted_at": "2026-08-24T12:02:00Z", "state": "DISMISSED"},
     ], [])
     removable, pending = review_requests.classify_requests(
         comments, "publisher", current_head, events,
