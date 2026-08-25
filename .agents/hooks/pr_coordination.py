@@ -25,7 +25,7 @@ RELATIVE_MARKDOWN_PULL_REFERENCE = re.compile(
     re.IGNORECASE,
 )
 RELATIVE_REFERENCE_PULL_DEFINITION = re.compile(
-    r"^[ \t]{0,3}\[(?P<label>[^]\n]+)\]:[ \t]*<?(?://(?:www[.])?github[.]com)?/"
+    r"^[ \t]{0,3}\[(?P<label>[^]\n]+)\]:[ \t]*(?:\n[ \t]{0,3})?<?(?://(?:www[.])?github[.]com)?/"
     r"(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(?P<number>[0-9]+)(?:[/?#][^\s<>]*)?>?"
     r"(?:[ \t]+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^\)\n]*\)))?[ \t]*$",
     re.IGNORECASE | re.MULTILINE,
