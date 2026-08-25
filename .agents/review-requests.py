@@ -30,7 +30,7 @@ NOTICE = {
 }
 
 
-def github_api(path, token, method="GET", body=None, repository=True):
+def github_api(path, token, method="GET", body=None, repository=True, missing_ok=False):
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
     prefix = f"/repos/{CANONICAL_REPOSITORY}" if repository else ""
     data = None if body is None else json.dumps(body).encode()
@@ -44,6 +44,8 @@ def github_api(path, token, method="GET", body=None, repository=True):
         with urlopen(request, timeout=GITHUB_TIMEOUT) as response:
             return None if response.status == 204 else json.load(response)
     except HTTPError as error:
+        if missing_ok and error.code == 404:
+            return None
         raise RuntimeError(f"GitHub review-request operation failed (HTTP {error.code})") from error
     except URLError as error:
         raise RuntimeError(f"GitHub review-request operation failed ({error.reason})") from error
@@ -147,6 +149,14 @@ def verify_local_pull(pull):
     return local_head
 
 
+def verify_remote_pull(number, expected_head, token):
+    pull = github_api(f"pulls/{number}", token)
+    observed_head = str((pull.get("head") or {}).get("sha") or "")
+    if observed_head != expected_head or str(pull.get("state") or "").lower() != "open" or pull.get("merged_at"):
+        raise RuntimeError("the pull request changed while review requests were being inspected; retry its snapshot")
+    return verify_local_pull(pull)
+
+
 def review_state(number, token):
     pull = github_api(f"pulls/{number}", token)
     head = verify_local_pull(pull)
@@ -157,37 +167,50 @@ def review_state(number, token):
     reviews = paged(f"pulls/{number}/reviews", token)
     events = review_events(reviews, comments)
     removable, pending = classify_requests(comments, viewer, head, events)
+    verify_remote_pull(number, head, token)
     return head, comments, events, removable, pending
 
 
-def delete_requests(comments, token):
+def delete_requests(comments, number, head, token):
     for comment in comments:
-        github_api(f"issues/comments/{int(comment['id'])}", token, method="DELETE")
+        verify_remote_pull(number, head, token)
+        github_api(
+            f"issues/comments/{int(comment['id'])}", token, method="DELETE", missing_ok=True,
+        )
         print(f"removed fulfilled or stale review request {comment.get('html_url') or comment['id']}")
 
 
 def cleanup(arguments):
     token = require_token()
-    _head, _comments, _events, removable, _pending = review_state(arguments.pr, token)
-    delete_requests(removable, token)
+    head, _comments, _events, removable, _pending = review_state(arguments.pr, token)
+    delete_requests(removable, arguments.pr, head, token)
     print(f"review-request cleanup removed {len(removable)} comment(s)")
 
 
 def request_review(arguments):
     token = require_token()
     head, _comments, events, removable, pending = review_state(arguments.pr, token)
-    delete_requests(removable, token)
+    delete_requests(removable, arguments.pr, head, token)
     if head_reviewed(head, events):
         print(f"Codex already reviewed current head {head[:12]}; no request was added")
         return
     if pending:
         print(f"current-head review request already exists: {pending[0].get('html_url') or pending[0]['id']}")
         return
-    result = github_api(
+    verify_remote_pull(arguments.pr, head, token)
+    github_api(
         f"issues/{arguments.pr}/comments", token, method="POST",
         body={"body": request_body(head, language=arguments.language)},
     )
-    print(f"requested Codex review for {head[:12]}: {result.get('html_url')}")
+    confirmed_head, _comments, confirmed_events, duplicates, confirmed_pending = review_state(arguments.pr, token)
+    delete_requests(duplicates, arguments.pr, confirmed_head, token)
+    if head_reviewed(confirmed_head, confirmed_events):
+        print(f"Codex already reviewed current head {confirmed_head[:12]}; no request remains")
+        return
+    if not confirmed_pending:
+        raise RuntimeError("the current-head review request could not be confirmed after publication")
+    retained = confirmed_pending[0]
+    print(f"requested Codex review for {confirmed_head[:12]}: {retained.get('html_url') or retained['id']}")
 
 
 def parser():

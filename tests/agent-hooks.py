@@ -1812,6 +1812,50 @@ module.update_registry(repository, update)
           (events, sorted(value["id"] for value in removable), pending),
           ([('2026-08-24T12:00:00Z', current_head)], [1, 2, 3, 6, 7], []))
 
+    original_github_api = review_requests.github_api
+    original_verify_local_pull = review_requests.verify_local_pull
+    changed_pull = {"state": "open", "merged_at": None, "head": {"sha": old_head}}
+    review_requests.github_api = lambda *_arguments, **_keywords: changed_pull
+    review_requests.verify_local_pull = lambda pull: str(pull["head"]["sha"])
+    mixed_head_rejected = False
+    try:
+        review_requests.verify_remote_pull(91, current_head, "token")
+    except RuntimeError:
+        mixed_head_rejected = True
+    check("a changed remote head discards the request snapshot before mutation", mixed_head_rejected, True)
+
+    original_review_state = review_requests.review_state
+    original_delete_requests = review_requests.delete_requests
+    original_verify_remote_pull = review_requests.verify_remote_pull
+    original_require_token = review_requests.require_token
+    actions = []
+    retained_request = {"id": 10, "html_url": "https://example.test/retained"}
+    duplicate_request = {"id": 11, "html_url": "https://example.test/duplicate"}
+    states = iter((
+        (current_head, [], [], [], []),
+        (current_head, [retained_request, duplicate_request], [], [duplicate_request], [retained_request]),
+    ))
+    review_requests.review_state = lambda *_arguments: actions.append("snapshot") or next(states)
+    review_requests.delete_requests = lambda values, *_arguments: actions.append(
+        ("delete", [value["id"] for value in values])
+    )
+    review_requests.verify_remote_pull = lambda *_arguments: actions.append("verify") or current_head
+    review_requests.require_token = lambda: "token"
+    review_requests.github_api = lambda path, _token, **keywords: (
+        actions.append((keywords.get("method"), path)) or duplicate_request
+    )
+    review_requests.request_review(SimpleNamespace(pr=91, language="en"))
+    check("parallel request creation revalidates before posting and converges on the earliest trigger",
+          actions,
+          ["snapshot", ("delete", []), "verify", ("POST", "issues/91/comments"), "snapshot",
+           ("delete", [11])])
+    review_requests.github_api = original_github_api
+    review_requests.verify_local_pull = original_verify_local_pull
+    review_requests.review_state = original_review_state
+    review_requests.delete_requests = original_delete_requests
+    review_requests.verify_remote_pull = original_verify_remote_pull
+    review_requests.require_token = original_require_token
+
     group("Finished worktrees retire before local branches and never delete remote branches")
     cleanup = load_agent_module(
         "worktree_cleanup_test", ROOT / ".agents" / "hooks" / "worktree_cleanup.py",
