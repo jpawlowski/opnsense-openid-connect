@@ -63,9 +63,11 @@ with `1`; zero and leading zeroes are refused along with every other release-tag
 suffix. The workflow marks an accepted suffixed tag as a GitHub pre-release.
 Earlier immutable tags that used `v1.0.0-betaN` remain historical; never rename,
 delete or reuse them. Their legacy package versions sort after `1.0.0`, so the
+development snapshots based on them retain the monotonic
+`1.0.0.betaN.DISTANCE.gREVISION` spelling. The
 generated `v1.0.0` release note must retain its one-time instruction to delete
-the beta package before installing stable. That also removes files retired after
-early betas; saved settings remain, and no later release needs this exception.
+the beta package before installing stable. That also removes the file retired
+after one beta; saved settings remain, and no later release needs this exception.
 
 Anything not sitting on a tag builds as `1.2.3.4.gabc1234`, so work in progress
 never looks like a release.

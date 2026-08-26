@@ -63,9 +63,9 @@ PRERELEASE_DESCRIBE = re.compile(
     rf"-(?P<stage>alpha|beta|rc)\.(?P<sequence>[1-9][0-9]*)"
     rf"-(?P<distance>[1-9][0-9]*)-g(?P<revision>[0-9a-f]+)(?P<dirty>-dirty)?$"
 )
-# These immutable tags predate the canonical spelling. Only development
-# revisions based on them need translation; a newly created exact legacy tag is
-# still refused by release_pkg_version().
+# These immutable tags predate the canonical spelling. Development revisions
+# based on them retain their legacy `.betaN` ordering until the stable migration;
+# a newly created exact legacy tag is still refused by release_pkg_version().
 LEGACY_PRERELEASE_DESCRIBE = re.compile(
     rf"^v(?P<version>1\.0\.0)-beta(?P<sequence>[1-9][0-9]*)"
     rf"-(?P<distance>[1-9][0-9]*)-g(?P<revision>[0-9a-f]+)(?P<dirty>-dirty)?$"
@@ -187,16 +187,22 @@ def pkg_version(described):
     """
     if RELEASE_TAG.fullmatch(described):
         return release_pkg_version(described)
-    for pattern in (PRERELEASE_DESCRIBE, LEGACY_PRERELEASE_DESCRIBE):
-        match = pattern.fullmatch(described)
-        if match is None:
-            continue
-        stage = match.groupdict().get("stage") or "beta"
+    legacy = LEGACY_PRERELEASE_DESCRIBE.fullmatch(described)
+    if legacy is not None:
         version = (
-            f"{match.group('version')}.{PRERELEASE_STAGE[stage]}{match.group('sequence')}"
-            f".{match.group('distance')}.g{match.group('revision')}"
+            f"{legacy.group('version')}.beta{legacy.group('sequence')}"
+            f".{legacy.group('distance')}.g{legacy.group('revision')}"
         )
-        return version + (".dirty" if match.group("dirty") else "")
+        return version + (".dirty" if legacy.group("dirty") else "")
+
+    prerelease = PRERELEASE_DESCRIBE.fullmatch(described)
+    if prerelease is not None:
+        version = (
+            f"{prerelease.group('version')}.{PRERELEASE_STAGE[prerelease.group('stage')]}"
+            f"{prerelease.group('sequence')}.{prerelease.group('distance')}"
+            f".g{prerelease.group('revision')}"
+        )
+        return version + (".dirty" if prerelease.group("dirty") else "")
     return re.sub(r"[^0-9A-Za-z.]", ".", described.lstrip("v"))
 
 

@@ -197,8 +197,8 @@ def main():
           build_py.pkg_version("v1.2.3-beta.2-4-gabc1234"), "1.2.3.b2.4.gabc1234")
     check("dirty work after a canonical release candidate stays identifiable",
           build_py.pkg_version("v1.2.3-rc.3-4-gabc1234-dirty"), "1.2.3.r3.4.gabc1234.dirty")
-    check("work after an immutable legacy beta receives the safe package spelling",
-          build_py.pkg_version("v1.0.0-beta5-4-gabc1234"), "1.0.0.b5.4.gabc1234")
+    check("work after an immutable legacy beta retains its monotonic package spelling",
+          build_py.pkg_version("v1.0.0-beta5-4-gabc1234"), "1.0.0.beta5.4.gabc1234")
     check("work in progress", build_py.pkg_version("v1.0.0-3-gabc1234"), "1.0.0.3.gabc1234")
     check("a dirty tree", build_py.pkg_version("v1.0.0-dirty"), "1.0.0.dirty")
     check(

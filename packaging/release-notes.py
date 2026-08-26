@@ -126,7 +126,7 @@ def installing(file, url, checksum, signed, repository="", legacy_beta_migration
         upgrade_note = [
             "",
             "The historical 1.0.0 beta packages used a package-version spelling that",
-            "FreeBSD sorts after `1.0.0`, and early betas shipped files later retired.",
+            "FreeBSD sorts after `1.0.0`, and one beta shipped a file later retired.",
             "Delete any `v1.0.0-betaN` package before installing 1.0.0 so both the",
             "version and file-set migrations are complete. Saved settings remain.",
         ]
