@@ -14,6 +14,10 @@ if [ -n "${E2E_AUDIT_EVIDENCE:-}" ] && [ -n "${E2E_DOCUMENTATION_SCREENSHOTS:-}"
   printf '%s\n' 'E2E_AUDIT_EVIDENCE and E2E_DOCUMENTATION_SCREENSHOTS cannot be used together.' >&2
   exit 2
 fi
+if [ -n "${E2E_PROVIDER_RESULT:-}" ] && [ -n "${E2E_DOCUMENTATION_SCREENSHOTS:-}" ]; then
+  printf '%s\n' 'E2E_PROVIDER_RESULT and E2E_DOCUMENTATION_SCREENSHOTS cannot be used together.' >&2
+  exit 2
+fi
 if [ -n "${E2E_DOCUMENTATION_SCREENSHOTS:-}" ] && [ "${E2E_CLUSTER:-direct}" != direct ]; then
   printf '%s\n' 'E2E_DOCUMENTATION_SCREENSHOTS requires the direct cluster.' >&2
   exit 2

@@ -89,6 +89,10 @@ if [ -n "$screenshots" ]; then
     printf '%s\n' 'Documentation screenshots cannot be combined with E2E_AUDIT_EVIDENCE.' >&2
     exit 2
   fi
+  if [ -n "${E2E_PROVIDER_RESULT:-}" ]; then
+    printf '%s\n' 'Documentation screenshots cannot be combined with E2E_PROVIDER_RESULT.' >&2
+    exit 2
+  fi
   if [ "$selected_provider" != keycloak ]; then
     printf '%s\n' 'Documentation screenshots require --provider keycloak.' >&2
     exit 2

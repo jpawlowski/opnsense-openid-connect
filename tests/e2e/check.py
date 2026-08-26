@@ -66,8 +66,12 @@ with tempfile.TemporaryDirectory() as temporary:
     screenshot_directory.mkdir()
     audit_evidence = pathlib.Path(temporary) / "audit.json"
     audit_evidence.write_text("keep existing evidence\n", encoding="utf-8")
+    provider_evidence = pathlib.Path(temporary) / "provider.json"
+    provider_evidence.write_text("keep existing provider evidence\n", encoding="utf-8")
     clean_environment = dict(os.environ)
-    for name in ("E2E_AUDIT_EVIDENCE", "E2E_DOCUMENTATION_SCREENSHOTS", "E2E_CLUSTER"):
+    for name in (
+        "E2E_AUDIT_EVIDENCE", "E2E_DOCUMENTATION_SCREENSHOTS", "E2E_PROVIDER_RESULT", "E2E_CLUSTER",
+    ):
         clean_environment.pop(name, None)
     conflicting = subprocess.run(
         [str(HERE / "run-keycloak.sh")],
@@ -83,6 +87,21 @@ with tempfile.TemporaryDirectory() as temporary:
           "the Keycloak runner does not reject audit and screenshot output before setup")
     check(audit_evidence.read_text(encoding="utf-8") == "keep existing evidence\n",
           "a rejected screenshot run removes existing audit evidence")
+
+    provider_conflict = subprocess.run(
+        [str(HERE / "run-keycloak.sh")],
+        env={
+            **clean_environment,
+            "E2E_DOCUMENTATION_SCREENSHOTS": str(screenshot_directory),
+            "E2E_PROVIDER_RESULT": str(provider_evidence),
+        },
+        capture_output=True,
+        text=True,
+    )
+    check(provider_conflict.returncode == 2 and "cannot be used together" in provider_conflict.stderr,
+          "the Keycloak runner accepts provider evidence in focused screenshot mode")
+    check(provider_evidence.read_text(encoding="utf-8") == "keep existing provider evidence\n",
+          "a rejected screenshot run removes existing provider evidence")
 
     wrong_cluster = subprocess.run(
         [str(HERE / "run-keycloak.sh")],
@@ -116,6 +135,17 @@ with tempfile.TemporaryDirectory() as temporary:
           "the local wrapper starts a VM before rejecting audit screenshot mode")
     check(audit_evidence.read_text(encoding="utf-8") == "keep existing evidence\n",
           "the local screenshot refusal removes existing audit evidence")
+
+    local_provider_conflict = subprocess.run(
+        [str(HERE / "local.sh"), "--provider", "keycloak", "--screenshots", str(screenshot_directory)],
+        env={**clean_environment, "E2E_PROVIDER_RESULT": str(provider_evidence)},
+        capture_output=True,
+        text=True,
+    )
+    check(local_provider_conflict.returncode == 2 and "cannot be combined" in local_provider_conflict.stderr,
+          "the local wrapper starts a VM before rejecting provider evidence in screenshot mode")
+    check(provider_evidence.read_text(encoding="utf-8") == "keep existing provider evidence\n",
+          "the local screenshot refusal removes existing provider evidence")
 
 
 def module(name, relative):
