@@ -16,6 +16,13 @@ selected_source=auto
 selected_cluster=direct
 selected_canary=0
 inherited_screenshots=${E2E_DOCUMENTATION_SCREENSHOTS:-}
+inherited_provider_host=${E2E_PROVIDER_HOST:-}
+inherited_keycloak_url=${E2E_KEYCLOAK_URL:-}
+inherited_provider_browser_ip=${E2E_PROVIDER_BROWSER_IP:-}
+inherited_opnsense_browser_ip=${E2E_OPNSENSE_BROWSER_IP:-}
+inherited_keycloak_port=${E2E_KEYCLOAK_PORT:-}
+inherited_backchannel_port=${E2E_BACKCHANNEL_PORT:-}
+inherited_ssf_port=${E2E_SSF_PORT:-}
 unset E2E_DOCUMENTATION_SCREENSHOTS
 
 usage() {
@@ -80,6 +87,12 @@ if [ -n "$screenshots" ]; then
   fi
   if [ -n "${E2E_PROVIDER_RESULT:-}" ]; then
     printf '%s\n' 'Documentation screenshots cannot be combined with E2E_PROVIDER_RESULT.' >&2
+    exit 2
+  fi
+  if [ -n "$inherited_provider_host$inherited_keycloak_url$inherited_provider_browser_ip" ] || \
+      [ -n "$inherited_opnsense_browser_ip$inherited_keycloak_port$inherited_backchannel_port$inherited_ssf_port" ]; then
+    printf '%s\n' \
+      'Documentation screenshots cannot inherit provider hosts, browser targets or service ports.' >&2
     exit 2
   fi
   if [ "$selected_provider" != keycloak ]; then

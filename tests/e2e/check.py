@@ -86,6 +86,8 @@ with tempfile.TemporaryDirectory() as temporary:
     clean_environment = dict(os.environ)
     for name in (
         "E2E_AUDIT_EVIDENCE", "E2E_DOCUMENTATION_SCREENSHOTS", "E2E_PROVIDER_RESULT", "E2E_CLUSTER",
+        "E2E_PROVIDER_HOST", "E2E_KEYCLOAK_URL", "E2E_PROVIDER_BROWSER_IP", "E2E_OPNSENSE_BROWSER_IP",
+        "E2E_KEYCLOAK_PORT", "E2E_BACKCHANNEL_PORT", "E2E_SSF_PORT",
     ):
         clean_environment.pop(name, None)
     conflicting = subprocess.run(
@@ -139,6 +141,21 @@ with tempfile.TemporaryDirectory() as temporary:
     )
     check(inherited.returncode == 2 and "use --screenshots instead" in inherited.stderr,
           "an inherited screenshot environment silently shortens a normal local suite")
+
+    inherited_network = subprocess.run(
+        [str(HERE / "local.sh"), "--provider", "keycloak", "--screenshots", str(screenshot_directory)],
+        env={
+            **clean_environment,
+            "E2E_PROVIDER_HOST": "login.corporate.example",
+            "E2E_KEYCLOAK_URL": "https://login.corporate.example:9443",
+            "E2E_PROVIDER_BROWSER_IP": "192.0.2.10",
+            "E2E_KEYCLOAK_PORT": "9443",
+        },
+        capture_output=True,
+        text=True,
+    )
+    check(inherited_network.returncode == 2 and "cannot inherit" in inherited_network.stderr,
+          "a documentation run can capture inherited provider hostnames or fixed lab ports")
 
     local_conflict = subprocess.run(
         [str(HERE / "local.sh"), "--provider", "keycloak", "--screenshots", str(screenshot_directory)],
