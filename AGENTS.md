@@ -45,6 +45,7 @@ separation is not decoration — keep it.
     python3 .agents/review-requests.py request --pr PR
     python3 .agents/review-requests.py cleanup --pr PR
     python3 packaging/contribution-lint.py --help     what an issue or PR may contain
+    python3 .agents/test-impact.py                    explain the minimum manual validation for this diff
 
 Installed integration and destructive browser E2E are deliberate manual runs;
 they never belong in an automatic agent Stop hook. See `tests/README.md`.
@@ -56,6 +57,25 @@ host-independent gate is required when any product source, packaging/runtime
 logic or other unclassified path changes. A control-plane change still runs its
 own syntax, contribution and hook tests; "no full product suite" never means
 "no validation".
+
+Before finalizing a validation plan, run the read-only test-impact helper and
+then check its path-based recommendation against the semantic boundary actually
+changed. Keycloak `local/direct` is the canonical browser/session gate;
+authentik is additional only for its claim, Blueprint or logout behavior.
+Provider-profile changes for Entra, Okta or Apple use that provider's
+`emulated/direct` run, while behavior absent from the emulator needs an explicit
+`live` run. Public provider-to-firewall callbacks use `public-inbound`; ordinary
+browser redirects remain `direct`. The helper never starts a test.
+
+An agent-owned issue's maintained `## Details` comment records a `Validation
+plan` before implementation: boundary, tier, provider/source/cluster, why the
+lower tier is insufficient, and whether tunnel, live credentials or browser
+handoff is required. Scope acceptance authorizes announced repeats of that
+plan. A later scope change that raises the tier requires one updated plan and
+new approval. Required manual evidence cannot be silently made optional; an
+unavailable environment leaves the technical gate open and the pull request
+draft. Pull-request validation names exact runs and gives a concrete `Not run`
+reason for optional breadth.
 
 There is no linter beyond `php -l`; keep to 120 columns and to the style of the
 file being edited.

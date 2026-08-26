@@ -136,6 +136,8 @@ def main():
               "Path(\".github/scripts\")", ".github/hooks .github/scripts -type f -name '*.json'",
               "-name '*.js'", "-name '*.sh'", "node --check", "python3 -m json.tool",
           )), True)
+    check("the focused gate exercises the test-impact decision fixtures",
+          "python3 tests/test-impact.py" in focused_gate, True)
     original_unrestricted_git_output = hook.unrestricted_git_output
     validation_calls = []
     def validation_output(*arguments):
@@ -2082,6 +2084,44 @@ module.update_registry(repository, update)
           actions,
           ["snapshot", ("delete", []), "verify", ("POST", "issues/91/comments"), "snapshot",
            ("delete", [11])])
+
+    race_actions = []
+    published_request = {
+        "id": 12, "body": rendered_request, "user": {"login": "publisher"},
+        "html_url": "https://example.test/racing",
+    }
+    race_snapshots = iter(((current_head, "publisher", [], [], [], []),))
+
+    def ready_during_confirmation(*_arguments, **_keywords):
+        try:
+            return next(race_snapshots)
+        except StopIteration as error:
+            raise RuntimeError("automated Codex review requests require a draft pull request") from error
+
+    def race_github_api(path, _token, **keywords):
+        race_actions.append((keywords.get("method"), path))
+        if keywords.get("method") == "POST":
+            return published_request
+        if path == "issues/comments/12":
+            return published_request
+        return None
+
+    review_requests.review_state = ready_during_confirmation
+    review_requests.delete_requests = lambda *_arguments, **_keywords: None
+    review_requests.verify_remote_pull = lambda *_arguments, **_keywords: current_head
+    review_requests.github_api = race_github_api
+    ready_transition_rejected = False
+    try:
+        review_requests.request_review(SimpleNamespace(pr=91, language="en"))
+    except RuntimeError:
+        ready_transition_rejected = True
+    check("a draft-to-ready race removes its newly published review trigger",
+          (ready_transition_rejected, race_actions),
+          (True, [
+              ("POST", "issues/91/comments"),
+              (None, "issues/comments/12"),
+              ("DELETE", "issues/comments/12"),
+          ]))
     review_requests.github_api = original_github_api
     review_requests.verify_local_pull = original_verify_local_pull
     review_requests.review_state = original_review_state
@@ -2320,7 +2360,7 @@ module.update_registry(repository, update)
         emitted = []
         hook.emit = emitted.append
         hook.refresh({})
-        message = emitted[0]["systemMessage"]
+        message = emitted[0].get("systemMessage") or emitted[0].get("additionalContext", "")
         check("a refused main fast-forward surfaces its warning", "was not changed" in message, True)
         check("a refused main fast-forward is not called a safe mirror",
               "safe fast-forward mirror" in message, False)

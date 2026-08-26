@@ -42,3 +42,4 @@ node tests/pull-request-labels.mjs
 echo
 echo '== agent behavior =='
 python3 tests/agent-hooks.py
+python3 tests/test-impact.py

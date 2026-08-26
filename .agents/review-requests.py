@@ -212,6 +212,20 @@ def cleanup(arguments):
     print(f"review-request cleanup removed {removed} comment(s)")
 
 
+def delete_published_request(comment, viewer, expected_body, token):
+    identifier = int((comment or {}).get("id") or 0)
+    if not identifier:
+        return False
+    fresh = github_api(f"issues/comments/{identifier}", token, missing_ok=True)
+    if fresh is None:
+        return True
+    author = str((fresh.get("user") or {}).get("login") or "")
+    if author.lower() != viewer.lower() or str(fresh.get("body") or "") != expected_body:
+        return False
+    github_api(f"issues/comments/{identifier}", token, method="DELETE", missing_ok=True)
+    return True
+
+
 def request_review(arguments):
     token = require_token()
     head, viewer, _comments, events, removable, pending = review_state(
@@ -225,13 +239,21 @@ def request_review(arguments):
         print(f"current-head review request already exists: {pending[0].get('html_url') or pending[0]['id']}")
         return
     verify_remote_pull(arguments.pr, head, token, draft_required=True)
-    github_api(
+    body = request_body(head, language=arguments.language)
+    published = github_api(
         f"issues/{arguments.pr}/comments", token, method="POST",
-        body={"body": request_body(head, language=arguments.language)},
+        body={"body": body},
     )
-    confirmed_head, confirmed_viewer, _comments, confirmed_events, duplicates, confirmed_pending = review_state(
-        arguments.pr, token, draft_required=True,
-    )
+    try:
+        confirmed_head, confirmed_viewer, _comments, confirmed_events, duplicates, confirmed_pending = review_state(
+            arguments.pr, token, draft_required=True,
+        )
+    except RuntimeError as error:
+        if not delete_published_request(published, viewer, body, token):
+            raise RuntimeError(
+                f"{error}; the newly published review request could not be removed safely"
+            ) from error
+        raise
     delete_requests(
         duplicates, arguments.pr, confirmed_head, confirmed_viewer, confirmed_events, token,
         draft_required=True,
