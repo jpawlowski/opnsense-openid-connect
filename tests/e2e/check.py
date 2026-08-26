@@ -477,6 +477,12 @@ driver_cleanup = live_runner[live_runner.index('if [ "$driver_prepared" = 1 ]'):
 )]
 check("cleanup_failed=1" in driver_cleanup and "|| true" not in driver_cleanup,
       "live provider cleanup failure cannot fail the run or request manual cleanup")
+remote_cleanup = live_runner[
+    live_runner.index("php '$remote_cleanup' cleanup"):live_runner.index("rm -f '$remote_cleanup'")
+]
+check("remote firewall cleanup failed" in remote_cleanup and "manually" in remote_cleanup
+      and "cleanup_failed=1" in remote_cleanup,
+      "live firewall cleanup failure is silent or omits its manual recovery warning")
 check(live_runner.index('E2E_PUBLIC_PHASE=prepare') < live_runner.index('invoke_driver trigger'),
       "live public inbound triggers before establishing a matching session")
 check(live_runner.index('invoke_driver trigger') < live_runner.index('E2E_PUBLIC_PHASE=assert'),

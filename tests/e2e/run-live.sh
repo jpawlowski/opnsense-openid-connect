@@ -57,7 +57,11 @@ cleanup() {
     fi
   fi
   python3 "$script_dir/public-inbound.py" stop --state "$public_state" >/dev/null 2>&1 || true
-  e2e_ssh "php '$remote_cleanup' cleanup '$server_name' '$application_code'" >/dev/null 2>&1 || cleanup_failed=1
+  if ! e2e_ssh "php '$remote_cleanup' cleanup '$server_name' '$application_code'" >/dev/null 2>&1; then
+    printf '%s remote firewall cleanup failed; remove its disposable authentication server and test-created user manually.\n' \
+      "$provider" >&2
+    cleanup_failed=1
+  fi
   e2e_ssh "rm -f '$remote_cleanup' '$remote_user_state' '$remote_package'" >/dev/null 2>&1 || true
   find "$work_dir" -type f -exec sh -c ': > "$1"' sh {} \; >/dev/null 2>&1 || true
   find "$work_dir" -depth -delete >/dev/null 2>&1 || true
