@@ -110,6 +110,16 @@ def main():
           hook.LOCK_TIMEOUT > hook.FETCH_TIMEOUT * 2, True)
     check("classifier scripts participate in the Stop fingerprint",
           ".github/scripts" in hook.RELEVANT_PATHS, True)
+    check("agent policy documents participate in the Stop fingerprint",
+          all(path in hook.RELEVANT_PATHS for path in ("AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md")), True)
+    check("pure agent-governance changes select the focused control-plane gate",
+          hook.control_plane_only((
+              "AGENTS.md", ".agents/hooks/fast_gate.py", "tests/agent-hooks.py",
+          )), True)
+    check("a product source change selects the full host-independent gate",
+          hook.control_plane_only(("AGENTS.md", "src/example.php")), False)
+    check("an empty or unclassified change fails closed to the full gate",
+          (hook.control_plane_only(()), hook.control_plane_only(("README.md",))), (False, False))
     with tempfile.TemporaryDirectory() as temporary:
         state = pathlib.Path(temporary) / "existing-state.json"
         state.write_text("{}", encoding="utf-8")
@@ -1889,6 +1899,9 @@ module.update_registry(repository, update)
     review_requests = load_agent_module(
         "review_request_hygiene_test", ROOT / ".agents" / "review-requests.py",
     )
+    review_source = (ROOT / ".agents" / "review-requests.py").read_text(encoding="utf-8")
+    check("the read-only wait helper disables bytecode before importing local modules",
+          review_source.index("sys.dont_write_bytecode = True") < review_source.index("import github_watch"), True)
     current_head = "a" * 40
     old_head = "b" * 40
     rendered_request = review_requests.request_body(current_head)

@@ -17,6 +17,10 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
+# The wait subcommand is explicitly permitted in the read-only control checkout.
+# Prevent its only local import from turning that observation into an ignored
+# filesystem write when Python's bytecode cache is cold.
+sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent / "hooks"))
 
 import github_watch  # noqa: E402

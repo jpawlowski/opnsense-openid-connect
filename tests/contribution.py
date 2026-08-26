@@ -288,9 +288,14 @@ def main():
     check("agent and contributor rules wait for a review of the current head",
           all("current head" in text.lower() for text in (contribution_skill, agents, contributing)), True)
     readiness = [re.sub(r"\s+", " ", text.lower()) for text in (contribution_skill, agents, contributing)]
-    check("automatic Codex review stays draft and readiness hands finished work to a human",
+    check("automatic independent review stays draft and readiness hands finished work to a human",
           all("draft" in text and "automatically" in text and "technically green" in text
               and "human review" in text and "mergeable" in text for text in readiness), True)
+    check("native local review is preferred without making vendor helpers the policy",
+          all("local" in text and "/review" in text and "github" in text
+              for text in readiness)
+          and "/reviewfollowup" in contribution_skill
+          and "does not replace this skill" in contribution_skill, True)
     check("Codex findings use one consistent risk-based merge threshold",
           all("P0 and P1" in text and "P2" in text and "recoverability" in text
               for text in (contribution_skill, agents, contributing)), True)
@@ -298,12 +303,12 @@ def main():
           all("no findings" in text and "too granular" in text and "immaterial" in text
               and "critical-path P2" in original
               for original, text in zip((contribution_skill, agents, contributing), readiness)), True)
-    check("one integrating agent owns review threads through completion",
-          all(re.search(r"owns\s+every\s+review\s+thread\s+through\s+completion", text)
-              for text in (contribution_skill, agents, contributing)), True)
+    check("one integrating agent owns review findings and threads through completion",
+          all("owns every review" in text and "through completion" in text
+              for text in readiness), True)
     check("the agent closes old review threads before requesting another review",
-          "Only after all existing threads have a disposition" in contribution_skill
-          and "request exactly one new review" in contribution_skill
+          "Only after all existing findings have a disposition" in contribution_skill
+          and "request exactly one GitHub review" in contribution_skill
           and "does not update or close an earlier review's threads" in contribution_skill, True)
     review_hygiene = [re.sub(r"\s+", " ", text.lower()) for text in (contribution_skill, agents, contributing)]
     check("agents retain one temporary review trigger without deleting review evidence",
@@ -312,7 +317,10 @@ def main():
               for text in review_hygiene), True)
     check("active review jitter and ready-state mergeability polling are consistent",
           all("180 through 480 seconds" in text and "hourly" in text
-              for text in (contribution_skill, agents, contributing)), True)
+              for text in review_hygiene), True)
+    check("control-plane-only changes use focused validation instead of the product gate",
+          all("check-control-plane.sh" in text and "full" in text
+              for text in (agents.lower(), contributing.lower())), True)
     check("every conflict head is reviewed while mechanical resolutions skip the prior history",
           all("conflict" in text and "materially" in text and "mechanical" in text
               and "current-head" in text and "prior review history" in text

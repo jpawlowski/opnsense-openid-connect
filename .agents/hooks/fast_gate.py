@@ -28,6 +28,9 @@ import worktree_cleanup  # noqa: E402
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 RELEVANT_PATHS = (
+    "AGENTS.md",
+    "CLAUDE.md",
+    "CONTRIBUTING.md",
     ".agents",
     ".claude",
     ".codex",
@@ -39,6 +42,26 @@ RELEVANT_PATHS = (
     "packaging",
     "src",
     "tests",
+)
+CONTROL_PLANE_EXACT_PATHS = {
+    "AGENTS.md",
+    "CLAUDE.md",
+    "CONTRIBUTING.md",
+    ".gitmessage",
+    "packaging/commit-lint.py",
+    "packaging/contribution-lint.py",
+    "tests/agent-hooks.py",
+    "tests/contribution.py",
+    "tests/convention.py",
+    "tests/issue-hygiene.mjs",
+    "tests/pull-request-labels.mjs",
+}
+CONTROL_PLANE_PREFIXES = (
+    ".agents/",
+    ".claude/",
+    ".codex/",
+    ".github/hooks/",
+    ".github/scripts/",
 )
 START_FETCH_TTL = 5 * 60
 ACTIVE_FETCH_TTL = 5 * 60
@@ -75,6 +98,27 @@ def git_output(*arguments):
         check=True,
         stdout=subprocess.PIPE,
     ).stdout
+
+
+def validation_paths(base):
+    if not base:
+        return ()
+    changed = git_output("diff", "--name-only", base).decode().splitlines()
+    untracked = git_output("ls-files", "--others", "--exclude-standard").decode().splitlines()
+    return tuple(dict.fromkeys(path for path in changed + untracked if path))
+
+
+def control_plane_only(paths):
+    return bool(paths) and all(
+        path in CONTROL_PLANE_EXACT_PATHS or path.startswith(CONTROL_PLANE_PREFIXES)
+        for path in paths
+    )
+
+
+def validation_command(base):
+    if control_plane_only(validation_paths(base)):
+        return (str(REPOSITORY / ".agents" / "check-control-plane.sh"),)
+    return (str(REPOSITORY / "tests" / "run.sh"),)
 
 
 def repository_git(repository, *arguments, check=True, timeout=None):
@@ -953,9 +997,10 @@ def subagent(_event):
     })
 
 
-def failed_output(event, log_path, extra=""):
+def failed_output(event, log_path, command, extra=""):
+    display = " ".join(command)
     reason = (
-        "The fast host-independent checks failed. Fix the failure and run ./tests/run.sh again. "
+        f"The selected validation failed. Fix the failure and run `{display}` again. "
         f"The complete output is in {log_path}. Integration and browser E2E tests were not run."
     )
     reason = messages(extra, reason)
@@ -991,13 +1036,15 @@ def stop(event):
         return
 
     if current == state.get("failed"):
-        emit(failed_output(event, log_path, notice))
+        command = validation_command(synchronization.get("base_main"))
+        emit(failed_output(event, log_path, command, notice))
         return
 
+    command = validation_command(synchronization.get("base_main"))
     log_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with log_path.open("wb") as output:
         result = subprocess.run(
-            (str(REPOSITORY / "tests" / "run.sh"),),
+            command,
             cwd=REPOSITORY,
             stdout=output,
             stderr=subprocess.STDOUT,
@@ -1013,7 +1060,7 @@ def stop(event):
 
     state["failed"] = current
     save_state(state_path, state)
-    emit(failed_output(event, log_path, notice))
+    emit(failed_output(event, log_path, command, notice))
 
 
 def refresh(event):
