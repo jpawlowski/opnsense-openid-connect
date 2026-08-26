@@ -29,6 +29,7 @@ state_file="$work_dir/provider.json"
 remote_cleanup="/tmp/opnsense-oidc-e2e-live-cleanup-${run_id}.php"
 remote_package="/tmp/os-openid-connect-e2e-${run_id}.pkg"
 public_state="$work_dir/public-inbound.json"
+session_state="$work_dir/live-session.json"
 application_code=
 server_name=
 public_driver=
@@ -75,7 +76,8 @@ application_code=$(jq -r .application_code "$state_file")
 server_name=$(jq -r .server_name "$state_file")
 E2E_LIVE_TIMEOUT=$(($(jq -r .manual_timeout_seconds "$state_file") * 1000))
 E2E_LIVE_ARTIFACT_DIR="$work_dir/playwright"
-export E2E_LIVE_TIMEOUT E2E_LIVE_ARTIFACT_DIR
+E2E_LIVE_SESSION_STATE=$session_state
+export E2E_LIVE_TIMEOUT E2E_LIVE_ARTIFACT_DIR E2E_LIVE_SESSION_STATE
 
 python3 "$repository/packaging/build.py" --version 0.0.0.e2e >/dev/null
 package="$repository/packaging/dist/os-openid-connect-0.0.0.e2e.pkg"
@@ -100,7 +102,14 @@ if [ "$E2E_CLUSTER" = public-inbound ]; then
   result_arguments=
   for capability in $(jq -r '.public_inbound.capabilities[]' "$state_file"); do
     invoke_driver register "$capability"
+    E2E_PUBLIC_PHASE=prepare
+    export E2E_PUBLIC_PHASE
+    (cd "$script_dir" && npx playwright test --config provider.config.mjs --headed)
+    chmod 600 "$session_state"
     invoke_driver trigger "$capability"
+    E2E_PUBLIC_PHASE=assert
+    export E2E_PUBLIC_PHASE
+    (cd "$script_dir" && npx playwright test --config provider.config.mjs)
     result_arguments="$result_arguments --capability $capability=pass"
   done
   if [ -n "${E2E_PROVIDER_RESULT:-}" ]; then

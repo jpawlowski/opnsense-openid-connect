@@ -63,12 +63,14 @@ E2E_TEST_PASSWORD=$(openssl rand -base64 32 | tr -d '\n')
 E2E_SERVER_NAME="Keycloak E2E ${run_id}"
 E2E_APPLICATION_CODE="e2e-${run_id}"
 E2E_SSF_AUDIENCE="opnsense-ssf-${run_id}"
+E2E_SSF_SUBJECT=$(python3 -c 'import uuid; print(uuid.uuid4())')
 E2E_SSF_PUSH_SECRET=$(openssl rand -base64 32 | tr '/+' '_-' | tr -d '=\n')
 E2E_SSF_TRIGGER_SECRET=$(openssl rand -base64 32 | tr '/+' '_-' | tr -d '=\n')
 
 export E2E_OPNSENSE_USERNAME E2E_KEYCLOAK_REALM E2E_KEYCLOAK_ADMIN_USERNAME
 export E2E_KEYCLOAK_ADMIN_PASSWORD E2E_KEYCLOAK_CLIENT_ID
 export E2E_TEST_USERNAME E2E_TEST_PASSWORD E2E_SERVER_NAME E2E_APPLICATION_CODE
+export E2E_SSF_SUBJECT
 
 url_parts=$(node -e \
   'const u=new URL(process.argv[1]); console.log([u.hostname,u.port||"443",u.origin].join("\n"))' \
@@ -140,10 +142,12 @@ jq -n \
   --arg admin "$E2E_KEYCLOAK_ADMIN_USERNAME" \
   --arg username "$E2E_TEST_USERNAME" \
   --arg password "$E2E_TEST_PASSWORD" \
+  --arg subject "$E2E_SSF_SUBJECT" \
   '{
     realm: $realm,
     enabled: true,
     users: [{
+      id: $subject,
       username: $username,
       email: ($username + "@example.com"),
       emailVerified: true,
@@ -177,6 +181,7 @@ if [ "${E2E_CLUSTER:-direct}" = public-inbound ]; then
     -e "E2E_SSF_PUSH_SECRET=${E2E_SSF_PUSH_SECRET}" \
     -e "E2E_SSF_TRIGGER_SECRET=${E2E_SSF_TRIGGER_SECRET}" \
     -e "E2E_SSF_OIDC_ISSUER=${E2E_SSF_OIDC_ISSUER}" \
+    -e "E2E_SSF_SUBJECT=${E2E_SSF_SUBJECT}" \
     -e "E2E_SSF_PUSH_URL=${E2E_SSF_PUSH_URL}" \
     -e E2E_SSF_CERTIFICATE=/tls/server.crt -e E2E_SSF_KEY=/tls/server.key \
     -v "$work_dir/server.crt:/tls/server.crt:ro" \
@@ -191,7 +196,7 @@ if [ "${E2E_CLUSTER:-direct}" = public-inbound ]; then
     [ "$attempt" -lt 30 ] || { docker logs "$ssf_container" >&2; exit 1; }
     sleep 1
   done
-  export E2E_SSF_ISSUER E2E_SSF_AUDIENCE E2E_SSF_PUSH_SECRET E2E_SSF_TRIGGER_SECRET
+  export E2E_SSF_ISSUER E2E_SSF_AUDIENCE E2E_SSF_SUBJECT E2E_SSF_PUSH_SECRET E2E_SSF_TRIGGER_SECRET
 fi
 
 proxy_origin_listener=

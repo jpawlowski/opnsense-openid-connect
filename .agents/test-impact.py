@@ -10,6 +10,7 @@ import json
 import os
 import pathlib
 import subprocess
+import sys
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -29,9 +30,34 @@ def git(*arguments):
     ).stdout
 
 
+def has_ref(reference):
+    result = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--verify", "--quiet", reference],
+        capture_output=True, text=True, env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+    )
+    return result.returncode == 0
+
+
 def canonical_base():
     remotes = set(git("remote").split())
-    return "upstream/main" if "upstream" in remotes else "origin/main"
+    candidates = []
+    if "upstream" in remotes:
+        candidates.append("upstream/main")
+    if "origin" in remotes:
+        candidates.append("origin/main")
+    candidates.append("main")
+    for candidate in candidates:
+        if has_ref(candidate):
+            return candidate
+    # An isolated snapshot may deliberately have neither a remote nor a local
+    # main branch. Comparing with Git's empty tree deliberately over-selects
+    # validation, including for a one-commit snapshot, rather than hiding the
+    # root commit behind an invented or unavailable base.
+    empty_tree = git("hash-object", "-t", "tree", "/dev/null").strip()
+    if not empty_tree:
+        raise RuntimeError("cannot determine a Git base for this isolated checkout")
+    print("No canonical main ref is available; comparing the isolated snapshot with Git's empty tree.", file=sys.stderr)
+    return empty_tree
 
 
 def changed(base):

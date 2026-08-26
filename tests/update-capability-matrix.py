@@ -30,8 +30,10 @@ PROVIDER_REVISION = re.compile(
     r"^(?:(?:version|release|commit):[A-Za-z0-9][A-Za-z0-9._+-]{0,111}|service:\d{4}-\d{2}-\d{2})$"
 )
 SAFE_CONFIGURATION_FIELDS = {"provider_profile", "guide", "client_type", "flow", "feature_mode"}
-LIVE_EVIDENCE_FIELDS = {"feature", "tested_on", "provider_revision", "artifact"}
-EMULATOR_EVIDENCE_FIELDS = {"feature", "tested_on", "emulator_revision", "artifact", "adaptation"}
+LIVE_EVIDENCE_FIELDS = {"feature", "tested_on", "provider_revision", "artifact", "source", "cluster"}
+EMULATOR_EVIDENCE_FIELDS = {
+    "feature", "tested_on", "emulator_revision", "artifact", "adaptation", "source", "cluster",
+}
 APPLE_EMULATOR_ADAPTATION = (
     "Generic profile plus reviewed PKCE and Form Post discovery metadata missing from emulate 0.10.0"
 )
@@ -370,6 +372,8 @@ def validate_live_evidence_record(provider, feature_id, status, record, root=ROO
         raise CatalogError(f"{label}: live evidence record must use only the publishable schema")
     if record["feature"] != feature_id:
         raise CatalogError(f"{label}: live evidence record names another feature")
+    if record["source"] not in {"local", "live"} or record["cluster"] not in {"direct", "public-inbound"}:
+        raise CatalogError(f"{label}: live evidence record has no valid source and cluster")
     tested_on = validate_record_text(record, "tested_on", label)
     tested_date = historical_date(tested_on, f"{label}: tested_on")
     provider_revision = validate_record_text(record, "provider_revision", label)
@@ -398,6 +402,8 @@ def validate_live_evidence_record(provider, feature_id, status, record, root=ROO
         "schema_version": 1,
         "evidence_type": "provider_interoperability",
         "provider": provider["id"],
+        "source": record["source"],
+        "cluster": record["cluster"],
         "provider_revision": provider_revision,
         "tested_on": tested_on,
     }
@@ -434,6 +440,8 @@ def validate_emulator_evidence_record(provider, feature_id, record, root=ROOT):
         raise CatalogError(f"{label}: emulator evidence record must use only the publishable schema")
     if record["feature"] != feature_id:
         raise CatalogError(f"{label}: emulator evidence record names another feature")
+    if record["source"] != "emulated" or record["cluster"] != "direct":
+        raise CatalogError(f"{label}: emulator evidence record has no valid source and cluster")
     historical_date(validate_record_text(record, "tested_on", label), f"{label}: tested_on")
     revision = validate_record_text(record, "emulator_revision", label)
     if not PROVIDER_REVISION.fullmatch(revision):

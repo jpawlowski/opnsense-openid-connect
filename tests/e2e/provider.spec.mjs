@@ -249,6 +249,20 @@ async function configureServer(page) {
   await expect(discoveryDialog).toBeVisible();
   await expect(discoveryDialog.locator('.label-danger')).toHaveCount(0);
   await discoveryDialog.getByRole('button', { name: '×' }).click();
+  if (state.cluster === 'public-inbound') {
+    const capabilities = state.public_inbound.capabilities;
+    if (capabilities.includes('back_logout')) {
+      await selectNative(page.locator('select[name="openidconnect_logout_notifications"]'), 'backchannel');
+    }
+    if (capabilities.includes('shared_signals')) {
+      await page.locator('input[name="openidconnect_ssf_enabled"]').check();
+      await page.locator('input[name="openidconnect_ssf_issuer"]').fill(state.public_inbound.ssf_issuer);
+      await page.locator('input[name="openidconnect_ssf_audience"]').fill(state.public_inbound.ssf_audience);
+      await selectNative(page.locator('select[name="openidconnect_ssf_delivery_method"]'), 'push');
+      await page.locator('input[name="openidconnect_ssf_push_secret"]')
+        .fill(state.public_inbound.ssf_push_secret);
+    }
+  }
   await page.locator('input[name="openidconnect_enabled"]').check();
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page).toHaveURL(/\/system_authservers\.php$/);
@@ -378,7 +392,11 @@ async function testProviderSignIn(page) {
   await page.goto(`${origin}/system_authservers.php`);
   await page.getByRole('row', { name: new RegExp(state.server_name) })
     .getByRole('link', { name: 'Edit' }).click();
-  const callback = page.waitForRequest(request => new URL(request.url()).pathname === callbackPath);
+  const callbackTimeout = state.source === 'live' ? state.manual_timeout_seconds * 1000 : 15_000;
+  const callback = page.waitForRequest(
+    request => new URL(request.url()).pathname === callbackPath,
+    { timeout: callbackTimeout },
+  );
   await page.getByRole('button', { name: 'Test sign-in' }).click();
   await expect.poll(async () => {
     if (await page.getByRole('heading', { name: 'Sign-in test succeeded' }).count()) return 'result';
@@ -423,13 +441,44 @@ async function testProviderSignIn(page) {
   }
 }
 
+async function establishLiveSession(page) {
+  await page.goto(origin);
+  await page.getByRole('link', { name: `Login using ${state.server_name}` }).click();
+  await liveProviderInteraction(page);
+  await expect(page).toHaveURL(/\/ui\/core\/dashboard/, { timeout: state.manual_timeout_seconds * 1000 });
+}
+
 test(`OPNsense provider flow through ${state.provider}`, async ({ browser }) => {
+  const publicPhase = process.env.E2E_PUBLIC_PHASE;
+  if (state.source === 'live' && state.cluster === 'public-inbound' && publicPhase === 'assert') {
+    if (!process.env.E2E_LIVE_SESSION_STATE) throw new Error('E2E_LIVE_SESSION_STATE is required');
+    const session = await browser.newContext({
+      ignoreHTTPSErrors: true,
+      storageState: process.env.E2E_LIVE_SESSION_STATE,
+    });
+    const sessionPage = await session.newPage();
+    await sessionPage.goto(`${origin}/ui/core/dashboard`);
+    await expect(sessionPage).toHaveTitle(/Login/);
+    await session.close();
+    return;
+  }
   if (state.provider === 'pocketid') await provisionPocketId();
   if (state.provider === 'entra' && state.source === 'emulated') await provisionEntra();
   const admin = await browser.newContext({ ignoreHTTPSErrors: true });
   const adminPage = await admin.newPage();
   await localLogin(adminPage);
   await configureServer(adminPage);
+  if (state.source === 'live' && state.cluster === 'public-inbound') {
+    if (publicPhase !== 'prepare' || !process.env.E2E_LIVE_SESSION_STATE) {
+      throw new Error('live public-inbound setup requires its prepare phase and session state path');
+    }
+    const liveSession = await browser.newContext({ ignoreHTTPSErrors: true });
+    await establishLiveSession(await liveSession.newPage());
+    await liveSession.storageState({ path: process.env.E2E_LIVE_SESSION_STATE });
+    await liveSession.close();
+    await admin.close();
+    return;
+  }
   if (state.provider === 'authentik') {
     await testAuthentikEmailVerification(adminPage, 'true');
     await setAuthentikEmailVerification('false');

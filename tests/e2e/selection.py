@@ -34,6 +34,7 @@ AUTO_SOURCE = {
 }
 SOURCES = {"auto", "local", "emulated", "live"}
 CLUSTERS = {"direct", "public-inbound", "all"}
+NPM_EMULATED_PROVIDERS = {"okta", "apple"}
 
 
 class SelectionError(ValueError):
@@ -63,6 +64,13 @@ def resolve(suite="core", provider=None, source="auto", cluster="direct", canary
     for selected_cluster in requested_clusters:
         for selected_provider in selected:
             selected_source = AUTO_SOURCE[selected_provider] if source == "auto" else source
+            if canary and selected_source == "emulated" and selected_provider in NPM_EMULATED_PROVIDERS:
+                message = f"{selected_provider}/{selected_source}: npm emulator has no container release canary"
+                if provider is not None:
+                    raise SelectionError(message)
+                if message not in skipped:
+                    skipped.append(message)
+                continue
             if selected_source not in PROVIDERS[selected_provider]["sources"]:
                 message = f"{selected_provider}/{selected_source}: source is not supported"
                 if provider is not None:

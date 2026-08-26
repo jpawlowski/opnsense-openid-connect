@@ -1129,6 +1129,7 @@ async function terminateProviderSession() {
     params: { username: process.env.E2E_TEST_USERNAME, exact: 'true' },
   });
   const userId = (await list.json())[0].id;
+  expect(userId).toBe(process.env.E2E_SSF_SUBJECT);
   const logout = await api.post(
     `${keycloakApiOrigin}/admin/realms/${process.env.E2E_KEYCLOAK_REALM}/users/${userId}/logout`,
     { headers }
@@ -1314,11 +1315,17 @@ test('real OPNsense login, session binding and logout interoperability', async (
   });
   await providerLogin(userPage);
 
+  if (publicInbound) {
+    await triggerSharedSignal();
+    await userPage.reload();
+    await expect(userPage).toHaveTitle(/Login/);
+    await providerLogin(userPage);
+  }
+
   await setFrontChannel(false);
   await terminateProviderSession();
   await userPage.reload();
   await expect(userPage).toHaveTitle(/Login/);
-  if (publicInbound) await triggerSharedSignal();
 
   await setFrontChannel(true);
   await providerLogin(userPage);

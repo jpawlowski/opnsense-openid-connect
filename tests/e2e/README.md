@@ -134,10 +134,14 @@ The file stays outside the repository:
           "client_secret": "...",
           "provider_revision": "service:2026-08-25",
           "application_code": "stable-lab-code",
+          "webgui_port": 48443,
           "interaction": "manual",
           "public_inbound": {
             "capabilities": ["shared_signals"],
-            "driver": "/absolute/owner-only/provider-driver"
+            "driver": "/absolute/owner-only/provider-driver",
+            "ssf_issuer": "https://example.okta.com/ssf/default",
+            "ssf_audience": "opnsense-live-lab",
+            "ssf_push_secret": "..."
           }
         }
       }
@@ -145,8 +149,9 @@ The file stays outside the repository:
 
 Entra and Okta can use `automatic` with an owner-only `username` and `password`;
 the visible browser remains available when MFA or consent needs a person. Apple
-normally uses `manual`. The registered callback must be the configured OPNsense
-origin plus `/api/openidconnect/auth/callback/<application_code>`.
+normally uses `manual`. For `local.sh`, `webgui_port` makes the disposable VM use a stable callback origin that can be
+registered in advance. The callback is `https://opnsense.opnsense.test:<webgui_port>` plus
+`/api/openidconnect/auth/callback/<application_code>`. A prepared lab may supply its already stable origin directly.
 
 The matrix wrapper reports all provider failures rather than hiding later results after the first failure. Provider
 stacks use a per-run CA and TLS proxy. `provider.opnsense.test` is mapped to the Mac only for the browser and is pinned

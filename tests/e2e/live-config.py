@@ -21,9 +21,9 @@ PROVIDERS = {"entra", "okta", "apple"}
 TOP_FIELDS = {"schema", "profiles"}
 PROFILE_FIELDS = {
     "issuer", "client_id", "client_secret", "provider_revision", "application_code", "scopes",
-    "interaction", "username", "password", "manual_timeout_seconds", "public_inbound",
+    "interaction", "username", "password", "manual_timeout_seconds", "public_inbound", "webgui_port",
 }
-PUBLIC_FIELDS = {"capabilities", "driver"}
+PUBLIC_FIELDS = {"capabilities", "driver", "ssf_issuer", "ssf_audience", "ssf_push_secret"}
 REVISION = re.compile(r"^(?:service:\d{4}-\d{2}-\d{2}|version:[A-Za-z0-9][A-Za-z0-9._+-]{0,111})$")
 APPLICATION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._~-]{0,63}$")
 PUBLIC_CAPABILITIES = {"entra": {"back_logout"}, "okta": {"shared_signals"}, "apple": set()}
@@ -87,6 +87,9 @@ def load_config(path, provider):
     manual_timeout = profile.get("manual_timeout_seconds", 600)
     if not isinstance(manual_timeout, int) or not 60 <= manual_timeout <= 1800:
         raise ValueError("manual live timeout must be between 60 and 1800 seconds")
+    webgui_port = profile.get("webgui_port")
+    if webgui_port is not None and (not isinstance(webgui_port, int) or not 1024 <= webgui_port <= 65535):
+        raise ValueError("live WebGUI port must be between 1024 and 65535")
     scopes = profile.get("scopes", ["openid", "email", "profile"])
     if (
         not isinstance(scopes, list) or not scopes or len(scopes) > 16
@@ -95,7 +98,10 @@ def load_config(path, provider):
         raise ValueError("live scopes must be a short list of safe scope names")
     public = profile.get("public_inbound")
     if public is not None:
-        if not isinstance(public, dict) or set(public) != PUBLIC_FIELDS:
+        if (
+            not isinstance(public, dict) or not {"capabilities", "driver"} <= set(public)
+            or not set(public) <= PUBLIC_FIELDS
+        ):
             raise ValueError("public_inbound must name capabilities and an owner-only driver")
         capabilities = public["capabilities"]
         if (
@@ -106,6 +112,22 @@ def load_config(path, provider):
             raise ValueError("public_inbound contains an unsupported capability")
         if len(capabilities) != len(set(capabilities)):
             raise ValueError("public_inbound capabilities must be distinct")
+        ssf_fields = {"ssf_issuer", "ssf_audience", "ssf_push_secret"}
+        if "shared_signals" in capabilities:
+            if not ssf_fields <= set(public):
+                raise ValueError("Shared Signals live tests need issuer, audience and push secret")
+            if not all(isinstance(public[field], str) for field in ssf_fields):
+                raise ValueError("Shared Signals live settings must be strings")
+            ssf_issuer = urllib.parse.urlsplit(public["ssf_issuer"])
+            if ssf_issuer.scheme != "https" or not ssf_issuer.hostname or ssf_issuer.query or ssf_issuer.fragment:
+                raise ValueError("the Shared Signals issuer must be a bounded HTTPS URL")
+            if (
+                not 1 <= len(public["ssf_audience"]) <= 256
+                or not 16 <= len(public["ssf_push_secret"]) <= 4096
+            ):
+                raise ValueError("Shared Signals audience or push secret is missing or unbounded")
+        elif set(public) & ssf_fields:
+            raise ValueError("Shared Signals settings require the shared_signals capability")
         driver = pathlib.Path(public["driver"]) if isinstance(public.get("driver"), str) else pathlib.Path()
         if (
             not driver.is_absolute() or not driver.is_file() or driver.is_symlink()
@@ -120,7 +142,7 @@ def load_config(path, provider):
             raise ValueError("the public_inbound driver must be owner-only and executable")
     return profile | {
         "scopes": scopes, "interaction": interaction, "username": username, "password": password,
-        "manual_timeout_seconds": manual_timeout,
+        "manual_timeout_seconds": manual_timeout, "webgui_port": webgui_port,
     }
 
 
@@ -131,6 +153,9 @@ def state(profile, provider, opnsense_url, run_id):
         or opnsense.query or opnsense.fragment
     ):
         raise ValueError("E2E_OPNSENSE_URL must be an HTTPS origin")
+    opnsense_port = opnsense.port or 443
+    if profile["webgui_port"] is not None and profile["webgui_port"] != opnsense_port:
+        raise ValueError("E2E_OPNSENSE_URL does not use the registered live WebGUI port")
     callback = f"{opnsense_url.rstrip('/')}/api/openidconnect/auth/callback/{profile['application_code']}"
     return {
         "schema": 2,
@@ -153,6 +178,7 @@ def state(profile, provider, opnsense_url, run_id):
         "username": profile["username"],
         "password": profile["password"],
         "manual_timeout_seconds": profile["manual_timeout_seconds"],
+        "webgui_port": profile["webgui_port"],
         "public_inbound": profile.get("public_inbound"),
     }
 
@@ -161,12 +187,20 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--provider", required=True, choices=sorted(PROVIDERS))
-    parser.add_argument("--opnsense-url", required=True)
-    parser.add_argument("--run-id", required=True)
-    parser.add_argument("--state", required=True)
+    parser.add_argument("--opnsense-url")
+    parser.add_argument("--run-id")
+    parser.add_argument("--state")
+    parser.add_argument("--print-web-port", action="store_true")
     arguments = parser.parse_args()
     try:
         profile = load_config(arguments.config, arguments.provider)
+        if arguments.print_web_port:
+            if profile["webgui_port"] is None:
+                raise ValueError("local live tests require a stable webgui_port in E2E_LIVE_CONFIG")
+            print(profile["webgui_port"])
+            return
+        if not arguments.opnsense_url or not arguments.run_id or not arguments.state:
+            raise ValueError("state generation needs the OPNsense URL, run ID and output path")
         payload = state(profile, arguments.provider, arguments.opnsense_url, arguments.run_id)
     except ValueError as error:
         parser.error(str(error))

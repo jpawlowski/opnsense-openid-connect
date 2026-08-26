@@ -34,6 +34,25 @@ EXPECTED = {
     ("okta", "live"): ("okta", "okta"),
     ("apple", "live"): ("apple", "apple"),
 }
+CAPABILITIES = {
+    ("keycloak", "local", "direct"): {"login", "pkce", "rp_logout", "front_logout", "back_logout"},
+    ("keycloak", "local", "public-inbound"): {"back_logout", "shared_signals"},
+    ("authentik", "local", "direct"): {"login", "pkce"},
+    ("authelia", "local", "direct"): {"login", "pkce"},
+    ("pocketid", "local", "direct"): {"login", "pkce"},
+    ("entra", "emulated", "direct"): {"login", "pkce", "tenant_issuer", "baseline_claims"},
+    ("okta", "emulated", "direct"): {
+        "login", "pkce", "authorization_server_issuer", "form_post", "baseline_claims",
+    },
+    ("apple", "emulated", "direct"): {
+        "login", "pkce", "form_post", "string_claims", "private_relay", "first_login_data",
+    },
+    ("entra", "live", "direct"): {"login", "pkce"},
+    ("okta", "live", "direct"): {"login", "pkce"},
+    ("apple", "live", "direct"): {"login", "pkce"},
+    ("entra", "live", "public-inbound"): {"back_logout"},
+    ("okta", "live", "public-inbound"): {"shared_signals"},
+}
 FEATURE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 REVISION = re.compile(
     r"^(?:(?:version|release|commit):[A-Za-z0-9][A-Za-z0-9._+-]{0,111}|service:\d{4}-\d{2}-\d{2})$"
@@ -88,6 +107,9 @@ def result(provider, source, cluster, subject_name, subject_revision, profile, c
         parsed.append({"feature": feature, "outcome": outcome})
     if not parsed or len({item["feature"] for item in parsed}) != len(parsed):
         raise ValueError("provider result needs distinct capability outcomes")
+    allowed = CAPABILITIES.get((provider, source, cluster), set())
+    if not {item["feature"] for item in parsed} <= allowed:
+        raise ValueError("provider result contains a capability this selection did not exercise")
     expected_adaptation = APPLE_ADAPTATION if (provider, source) == ("apple", "emulated") else None
     if adaptation != expected_adaptation:
         raise ValueError("provider adaptation differs from the reviewed provider driver")

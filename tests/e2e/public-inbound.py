@@ -17,7 +17,10 @@ import urllib.parse
 
 HERE = pathlib.Path(__file__).resolve().parent
 SAFE_RUN = re.compile(r"^[a-f0-9]{8}$")
-SAFE_APPLICATION = re.compile(r"^e2e-[a-f0-9]{8}$")
+# This is the same bounded URL-segment syntax accepted by live-config.py.
+# Local runs still generate e2e-<run-id>; live tenants need stable registered
+# application codes and must not be forced into that disposable namespace.
+SAFE_APPLICATION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._~-]{0,63}$")
 QUICK_TUNNEL = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 
 

@@ -120,6 +120,9 @@ def load_result(path):
         or len({item["feature"] for item in results}) != len(results)
     ):
         raise ValueError("provider result has invalid capability outcomes")
+    allowed = generator.CAPABILITIES.get((provider, source, result["cluster"]), set())
+    if not {item["feature"] for item in results} <= allowed:
+        raise ValueError("provider result contains a capability this selection did not exercise")
     return result
 
 
@@ -149,19 +152,24 @@ def import_result(result, features):
                 "feature": item["feature"], "tested_on": result["tested_on"],
                 "emulator_revision": result["subject"]["revision"],
                 "artifact": str(artifact.relative_to(ROOT)),
-                "adaptation": result["provider_adaptation"],
+                "adaptation": result["provider_adaptation"], "source": result["source"],
+                "cluster": result["cluster"],
             }
             records[:] = [old for old in records if old.get("feature") != item["feature"]]
             records.append(record)
     else:
         for item in selected:
             status = "live" if item["outcome"] == "pass" else item["outcome"]
-            name = safe_name(result["provider"], item["feature"], result["source"], result["tested_on"]) + ".json"
+            name = safe_name(
+                result["provider"], item["feature"], result["source"], result["cluster"], result["tested_on"],
+            ) + ".json"
             artifact = EVIDENCE / name
             retained = {
                 "schema_version": 1,
                 "evidence_type": "provider_interoperability",
                 "provider": result["provider"],
+                "source": result["source"],
+                "cluster": result["cluster"],
                 "provider_revision": result["subject"]["revision"],
                 "tested_on": result["tested_on"],
                 "configuration": {
@@ -178,6 +186,7 @@ def import_result(result, features):
             records.append({
                 "feature": item["feature"], "tested_on": result["tested_on"],
                 "provider_revision": result["subject"]["revision"], "artifact": str(artifact.relative_to(ROOT)),
+                "source": result["source"], "cluster": result["cluster"],
             })
     CATALOG.write_text(json.dumps(catalog, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 

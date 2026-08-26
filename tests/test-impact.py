@@ -51,4 +51,18 @@ require("SaaS-only behavior", ["docs/providers/entra-id.md"], "live-provider", "
 require("public ingress", ["tests/e2e/public-inbound.py"], "provider-e2e", "keycloak", "public-inbound",
         patch="cloudflared")
 
+original_git = impact.git
+original_has_ref = impact.has_ref
+try:
+    impact.has_ref = lambda _reference: False
+    impact.git = lambda *arguments: (
+        "" if arguments == ("remote",) else "1" * 40 + "\n"
+        if arguments == ("hash-object", "-t", "tree", "/dev/null") else ""
+    )
+    if impact.canonical_base() != "1" * 40:
+        raise SystemExit("isolated checkout did not select its reproducible root fallback")
+finally:
+    impact.git = original_git
+    impact.has_ref = original_has_ref
+
 print("Agent test-impact fixtures explain every validation class")

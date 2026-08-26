@@ -117,6 +117,8 @@ for arguments in [
     {"source": "live"},
     {"provider": "unknown"},
     {"provider": "okta", "source": "live", "canary": True},
+    {"provider": "okta", "source": "emulated", "canary": True},
+    {"provider": "apple", "source": "emulated", "canary": True},
 ]:
     try:
         selection.resolve(**arguments)
@@ -134,6 +136,16 @@ check("location / { return 404; }" in proxy and proxy.count("location = ") == 2,
       "public proxy is not deny-by-default with two exact routes")
 check("proxy_set_header Authorization \"\"" in proxy,
       "back-channel proxy forwards an unnecessary caller Authorization header")
+check(public_inbound.SAFE_APPLICATION.fullmatch("stable-lab-code"),
+      "public ingress rejects a bounded stable live application code")
+check(not public_inbound.SAFE_APPLICATION.fullmatch("unsafe/application"),
+      "public ingress accepts an application code that escapes its path segment")
+
+canary_suite = selection.resolve("full", canary=True)
+check(not any(item["provider"] in {"okta", "apple"} for item in canary_suite["records"]),
+      "the full canary suite still runs npm-emulated providers")
+check(len([message for message in canary_suite["skipped"] if "npm emulator" in message]) == 2,
+      "the full canary suite does not explain both npm-emulator skips")
 
 live = module("live_config", "live-config.py")
 with tempfile.TemporaryDirectory() as temporary:
@@ -147,6 +159,7 @@ with tempfile.TemporaryDirectory() as temporary:
                 "client_secret": "fixture-secret",
                 "provider_revision": "service:2026-08-25",
                 "application_code": "e2e-fixture",
+                "webgui_port": 48443,
             },
         },
     }
@@ -159,6 +172,8 @@ with tempfile.TemporaryDirectory() as temporary:
     driver.chmod(0o700)
     profile["profiles"]["okta"]["public_inbound"] = {
         "capabilities": ["shared_signals"], "driver": str(driver),
+        "ssf_issuer": "https://example.okta.test/ssf/default",
+        "ssf_audience": "fixture-audience", "ssf_push_secret": "fixture-push-secret",
     }
     config.write_text(json.dumps(profile), encoding="utf-8")
     loaded = live.load_config(config, "okta")
@@ -254,6 +269,49 @@ with tempfile.TemporaryDirectory() as temporary:
         pass
     else:
         raise SystemExit("provider evidence importer accepted an unreviewed configuration profile")
+    raw["configuration_profile"] = "okta"
+    raw["results"] = [{"feature": "shared_signals", "outcome": "pass"}]
+    artifact.write_text(json.dumps(raw), encoding="utf-8")
+    try:
+        provider_import.load_result(artifact)
+    except ValueError:
+        pass
+    else:
+        raise SystemExit("provider evidence importer accepted an unexercised direct capability")
+
+with tempfile.TemporaryDirectory() as temporary:
+    retained_root = pathlib.Path(temporary)
+    retained_catalog = retained_root / "tests" / "providers" / "capabilities.json"
+    retained_catalog.parent.mkdir(parents=True)
+    retained_catalog.write_text(provider_import.CATALOG.read_text(encoding="utf-8"), encoding="utf-8")
+    original_root, original_catalog, original_evidence = (
+        provider_import.ROOT, provider_import.CATALOG, provider_import.EVIDENCE,
+    )
+    provider_import.ROOT = retained_root
+    provider_import.CATALOG = retained_catalog
+    provider_import.EVIDENCE = retained_root / "tests" / "evidence" / "providers"
+    retained = {
+        **raw,
+        "provider": "keycloak", "source": "local", "cluster": "direct",
+        "subject": {"name": "keycloak", "revision": "version:26.3.3"},
+        "configuration_profile": "keycloak", "results": [{"feature": "login", "outcome": "pass"}],
+    }
+    try:
+        provider_import.import_result(retained, ["login"])
+        retained_provider = next(
+            item for item in json.loads(retained_catalog.read_text(encoding="utf-8"))["providers"]
+            if item["id"] == "keycloak"
+        )
+        retained_record = next(item for item in retained_provider["live_evidence"] if item["feature"] == "login")
+        retained_artifact = json.loads((retained_root / retained_record["artifact"]).read_text(encoding="utf-8"))
+        check(retained_record["source"] == "local" and retained_record["cluster"] == "direct",
+              "retained provider evidence drops its source or cluster")
+        check(retained_artifact["source"] == "local" and retained_artifact["cluster"] == "direct",
+              "retained provider artifact drops its source or cluster")
+    finally:
+        provider_import.ROOT, provider_import.CATALOG, provider_import.EVIDENCE = (
+            original_root, original_catalog, original_evidence,
+        )
 
 try:
     generator.result(
@@ -270,6 +328,10 @@ for action in ("prepare", "register", "trigger"):
     check(f"invoke_driver {action}" in live_runner, f"live public driver omits its {action} lifecycle action")
 check(live_runner.index('"$public_driver" cleanup') < live_runner.index('public-inbound.py" stop'),
       "live cleanup removes the tunnel before provider registration cleanup")
+check(live_runner.index('E2E_PUBLIC_PHASE=prepare') < live_runner.index('invoke_driver trigger'),
+      "live public inbound triggers before establishing a matching session")
+check(live_runner.index('invoke_driver trigger') < live_runner.index('E2E_PUBLIC_PHASE=assert'),
+      "live public inbound records no post-trigger session assertion")
 
 keycloak_runner = (HERE / "run-keycloak.sh").read_text(encoding="utf-8")
 ssf_transmitter = (HERE / "ssf-transmitter.mjs").read_text(encoding="utf-8")
@@ -277,6 +339,10 @@ check(keycloak_runner.index('= public-inbound ]; then') < keycloak_runner.index(
       "the signed SSF transmitter is not confined to public-inbound")
 check('shared_signals=pass' in keycloak_runner and "delivered.status === 202" in ssf_transmitter,
       "public Keycloak evidence is not bound to receiver acceptance")
+check("process.env.E2E_SSF_SUBJECT" in ssf_transmitter and "id: $subject" in keycloak_runner,
+      "the signed Shared Signal is not bound to the imported Keycloak subject")
+check(keycloak_runner.index('E2E_SSF_SUBJECT=') < keycloak_runner.index('ssf-transmitter.mjs'),
+      "the Shared Signals subject is not prepared before its transmitter starts")
 check("signal: AbortSignal.timeout(20_000)" in ssf_transmitter,
       "the local SSF transmitter has no bounded public delivery")
 

@@ -9,7 +9,7 @@ import { createServer } from 'node:https';
 
 const required = [
   'E2E_SSF_ISSUER', 'E2E_SSF_AUDIENCE', 'E2E_SSF_PUSH_SECRET', 'E2E_SSF_TRIGGER_SECRET',
-  'E2E_SSF_OIDC_ISSUER', 'E2E_SSF_PUSH_URL', 'E2E_SSF_CERTIFICATE', 'E2E_SSF_KEY',
+  'E2E_SSF_OIDC_ISSUER', 'E2E_SSF_SUBJECT', 'E2E_SSF_PUSH_URL', 'E2E_SSF_CERTIFICATE', 'E2E_SSF_KEY',
 ];
 for (const name of required) {
   if (!process.env[name]) throw new Error(`${name} is required`);
@@ -33,7 +33,7 @@ function set() {
     aud: process.env.E2E_SSF_AUDIENCE,
     iat: now,
     jti: randomUUID(),
-    sub_id: { format: 'iss_sub', iss: process.env.E2E_SSF_OIDC_ISSUER, sub: 'e2e-ssf-subject' },
+    sub_id: { format: 'iss_sub', iss: process.env.E2E_SSF_OIDC_ISSUER, sub: process.env.E2E_SSF_SUBJECT },
     events: {
       'https://schemas.openid.net/secevent/caep/event-type/session-revoked': { event_timestamp: now },
     },

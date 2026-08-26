@@ -340,6 +340,8 @@ def main():
         "tested_on": "2026-08-24",
         "provider_revision": "version:fixture-1",
         "artifact": "tests/evidence/providers/provider-result.json",
+        "source": "local",
+        "cluster": "direct",
     }
     blank = copy.deepcopy(dated_record)
     blank["tested_on"] = ""
@@ -364,6 +366,9 @@ def main():
     check("a live record rejects fields outside its publishable schema", refused(
         lambda: matrix.validate_live_evidence_record(provider, "login", "live", extra_record_field)
     ), True)
+
+    wrong_boundary = copy.deepcopy(dated_record)
+    wrong_boundary["cluster"] = "public-inbound"
 
     impossible_service_revision = copy.deepcopy(dated_record)
     impossible_service_revision["provider_revision"] = "service:2026-02-30"
@@ -397,6 +402,8 @@ def main():
             "schema_version": 1,
             "evidence_type": "provider_interoperability",
             "provider": "another-provider",
+            "source": "local",
+            "cluster": "direct",
             "provider_revision": "version:fixture-1",
             "tested_on": "2026-08-24",
             "configuration": {
@@ -431,6 +438,11 @@ def main():
                 provider, "login", "live", dated_record, evidence_root
             )
         ), False)
+        check("a retained artifact cannot be relabeled as another network cluster", refused(
+            lambda: matrix.validate_live_evidence_record(
+                provider, "login", "live", wrong_boundary, evidence_root
+            )
+        ), True)
         artifact["results"] = [{"feature": "login", "status": "unavailable"}]
         retained_artifact(evidence_root, artifact)
         check("a negative provider result uses the same retained evidence schema", refused(
@@ -497,6 +509,8 @@ def main():
             "emulator_revision": "version:0.10.0",
             "artifact": "tests/evidence/providers/provider-result.json",
             "adaptation": None,
+            "source": "emulated",
+            "cluster": "direct",
         }
         emulator_provider = {"id": "okta"}
         check("a pinned emulator run may be shown as additional evidence", refused(
