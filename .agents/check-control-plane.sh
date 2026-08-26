@@ -12,12 +12,11 @@ cd "$(dirname "$0")/.."
 
 echo '== control-plane syntax =='
 python3 - <<'PY'
-import ast
 from pathlib import Path
 
 for root in (Path(".agents"), Path(".codex"), Path("packaging"), Path("tests")):
     for path in root.rglob("*.py"):
-        ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        compile(path.read_text(encoding="utf-8"), str(path), "exec")
 PY
 python3 -m json.tool .codex/hooks.json >/dev/null
 for file in .agents/*.sh packaging/hooks/*; do

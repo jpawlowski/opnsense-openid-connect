@@ -27,22 +27,6 @@ import worktree_cleanup  # noqa: E402
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-RELEVANT_PATHS = (
-    "AGENTS.md",
-    "CLAUDE.md",
-    "CONTRIBUTING.md",
-    ".agents",
-    ".claude",
-    ".codex",
-    ".forgejo/workflows",
-    ".github/hooks",
-    ".github/scripts",
-    ".github/workflows",
-    "LICENSE",
-    "packaging",
-    "src",
-    "tests",
-)
 CONTROL_PLANE_EXACT_PATHS = {
     "AGENTS.md",
     "CLAUDE.md",
@@ -89,15 +73,6 @@ def state_paths(event):
     key = hashlib.sha256(identity).hexdigest()
     directory = Path(tempfile.gettempdir()) / "opnsense-openid-connect-agent-hooks"
     return directory / f"{key}.json", directory / f"{key}.log"
-
-
-def git_output(*arguments):
-    return subprocess.run(
-        ("git", *arguments, "--", *RELEVANT_PATHS),
-        cwd=REPOSITORY,
-        check=True,
-        stdout=subprocess.PIPE,
-    ).stdout
 
 
 def unrestricted_git_output(*arguments):
@@ -423,10 +398,10 @@ def synchronize_repository(repository, max_age, required=False):
 
 def fingerprint():
     digest = hashlib.sha256()
-    digest.update(git_output("status", "--porcelain=v1", "-z", "--untracked-files=all"))
-    digest.update(git_output("diff", "--binary", "--no-ext-diff", "HEAD"))
+    digest.update(unrestricted_git_output("status", "--porcelain=v1", "-z", "--untracked-files=all"))
+    digest.update(unrestricted_git_output("diff", "--binary", "--no-ext-diff", "HEAD"))
 
-    untracked = git_output("ls-files", "-z", "--others", "--exclude-standard")
+    untracked = unrestricted_git_output("ls-files", "-z", "--others", "--exclude-standard")
     for encoded_path in filter(None, untracked.split(b"\0")):
         path = REPOSITORY / os.fsdecode(encoded_path)
         digest.update(encoded_path)

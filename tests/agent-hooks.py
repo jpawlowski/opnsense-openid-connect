@@ -5,6 +5,7 @@
 """Checks the shared setup performed when a Codex or Claude task starts."""
 
 import importlib.util
+import inspect
 import io
 import json
 import os
@@ -108,10 +109,10 @@ def main():
     hook.execution_context = original_execution_context
     check("parallel sessions wait longer than two bounded fork fetches",
           hook.LOCK_TIMEOUT > hook.FETCH_TIMEOUT * 2, True)
-    check("classifier scripts participate in the Stop fingerprint",
-          ".github/scripts" in hook.RELEVANT_PATHS, True)
-    check("agent policy documents participate in the Stop fingerprint",
-          all(path in hook.RELEVANT_PATHS for path in ("AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md")), True)
+    fingerprint_source = inspect.getsource(hook.fingerprint)
+    check("the Stop fingerprint observes every non-ignored path",
+          "unrestricted_git_output" in fingerprint_source
+          and "digest.update(git_output(" not in fingerprint_source, True)
     check("pure agent-governance changes select the focused control-plane gate",
           hook.control_plane_only((
               "AGENTS.md", ".agents/hooks/fast_gate.py", "tests/agent-hooks.py",
@@ -120,6 +121,10 @@ def main():
           hook.control_plane_only(("AGENTS.md", "src/example.php")), False)
     check("an empty or unclassified change fails closed to the full gate",
           (hook.control_plane_only(()), hook.control_plane_only(("README.md",))), (False, False))
+    focused_gate = (ROOT / ".agents" / "check-control-plane.sh").read_text(encoding="utf-8")
+    check("the focused gate compiles Python without writing bytecode",
+          "compile(path.read_text(encoding=\"utf-8\"), str(path), \"exec\")" in focused_gate
+          and "ast.parse(" not in focused_gate, True)
     original_unrestricted_git_output = hook.unrestricted_git_output
     hook.unrestricted_git_output = lambda *arguments: (
         b"AGENTS.md\ndocs/README.md\n" if arguments[:2] == ("diff", "--name-only") else b""
