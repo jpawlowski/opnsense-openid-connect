@@ -518,9 +518,21 @@ if [ -n "${E2E_PROVIDER_RESULT:-}" ]; then
 fi
 
 if [ -n "$documentation_screenshot_output" ]; then
+  # The publisher owns signal semantics across the transaction: before its
+  # commit it rolls back and exits nonzero; after its commit it finishes the
+  # masked backup cleanup and exits successfully. Defer the wrapper's traps so
+  # they cannot contradict that result after the new generation is committed.
+  trap '' HUP INT TERM
   python3 "$script_dir/publish-screenshots.py" \
     --source "$E2E_DOCUMENTATION_SCREENSHOTS" --output "$documentation_screenshot_output" &
   documentation_publisher_pid=$!
-  wait "$documentation_publisher_pid"
+  documentation_publication_status=0
+  if wait "$documentation_publisher_pid"; then
+    :
+  else
+    documentation_publication_status=$?
+  fi
   documentation_publisher_pid=
+  trap cleanup HUP INT TERM
+  [ "$documentation_publication_status" = 0 ] || exit "$documentation_publication_status"
 fi

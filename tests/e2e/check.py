@@ -73,6 +73,8 @@ check(keycloak_runner.count(".NetworkSettings.Ports") == 3,
       "the Keycloak runner does not inspect all three Docker-allocated host ports")
 check("/e2e/keycloak-origin" in keycloak_runner and "/e2e-state/ssf-issuer" in keycloak_runner,
       "a dynamic service can start before its Docker-allocated external URL is known")
+check("trap '' HUP INT TERM" in keycloak_runner and "documentation_publication_status" in keycloak_runner,
+      "the wrapper can report failure after the screenshot publisher has committed successfully")
 
 with tempfile.TemporaryDirectory() as temporary:
     screenshot_directory = pathlib.Path(temporary) / "screenshots"
