@@ -516,6 +516,9 @@ check("liveHandoffTimeout * liveHandoffs" in provider_config
       "the live direct timeout does not budget both manual provider handoffs")
 
 keycloak_runner = (HERE / "run-keycloak.sh").read_text(encoding="utf-8")
+keycloak_spec = (HERE / "oidc.spec.mjs").read_text(encoding="utf-8")
+check("...await request.allHeaders()" in keycloak_spec,
+      "the observed browser proxy drops session-bearing request headers")
 ssf_transmitter = (HERE / "ssf-transmitter.mjs").read_text(encoding="utf-8")
 check(keycloak_runner.index('= public-inbound ]; then') < keycloak_runner.index('ssf-transmitter.mjs'),
       "the signed SSF transmitter is not confined to public-inbound")

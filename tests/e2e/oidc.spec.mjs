@@ -57,7 +57,7 @@ async function newObservedBrowserContext(browser, observedRequests) {
       await route.continue();
       return;
     }
-    const headers = { ...request.headers(), host: opnsense.host };
+    const headers = { ...await request.allHeaders(), host: opnsense.host };
     delete headers['content-length'];
     const options = {
       method: request.method(),
