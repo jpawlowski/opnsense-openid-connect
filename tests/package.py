@@ -69,6 +69,8 @@ URL_HOST = re.compile(r"https?://([a-z0-9._-]*)", re.I)
 EXAMPLE_HOST = re.compile(r"(^|\.)(example\.(com|net|org)|example|invalid|test|localhost)$", re.I)
 PROTOCOL_HOSTS = {
     "schemas.openid.net", "goauthentik.io", "version-2026-8.goauthentik.io",
+    # Fixed diagnostic links to the authoritative protocol specifications.
+    "openid.net", "www.rfc-editor.org",
     # Required license address in the bundled verbatim Apache-2.0 terms.
     "www.apache.org",
     # XML namespace carried by the package-owned SVG provider marks.

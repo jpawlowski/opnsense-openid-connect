@@ -902,10 +902,24 @@ async function configureServer(page) {
   const authorizationRow = dialog.locator('.oidc-probe-check').filter({ hasText: 'Authorization endpoint' });
   await expect(authorizationRow.locator('.oidc-probe-check-details')).toBeHidden();
   await authorizationRow.locator('.oidc-probe-info').click();
-  await expect(authorizationRow.locator('.oidc-probe-check-details')).toContainText('Live Discovery document');
-  await expect(authorizationRow.locator('.oidc-probe-check-details')).toContainText(
+  const authorizationDetails = authorizationRow.locator('.oidc-probe-check-details');
+  await expect(authorizationDetails).toContainText('Live Discovery document');
+  await expect(authorizationDetails).toContainText(
     'The endpoint was not called because it needs an interactive browser sign-in'
   );
+  await expect(authorizationDetails).toContainText(
+    'Why this matters: This is where the browser sends the user to sign in with the identity provider.'
+  );
+  await expect(authorizationDetails).toContainText('Related standard:');
+  const authorizationStandard = authorizationDetails.getByRole('link', {
+    name: 'OpenID Connect Core 1.0, section 3.1.2',
+  });
+  await expect(authorizationStandard).toHaveAttribute(
+    'href',
+    'https://openid.net/specs/openid-connect-core-1_0.html#AuthorizationEndpoint'
+  );
+  await expect(authorizationStandard).toHaveAttribute('target', '_blank');
+  await expect(authorizationStandard).toHaveAttribute('rel', 'noopener noreferrer');
   await dialog.getByRole('button', { name: '×' }).click();
 
   await page.getByRole('button', { name: 'Save' }).click();
