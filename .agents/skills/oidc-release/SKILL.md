@@ -19,11 +19,13 @@ So the work is in what is already committed.
 The publishing workflow is the authoritative gate for checks it already runs.
 Do not repeat those commands locally merely because a release is being cut when
 the revision and inputs are the same and no different result is expected; the
-workflow refuses to publish when one fails. Run a CI-covered check locally only
-to investigate a failure or when the local environment provides distinct
-required evidence. This includes the host-independent product gate and package
-build checks. It does not replace the release-specific inspection below or any
-manual evidence that CI cannot produce.
+workflow refuses to publish when one fails. Before pushing the tag, wait for
+successful required CI on its exact commit instead of rerunning the same checks
+locally. Run a CI-covered check locally only to investigate a failure or when
+the local environment provides distinct required evidence. This includes the
+host-independent product gate and package build checks. It does not replace the
+release-specific inspection below or any manual evidence that CI cannot
+produce.
 
 The release-notes command prints the note the tag *would* produce — read it as
 an operator would. Things worth catching there:
