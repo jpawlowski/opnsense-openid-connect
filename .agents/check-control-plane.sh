@@ -30,6 +30,10 @@ done
 echo 'control-plane files parse'
 
 echo
+echo '== repository notice roles =='
+python3 .agents/check-notice-roles.py
+
+echo
 echo '== contribution policy =='
 python3 tests/convention.py
 python3 tests/contribution.py

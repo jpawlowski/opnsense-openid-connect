@@ -136,6 +136,32 @@ def main():
           )), True)
     check("the focused gate exercises the test-impact decision fixtures",
           "python3 tests/test-impact.py" in focused_gate, True)
+    check("the focused gate preserves repository-wide notice validation without building a package",
+          "python3 .agents/check-notice-roles.py" in focused_gate, True)
+    notice_roles = load_agent_module(
+        "notice_role_test", ROOT / ".agents" / "check-notice-roles.py",
+    )
+    with tempfile.TemporaryDirectory() as temporary:
+        notice_root = pathlib.Path(temporary)
+        (notice_root / ".agents").mkdir()
+        (notice_root / "packaging/watch").mkdir(parents=True)
+        (notice_root / "src/opnsense").mkdir(parents=True)
+        (notice_root / "LICENSE").write_text(
+            "Copyright (c) 2026, Example Holder\n", encoding="utf-8",
+        )
+        notice = "Copyright (C) 2026 Example Holder\n"
+        (notice_root / ".agents/policy.py").write_text(notice, encoding="utf-8")
+        (notice_root / "packaging/watch/openid-connect-refresh").write_text(notice, encoding="utf-8")
+        (notice_root / "src/opnsense/app.php").write_text(notice, encoding="utf-8")
+        tracked_notices = (
+            ".agents/policy.py", "LICENSE", "packaging/watch/openid-connect-refresh", "src/opnsense/app.php",
+        )
+        check("the fast notice check rejects a holder name in repository tooling",
+              notice_roles.notice_role_mismatches(notice_root, tracked_notices),
+              ([".agents/policy.py"], []))
+        (notice_root / ".agents/policy.py").write_text("policy\n", encoding="utf-8")
+        check("the fast notice check accepts only the central licence and installed application roles",
+              notice_roles.notice_role_mismatches(notice_root, tracked_notices), ([], []))
     original_unrestricted_git_output = hook.unrestricted_git_output
     validation_calls = []
     def validation_output(*arguments):
