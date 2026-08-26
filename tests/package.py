@@ -6,8 +6,8 @@ Two kinds of check live here:
 
   * the shape of the archive - `pkg` will not tell us it is wrong until someone tries to
     install it, and by then it is on a firewall
-  * what the files may and may not contain - no German, private addresses,
-    hosts or mailboxes of whoever built it
+  * what the files may and may not contain - OPNsense-style licence blocks only in
+    installed application code, no German, private addresses, hosts or mailboxes
 
 The second kind exists because this package is meant to be handed to strangers.
 """
@@ -99,6 +99,31 @@ failures = []
 passed = 0
 
 
+def project_notice():
+    """Return the OPNsense-style spelling of the holder named by the project licence."""
+    for line in (ROOT / "LICENSE").read_text().splitlines():
+        if line.startswith("Copyright"):
+            holder = line.split(",", 1)[1].strip() if "," in line else line
+            year = re.search(r"\b(\d{4})\b", line)
+            return f"Copyright (C) {year.group(1)} {holder}" if year else None
+
+    return None
+
+
+COPYRIGHT = project_notice()
+OPNSENSE_LICENSE_MARKERS = (
+    "Redistribution and use in source and binary forms, with or without",
+    "1. Redistributions of source code must retain the above copyright notice,",
+    "2. Redistributions in binary form must reproduce the above copyright",
+    "THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,",
+    "ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE",
+)
+
+
+def carries_opnsense_header(text):
+    return COPYRIGHT in text and all(marker in text for marker in OPNSENSE_LICENSE_MARKERS)
+
+
 def check(what, actual, expected=True, detail=""):
     """Compares and reports. Passing only `actual` asserts that it is true."""
     global passed
@@ -138,6 +163,9 @@ def build():
 
 
 def main():
+    if COPYRIGHT is None:
+        sys.exit("LICENSE carries no copyright holder for the application headers")
+
     group("A version pkg can carry")
     build_py = load_build()
     check("a release tag", build_py.pkg_version("v1.2.3"), "1.2.3")
@@ -261,9 +289,37 @@ def main():
           [n for n in contents if n.endswith(("OpenIDConnectClient.php", "LICENSE.jumbojett"))], [])
     check("no documentation is installed onto the firewall",
           [n for n in contents if n.endswith(".md")], [])
-    license_path = "/usr/local/share/licenses/os-openid-connect/LICENSE"
-    check("the package carries the central project licence",
-          contents.get(license_path), (ROOT / "LICENSE").read_bytes())
+    license_directory = f"/usr/local/share/licenses/os-openid-connect-{VERSION}"
+    packaged_licenses = {
+        pathlib.PurePosixPath(name).name
+        for name in contents
+        if name.startswith(license_directory + "/")
+    }
+    check("the package carries FreeBSD's multi-licence directory shape",
+          packaged_licenses, {"LICENSE", "catalog.mk", "BSD2CLAUSE", "APACHE20"})
+    check("the packaged BSD terms are the central project licence",
+          contents.get(license_directory + "/BSD2CLAUSE"), (ROOT / "LICENSE").read_bytes())
+    check("the package reports that both licences apply",
+          contents.get(license_directory + "/LICENSE", b"").decode("utf-8", "replace"),
+          'This package has multiple licenses (all of):\n'
+          '- BSD2CLAUSE (BSD 2-clause "Simplified" License)\n'
+          '- APACHE20 (Apache License 2.0)\n')
+    license_catalog = contents.get(license_directory + "/catalog.mk", b"").decode("utf-8", "replace")
+    check("the package catalogue is the FreeBSD native multi-licence catalogue",
+          license_catalog,
+          "_LICENSE=BSD2CLAUSE APACHE20\n"
+          "_LICENSE_COMB=multi\n"
+          "_LICENSE_NAME=Multiple (all of): BSD2CLAUSE APACHE20\n"
+          "_LICENSE_PERMS=dist-mirror dist-sell pkg-mirror pkg-sell auto-accept\n"
+          "_LICENSE_GROUPS=FSF OSI\n"
+          '_LICENSE_NAME_BSD2CLAUSE =BSD 2-clause "Simplified" License\n'
+          "_LICENSE_PERMS_BSD2CLAUSE =dist-mirror dist-sell pkg-mirror pkg-sell auto-accept\n"
+          "_LICENSE_GROUPS_BSD2CLAUSE =FSF OSI COPYFREE\n"
+          f"_LICENSE_DISTFILES_BSD2CLAUSE =os-openid-connect-{VERSION}\n"
+          "_LICENSE_NAME_APACHE20 =Apache License 2.0\n"
+          "_LICENSE_PERMS_APACHE20 =dist-mirror dist-sell pkg-mirror pkg-sell auto-accept\n"
+          "_LICENSE_GROUPS_APACHE20 =FSF OSI\n"
+          f"_LICENSE_DISTFILES_APACHE20 =os-openid-connect-{VERSION}\n")
     provider_icons = {
         pathlib.PurePosixPath(n).name
         for n in contents
@@ -292,6 +348,9 @@ def main():
     apache_notice = contents.get(apache_notice_path, b"").decode("utf-8", "replace")
     check("the package gives icon recipients the Apache 2.0 licence",
           "Apache License\n                           Version 2.0" in apache_license, True)
+    check("the FreeBSD licence directory carries the same Apache terms",
+          contents.get(license_directory + "/APACHE20", b"").decode("utf-8", "replace"),
+          apache_license)
     check("the package preserves Dashboard Icons attribution",
           "Copyright (c) 2024 Bjorn Lammers, Meier Lukas, Thomas Camlong and Homarr Labs"
           in apache_notice, True)
@@ -427,11 +486,14 @@ def main():
                         and not m.lower().startswith("root@")})
         check(f"{short} names no mailbox but the declared one", mails, [])
 
-    group("Everything is in English")
+    group("Everything is in English and application code follows OPNsense")
     for name, blob in sorted(contents.items()):
         text = blob.decode("utf-8", "replace")
         german = sorted(set(m.group(0).lower() for m in re.finditer(GERMAN, text)))
         check(f"{pathlib.Path(name).name} is English", german, [])
+        if name.endswith((".php", ".js", ".css")) or name == "/usr/local/sbin/openid-connect-refresh":
+            check(f"{pathlib.Path(name).name} carries the complete OPNsense licence block",
+                  carries_opnsense_header(text), True)
 
     group("Every other file of ours is English")
     ours = sorted(
@@ -448,6 +510,25 @@ def main():
         text = path.read_text(encoding="utf-8", errors="replace")
         german = sorted(set(m.group(0).lower() for m in re.finditer(GERMAN, text)))
         check(f"{path.relative_to(ROOT)} is English", german, [])
+
+    group("First-party notices follow file roles")
+    tracked = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True, check=True
+    ).stdout.decode().split("\0")
+    tracked = [ROOT / name for name in tracked if name and (ROOT / name).is_file()]
+    expected_notices = {ROOT / "LICENSE", ROOT / "packaging/watch/openid-connect-refresh"}
+    expected_notices.update(
+        path for path in tracked
+        if path.is_relative_to(ROOT / "src/opnsense") and path.suffix in {".php", ".js", ".css"}
+    )
+    actual_notices = {ROOT / "LICENSE"}
+    actual_notices.update({
+        path for path in tracked
+        if COPYRIGHT in path.read_text(encoding="utf-8", errors="replace")
+    })
+    check("only installed application code and the central licence name the holder",
+          sorted(str(path.relative_to(ROOT)) for path in actual_notices),
+          sorted(str(path.relative_to(ROOT)) for path in expected_notices))
 
     package.unlink(missing_ok=True)
 

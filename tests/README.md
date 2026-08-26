@@ -97,6 +97,13 @@ permissions and ownership, that no retired third-party client ships and
 documentation does not — and that nothing carries private addresses, hosts or
 mailboxes of whoever built it, and that everything is English.
 
+It also keeps licensing aligned with the upstream OPNsense split. Installed
+first-party PHP, JavaScript and CSS carry the complete BSD-2-Clause block;
+structural configuration, generated artifacts, documentation, tests and
+repository tooling do not. The package installs FreeBSD's versioned
+multi-licence directory shape, while bundled third-party notices stay beside
+the files whose provenance they describe.
+
 The personal-metadata checks are there because this package is meant to be handed
 to strangers. They are checks, not courtesies.
 

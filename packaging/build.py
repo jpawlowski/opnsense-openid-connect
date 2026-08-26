@@ -59,7 +59,16 @@ EXTRA = [
     ("watch/openid-connect-refresh", "usr/local/sbin/openid-connect-refresh", 0o755),
     ("watch/openid-connect.cron", "usr/local/etc/cron.d/openid-connect.cron", 0o644),
 ]
-LICENSE_TARGET = "usr/local/share/licenses/os-openid-connect/LICENSE"
+LICENSE_IDS = ("BSD2CLAUSE", "APACHE20")
+LICENSE_NAMES = {
+    "BSD2CLAUSE": 'BSD 2-clause "Simplified" License',
+    "APACHE20": "Apache License 2.0",
+}
+LICENSE_GROUPS = {
+    "BSD2CLAUSE": "FSF OSI COPYFREE",
+    "APACHE20": "FSF OSI",
+}
+LICENSE_PERMISSIONS = "dist-mirror dist-sell pkg-mirror pkg-sell auto-accept"
 
 # The watchdog writes an anchor on the machine it runs on, under /var/db. pkg
 # removes what it installed and nothing else, so without this the fingerprint of
@@ -109,7 +118,7 @@ installation differs on is a setting under System > Access > Servers.
 
 Contains only additional files below /usr/local/opnsense/mvc/ plus the
 watchdog /usr/local/sbin/openid-connect-watch, its daily run and the package
-licence. No file of the core package is replaced or altered.
+licences. No file of the core package is replaced or altered.
 
 BSD-2-Clause, with Apache-2.0 portions in bundled provider icons. Runtime
 cryptography is provided by the phpseclib package that is part of OPNsense;
@@ -162,7 +171,39 @@ def version_from_git():
     return pkg_version(described)
 
 
-def collect():
+def license_entries(version):
+    """The licence directory FreeBSD's ports framework would install for this package."""
+    directory = f"usr/local/share/licenses/{NAME}-{version}"
+    distribution = f"{NAME}-{version}"
+    report = "This package has multiple licenses (all of):\n" + "".join(
+        f"- {license_id} ({LICENSE_NAMES[license_id]})\n" for license_id in LICENSE_IDS
+    )
+    catalog = [
+        f"_LICENSE={' '.join(LICENSE_IDS)}",
+        "_LICENSE_COMB=multi",
+        f"_LICENSE_NAME=Multiple (all of): {' '.join(LICENSE_IDS)}",
+        f"_LICENSE_PERMS={LICENSE_PERMISSIONS}",
+        "_LICENSE_GROUPS=FSF OSI",
+    ]
+    for license_id in LICENSE_IDS:
+        catalog.extend([
+            f"_LICENSE_NAME_{license_id} ={LICENSE_NAMES[license_id]}",
+            f"_LICENSE_PERMS_{license_id} ={LICENSE_PERMISSIONS}",
+            f"_LICENSE_GROUPS_{license_id} ={LICENSE_GROUPS[license_id]}",
+            f"_LICENSE_DISTFILES_{license_id} ={distribution}",
+        ])
+    apache = (
+        SRC / "mvc/app/library/OPNsense/OpenIDConnect/assets/provider-icons/LICENSE.apache-2.0"
+    ).read_bytes()
+    return [
+        (f"/{directory}/catalog.mk", ("\n".join(catalog) + "\n").encode(), 0o644),
+        (f"/{directory}/LICENSE", report.encode(), 0o644),
+        (f"/{directory}/BSD2CLAUSE", (REPO / "LICENSE").read_bytes(), 0o644),
+        (f"/{directory}/APACHE20", apache, 0o644),
+    ]
+
+
+def collect(version):
     """@return list[(archive path, contents, mode)] in a stable order"""
     entries = []
     for path in sorted(SRC.rglob("*")):
@@ -173,10 +214,9 @@ def collect():
     for source, target, mode in EXTRA:
         entries.append(("/" + target, (HERE / source).read_bytes(), mode))
 
-    # A standalone package does not have the repository root around it. Keep one
-    # authoritative notice in the conventional package licence location instead of
-    # repeating it in every installed source file.
-    entries.append(("/" + LICENSE_TARGET, (REPO / "LICENSE").read_bytes(), 0o644))
+    # A standalone package does not have the repository root around it. Match the
+    # versioned multi-licence layout installed by FreeBSD's ports framework.
+    entries.extend(license_entries(version))
 
     return entries
 
@@ -251,7 +291,7 @@ def main():
         sys.exit(f"STOP: {SRC} is missing")
 
     version = args.version or version_from_git()
-    entries = collect()
+    entries = collect(version)
     compact, full = manifest_for(version, entries)
 
     print(f"{NAME}-{version}")
