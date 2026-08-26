@@ -566,6 +566,7 @@
             return;
         }
         var readinessFields = [
+            'type',
             'openidconnect_provider_url', 'openidconnect_client_id', 'openidconnect_client_secret',
             'openidconnect_client_certificate', 'openidconnect_signing_certificate', 'openidconnect_token_auth',
             'openidconnect_certificate_bound_access_tokens'
@@ -2007,9 +2008,11 @@
                     && authenticationCapabilities.indexOf(this.value) === -1);
             });
             var authentication = authenticationInput.value || '';
+            var authenticationCoerced = false;
             if (authentication !== '' && authenticationCapabilities.indexOf(authentication) === -1) {
                 $(authenticationInput).val('');
                 authentication = '';
+                authenticationCoerced = true;
             }
             var authenticationUnsupported = authenticationCapabilities.length === 0;
             var authenticationManual = provider === 'keycloak';
@@ -2093,6 +2096,11 @@
             /* These security-boundary coercions are direct assignments. Notify the
              * profile controls after the complete population state is consistent. */
             populationCoercions.trigger('input');
+            if (authenticationCoerced) {
+                /* Let the requirement preset owner clear its dependent evidence fields
+                 * only after this update has made the unsupported choice unavailable. */
+                $(authenticationInput).trigger('change');
+            }
         }
         $(field('openidconnect_create_users')).on('change', update);
         $(field('openidconnect_group_claim')).on('input change', update);
@@ -2115,8 +2123,9 @@
         var requestMode = field('openidconnect_acr_request');
         var contexts = field('openidconnect_acr_values');
         var methods = field('openidconnect_amr_values');
+        var entraContext = field('openidconnect_entra_auth_context');
         var presets = options.authenticationRequirementPresets || {};
-        if (!requirement || !profile || !requestMode || !contexts || !methods) {
+        if (!requirement || !profile || !requestMode || !contexts || !methods || !entraContext) {
             return;
         }
 
@@ -2128,6 +2137,21 @@
         function apply(force) {
             var preset = selectedPreset();
             if (!preset) {
+                if (force && requirement.value === '') {
+                    /* A requirement owns all of its evidence fields. Leaving a hidden
+                     * AMR or tenant context behind after the policy is turned off makes
+                     * the form look modified and can persist an unrelated old policy. */
+                    var cleared = $();
+                    [requestMode, contexts, methods, entraContext].forEach(function (input) {
+                        if (input.value !== '') {
+                            input.value = '';
+                            cleared = cleared.add(input);
+                        }
+                    });
+                    refreshSelectPicker(requestMode);
+                    refreshSelectPicker(entraContext);
+                    cleared.trigger('input');
+                }
                 return;
             }
             if (force || requestMode.value === '') {
