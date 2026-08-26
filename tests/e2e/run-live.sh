@@ -128,7 +128,15 @@ export E2E_LIVE_HEADED
 (cd "$script_dir" && npx playwright test --config provider.config.mjs --headed)
 
 if [ -n "${E2E_PROVIDER_RESULT:-}" ]; then
+  direct_capabilities="--capability pkce=pass"
+  if [ "$provider" != apple ]; then
+    direct_capabilities="--capability login=pass $direct_capabilities"
+  fi
+  # Apple requires an explicit administrator approval before a new live
+  # subject can receive a WebGUI session, so this reusable run does not claim
+  # login evidence merely because its test-only callback succeeded.
+  # shellcheck disable=SC2086
   python3 "$script_dir/provider-result.py" --provider "$provider" --source live --cluster direct \
     --subject-name "$provider" --subject-revision "$(jq -r .provider_revision "$state_file")" \
-    --profile "$provider" --capability login=pass --capability pkce=pass --output "$E2E_PROVIDER_RESULT"
+    --profile "$provider" $direct_capabilities --output "$E2E_PROVIDER_RESULT"
 fi

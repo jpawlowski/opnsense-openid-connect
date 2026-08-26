@@ -153,6 +153,10 @@ normally uses `manual`. For `local.sh`, `webgui_port` makes the disposable VM us
 registered in advance. The callback is `https://opnsense.opnsense.test:<webgui_port>` plus
 `/api/openidconnect/auth/callback/<application_code>`. A prepared lab may supply its already stable origin directly.
 
+A live direct Entra or Okta result records `login=pass` only after the provider-backed flow reaches the WebGUI
+dashboard and rotates the PHP session. Apple's public profile deliberately requires administrator approval for a new
+subject, so the reusable live run proves PKCE through the test callback but does not publish WebGUI-login evidence.
+
 The matrix wrapper reports all provider failures rather than hiding later results after the first failure. Provider
 stacks use a per-run CA and TLS proxy. `provider.opnsense.test` is mapped to the Mac only for the browser and is pinned
 to QEMU's host gateway inside OPNsense. `opnsense.opnsense.test` is mapped separately to the VM's forwarded HTTPS port

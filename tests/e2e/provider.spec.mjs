@@ -443,9 +443,23 @@ async function testProviderSignIn(page) {
 
 async function establishLiveSession(page) {
   await page.goto(origin);
+  const before = (await page.context().cookies(origin)).find(cookie => cookie.name === 'PHPSESSID')?.value;
+  let authorization;
+  page.on('request', request => {
+    if (new URL(request.url()).origin === providerOrigin && new URL(request.url()).searchParams.has('code_challenge')) {
+      authorization = new URL(request.url());
+    }
+  });
   await page.getByRole('link', { name: `Login using ${state.server_name}` }).click();
   await liveProviderInteraction(page);
   await expect(page).toHaveURL(/\/ui\/core\/dashboard/, { timeout: state.manual_timeout_seconds * 1000 });
+  const after = (await page.context().cookies(origin)).find(cookie => cookie.name === 'PHPSESSID')?.value;
+  expect(authorization).toBeTruthy();
+  expect(authorization.searchParams.get('code_challenge_method')).toBe('S256');
+  expect(authorization.searchParams.get('state')).toBeTruthy();
+  expect(authorization.searchParams.get('nonce')).toBeTruthy();
+  expect(after).toBeTruthy();
+  expect(after).not.toBe(before);
 }
 
 test(`OPNsense provider flow through ${state.provider}`, async ({ browser }) => {
@@ -488,7 +502,21 @@ test(`OPNsense provider flow through ${state.provider}`, async ({ browser }) => 
     await setAuthentikEmailVerification('true');
   }
 
-  if (state.source === 'live' || state.source === 'emulated') {
+  if (state.source === 'live') {
+    await testProviderSignIn(adminPage);
+    // Apple's public profile deliberately requires explicit approval for a new
+    // subject. A reusable live profile cannot safely pre-authorize an unknown
+    // account, so its direct run reports PKCE but no WebGUI-login evidence.
+    if (state.provider !== 'apple') {
+      const liveSession = await browser.newContext({ ignoreHTTPSErrors: true });
+      await establishLiveSession(await liveSession.newPage());
+      await liveSession.close();
+    }
+    await admin.close();
+    return;
+  }
+
+  if (state.source === 'emulated') {
     await testProviderSignIn(adminPage);
     await admin.close();
     return;

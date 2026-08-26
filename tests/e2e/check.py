@@ -332,6 +332,17 @@ check(live_runner.index('E2E_PUBLIC_PHASE=prepare') < live_runner.index('invoke_
       "live public inbound triggers before establishing a matching session")
 check(live_runner.index('invoke_driver trigger') < live_runner.index('E2E_PUBLIC_PHASE=assert'),
       "live public inbound records no post-trigger session assertion")
+check('if [ "$provider" != apple ]; then' in live_runner
+      and 'direct_capabilities="--capability login=pass $direct_capabilities"' in live_runner,
+      "the reusable Apple live run still claims a WebGUI login without administrator approval")
+
+provider_spec = (HERE / "provider.spec.mjs").read_text(encoding="utf-8")
+live_direct = provider_spec[provider_spec.rindex("if (state.source === 'live') {"):]
+check(live_direct.index('await testProviderSignIn(adminPage)')
+      < live_direct.index('await establishLiveSession(await liveSession.newPage())'),
+      "live direct evidence does not establish a provider-backed WebGUI session")
+check("if (state.provider !== 'apple')" in live_direct,
+      "the live session assertion ignores Apple's explicit administrator-approval boundary")
 
 keycloak_runner = (HERE / "run-keycloak.sh").read_text(encoding="utf-8")
 ssf_transmitter = (HERE / "ssf-transmitter.mjs").read_text(encoding="utf-8")
