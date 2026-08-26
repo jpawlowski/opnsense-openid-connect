@@ -7,9 +7,9 @@ Your normal local OPNsense login remains available as the recovery path.
 This plugin is for WebGUI administration. It does not change Captive Portal or
 OPNWAF authentication and it does not replace OPNsense core files.
 
-If this project is useful to you, you can support its continued maintenance
-through [GitHub Sponsors](https://github.com/sponsors/jpawlowski) or
-[Buy Me a Coffee](https://www.buymeacoffee.com/jpawlowski).
+<a href="https://www.buymeacoffee.com/jpawlowski" target="_blank">
+  <img src="docs/assets/bmc-button.svg" alt="Buy Me A Coffee" width="174">
+</a>
 
 ## What this gives you
 
