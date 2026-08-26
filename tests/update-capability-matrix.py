@@ -6,6 +6,7 @@
 
 import argparse
 import datetime
+import importlib.util
 import json
 import pathlib
 import re
@@ -73,6 +74,19 @@ EVIDENCE_SYMBOL = {
 
 class CatalogError(ValueError):
     pass
+
+
+def provider_result_capabilities():
+    path = ROOT / "tests" / "e2e" / "provider-result.py"
+    spec = importlib.util.spec_from_file_location("matrix_provider_result", path)
+    if spec is None or spec.loader is None:
+        raise CatalogError("provider result capability policy cannot be loaded")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.CAPABILITIES
+
+
+PROVIDER_RESULT_CAPABILITIES = provider_result_capabilities()
 
 
 def read_json(path):
@@ -488,11 +502,20 @@ def validate_emulator_evidence_record(provider, feature_id, record, root=ROOT):
     results = artifact.get("results")
     if (
         not isinstance(results, list)
-        or not any(item == {"feature": feature_id, "outcome": "pass"} for item in results)
         or any(not isinstance(item, dict) or set(item) != {"feature", "outcome"} for item in results)
-        or any(item["outcome"] not in {"pass", "unavailable", "incompatible"} for item in results)
     ):
         raise CatalogError(f"{label}: emulator artifact does not prove the named emulated capability")
+    if any(not isinstance(item["feature"], str) or not isinstance(item["outcome"], str) for item in results):
+        raise CatalogError(f"{label}: emulator artifact capability results must be text")
+    result_features = [item["feature"] for item in results]
+    exercised = PROVIDER_RESULT_CAPABILITIES.get((provider["id"], "emulated", "direct"), set())
+    if (
+        len(set(result_features)) != len(result_features)
+        or not set(result_features) <= exercised
+        or any(item["outcome"] not in {"pass", "unavailable", "incompatible"} for item in results)
+        or {"feature": feature_id, "outcome": "pass"} not in results
+    ):
+        raise CatalogError(f"{label}: emulator artifact contains an unexercised or duplicate capability")
 
 
 def validate_providers(data, standard_ids):

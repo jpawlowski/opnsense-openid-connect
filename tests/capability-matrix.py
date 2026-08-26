@@ -532,6 +532,35 @@ def main():
                 emulator_provider, "login", emulator_record, evidence_root
             )
         ), True)
+        emulator_artifact["results"] = [{"feature": "shared_signals", "outcome": "pass"}]
+        retained_artifact(evidence_root, emulator_artifact)
+        unexercised_record = copy.deepcopy(emulator_record)
+        unexercised_record["feature"] = "shared_signals"
+        check("an emulator artifact cannot retain a capability its selection never exercised", refused(
+            lambda: matrix.validate_emulator_evidence_record(
+                emulator_provider, "shared_signals", unexercised_record, evidence_root
+            )
+        ), True)
+        emulator_artifact["results"] = [
+            {"feature": "login", "outcome": "pass"},
+            {"feature": "login", "outcome": "pass"},
+        ]
+        retained_artifact(evidence_root, emulator_artifact)
+        check("an emulator artifact cannot retain duplicate capability outcomes", refused(
+            lambda: matrix.validate_emulator_evidence_record(
+                emulator_provider, "login", emulator_record, evidence_root
+            )
+        ), True)
+        emulator_artifact["results"] = [
+            {"feature": "login", "outcome": "pass"},
+            {"feature": ["shared_signals"], "outcome": "pass"},
+        ]
+        retained_artifact(evidence_root, emulator_artifact)
+        check("an emulator artifact rejects non-text capability identifiers", refused(
+            lambda: matrix.validate_emulator_evidence_record(
+                emulator_provider, "login", emulator_record, evidence_root
+            )
+        ), True)
 
     group("Security comparison preserves trade-offs")
     ranked_standards = copy.deepcopy(standards)

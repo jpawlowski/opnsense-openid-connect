@@ -395,6 +395,11 @@ for action in ("prepare", "register", "trigger"):
     check(f"invoke_driver {action}" in live_runner, f"live public driver omits its {action} lifecycle action")
 check(live_runner.index('"$public_driver" cleanup') < live_runner.index('public-inbound.py" stop'),
       "live cleanup removes the tunnel before provider registration cleanup")
+driver_cleanup = live_runner[live_runner.index('if [ "$driver_prepared" = 1 ]'):live_runner.index(
+    'python3 "$script_dir/public-inbound.py" stop'
+)]
+check("cleanup_failed=1" in driver_cleanup and "|| true" not in driver_cleanup,
+      "live provider cleanup failure cannot fail the run or request manual cleanup")
 check(live_runner.index('E2E_PUBLIC_PHASE=prepare') < live_runner.index('invoke_driver trigger'),
       "live public inbound triggers before establishing a matching session")
 check(live_runner.index('invoke_driver trigger') < live_runner.index('E2E_PUBLIC_PHASE=assert'),

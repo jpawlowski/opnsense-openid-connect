@@ -48,9 +48,13 @@ cleanup() {
     exit "$status"
   fi
   if [ "$driver_prepared" = 1 ]; then
-    E2E_LIVE_PROVIDER=$provider E2E_LIVE_CONFIG=$E2E_LIVE_CONFIG \
+    if ! E2E_LIVE_PROVIDER=$provider E2E_LIVE_CONFIG=$E2E_LIVE_CONFIG \
       E2E_PUBLIC_ORIGIN=$public_origin E2E_APPLICATION_CODE=$application_code \
-      "$public_driver" cleanup >/dev/null 2>&1 || true
+      "$public_driver" cleanup >/dev/null 2>&1; then
+      printf '%s public-inbound driver failed during cleanup; hosted registration may require manual removal.\n' \
+        "$provider" >&2
+      cleanup_failed=1
+    fi
   fi
   python3 "$script_dir/public-inbound.py" stop --state "$public_state" >/dev/null 2>&1 || true
   e2e_ssh "php '$remote_cleanup' cleanup '$server_name' '$application_code'" >/dev/null 2>&1 || cleanup_failed=1
