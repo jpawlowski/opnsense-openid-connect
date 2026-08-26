@@ -397,25 +397,23 @@ not as a reason to recreate the pull request.
 
 ## Review before merge
 
-Review readiness has two independent gates. The human intent gate says the
-intended scope is complete; validation establishes that the branch is
-technically green. Keep an agent-authored pull request in draft until both are
-true. Only an explicit human instruction to make that pull request ready for
-review satisfies the first gate. Do not infer it from silence or from requests
-to prepare a pull request, keep it mergeable, fix reviews or report technical
-readiness.
+Keep an agent-authored pull request draft throughout implementation, validation
+and the complete automatic Codex review cycle. Mark it ready for review
+automatically only when all known scope is implemented, validation and checks
+prove the branch technically green and mergeable, the current-head Codex cycle has reached its
+stopping condition and every review thread has a disposition. Ready for review
+is the handoff to human review, approval and an explicitly authorized merge; it
+is not a prerequisite for an automated review request.
 
-New user-requested scope or a direct user change revokes the human intent gate.
-Before the next implementation change or push, refresh the remote view and
-return a ready pull request to draft with `gh pr ready N --undo`. A newly
-observed foreign head that carries such unfinished work also returns to draft
-after exact reconciliation. Fixes within an already authorized review batch do
-not revoke readiness. Once draft, the pull request never becomes ready again
-automatically; wait for another explicit human instruction. When authorized,
-mark it ready only after all known scope is implemented and technically green.
+New user-requested scope or a direct user change revokes readiness. Before the
+next implementation change or push, refresh the remote view and return a ready
+pull request to draft with `gh pr ready N --undo`. A newly observed foreign head
+that carries unfinished work also returns to draft after exact reconciliation.
+Keep review fixes in draft, and do not mark the pull request ready between Codex
+review rounds.
 
-The review-request helper refuses draft pull requests. Before merging, wait for
-Codex to review the current head commit; compare the reviewed commit shown by
+The review-request helper requires a draft pull request. Before readiness, wait
+for Codex to review the current head commit; compare the reviewed commit shown by
 Codex with the pull request's current head. A review of an older head does not
 count.
 
@@ -446,8 +444,25 @@ Only after all existing threads have a disposition, all addressed threads are
 resolved, and no blocking finding remains unaddressed may the integrating agent
 request exactly one new review for the current head through the helper above.
 A new Codex review is a separate snapshot. It does not update or close an earlier review's threads.
-Once that current-head review has no blocking finding, stop: do not request
-another review merely to obtain zero suggestions.
+Automatically repeat this fix, validate, push and review sequence until the
+current-head review reports no findings. The steward may end the cycle with
+remaining non-blocking findings only by recording why every one is too granular
+or immaterial to justify another change. Never apply that exception to P0, P1 or
+a critical-path P2.
+
+While that automatic review is pending, obtain a new delay after every unchanged
+observation with `.agents/review-requests.py wait --phase review`; it returns an
+exact, independently jittered value from 180 through 480 seconds. Arrange one
+platform wait or recurring wake-up for that delay, then run the read-only PR
+observer. Do not reuse a previous delay. Once the pull request is ready for human
+review, use `.agents/review-requests.py wait --phase ready` and observe
+mergeability hourly.
+
+A confirmed conflict after readiness returns the pull request to draft while it
+is resolved and validated. Restart the complete Codex cycle if the resolution
+materially changes reviewed behavior, interfaces or risk. If the resolution is
+demonstrably mechanical, record that judgment and mark the validated pull request
+ready again without another Codex review.
 
 ## Agent notice
 

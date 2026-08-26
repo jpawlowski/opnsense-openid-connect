@@ -1933,14 +1933,26 @@ module.update_registry(repository, update)
     except RuntimeError:
         mixed_head_rejected = True
     check("a changed remote head discards the request snapshot before mutation", mixed_head_rejected, True)
+    ready_pull = {"state": "open", "merged_at": None, "draft": False, "head": {"sha": current_head}}
+    review_requests.github_api = lambda *_arguments, **_keywords: ready_pull
+    ready_review_rejected = False
+    try:
+        review_requests.verify_remote_pull(91, current_head, "token", draft_required=True)
+    except RuntimeError:
+        ready_review_rejected = True
+    check("an automated Codex review cannot be requested after human-review readiness",
+          ready_review_rejected, True)
     draft_pull = {"state": "open", "merged_at": None, "draft": True, "head": {"sha": current_head}}
     review_requests.github_api = lambda *_arguments, **_keywords: draft_pull
-    draft_review_rejected = False
-    try:
-        review_requests.verify_remote_pull(91, current_head, "token", ready_required=True)
-    except RuntimeError:
-        draft_review_rejected = True
-    check("a draft cannot receive an agent-requested Codex review", draft_review_rejected, True)
+    review_requests.verify_local_pull = lambda pull: str(pull["head"]["sha"])
+    check("an automated Codex review is allowed while the pull request is draft",
+          review_requests.verify_remote_pull(91, current_head, "token", draft_required=True), current_head)
+    check("review waiting jitter includes its exact lower bound",
+          review_requests.wait_seconds("review", chooser=lambda _bound: 0), 180)
+    check("review waiting jitter includes its exact upper bound",
+          review_requests.wait_seconds("review", chooser=lambda bound: bound - 1), 480)
+    check("human-review readiness uses an hourly mergeability observation",
+          review_requests.wait_seconds("ready"), 3600)
 
     original_review_state = review_requests.review_state
     original_delete_requests = review_requests.delete_requests

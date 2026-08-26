@@ -128,17 +128,26 @@ remain visible, but only review of the current head satisfies the merge gate. A
 remote head not contained locally remains an immediate coordination block and is
 reconciled only through the exact-SHA helper above.
 
-Wait for a review submission to finish before repairing its first comment.
-Inventory every thread, apply one coherent batch, synchronize canonical changes
-at the same checkpoint, validate once, push once and then request one current-head
-review. Branch lag is not conflict. While review of the current head is pending,
-record an actual conflict but do not rewrite the head merely to remove it. Restore
-mergeability before the first review, after a completed review batch, or during
-finalization. If `main` advances again during review, accumulate it until the next
-checkpoint instead of starting a live conflict-resolution loop.
+Keep the pull request draft throughout the automatic Codex review cycle. Wait for
+a review submission to finish before repairing its first comment. Inventory every
+thread, apply one coherent batch, synchronize canonical changes at the same
+checkpoint, validate once, push once and automatically request another
+current-head review. Repeat until that review reports no findings, or the steward
+records why every remaining non-blocking finding is too granular or immaterial to
+justify another code change. P0, P1 and critical-path P2 findings can never end
+the cycle this way. Branch lag is not conflict. While review of the current head
+is pending, record an actual conflict but do not rewrite the head merely to remove
+it. Restore mergeability before the first review, after a completed review batch,
+or during finalization. If `main` advances again during review, accumulate it
+until the next checkpoint instead of starting a live conflict-resolution loop.
 
 For a published PR, keep a read-only monitor active until an actionable event or
-terminal state. It reports only changed state or action needed and never comments,
+terminal state. While an automatic review is pending, choose a new exact delay of
+180 through 480 seconds after every unchanged observation with
+`.agents/review-requests.py wait --phase review`, then arrange one platform wait
+or recurring wake-up for that delay. Once ready for human review, use
+`.agents/review-requests.py wait --phase ready` and observe mergeability hourly.
+The monitor reports only changed state or action needed and never comments,
 pushes, requests review or merges. A review, failing check, foreign head, confirmed
 conflict, predecessor transition, approval, merge or closure returns ownership to
 the steward. If the platform cannot retain a monitor, hand off the exact pending
@@ -297,15 +306,18 @@ language matching, short-body limits, maintained-detail-comment pattern, tone
 and authorship notice apply to every public message written in a contributor's
 name.
 
-A pull request becomes ready for review only when two separate gates are true:
-the human intent gate says its intended scope is complete, and the agent has
-proved it technically green. An agent-authored pull request remains draft until
-an explicit human instruction says it is ready for review; preparing it, keeping
-it mergeable or reporting green checks does not imply that instruction. New
-user-requested scope or a direct user change revokes readiness, so the steward
-returns the pull request to draft before the next implementation change. Fixes
-within an already authorized review batch do not revoke readiness. No agent
-automatically changes a draft back to ready.
+A pull request remains draft while implementation, validation and automatic
+Codex review are in progress. The agent marks it ready for review automatically
+only when the intended scope is complete, the branch is technically green, the
+current-head Codex cycle has reached its stopping condition, every review thread
+has a disposition and the branch is mergeable. That transition is the handoff
+to human review, approval and an explicitly authorized merge. New user-requested
+scope or a direct user change returns it to draft before the next implementation
+change. A confirmed conflict after readiness also returns it to draft while the
+steward resolves and validates it. The steward restarts the complete Codex cycle
+when the resolution materially changes reviewed behavior, interfaces or risk;
+for a demonstrably mechanical resolution it records that judgment and may mark
+the validated pull request ready again without another Codex review.
 
 Before every external review request or final review handoff, read and follow
 the complete `preflight-review` skill against the exact final diff from the
@@ -324,11 +336,13 @@ existing thread's disposition and resolves every addressed thread; it never
 leaves that cleanup to the reviewer. Review requests use
 `.agents/review-requests.py request`, never a raw command-only comment. The helper
 removes fulfilled or stale request comments authored by the publishing account,
-refuses draft pull requests, retains at most one request for the current head and leaves Codex reviews,
+requires a draft pull request, retains at most one request for the current head and leaves Codex reviews,
 findings, dispositions and discussion untouched. After a review arrives, run
-`.agents/review-requests.py cleanup` to remove its fulfilled trigger. Once a
-current-head review has no blocking finding, do not request another review
-merely to obtain zero suggestions.
+`.agents/review-requests.py cleanup` to remove its fulfilled trigger. Automatically
+request another current-head review after each review batch until it has no
+findings, or until all remaining non-blocking findings have an explicit
+too granular or immaterial disposition. Never use that exception for a P0, P1 or
+critical-path P2.
 
 ## What this deliberately does not do
 

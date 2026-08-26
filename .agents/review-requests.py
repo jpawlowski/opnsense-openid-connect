@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import subprocess
 import sys
 from urllib.error import HTTPError, URLError
@@ -29,6 +30,9 @@ NOTICE = {
     "en": "*An AI agent wrote this text on my behalf; I am responsible for its content.*",
     "de": "*Ein KI-Agent hat diesen Text in meinem Namen verfasst; ich verantworte seinen Inhalt.*",
 }
+REVIEW_WAIT_MINIMUM = 3 * 60
+REVIEW_WAIT_MAXIMUM = 8 * 60
+READY_WAIT_SECONDS = 60 * 60
 
 
 def github_api(path, token, method="GET", body=None, repository=True, missing_ok=False):
@@ -153,21 +157,21 @@ def verify_local_pull(pull):
     return local_head
 
 
-def verify_remote_pull(number, expected_head, token, ready_required=False):
+def verify_remote_pull(number, expected_head, token, draft_required=False):
     pull = github_api(f"pulls/{number}", token)
     observed_head = str((pull.get("head") or {}).get("sha") or "")
     if observed_head != expected_head or str(pull.get("state") or "").lower() != "open" or pull.get("merged_at"):
         raise RuntimeError("the pull request changed while review requests were being inspected; retry its snapshot")
-    if ready_required and pull.get("draft"):
-        raise RuntimeError("Codex review requests require explicit human readiness and a non-draft pull request")
+    if draft_required and not pull.get("draft"):
+        raise RuntimeError("automated Codex review requests require a draft pull request")
     return verify_local_pull(pull)
 
 
-def review_state(number, token, ready_required=False):
+def review_state(number, token, draft_required=False):
     pull = github_api(f"pulls/{number}", token)
     head = verify_local_pull(pull)
-    if ready_required and pull.get("draft"):
-        raise RuntimeError("Codex review requests require explicit human readiness and a non-draft pull request")
+    if draft_required and not pull.get("draft"):
+        raise RuntimeError("automated Codex review requests require a draft pull request")
     viewer = str(github_api("user", token, repository=False).get("login") or "")
     if not viewer:
         raise RuntimeError("GitHub did not identify the publishing account")
@@ -175,15 +179,15 @@ def review_state(number, token, ready_required=False):
     reviews = paged(f"pulls/{number}/reviews", token)
     events = review_events(reviews, comments)
     removable, pending = classify_requests(comments, viewer, head, events)
-    verify_remote_pull(number, head, token, ready_required=ready_required)
+    verify_remote_pull(number, head, token, draft_required=draft_required)
     return head, viewer, comments, events, removable, pending
 
 
-def delete_requests(comments, number, head, viewer, events, token, ready_required=False):
+def delete_requests(comments, number, head, viewer, events, token, draft_required=False):
     removed = 0
     for comment in comments:
         fresh_comments = paged(f"issues/{number}/comments", token)
-        verify_remote_pull(number, head, token, ready_required=ready_required)
+        verify_remote_pull(number, head, token, draft_required=draft_required)
         fresh_removable, _pending = classify_requests(fresh_comments, viewer, head, events)
         fresh = next((value for value in fresh_removable if int(value.get("id") or 0) == int(comment["id"])), None)
         if fresh is None or str(fresh.get("body") or "") != str(comment.get("body") or ""):
@@ -207,26 +211,26 @@ def cleanup(arguments):
 def request_review(arguments):
     token = require_token()
     head, viewer, _comments, events, removable, pending = review_state(
-        arguments.pr, token, ready_required=True,
+        arguments.pr, token, draft_required=True,
     )
-    delete_requests(removable, arguments.pr, head, viewer, events, token, ready_required=True)
+    delete_requests(removable, arguments.pr, head, viewer, events, token, draft_required=True)
     if head_reviewed(head, events):
         print(f"Codex already reviewed current head {head[:12]}; no request was added")
         return
     if pending:
         print(f"current-head review request already exists: {pending[0].get('html_url') or pending[0]['id']}")
         return
-    verify_remote_pull(arguments.pr, head, token, ready_required=True)
+    verify_remote_pull(arguments.pr, head, token, draft_required=True)
     github_api(
         f"issues/{arguments.pr}/comments", token, method="POST",
         body={"body": request_body(head, language=arguments.language)},
     )
     confirmed_head, confirmed_viewer, _comments, confirmed_events, duplicates, confirmed_pending = review_state(
-        arguments.pr, token, ready_required=True,
+        arguments.pr, token, draft_required=True,
     )
     delete_requests(
         duplicates, arguments.pr, confirmed_head, confirmed_viewer, confirmed_events, token,
-        ready_required=True,
+        draft_required=True,
     )
     if head_reviewed(confirmed_head, confirmed_events):
         print(f"Codex already reviewed current head {confirmed_head[:12]}; no request remains")
@@ -235,6 +239,18 @@ def request_review(arguments):
         raise RuntimeError("the current-head review request could not be confirmed after publication")
     retained = confirmed_pending[0]
     print(f"requested Codex review for {confirmed_head[:12]}: {retained.get('html_url') or retained['id']}")
+
+
+def wait_seconds(phase, chooser=secrets.randbelow):
+    if phase == "review":
+        return REVIEW_WAIT_MINIMUM + chooser(REVIEW_WAIT_MAXIMUM - REVIEW_WAIT_MINIMUM + 1)
+    if phase == "ready":
+        return READY_WAIT_SECONDS
+    raise ValueError(f"unsupported pull-request waiting phase: {phase}")
+
+
+def print_wait(arguments):
+    print(wait_seconds(arguments.phase))
 
 
 def parser():
@@ -247,6 +263,9 @@ def parser():
     cleanup_command = commands.add_parser("cleanup", help="remove fulfilled or stale own review triggers")
     cleanup_command.add_argument("--pr", type=int, required=True)
     cleanup_command.set_defaults(action=cleanup)
+    wait_command = commands.add_parser("wait", help="choose the next read-only PR observation delay in seconds")
+    wait_command.add_argument("--phase", choices=("review", "ready"), required=True)
+    wait_command.set_defaults(action=print_wait)
     return value
 
 

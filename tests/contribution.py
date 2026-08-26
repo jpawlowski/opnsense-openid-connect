@@ -288,15 +288,16 @@ def main():
     check("agent and contributor rules wait for a review of the current head",
           all("current head" in text.lower() for text in (contribution_skill, agents, contributing)), True)
     readiness = [re.sub(r"\s+", " ", text.lower()) for text in (contribution_skill, agents, contributing)]
-    check("review readiness requires explicit human intent as well as a technically green branch",
-          all("human intent gate" in text and "technically green" in text and "explicit human" in text
-              and "draft" in text and "automatically" in text for text in readiness), True)
+    check("automatic Codex review stays draft and readiness hands finished work to a human",
+          all("draft" in text and "automatically" in text and "technically green" in text
+              and "human review" in text and "mergeable" in text for text in readiness), True)
     check("Codex findings use one consistent risk-based merge threshold",
           all("P0 and P1" in text and "P2" in text and "recoverability" in text
               for text in (contribution_skill, agents, contributing)), True)
-    check("a clean current-head risk review is the explicit stopping point",
-          all("merely to obtain zero suggestions" in text
-              for text in (contribution_skill, agents, contributing)), True)
+    check("Codex review repeats to zero findings unless only explicitly immaterial detail remains",
+          all("no findings" in text and "too granular" in text and "immaterial" in text
+              and "critical-path P2" in original
+              for original, text in zip((contribution_skill, agents, contributing), readiness)), True)
     check("one integrating agent owns review threads through completion",
           all(re.search(r"owns\s+every\s+review\s+thread\s+through\s+completion", text)
               for text in (contribution_skill, agents, contributing)), True)
@@ -308,6 +309,12 @@ def main():
     check("agents retain one temporary review trigger without deleting review evidence",
           all("at most one" in text and "fulfilled" in text and "stale" in text
               and "review" in text and "finding" in text and "disposition" in text
+              for text in review_hygiene), True)
+    check("active review jitter and ready-state mergeability polling are consistent",
+          all("180 through 480 seconds" in text and "hourly" in text
+              for text in (contribution_skill, agents, contributing)), True)
+    check("material conflict resolutions restart review while mechanical resolutions may skip it",
+          all("conflict" in text and "materially" in text and "mechanical" in text
               for text in review_hygiene), True)
     check("human and agent guidance distinguishes upstream branches from forks",
           all("without write access" in text.lower() and "opnsense-openid-connect:main" in text
