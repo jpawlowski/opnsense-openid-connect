@@ -1666,8 +1666,10 @@ class OpenIDConnect extends Base implements IAuthConnector
             'providerSetupActionsHeading' => gettext('Provider setup'),
             'detailsLabel' => gettext('Show details'),
             'hideDetailsLabel' => gettext('Hide details'),
+            'purposeLabel' => gettext('Why this matters'),
             'sourceLabel' => gettext('Source'),
             'executionLabel' => gettext('Execution'),
+            'standardLabel' => gettext('Underlying standard'),
             'readinessHeading' => gettext('Readiness'),
             'notOfferedHeading' => gettext('Not offered by the provider'),
             'notOfferedHelp' => gettext(

@@ -376,17 +376,42 @@
         var verification = Object.prototype.hasOwnProperty.call(verificationIcons, check.verification)
             ? check.verification : 'not-tested';
         var details = $('<div class="oidc-probe-check-details">');
+        if (check.purpose) {
+            details.append($('<p class="oidc-probe-purpose">')
+                .append($('<strong>').text((options.purposeLabel || 'Why this matters') + ': '))
+                .append($('<span>').text(check.purpose)));
+        }
         if (check.note) {
             details.append($('<p>').text(check.note));
         }
-        details.append($('<div class="oidc-probe-facts text-muted">')
+        var facts = $('<div class="oidc-probe-facts text-muted">')
             .append($('<p>')
                 .append($('<strong>').text((options.sourceLabel || 'Source') + ': '))
                 .append($('<span>').text(sources[verification] || verification)))
             .append($('<p>')
                 .append($('<i aria-hidden="true">').addClass('fa ' + verificationIcons[verification]), ' ')
                 .append($('<strong>').text((options.executionLabel || 'Execution') + ': '))
-                .append($('<span>').text(execution[verification] || verification))));
+                .append($('<span>').text(execution[verification] || verification)));
+        var references = Array.isArray(check.standards) ? check.standards.filter(function (reference) {
+            return reference && typeof reference.title === 'string' && typeof reference.url === 'string'
+                && /^https:\/\/(?:www\.rfc-editor\.org|openid\.net)\//.test(reference.url);
+        }) : [];
+        if (references.length) {
+            var standard = $('<p>').append($('<i class="fa fa-book" aria-hidden="true">'), ' ')
+                .append($('<strong>').text((options.standardLabel || 'Underlying standard') + ': '));
+            references.forEach(function (reference, index) {
+                if (index > 0) {
+                    standard.append(document.createTextNode(', '));
+                }
+                standard.append($('<a>').attr({
+                    href: reference.url,
+                    target: '_blank',
+                    rel: 'noopener noreferrer'
+                }).text(reference.title));
+            });
+            facts.append(standard);
+        }
+        details.append(facts);
         return details;
     }
 
