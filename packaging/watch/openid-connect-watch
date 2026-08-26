@@ -63,6 +63,7 @@ ANCHOR_VERSION="$STATE/core.version"
 TOUCHPOINTS="
 /usr/local/www/authgui.inc
 /usr/local/www/system_authservers.php
+/usr/local/opnsense/www/css/bootstrap-select.css
 /usr/local/opnsense/www/css/tokenize2.css
 /usr/local/opnsense/www/js/bootstrap-select.js
 /usr/local/opnsense/www/js/bootstrap.min.js
