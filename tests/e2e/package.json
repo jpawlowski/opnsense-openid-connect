@@ -5,6 +5,7 @@
   "description": "Disposable OPNsense and multi-provider browser E2E tests for the OpenID Connect plugin",
   "license": "BSD-2-Clause",
   "devDependencies": {
-    "@playwright/test": "1.62.1"
+    "@playwright/test": "1.62.1",
+    "emulate": "0.10.0"
   }
 }

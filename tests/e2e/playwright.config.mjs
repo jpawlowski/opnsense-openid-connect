@@ -28,15 +28,6 @@ if (resolverRules.length) {
   };
 }
 
-if (process.env.E2E_ZAP_PROXY) {
-  use.proxy = {
-    server: process.env.E2E_ZAP_PROXY,
-    // Only OPNsense is in scope. Provider traffic remains direct so ZAP cannot
-    // turn findings in the disposable IdP into plugin failures.
-    bypass: new URL(process.env.E2E_KEYCLOAK_URL).hostname,
-  };
-}
-
 const reporter = [['list'], ['html', { open: 'never' }]];
 if (process.env.E2E_PLAYWRIGHT_AUDIT_RESULT) {
   reporter.push(['./audit-reporter.mjs', { outputFile: process.env.E2E_PLAYWRIGHT_AUDIT_RESULT }]);
