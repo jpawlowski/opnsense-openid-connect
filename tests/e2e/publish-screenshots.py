@@ -88,9 +88,7 @@ def publish_screenshots(source, output, replace=os.replace, remove_path=remove):
             # generation is the commit and only its obsolete backups remain.
             previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, handled_signals)
         except BaseException as error:
-            previous_handlers = {}
-            for handled_signal in handled_signals:
-                previous_handlers[handled_signal] = signal.signal(handled_signal, signal.SIG_IGN)
+            rollback_mask = signal.pthread_sigmask(signal.SIG_BLOCK, handled_signals)
             rollback_errors = []
             try:
                 for name in published:
@@ -106,6 +104,11 @@ def publish_screenshots(source, output, replace=os.replace, remove_path=remove):
                     except OSError as rollback_error:
                         rollback_errors.append(rollback_error)
             finally:
+                previous_handlers = {
+                    handled_signal: signal.signal(handled_signal, signal.SIG_IGN)
+                    for handled_signal in handled_signals
+                }
+                signal.pthread_sigmask(signal.SIG_SETMASK, rollback_mask)
                 for handled_signal, previous_handler in previous_handlers.items():
                     signal.signal(handled_signal, previous_handler)
             if rollback_errors:

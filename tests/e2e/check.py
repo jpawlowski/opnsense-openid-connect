@@ -282,6 +282,44 @@ with tempfile.TemporaryDirectory() as temporary:
         for name in screenshot_publisher.SCREENSHOTS
     ), "a signal during committed backup cleanup changes the published screenshot generation")
 
+    for name in screenshot_publisher.SCREENSHOTS:
+        (output / name).write_text(f"maintained:{name}\n", encoding="utf-8")
+    replace_calls = [0]
+    rollback_signal_sent = [False]
+    previous_handlers = {
+        handled_signal: signal.signal(handled_signal, screenshot_publisher.interrupted)
+        for handled_signal in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
+    }
+
+    def interrupt_publication(source, target):
+        replace_calls[0] += 1
+        if replace_calls[0] == len(screenshot_publisher.SCREENSHOTS) + 2:
+            os.kill(os.getpid(), signal.SIGHUP)
+        os.replace(source, target)
+
+    def interrupt_rollback(path):
+        if path.name in screenshot_publisher.SCREENSHOTS and not rollback_signal_sent[0]:
+            os.kill(os.getpid(), signal.SIGTERM)
+            rollback_signal_sent[0] = True
+        path.unlink(missing_ok=True)
+
+    try:
+        screenshot_publisher.publish_screenshots(
+            sources[0], output, replace=interrupt_publication, remove_path=interrupt_rollback
+        )
+    except InterruptedError:
+        pass
+    else:
+        check(False, "the repeated-signal rollback regression did not interrupt publication")
+    finally:
+        for handled_signal, previous_handler in previous_handlers.items():
+            signal.signal(handled_signal, previous_handler)
+    check(rollback_signal_sent[0], "a second handled signal was not delivered during screenshot rollback")
+    check(all(
+        (output / name).read_text(encoding="utf-8") == f"maintained:{name}\n"
+        for name in screenshot_publisher.SCREENSHOTS
+    ), "a repeated signal interrupts screenshot rollback before the maintained generation is restored")
+
 
 selection = module("e2e_selection", "selection.py")
 for suite in selection.SUITES:
