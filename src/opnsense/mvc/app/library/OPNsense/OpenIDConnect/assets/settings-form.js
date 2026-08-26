@@ -398,7 +398,7 @@
         }) : [];
         if (references.length) {
             var standard = $('<p>').append($('<i class="fa fa-book" aria-hidden="true">'), ' ')
-                .append($('<strong>').text((options.standardLabel || 'Underlying standard') + ': '));
+                .append($('<strong>').text((options.standardLabel || 'Related standard') + ': '));
             references.forEach(function (reference, index) {
                 if (index > 0) {
                     standard.append(document.createTextNode(', '));
