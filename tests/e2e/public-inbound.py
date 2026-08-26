@@ -106,12 +106,13 @@ def start(arguments):
     proxy = f"{prefix}-proxy"
     tunnel = f"{prefix}-cloudflared"
     authority = target.netloc
+    target_origin = urllib.parse.urlunsplit((target.scheme, target.netloc, "", "", ""))
     application = arguments.application_code
     try:
         target_arguments = proxy_host_arguments(target.hostname, arguments.target_address)
     except ValueError as error:
         raise SystemExit(str(error)) from error
-    config = proxy_config(arguments.opnsense_url, authority, application)
+    config = proxy_config(target_origin, authority, application)
     config_path = work / "public-inbound-nginx.conf"
     write(config_path, config, 0o644)
     run("docker", "network", "create", network, quiet=True)

@@ -621,7 +621,7 @@ def cell(defaults, documentation, provider, feature_id):
     emulator = next((record for record in provider.get("emulator_evidence", []) if record["feature"] == feature_id), None)
     if emulator:
         artifact = pathlib.PurePosixPath(emulator["artifact"])
-        rendered += f" [🧪](../evidence/providers/{artifact.name})"
+        rendered += f" [🧪](../../tests/evidence/providers/{artifact.name})"
     return rendered
 
 

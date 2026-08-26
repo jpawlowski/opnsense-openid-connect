@@ -26,6 +26,7 @@ PROFILE_FIELDS = {
 PUBLIC_FIELDS = {"capabilities", "driver", "ssf_issuer", "ssf_audience", "ssf_push_secret"}
 REVISION = re.compile(r"^(?:service:\d{4}-\d{2}-\d{2}|version:[A-Za-z0-9][A-Za-z0-9._+-]{0,111})$")
 APPLICATION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._~-]{0,63}$")
+SSF_PUSH_SECRET = re.compile(r"^[A-Za-z0-9_-]{43}$")
 PUBLIC_CAPABILITIES = {"entra": {"back_logout"}, "okta": {"shared_signals"}, "apple": set()}
 
 
@@ -123,9 +124,9 @@ def load_config(path, provider):
                 raise ValueError("the Shared Signals issuer must be a bounded HTTPS URL")
             if (
                 not 1 <= len(public["ssf_audience"]) <= 256
-                or not 16 <= len(public["ssf_push_secret"]) <= 4096
+                or not SSF_PUSH_SECRET.fullmatch(public["ssf_push_secret"])
             ):
-                raise ValueError("Shared Signals audience or push secret is missing or unbounded")
+                raise ValueError("Shared Signals audience is missing or the push secret is not 43-character base64url")
         elif set(public) & ssf_fields:
             raise ValueError("Shared Signals settings require the shared_signals capability")
         driver = pathlib.Path(public["driver"]) if isinstance(public.get("driver"), str) else pathlib.Path()

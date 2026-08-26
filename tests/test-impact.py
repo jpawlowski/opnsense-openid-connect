@@ -50,6 +50,11 @@ require("SaaS-only behavior", ["docs/providers/entra-id.md"], "live-provider", "
         patch="Conditional Access")
 require("public ingress", ["tests/e2e/public-inbound.py"], "provider-e2e", "keycloak", "public-inbound",
         patch="cloudflared")
+require("public receiver without keywords",
+        ["src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/SsfController.php"],
+        "provider-e2e", "keycloak", "public-inbound", patch="remove an authentication guard")
+require("hosted Shared Signals", ["docs/providers/okta.md"], "live-provider", "okta", "public-inbound",
+        patch="Shared Signals")
 
 original_git = impact.git
 original_has_ref = impact.has_ref

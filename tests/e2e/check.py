@@ -193,7 +193,7 @@ with tempfile.TemporaryDirectory() as temporary:
         with contextlib.redirect_stdout(io.StringIO()):
             public_inbound.start(types.SimpleNamespace(
                 run_id="deadbeef", application_code="fixture-code",
-                opnsense_url="https://prepared.example", target_address="",
+                opnsense_url="https://prepared.example/", target_address="",
                 work_dir=temporary, state=str(inbound_state),
             ))
     finally:
@@ -205,6 +205,9 @@ with tempfile.TemporaryDirectory() as temporary:
     proxy_command = next(command for command in commands if "opnsense-oidc-inbound-deadbeef-proxy" in command)
     check("--add-host" not in proxy_command,
           "prepared public-inbound startup still replaces its configured DNS route")
+    proxy_configuration = (pathlib.Path(temporary) / "public-inbound-nginx.conf").read_text(encoding="utf-8")
+    check("proxy_pass https://prepared.example;" in proxy_configuration,
+          "a trailing slash makes Nginx replace the public receiver path")
     check(resolver_calls and resolver_calls[0] >= public_inbound.DNS_WARMUP_SECONDS,
           "public ingress still poisons the system resolver with an immediate Quick Tunnel lookup")
 
@@ -239,12 +242,22 @@ with tempfile.TemporaryDirectory() as temporary:
     driver.chmod(0o700)
     profile["profiles"]["okta"]["public_inbound"] = {
         "capabilities": ["shared_signals"], "driver": str(driver),
-        "ssf_issuer": "https://example.okta.test/ssf/default",
-        "ssf_audience": "fixture-audience", "ssf_push_secret": "fixture-push-secret",
+        "ssf_issuer": "https://example.okta.test/ssf/default", "ssf_audience": "fixture-audience",
+        "ssf_push_secret": "a" * 43,
     }
     config.write_text(json.dumps(profile), encoding="utf-8")
     loaded = live.load_config(config, "okta")
     check(loaded["public_inbound"]["driver"] == str(driver), "owner-only public driver was refused")
+    profile["profiles"]["okta"]["public_inbound"]["ssf_push_secret"] = "fixture-push-secret"
+    config.write_text(json.dumps(profile), encoding="utf-8")
+    try:
+        live.load_config(config, "okta")
+    except ValueError:
+        pass
+    else:
+        raise SystemExit("live config accepted a push secret that OPNsense refuses")
+    profile["profiles"]["okta"]["public_inbound"]["ssf_push_secret"] = "a" * 43
+    config.write_text(json.dumps(profile), encoding="utf-8")
     driver.chmod(0o755)
     try:
         live.load_config(config, "okta")
@@ -375,6 +388,21 @@ with tempfile.TemporaryDirectory() as temporary:
               "retained provider evidence drops its source or cluster")
         check(retained_artifact["source"] == "local" and retained_artifact["cluster"] == "direct",
               "retained provider artifact drops its source or cluster")
+        retained["cluster"] = "public-inbound"
+        retained["results"] = [{"feature": "back_logout", "outcome": "pass"}]
+        provider_import.import_result(retained, ["back_logout"])
+        retained["cluster"] = "direct"
+        provider_import.import_result(retained, ["back_logout"])
+        retained_provider = next(
+            item for item in json.loads(retained_catalog.read_text(encoding="utf-8"))["providers"]
+            if item["id"] == "keycloak"
+        )
+        boundaries = {
+            (item["source"], item["cluster"])
+            for item in retained_provider["live_evidence"] if item["feature"] == "back_logout"
+        }
+        check(boundaries == {("local", "direct"), ("local", "public-inbound")},
+              "a later import removes evidence for another network boundary")
     finally:
         provider_import.ROOT, provider_import.CATALOG, provider_import.EVIDENCE = (
             original_root, original_catalog, original_evidence,

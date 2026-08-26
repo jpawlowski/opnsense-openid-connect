@@ -566,6 +566,8 @@ def main():
         )
         check("emulator evidence supplements documentation without turning the cell green",
               "📘" in rendered and "🧪" in rendered and "✅" not in rendered, True)
+        check("published emulator evidence links back into tests/evidence/providers",
+              "../../tests/evidence/providers/provider-result.json" in rendered, True)
         emulator_artifact["results"] = [{"feature": "login", "outcome": "live"}]
         retained_artifact(evidence_root, emulator_artifact)
         check("an emulator artifact cannot invent a real-provider status", refused(

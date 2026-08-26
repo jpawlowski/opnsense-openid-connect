@@ -155,7 +155,12 @@ def import_result(result, features):
                 "adaptation": result["provider_adaptation"], "source": result["source"],
                 "cluster": result["cluster"],
             }
-            records[:] = [old for old in records if old.get("feature") != item["feature"]]
+            records[:] = [
+                old for old in records
+                if (
+                    old.get("feature"), old.get("source"), old.get("cluster")
+                ) != (item["feature"], result["source"], result["cluster"])
+            ]
             records.append(record)
     else:
         for item in selected:
@@ -182,7 +187,12 @@ def import_result(result, features):
             provider["capabilities"][item["feature"]] = status
             catalog["documentation"][result["provider"]].pop(item["feature"], None)
             records = provider.setdefault("live_evidence", [])
-            records[:] = [old for old in records if old.get("feature") != item["feature"]]
+            records[:] = [
+                old for old in records
+                if (
+                    old.get("feature"), old.get("source"), old.get("cluster")
+                ) != (item["feature"], result["source"], result["cluster"])
+            ]
             records.append({
                 "feature": item["feature"], "tested_on": result["tested_on"],
                 "provider_revision": result["subject"]["revision"], "artifact": str(artifact.relative_to(ROOT)),
