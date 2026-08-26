@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
-
 """Prove that a Quick Tunnel exposes only the bounded receiver allow list."""
 
 import argparse

@@ -1,8 +1,5 @@
 #!/usr/bin/expect -f
 
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
-
 if {$argc != 3} {
     puts stderr "usage: bootstrap.exp qemu SERIAL_PORT PAYLOAD | utm SERIAL_DEVICE PAYLOAD"
     exit 2

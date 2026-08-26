@@ -1,10 +1,5 @@
 <?php
 
-/*
- * Copyright (C) 2026 Julian Pawlowski
- * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
- */
-
 use OPNsense\OpenIDConnect\AuthorizationPreflight;
 use OPNsense\OpenIDConnect\HttpClient;
 use OPNsense\OpenIDConnect\ProviderMetadata;

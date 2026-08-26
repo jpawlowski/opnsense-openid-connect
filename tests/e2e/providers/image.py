@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
-
 """Resolve reviewed provider images, or a non-mutating latest-release canary."""
 
 import argparse

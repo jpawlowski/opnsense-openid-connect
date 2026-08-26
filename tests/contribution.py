@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
 """Checks the small, scan-friendly issue and pull-request contract."""
 
 import importlib.util
@@ -413,9 +411,9 @@ def main():
           and "python3 .agents/issues.py claim N" in contribution_skill, True)
     rules_readme = (ROOT / ".github" / "rulesets" / "README.md").read_text(encoding="utf-8")
     json.loads((ROOT / ".github" / "rulesets" / "main.json").read_text(encoding="utf-8"))
-    check("the strict ruleset import has a documented adjacent copyright exception",
-          "Copyright (C) 2026 Julian Pawlowski" in rules_readme
-          and "strict import schema" in rules_readme, True)
+    check("the strict ruleset import documents its schema constraint",
+          "strict import schema" in rules_readme
+          and "unsupported" in rules_readme, True)
 
     forms = [
         (ROOT / ".github" / "ISSUE_TEMPLATE" / name).read_text(encoding="utf-8")

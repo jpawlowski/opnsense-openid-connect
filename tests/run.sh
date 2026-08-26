@@ -1,8 +1,5 @@
 #!/bin/sh
-#
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
-#
+
 # Runs every host-independent check. Same command by hand, from an agent Stop
 # hook and in the pipeline, so a failure looks the same in all three places.
 # Tests that need OPNsense, containers or a browser stay explicit and manual.
