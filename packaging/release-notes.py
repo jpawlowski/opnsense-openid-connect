@@ -89,7 +89,7 @@ def changes(entries, commit_url=""):
     return "\n".join(written).strip("\n")
 
 
-def installing(file, url, checksum, signed, repository=""):
+def installing(file, url, checksum, signed, repository="", legacy_beta_upgrade=False):
     """The half of the note that is the same every time, and has to be right."""
     workstation = [
         "On an administrator workstation:",
@@ -115,6 +115,18 @@ def installing(file, url, checksum, signed, repository=""):
             f"      -signature /tmp/{file}.sig /tmp/{file}",
         ]
 
+    install_command = f"    pkg add /tmp/{file}"
+    upgrade_note = []
+    if legacy_beta_upgrade:
+        install_command = f"    pkg add -f /tmp/{file}"
+        upgrade_note = [
+            "",
+            "The historical 1.0.0 beta packages used a package-version spelling that",
+            "FreeBSD sorts after `1.0.0`. The forced install is therefore required once",
+            "when replacing any `v1.0.0-betaN` package; installed paths and settings are",
+            "unchanged.",
+        ]
+
     return "\n".join([
         "### Verify and install",
         "",
@@ -128,7 +140,8 @@ def installing(file, url, checksum, signed, repository=""):
         "",
         f"    sha256 -c {checksum} /tmp/{file}",
         "",
-        f"    pkg add /tmp/{file}",
+        install_command,
+        *upgrade_note,
         "",
         "No restart, no service affected. Signing in locally with a username and",
         "password is untouched; the way back is always",
@@ -161,7 +174,14 @@ def main():
 
     note = [said, ""]
     if args.file:
-        note += [installing(args.file, args.url, args.checksum, args.signed, args.repository), ""]
+        note += [installing(
+            args.file,
+            args.url,
+            args.checksum,
+            args.signed,
+            args.repository,
+            legacy_beta_upgrade=args.tag == "v1.0.0",
+        ), ""]
     note.append(
         f"{len(entries)} commit(s) since {earlier}." if earlier
         else f"{len(entries)} commit(s), the first release."

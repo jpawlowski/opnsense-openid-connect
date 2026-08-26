@@ -1,7 +1,7 @@
-# Install or remove the beta package
+# Install or remove the package
 
-The beta is a manually installed package. It does not add a package repository
-or enable automatic updates.
+This is a manually installed package. It does not add a package repository or
+enable automatic updates.
 
 ## Before installing
 
@@ -35,6 +35,11 @@ Copy the verified package to the firewall, then install that exact file:
 ```sh
 pkg add /tmp/os-openid-connect-<version>.pkg
 ```
+
+When replacing one of the historical `v1.0.0-betaN` packages with `v1.0.0`,
+use `pkg add -f` for this one upgrade. Those beta packages used a legacy package
+version that FreeBSD sorts after `1.0.0`; the installed paths and settings did
+not change.
 
 No restart is required. Continue with the [step-by-step setup](README.md) and
 keep the provider disabled until Discovery, sign-in and local recovery have all

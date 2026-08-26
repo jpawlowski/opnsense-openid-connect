@@ -1,7 +1,7 @@
 # Set up WebGUI sign-in
 
 Install the package first if it is not already present; see [Install or remove
-the beta package](install.md).
+the package](install.md).
 
 For authentik and Keycloak, the form can generate an optional provider-side
 import file before Client ID, Client Secret or issuer exist. See [provider
