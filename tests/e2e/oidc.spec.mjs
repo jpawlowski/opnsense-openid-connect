@@ -1,15 +1,12 @@
-/*
- * Copyright (C) 2026 Julian Pawlowski
- * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
- */
-
 import { expect, request as playwrightRequest, test } from '@playwright/test';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
+import { isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
 
 const required = [
   'E2E_OPNSENSE_URL', 'E2E_OPNSENSE_USERNAME', 'E2E_OPNSENSE_PASSWORD',
+  'E2E_RUN_ID',
   'E2E_KEYCLOAK_URL', 'E2E_KEYCLOAK_REALM', 'E2E_KEYCLOAK_ADMIN_USERNAME',
   'E2E_KEYCLOAK_ADMIN_PASSWORD', 'E2E_KEYCLOAK_CLIENT_ID',
   'E2E_TEST_USERNAME', 'E2E_TEST_PASSWORD',
@@ -39,6 +36,54 @@ const applicationIconUrl = 'https://raw.githubusercontent.com/opnsense/core/'
   + '01fc795f34dae4184de79a710105f00a69c90400/src/opnsense/www/themes/opnsense/build/images/icon-logo.svg';
 const runCommand = promisify(execFile);
 let keycloakClientSecret = '';
+const documentationScreenshotDirectory = process.env.E2E_DOCUMENTATION_SCREENSHOTS || '';
+const capturedDocumentationScreenshots = new Set();
+if (documentationScreenshotDirectory && !isAbsolute(documentationScreenshotDirectory)) {
+  throw new Error('E2E_DOCUMENTATION_SCREENSHOTS must be an absolute path');
+}
+
+async function normalizeDocumentationScreenshot(target) {
+  await target.evaluate(element => {
+    const replacements = [
+      [/https:\/\/opnsense\.opnsense\.test:\d+/g, 'https://opnsense.opnsense.test'],
+      [/https:\/\/provider\.opnsense\.test:\d+/g, 'https://provider.opnsense.test'],
+      [/\bRequest [0-9a-f]{20}\b/g, 'Request 0123456789abcdef0123'],
+      [/\b\d{1,2}\/\d{1,2}\/\d{4}, \d{1,2}:\d{2}:\d{2} (?:AM|PM)\b/g, '1/15/2026, 10:30:00 AM'],
+      [/\b\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})?\b/g, '2026-01-15 10:30:00'],
+      [/\(c\) 2014-\d{4}/g, '(c) 2014-2026'],
+    ];
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node) {
+      let normalized = node.nodeValue;
+      for (const [pattern, replacement] of replacements) {
+        normalized = normalized.replace(pattern, replacement);
+      }
+      node.nodeValue = normalized;
+      node = walker.nextNode();
+    }
+  });
+}
+
+async function captureDocumentationScreenshot(page, name, target = null) {
+  if (!documentationScreenshotDirectory || capturedDocumentationScreenshots.has(name)) {
+    return;
+  }
+  await mkdir(documentationScreenshotDirectory, { recursive: true });
+  await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
+  await normalizeDocumentationScreenshot(target || page.locator('body'));
+  const options = {
+    path: join(documentationScreenshotDirectory, name),
+    animations: 'disabled',
+    caret: 'hide',
+  };
+  if (target) {
+    await target.screenshot(options);
+  } else {
+    await page.screenshot(options);
+  }
+  capturedDocumentationScreenshots.add(name);
+}
 
 function opnsenseRequestContextOptions() {
   return {
@@ -74,15 +119,14 @@ async function newObservedBrowserContext(browser, observedRequests) {
 
 async function getAfterProxyReady(context, url, options) {
   let response;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
     response = await context.get(url, options);
-    if (response.status() !== 502 || attempt === 2) return response;
+    if (response.status() !== 502 || attempt === 29) return response;
     await response.dispose();
-    await new Promise(resolve => setTimeout(resolve, 250));
+    await new Promise(resolve => setTimeout(resolve, 1000));
   }
   throw new Error('unreachable proxy retry state');
 }
-
 function expectPrivateResponseHeaders(response, { legacyNoCache = true } = {}) {
   const headers = response.headers();
   expect(headers['cache-control'] || '').toContain('no-store');
@@ -145,11 +189,90 @@ function selectPickerButton(locator) {
   );
 }
 
+async function tokenizerPalette(input) {
+  const picker = input.locator('xpath=following-sibling::select[contains(@class, "tokenize")]');
+  return picker.evaluate(select => {
+    const palette = 'rgb(18, 52, 86)';
+    const cell = select.closest('td');
+    const previous = cell.style.color;
+    cell.style.color = palette;
+    const container = select.parentElement.querySelector('.tokens-container');
+    const token = container.querySelector('.token');
+    const search = container.querySelector('.token-search input');
+    const result = {
+      containerBackground: getComputedStyle(container).backgroundColor,
+      containerColor: getComputedStyle(container).color,
+      searchColor: getComputedStyle(search).color,
+      tokenColor: token ? getComputedStyle(token).color : null,
+    };
+    cell.style.color = previous;
+    return result;
+  });
+}
+
 async function waitForOidcForm(page) {
   await page.locator('.oidc-revert-changes').waitFor({ state: 'attached' });
 }
 
+async function configureDocumentationServer(page) {
+  await page.goto(`${origin}/system_authservers.php?act=new`);
+  await waitForOidcForm(page);
+  await selectNative(page.locator('select[name="type"]'), 'openidconnect');
+  await expect(page.locator('input[name="openidconnect_provider_url"]')).toBeVisible();
+  await page.locator('input[name="name"]').fill(process.env.E2E_SERVER_NAME);
+  await page.locator('input[name="openidconnect_app_code"]').fill(process.env.E2E_APPLICATION_CODE);
+  await selectNative(page.locator('select[name="openidconnect_provider_profile"]'), 'keycloak');
+  await selectNative(page.locator('select[name="openidconnect_origin_policy"]'), 'custom');
+  await setFlatList(page, 'openidconnect_redirect_urls', [origin]);
+  await selectNative(page.locator('select[name="openidconnect_bootstrap_mode"]'), 'username');
+  await page.locator('input[name="openidconnect_username_claim"]').fill('preferred_username');
+  await selectNative(page.locator('select[name="openidconnect_claims_source"]'), 'userinfo');
+  await selectNative(page.locator('select[name="openidconnect_response_mode"]'), 'query');
+  await setFlatList(page, 'openidconnect_scopes', ['openid', 'email', 'profile']);
+  await page.locator('input[name="openidconnect_create_users"]').check();
+  await setGroupList(page, 'openidconnect_default_groups', ['admins']);
+  await page.locator('input[name="openidconnect_logout_menu"]').check();
+  await page.locator('input[name="openidconnect_logout_redirect"]').check();
+  await selectNative(page.locator('select[name="openidconnect_logout_notifications"]'), 'both');
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download provider setup' }).click();
+  const download = await downloadPromise;
+  const setup = JSON.parse(await readFile(await download.path(), 'utf8'));
+  await importGeneratedKeycloakClient(setup);
+  const setupDialog = page.getByRole('dialog');
+  await expect(setupDialog.locator('.oidc-setup-result[data-provider="keycloak"] .alert-success')).toBeVisible();
+  await setupDialog.getByRole('button', { name: '×' }).click();
+
+  await page.locator('input[name="openidconnect_provider_url"]').fill(issuer);
+  await page.locator('input[name="openidconnect_client_id"]').fill(process.env.E2E_KEYCLOAK_CLIENT_ID);
+  await page.locator('input[name="openidconnect_client_secret"]').fill(keycloakClientSecret);
+  const healthResponsePromise = page.waitForResponse(response => (
+    new URL(response.url()).pathname === '/api/openidconnect/health/probe'
+  ));
+  await page.getByRole('button', { name: 'Connection health' }).click();
+  expectPrivateResponseHeaders(await healthResponsePromise);
+  const healthDialog = page.getByRole('dialog');
+  await expect(healthDialog.locator('.oidc-probe-summary .label-success')).toBeVisible();
+  await expect(healthDialog).toContainText('Client configuration');
+  await expect(healthDialog).toContainText('WebGUI transport');
+  await expect(healthDialog).toContainText('Client credentials');
+  await captureDocumentationScreenshot(
+    page,
+    'connection-health.png',
+    healthDialog.locator('.modal-content')
+  );
+  await healthDialog.getByRole('button', { name: '×' }).click();
+
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).toHaveURL(/\/system_authservers\.php$/);
+  await expect(page.getByRole('row', { name: new RegExp(process.env.E2E_SERVER_NAME) })).toBeVisible();
+}
 async function configureServer(page) {
+  if (documentationScreenshotDirectory) {
+    await configureDocumentationServer(page);
+    return;
+  }
   let discoveryRequests = 0;
   page.on('request', request => {
     if (new URL(request.url()).pathname === '/api/openidconnect/discovery/probe') {
@@ -272,6 +395,17 @@ async function configureServer(page) {
   await expect(restoreProfile).toBeDisabled();
   const scopesInput = page.locator('input[name="openidconnect_scopes"]');
   const scopesPicker = scopesInput.locator('xpath=following-sibling::select[contains(@class, "tokenize")]');
+  expect(await tokenizerPalette(scopesInput)).toEqual({
+    containerBackground: 'rgba(0, 0, 0, 0)',
+    containerColor: 'rgb(18, 52, 86)',
+    searchColor: 'rgb(18, 52, 86)',
+    tokenColor: 'rgb(18, 52, 86)',
+  });
+  expect(await tokenizerPalette(page.locator('input[name="openidconnect_redirect_urls"]'))).toMatchObject({
+    containerBackground: 'rgba(0, 0, 0, 0)',
+    containerColor: 'rgb(18, 52, 86)',
+    searchColor: 'rgb(18, 52, 86)',
+  });
   await scopesPicker.evaluate(select => {
     select.querySelector('option[value="name"]').selected = false;
     window.jQuery(select).trigger('tokenize:tokens:change');
@@ -393,8 +527,12 @@ async function configureServer(page) {
   const providerSetupSection = page.locator('[data-oidc-action-section="provider-setup"]');
   await expect(providerSetupSection).toBeVisible();
   const setupChannel = providerSetupSection.locator('select');
-  expect(await setupChannel.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThan(35);
   const logoutNotifications = page.locator('select[name="openidconnect_logout_notifications"]');
+  const [setupHeight, configuredHeight] = await Promise.all([
+    selectPickerButton(setupChannel).evaluate(element => element.getBoundingClientRect().height),
+    selectPickerButton(logoutNotifications).evaluate(element => element.getBoundingClientRect().height),
+  ]);
+  expect(Math.abs(setupHeight - configuredHeight)).toBeLessThanOrEqual(1);
   await expect(logoutNotifications).toHaveValue('backchannel');
   await selectNative(setupChannel, 'frontchannel');
   await expect(logoutNotifications).toHaveValue('frontchannel');
@@ -921,6 +1059,7 @@ async function testSignIn(page, {
   await expect(page.locator('body')).toContainText(
     'A validated provider notification ends every matching OPNsense session, possibly including the administrator session'
   );
+  await captureDocumentationScreenshot(page, 'test-sign-in.png');
   if (validateSignOut) {
     const lifecyclePagePromise = page.context().waitForEvent('page');
     await page.getByRole('link', { name: 'Validate sign-out' }).click();
@@ -970,6 +1109,7 @@ async function providerLogin(page, { responseMode = 'query' } = {}) {
   });
   await page.goto(origin);
   const before = (await page.context().cookies(origin)).find(cookie => cookie.name === 'PHPSESSID')?.value;
+  await captureDocumentationScreenshot(page, 'login-and-recovery.png');
   await page.getByRole('link', { name: `Login using ${process.env.E2E_SERVER_NAME}` }).click();
 
   await expect.poll(() => authorization?.toString() || '').not.toBe('');
@@ -1153,7 +1293,7 @@ async function terminateProviderSession() {
 }
 
 async function removeLocalPrivileges() {
-  const runId = process.env.E2E_TEST_USERNAME.replace(/^oidc-e2e-/, '');
+  const runId = process.env.E2E_RUN_ID;
   const helper = `/tmp/opnsense-oidc-e2e-cleanup-${runId}.php`;
   const remoteCommand = [
     'php', helper, process.env.E2E_TEST_USERNAME,
@@ -1185,6 +1325,10 @@ test('real OPNsense login, session binding and logout interoperability', async (
   // its pooled proxy can corrupt a large HTML or JavaScript response and turn a
   // passive security observation into an unrelated browser failure.
   const unauthenticated = await playwrightRequest.newContext(opnsenseRequestContextOptions());
+  // ZAP can accept its first client before the disposable QEMU origin hop has
+  // settled. Retry only that transport status for up to 30 seconds on the
+  // first public asset; every later request and application response remains
+  // a single assertion.
   const observedFormScript = await getAfterProxyReady(
     unauthenticated,
     `${origin}/api/openidconnect/auth/formscript`,
@@ -1272,18 +1416,23 @@ test('real OPNsense login, session binding and logout interoperability', async (
   expectPrivateResponseHeaders(invalidBackchannel);
   expect(invalidBackchannel.headers()['content-type']).toContain('text/plain');
   expect(invalidBackchannel.headers()['content-security-policy']).toContain("frame-ancestors 'none'");
-  await testSignIn(adminPage, { expectNoLocalAccount: true, validateSignOut: true });
-  await setKeycloakEmailVerification('false');
   await testSignIn(adminPage, {
     expectNoLocalAccount: true,
-    expectedEmailVerification: 'false',
+    validateSignOut: !documentationScreenshotDirectory,
   });
-  await setKeycloakEmailVerification('missing');
-  await testSignIn(adminPage, {
-    expectNoLocalAccount: true,
-    expectedEmailVerification: 'false',
-  });
-  await setKeycloakEmailVerification('true');
+  if (!documentationScreenshotDirectory) {
+    await setKeycloakEmailVerification('false');
+    await testSignIn(adminPage, {
+      expectNoLocalAccount: true,
+      expectedEmailVerification: 'false',
+    });
+    await setKeycloakEmailVerification('missing');
+    await testSignIn(adminPage, {
+      expectNoLocalAccount: true,
+      expectedEmailVerification: 'false',
+    });
+    await setKeycloakEmailVerification('true');
+  }
   await editServer(adminPage, async page => {
     if (publicInbound) {
       await page.locator('input[name="openidconnect_ssf_enabled"]').check();
@@ -1307,84 +1456,93 @@ test('real OPNsense login, session binding and logout interoperability', async (
   const userPage = await user.newPage();
   const callback = await providerLogin(userPage);
 
-  const replay = await newObservedBrowserContext(browser, unauthenticated);
-  const replayPage = await replay.newPage();
-  const replayResponse = await replayPage.goto(callback);
-  expect(replayResponse.status()).toBe(403);
-  expectPrivateResponseHeaders(replayResponse);
-  await expect(replayPage.locator('body')).toContainText('OpenID Connect could not complete this request');
-  await replay.close();
+  if (!documentationScreenshotDirectory) {
+    const replay = await newObservedBrowserContext(browser, unauthenticated);
+    const replayPage = await replay.newPage();
+    const replayResponse = await replayPage.goto(callback);
+    expect(replayResponse.status()).toBe(403);
+    expectPrivateResponseHeaders(replayResponse);
+    await expect(replayPage.locator('body')).toContainText('OpenID Connect could not complete this request');
+    await replay.close();
 
-  await adminPage.goto(`${origin}/ui/auth/user`);
-  const accountRow = adminPage.getByRole('row', { name: new RegExp(process.env.E2E_TEST_USERNAME) });
-  await expect(accountRow).toContainText('admins', { timeout: 15_000 });
+    await adminPage.goto(`${origin}/ui/auth/user`);
+    const accountRow = adminPage.getByRole('row', { name: new RegExp(process.env.E2E_TEST_USERNAME) });
+    await expect(accountRow).toContainText('admins', { timeout: 15_000 });
 
-  await userPage.getByRole('link', { name: /Logout/ }).click();
-  await expect(userPage).toHaveTitle(/Login/);
-  const keycloakCookies = await user.cookies(keycloak.origin);
-  expect(keycloakCookies.some(cookie => ['KEYCLOAK_IDENTITY', 'KEYCLOAK_SESSION'].includes(cookie.name))).toBeFalsy();
+    await userPage.getByRole('link', { name: /Logout/ }).click();
+    await expect(userPage).toHaveTitle(/Login/);
+    const keycloakCookies = await user.cookies(keycloak.origin);
+    expect(keycloakCookies.some(cookie => ['KEYCLOAK_IDENTITY', 'KEYCLOAK_SESSION'].includes(cookie.name))).toBeFalsy();
 
-  await editServer(adminPage, async page => {
-    await page.locator('input[name="openidconnect_create_users"]').uncheck();
-  });
-  await providerLogin(userPage);
+    await editServer(adminPage, async page => {
+      await page.locator('input[name="openidconnect_create_users"]').uncheck();
+    });
+    await providerLogin(userPage);
 
-  if (publicInbound) {
-    await triggerSharedSignal();
+    if (publicInbound) {
+      await triggerSharedSignal();
+      await userPage.reload();
+      await expect(userPage).toHaveTitle(/Login/);
+      await providerLogin(userPage);
+    }
+
+    await setFrontChannel(false);
+    await terminateProviderSession();
     await userPage.reload();
     await expect(userPage).toHaveTitle(/Login/);
+
+    await setFrontChannel(true);
     await providerLogin(userPage);
+    const providerLogoutPage = await user.newPage();
+    let frontChannelResponse = null;
+    providerLogoutPage.on('response', response => {
+      if (new URL(response.url()).pathname
+        === `/api/openidconnect/auth/frontchannel/${process.env.E2E_APPLICATION_CODE}`) {
+        frontChannelResponse = response;
+      }
+    });
+    await providerLogoutPage.goto(`${issuer}/account/`);
+    await providerLogoutPage.getByTestId('options-toggle').click();
+    await providerLogoutPage.getByRole('menuitem', { name: 'Sign out' }).click();
+    await expect.poll(() => frontChannelResponse).not.toBeNull();
+    expectPrivateResponseHeaders(frontChannelResponse);
+    expect(frontChannelResponse.headers()['content-security-policy']).toContain('frame-ancestors *');
+    await userPage.reload();
+    await expect(userPage).toHaveTitle(/Login/);
+    await providerLogoutPage.close();
+
+    await editServer(adminPage, async page => {
+      await selectNative(page.locator('select[name="openidconnect_response_mode"]'), 'query.jwt');
+    });
+    await testSignIn(adminPage);
+    await providerLogin(userPage, { responseMode: 'query.jwt' });
+    await userPage.getByRole('link', { name: /Logout/ }).click();
+    await expect(userPage).toHaveTitle(/Login/);
+
+    await editServer(adminPage, async page => {
+      await selectNative(page.locator('select[name="openidconnect_response_mode"]'), 'form_post.jwt');
+    });
+    await testSignIn(adminPage);
+    await providerLogin(userPage, { responseMode: 'form_post.jwt' });
+    await userPage.getByRole('link', { name: /Logout/ }).click();
+    await expect(userPage).toHaveTitle(/Login/);
+
+    await editServer(adminPage, async page => {
+      await selectNative(page.locator('select[name="openidconnect_token_auth"]'), 'client_secret_post');
+      await selectNative(page.locator('select[name="openidconnect_response_mode"]'), 'form_post');
+    });
+    await testSignIn(adminPage);
+    await providerLogin(userPage, { responseMode: 'form_post' });
+    await userPage.getByRole('link', { name: /Logout/ }).click();
+    await expect(userPage).toHaveTitle(/Login/);
+  } else {
+    await userPage.getByRole('link', { name: /Logout/ }).click();
+    await expect(userPage).toHaveTitle(/Login/);
+    await editServer(adminPage, async page => {
+      await selectNative(page.locator('select[name="openidconnect_token_auth"]'), 'client_secret_post');
+      await selectNative(page.locator('select[name="openidconnect_response_mode"]'), 'form_post');
+    });
   }
-
-  await setFrontChannel(false);
-  await terminateProviderSession();
-  await userPage.reload();
-  await expect(userPage).toHaveTitle(/Login/);
-
-  await setFrontChannel(true);
-  await providerLogin(userPage);
-  const providerLogoutPage = await user.newPage();
-  let frontChannelResponse = null;
-  providerLogoutPage.on('response', response => {
-    if (new URL(response.url()).pathname
-      === `/api/openidconnect/auth/frontchannel/${process.env.E2E_APPLICATION_CODE}`) {
-      frontChannelResponse = response;
-    }
-  });
-  await providerLogoutPage.goto(`${issuer}/account/`);
-  await providerLogoutPage.getByTestId('options-toggle').click();
-  await providerLogoutPage.getByRole('menuitem', { name: 'Sign out' }).click();
-  await expect.poll(() => frontChannelResponse).not.toBeNull();
-  expectPrivateResponseHeaders(frontChannelResponse);
-  expect(frontChannelResponse.headers()['content-security-policy']).toContain('frame-ancestors *');
-  await userPage.reload();
-  await expect(userPage).toHaveTitle(/Login/);
-  await providerLogoutPage.close();
-
-  await editServer(adminPage, async page => {
-    await selectNative(page.locator('select[name="openidconnect_response_mode"]'), 'query.jwt');
-  });
-  await testSignIn(adminPage);
-  await providerLogin(userPage, { responseMode: 'query.jwt' });
-  await userPage.getByRole('link', { name: /Logout/ }).click();
-  await expect(userPage).toHaveTitle(/Login/);
-
-  await editServer(adminPage, async page => {
-    await selectNative(page.locator('select[name="openidconnect_response_mode"]'), 'form_post.jwt');
-  });
-  await testSignIn(adminPage);
-  await providerLogin(userPage, { responseMode: 'form_post.jwt' });
-  await userPage.getByRole('link', { name: /Logout/ }).click();
-  await expect(userPage).toHaveTitle(/Login/);
-
-  await editServer(adminPage, async page => {
-    await selectNative(page.locator('select[name="openidconnect_token_auth"]'), 'client_secret_post');
-    await selectNative(page.locator('select[name="openidconnect_response_mode"]'), 'form_post');
-  });
-  await testSignIn(adminPage);
-  await providerLogin(userPage, { responseMode: 'form_post' });
-  await userPage.getByRole('link', { name: /Logout/ }).click();
-  await expect(userPage).toHaveTitle(/Login/);
 
   // Removing the established binding under the Approval policy must queue the
   // identity without granting a session, then require an explicit local-UID choice.
@@ -1402,41 +1560,58 @@ test('real OPNsense login, session binding and logout interoperability', async (
     expectPrivateResponseHeaders(await approvalListResponsePromise);
     const manager = page.locator('.oidc-identity-dialog');
     await expect(manager.getByRole('heading', { name: 'Bound identities' })).toBeVisible();
+    await expect(manager.locator('table')).not.toHaveClass(/table-striped/);
+    const iconButtons = manager.locator('.oidc-icon-button');
+    await expect(iconButtons).toHaveCount(4);
+    expect(await iconButtons.evaluateAll(buttons => buttons.flatMap(button => {
+      const icon = button.querySelector('.fa').getBoundingClientRect();
+      const label = button.querySelector('span:not(.badge)').getBoundingClientRect();
+      const aligned = Math.abs((icon.top + icon.bottom) / 2 - (label.top + label.bottom) / 2) <= 1;
+      return icon.right < label.left && aligned ? [] : [button.textContent.trim()];
+    }))).toEqual([]);
+    await expect(manager.locator('tbody tr')).toHaveCount(1);
+    await captureDocumentationScreenshot(
+      page,
+      'bound-identities.png',
+      manager.locator('.modal-content')
+    );
 
-    // Manual creation is deliberately assisted, yet remains available for a
-    // subject independently verified from a provider token.
-    const manualSubject = `manual-${process.env.E2E_APPLICATION_CODE}`;
-    const editedSubject = `${manualSubject}-edited`;
-    const inlineUsername = `${process.env.E2E_TEST_USERNAME}-inline`;
-    await manager.getByRole('button', { name: 'Add identity binding' }).click();
-    await expect(manager).toHaveAccessibleName('Add an identity');
-    const editor = manager.locator('.oidc-binding-editor');
-    await expect(editor).toContainText('exact sub');
-    await expect(editor).toContainText('federation and subject-mode mappings');
-    await editor.getByRole('textbox', { name: 'Paste the exact sub claim' }).fill(manualSubject);
-    const accountSelect = editor.locator('select:not([multiple])');
-    await expect(accountSelect.locator('option', { hasText: process.env.E2E_TEST_USERNAME }))
-      .toHaveCount(0);
-    await accountSelect.selectOption({ label: 'Create a new local account…' });
-    await editor.locator('.oidc-account-creation input').fill(inlineUsername);
-    await editor.getByRole('button', { name: 'Save binding' }).click();
-    await expect(manager).toHaveAccessibleName('Manage identities');
-    let manualRow = manager.locator('tbody tr').filter({ hasText: manualSubject });
-    await expect(manualRow).toHaveCount(1);
-    await expect(manualRow).toContainText(inlineUsername);
-    await manualRow.getByRole('button', { name: 'Edit' }).click();
-    await expect(manager).toHaveAccessibleName('Edit identity binding');
-    await manager.locator('.oidc-binding-editor')
-      .getByRole('textbox', { name: 'Paste the exact sub claim' }).fill(editedSubject);
-    await expect(accountSelect).toHaveValue(/\d+/);
-    await manager.locator('.oidc-binding-editor').getByRole('button', { name: 'Save binding' }).click();
-    await expect(manager).toHaveAccessibleName('Manage identities');
-    manualRow = manager.locator('tbody tr').filter({ hasText: editedSubject });
-    await expect(manualRow).toHaveCount(1);
-    await manualRow.getByRole('button', { name: 'Remove' }).click();
-    const removeDialog = page.getByRole('dialog', { name: 'Remove identity binding' });
-    await removeDialog.getByRole('button', { name: 'OK' }).click();
-    await expect(manager.locator('tbody tr').filter({ hasText: editedSubject })).toHaveCount(0);
+    if (!documentationScreenshotDirectory) {
+      // Manual creation is deliberately assisted, yet remains available for a
+      // subject independently verified from a provider token.
+      const manualSubject = `manual-${process.env.E2E_APPLICATION_CODE}`;
+      const editedSubject = `${manualSubject}-edited`;
+      const inlineUsername = `${process.env.E2E_TEST_USERNAME}-inline`;
+      await manager.getByRole('button', { name: 'Add identity binding' }).click();
+      await expect(manager).toHaveAccessibleName('Add an identity');
+      const editor = manager.locator('.oidc-binding-editor');
+      await expect(editor).toContainText('exact sub');
+      await expect(editor).toContainText('federation and subject-mode mappings');
+      await editor.getByRole('textbox', { name: 'Paste the exact sub claim' }).fill(manualSubject);
+      const accountSelect = editor.locator('select:not([multiple])');
+      await expect(accountSelect.locator('option', { hasText: process.env.E2E_TEST_USERNAME }))
+        .toHaveCount(0);
+      await accountSelect.selectOption({ label: 'Create a new local account…' });
+      await editor.locator('.oidc-account-creation input').fill(inlineUsername);
+      await editor.getByRole('button', { name: 'Save binding' }).click();
+      await expect(manager).toHaveAccessibleName('Manage identities');
+      let manualRow = manager.locator('tbody tr').filter({ hasText: manualSubject });
+      await expect(manualRow).toHaveCount(1);
+      await expect(manualRow).toContainText(inlineUsername);
+      await manualRow.getByRole('button', { name: 'Edit' }).click();
+      await expect(manager).toHaveAccessibleName('Edit identity binding');
+      await manager.locator('.oidc-binding-editor')
+        .getByRole('textbox', { name: 'Paste the exact sub claim' }).fill(editedSubject);
+      await expect(accountSelect).toHaveValue(/\d+/);
+      await manager.locator('.oidc-binding-editor').getByRole('button', { name: 'Save binding' }).click();
+      await expect(manager).toHaveAccessibleName('Manage identities');
+      manualRow = manager.locator('tbody tr').filter({ hasText: editedSubject });
+      await expect(manualRow).toHaveCount(1);
+      await manualRow.getByRole('button', { name: 'Remove' }).click();
+      const removeDialog = page.getByRole('dialog', { name: 'Remove identity binding' });
+      await removeDialog.getByRole('button', { name: 'OK' }).click();
+      await expect(manager.locator('tbody tr').filter({ hasText: editedSubject })).toHaveCount(0);
+    }
 
     // The only remaining record is the identity established by the earlier
     // real login. Removing it makes the following sign-in enter the queue.
@@ -1482,6 +1657,11 @@ test('real OPNsense login, session binding and logout interoperability', async (
   await expect(approvalDialog.locator('.oidc-approval-card')).toHaveCount(1);
   await expect(approvalDialog).toContainText(issuer);
   await expect(approvalDialog).toContainText(process.env.E2E_TEST_USERNAME);
+  await captureDocumentationScreenshot(
+    adminPage,
+    'pending-approvals.png',
+    approvalDialog.locator('.modal-content')
+  );
   await approvalDialog.locator('.oidc-approval-card select').selectOption({
     label: process.env.E2E_TEST_USERNAME,
   });
@@ -1493,6 +1673,13 @@ test('real OPNsense login, session binding and logout interoperability', async (
   await providerLogin(userPage, { responseMode: 'form_post' });
   await userPage.getByRole('link', { name: /Logout/ }).click();
   await expect(userPage).toHaveTitle(/Login/);
+
+  if (documentationScreenshotDirectory) {
+    await user.close();
+    await admin.close();
+    await unauthenticated.dispose();
+    return;
+  }
 
   // Authentication and identity admission are not enough on their own. Once
   // every local group privilege is removed, the callback must explain the

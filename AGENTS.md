@@ -300,11 +300,13 @@ existing branch.
 ## Style
 
 Comments explain **why**, not what — this project's comments are long on
-purpose and are not clutter to remove. English throughout, a copyright line in
-every file whose format permits one, no host, address or mailbox of whoever
-wrote it (`tests/package.py` checks all three, and deliberately names none of
-them). A strict-schema machine-import file may omit the line only when an
-adjacent human-readable file carries the notice and documents the exception.
+purpose and are not clutter to remove. English throughout, no host, address or
+mailbox of whoever wrote it (`tests/package.py` checks all three, and deliberately
+names none of them). First-party application code installed by the package follows
+the OPNsense convention and carries the complete BSD-2-Clause header. Structural
+configuration, generated artifacts, documentation, tests and repository tooling do
+not receive a notice merely because their format permits one. Keep the complete
+project terms in `LICENSE` and preserve every third-party notice.
 
 Commit messages follow Conventional Commits because the release note is written
 out of them; see `CONTRIBUTING.md`. A change that can turn a login that worked

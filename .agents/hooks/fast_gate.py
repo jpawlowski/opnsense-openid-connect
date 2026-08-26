@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-#
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
+
 """Prepare an agent's clone and run the deterministic test tier when needed."""
 
 import argparse

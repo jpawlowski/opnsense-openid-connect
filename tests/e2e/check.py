@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
-
 """Host-independent consistency checks for the manual E2E harness."""
 
 import contextlib
+import fcntl
 import hashlib
 import importlib.util
 import io
@@ -13,8 +11,10 @@ import json
 import os
 import pathlib
 import re
+import signal
 import subprocess
 import tempfile
+import time
 import types
 
 
@@ -57,9 +57,126 @@ for path in [
     HERE / "run-live.sh", HERE / "selection.py", HERE / "public-inbound.py", HERE / "provider-result.py",
     HERE / "public-inbound-canary.py", HERE / "public-inbound-target.py", HERE / "live-config.py",
     HERE / "vm.py", HERE / "vm" / "bootstrap.exp", HERE / "providers" / "image.py",
-    HERE / "providers" / "stack.py",
+    HERE / "providers" / "stack.py", HERE / "publish-screenshots.py",
 ]:
     check(path.stat().st_mode & 0o111, f"{path.relative_to(HERE)} is not executable")
+
+local_runner = (HERE / "local.sh").read_text(encoding="utf-8")
+keycloak_runner = (HERE / "run-keycloak.sh").read_text(encoding="utf-8")
+check("free_loopback_port" not in local_runner, "local E2E closes supposedly reserved ports before Docker binds")
+for name in ("E2E_KEYCLOAK_PORT", "E2E_BACKCHANNEL_PORT", "E2E_SSF_PORT"):
+    check(f"{name}=${{{name}:-0}}" in local_runner, f"local E2E does not request Docker allocation for {name}")
+check(keycloak_runner.count(".NetworkSettings.Ports") == 3,
+      "the Keycloak runner does not inspect all three Docker-allocated host ports")
+check("/e2e/keycloak-origin" in keycloak_runner and "/e2e-state/ssf-issuer" in keycloak_runner,
+      "a dynamic service can start before its Docker-allocated external URL is known")
+check('kill -s "$publisher_signal"' in keycloak_runner and "documentation_spawn_signal" in keycloak_runner,
+      "the wrapper discards a cancellation instead of forwarding it to the screenshot transaction")
+check("documentation_publication_status" in keycloak_runner,
+      "the wrapper can contradict the screenshot publisher's committed exit status")
+
+with tempfile.TemporaryDirectory() as temporary:
+    screenshot_directory = pathlib.Path(temporary) / "screenshots"
+    screenshot_directory.mkdir()
+    audit_evidence = pathlib.Path(temporary) / "audit.json"
+    audit_evidence.write_text("keep existing evidence\n", encoding="utf-8")
+    provider_evidence = pathlib.Path(temporary) / "provider.json"
+    provider_evidence.write_text("keep existing provider evidence\n", encoding="utf-8")
+    clean_environment = dict(os.environ)
+    for name in (
+        "E2E_AUDIT_EVIDENCE", "E2E_DOCUMENTATION_SCREENSHOTS", "E2E_PROVIDER_RESULT", "E2E_CLUSTER",
+        "E2E_PROVIDER_HOST", "E2E_KEYCLOAK_URL", "E2E_PROVIDER_BROWSER_IP", "E2E_OPNSENSE_BROWSER_IP",
+        "E2E_KEYCLOAK_PORT", "E2E_BACKCHANNEL_PORT", "E2E_SSF_PORT",
+    ):
+        clean_environment.pop(name, None)
+    conflicting = subprocess.run(
+        [str(HERE / "run-keycloak.sh")],
+        env={
+            **clean_environment,
+            "E2E_AUDIT_EVIDENCE": str(audit_evidence),
+            "E2E_DOCUMENTATION_SCREENSHOTS": str(screenshot_directory),
+        },
+        capture_output=True,
+        text=True,
+    )
+    check(conflicting.returncode == 2 and "cannot be used together" in conflicting.stderr,
+          "the Keycloak runner does not reject audit and screenshot output before setup")
+    check(audit_evidence.read_text(encoding="utf-8") == "keep existing evidence\n",
+          "a rejected screenshot run removes existing audit evidence")
+
+    provider_conflict = subprocess.run(
+        [str(HERE / "run-keycloak.sh")],
+        env={
+            **clean_environment,
+            "E2E_DOCUMENTATION_SCREENSHOTS": str(screenshot_directory),
+            "E2E_PROVIDER_RESULT": str(provider_evidence),
+        },
+        capture_output=True,
+        text=True,
+    )
+    check(provider_conflict.returncode == 2 and "cannot be used together" in provider_conflict.stderr,
+          "the Keycloak runner accepts provider evidence in focused screenshot mode")
+    check(provider_evidence.read_text(encoding="utf-8") == "keep existing provider evidence\n",
+          "a rejected screenshot run removes existing provider evidence")
+
+    wrong_cluster = subprocess.run(
+        [str(HERE / "run-keycloak.sh")],
+        env={
+            **clean_environment,
+            "E2E_CLUSTER": "public-inbound",
+            "E2E_DOCUMENTATION_SCREENSHOTS": str(screenshot_directory),
+        },
+        capture_output=True,
+        text=True,
+    )
+    check(wrong_cluster.returncode == 2 and "requires the direct cluster" in wrong_cluster.stderr,
+          "the Keycloak runner accepts screenshot mode outside the direct cluster")
+
+    inherited = subprocess.run(
+        [str(HERE / "local.sh"), "--suite", "core"],
+        env={**clean_environment, "E2E_DOCUMENTATION_SCREENSHOTS": str(screenshot_directory)},
+        capture_output=True,
+        text=True,
+    )
+    check(inherited.returncode == 2 and "use --screenshots instead" in inherited.stderr,
+          "an inherited screenshot environment silently shortens a normal local suite")
+
+    inherited_network = subprocess.run(
+        [str(HERE / "local.sh"), "--provider", "keycloak", "--screenshots", str(screenshot_directory)],
+        env={
+            **clean_environment,
+            "E2E_PROVIDER_HOST": "login.corporate.example",
+            "E2E_KEYCLOAK_URL": "https://login.corporate.example:9443",
+            "E2E_PROVIDER_BROWSER_IP": "192.0.2.10",
+            "E2E_KEYCLOAK_PORT": "9443",
+        },
+        capture_output=True,
+        text=True,
+    )
+    check(inherited_network.returncode == 2 and "cannot inherit" in inherited_network.stderr,
+          "a documentation run can capture inherited provider hostnames or fixed lab ports")
+
+    local_conflict = subprocess.run(
+        [str(HERE / "local.sh"), "--provider", "keycloak", "--screenshots", str(screenshot_directory)],
+        env={**clean_environment, "E2E_AUDIT_EVIDENCE": str(audit_evidence)},
+        capture_output=True,
+        text=True,
+    )
+    check(local_conflict.returncode == 2 and "cannot be combined" in local_conflict.stderr,
+          "the local wrapper starts a VM before rejecting audit screenshot mode")
+    check(audit_evidence.read_text(encoding="utf-8") == "keep existing evidence\n",
+          "the local screenshot refusal removes existing audit evidence")
+
+    local_provider_conflict = subprocess.run(
+        [str(HERE / "local.sh"), "--provider", "keycloak", "--screenshots", str(screenshot_directory)],
+        env={**clean_environment, "E2E_PROVIDER_RESULT": str(provider_evidence)},
+        capture_output=True,
+        text=True,
+    )
+    check(local_provider_conflict.returncode == 2 and "cannot be combined" in local_provider_conflict.stderr,
+          "the local wrapper starts a VM before rejecting provider evidence in screenshot mode")
+    check(provider_evidence.read_text(encoding="utf-8") == "keep existing provider evidence\n",
+          "the local screenshot refusal removes existing provider evidence")
 
 
 def module(name, relative):
@@ -67,6 +184,143 @@ def module(name, relative):
     loaded = importlib.util.module_from_spec(specification)
     specification.loader.exec_module(loaded)
     return loaded
+
+
+screenshot_publisher = module("e2e_screenshot_publisher", "publish-screenshots.py")
+with tempfile.TemporaryDirectory() as temporary:
+    publication_root = pathlib.Path(temporary)
+    output = publication_root / "output"
+    output.mkdir()
+    sources = []
+    for generation in ("first", "second"):
+        source = publication_root / generation
+        source.mkdir()
+        for name in screenshot_publisher.SCREENSHOTS:
+            (source / name).write_text(f"{generation}:{name}\n", encoding="utf-8")
+        sources.append(source)
+
+    lock_descriptor = os.open(screenshot_publisher.lock_path(output), os.O_CREAT | os.O_RDWR, 0o600)
+    fcntl.flock(lock_descriptor, fcntl.LOCK_EX)
+    publishers = [
+        subprocess.Popen(
+            [
+                str(HERE / "publish-screenshots.py"), "--source", str(source), "--output", str(output),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for source in sources
+    ]
+    time.sleep(0.1)
+    check(all(process.poll() is None for process in publishers),
+          "a screenshot publisher does not wait for the output-directory lock")
+    fcntl.flock(lock_descriptor, fcntl.LOCK_UN)
+    os.close(lock_descriptor)
+    for process in publishers:
+        stdout, stderr = process.communicate(timeout=10)
+        check(process.returncode == 0, f"a serialized screenshot publisher failed: {stdout}{stderr}")
+    generations = {
+        (output / name).read_text(encoding="utf-8").split(":", 1)[0]
+        for name in screenshot_publisher.SCREENSHOTS
+    }
+    check(len(generations) == 1, "concurrent screenshot publishers leave a mixed generation")
+    check(
+        {path.name for path in output.iterdir()} == set(screenshot_publisher.SCREENSHOTS),
+        "serialized screenshot publication leaves temporary or backup files behind",
+    )
+
+    for simulated_failure in (
+        OSError("simulated publication failure"),
+        InterruptedError("simulated publication signal"),
+    ):
+        for name in screenshot_publisher.SCREENSHOTS:
+            (output / name).write_text(f"maintained:{name}\n", encoding="utf-8")
+        replacement_calls = [0]
+
+        def failing_replace(source, target):
+            replacement_calls[0] += 1
+            if replacement_calls[0] == len(screenshot_publisher.SCREENSHOTS) + 2:
+                raise simulated_failure
+            os.replace(source, target)
+
+        try:
+            screenshot_publisher.publish_screenshots(sources[0], output, replace=failing_replace)
+        except type(simulated_failure):
+            pass
+        else:
+            check(False, "the screenshot rollback regression did not reach its simulated failure")
+        check(all(
+            (output / name).read_text(encoding="utf-8") == f"maintained:{name}\n"
+            for name in screenshot_publisher.SCREENSHOTS
+        ), "a failed or interrupted screenshot publication does not restore the maintained generation")
+        check(
+            {path.name for path in output.iterdir()} == set(screenshot_publisher.SCREENSHOTS),
+            "failed screenshot publication leaves temporary or backup files behind",
+        )
+
+    def signal_during_backup_cleanup(path):
+        should_signal = path.suffix == ".backup" and not signal_during_backup_cleanup.sent
+        if should_signal:
+            blocked = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+            check(
+                {signal.SIGHUP, signal.SIGINT, signal.SIGTERM}.issubset(blocked),
+                "handled signals are not masked while committed screenshot backups are removed",
+            )
+            os.kill(os.getpid(), signal.SIGTERM)
+            signal_during_backup_cleanup.sent = True
+        path.unlink(missing_ok=True)
+
+    signal_during_backup_cleanup.sent = False
+    commit_marker = publication_root / "committed"
+    screenshot_publisher.publish_screenshots(
+        sources[1], output, remove_path=signal_during_backup_cleanup, commit_marker=commit_marker
+    )
+    check(signal_during_backup_cleanup.sent, "the committed-cleanup signal regression did not reach a backup")
+    check(commit_marker.read_text(encoding="utf-8") == "committed\n",
+          "a committed screenshot generation does not publish its wrapper status marker")
+    check(all(
+        (output / name).read_text(encoding="utf-8") == f"second:{name}\n"
+        for name in screenshot_publisher.SCREENSHOTS
+    ), "a signal during committed backup cleanup changes the published screenshot generation")
+
+    for name in screenshot_publisher.SCREENSHOTS:
+        (output / name).write_text(f"maintained:{name}\n", encoding="utf-8")
+    replace_calls = [0]
+    rollback_signal_sent = [False]
+    previous_handlers = {
+        handled_signal: signal.signal(handled_signal, screenshot_publisher.interrupted)
+        for handled_signal in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
+    }
+
+    def interrupt_publication(source, target):
+        replace_calls[0] += 1
+        if replace_calls[0] == len(screenshot_publisher.SCREENSHOTS) + 2:
+            os.kill(os.getpid(), signal.SIGHUP)
+        os.replace(source, target)
+
+    def interrupt_rollback(path):
+        if path.name in screenshot_publisher.SCREENSHOTS and not rollback_signal_sent[0]:
+            os.kill(os.getpid(), signal.SIGTERM)
+            rollback_signal_sent[0] = True
+        path.unlink(missing_ok=True)
+
+    try:
+        screenshot_publisher.publish_screenshots(
+            sources[0], output, replace=interrupt_publication, remove_path=interrupt_rollback
+        )
+    except InterruptedError:
+        pass
+    else:
+        check(False, "the repeated-signal rollback regression did not interrupt publication")
+    finally:
+        for handled_signal, previous_handler in previous_handlers.items():
+            signal.signal(handled_signal, previous_handler)
+    check(rollback_signal_sent[0], "a second handled signal was not delivered during screenshot rollback")
+    check(all(
+        (output / name).read_text(encoding="utf-8") == f"maintained:{name}\n"
+        for name in screenshot_publisher.SCREENSHOTS
+    ), "a repeated signal interrupts screenshot rollback before the maintained generation is restored")
 
 
 selection = module("e2e_selection", "selection.py")

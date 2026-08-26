@@ -1,10 +1,5 @@
 <?php
 
-/*
- * Copyright (C) 2026 Julian Pawlowski
- * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
- */
-
 /**
  * Stand-ins for the OPNsense classes this plugin is written against, so that the parts of
  * it that are ours can be exercised on a machine without OPNsense.

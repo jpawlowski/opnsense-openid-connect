@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
 """What a commit message has to look like, in one place.
 
 Two things read this file: the commit-msg hook next door, which stops a

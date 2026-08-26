@@ -1,8 +1,5 @@
 <?xml version="1.0"?>
 <!--
-    Copyright (C) 2026 Julian Pawlowski
-    All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
-
     Identity management extends core's existing System: Authentication Servers
     privilege. Core's default pluggable ACL merge replaces duplicate identifiers, so
     ACL.php deliberately appends this API pattern instead.

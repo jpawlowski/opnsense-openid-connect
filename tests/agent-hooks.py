@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
 """Checks the shared setup performed when a Codex or Claude task starts."""
 
 import importlib.util
@@ -94,8 +92,8 @@ def main():
           copilot["hooks"]["SubagentStart"][0]["bash"], "python3 .agents/hooks/fast_gate.py subagent")
     check("Copilot receives the same bounded Stop timeout", copilot["hooks"]["Stop"][0]["timeoutSec"], 120)
     adapter_readme = (ROOT / ".github" / "hooks" / "README.md").read_text(encoding="utf-8")
-    check("the strict Copilot adapter has an adjacent copyright exception",
-          "Copyright (C) 2026 Julian Pawlowski" in adapter_readme and "strict hook" in adapter_readme, True)
+    check("the Copilot adapter documents its strict schema constraint",
+          "strict hook schema" in adapter_readme, True)
 
     group("An agent task prepares its clone")
     hook = load_hook()

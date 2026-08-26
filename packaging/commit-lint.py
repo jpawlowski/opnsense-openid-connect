@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
 """Holds commit messages to the convention release-notes.py reads them by.
 
     python3 packaging/commit-lint.py --message .git/COMMIT_EDITMSG   # one, before it exists

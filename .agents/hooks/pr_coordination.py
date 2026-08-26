@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-#
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
+
 """Render and interpret durable cross-pull-request merge recommendations."""
 
 import json

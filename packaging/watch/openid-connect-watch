@@ -1,7 +1,5 @@
 #!/bin/sh
-#
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
+
 # openid-connect-watch - says when single sign-on needs attention.
 #
 # This package hooks into interfaces of the core package that OPNsense is free
@@ -63,7 +61,12 @@ ANCHOR_VERSION="$STATE/core.version"
 TOUCHPOINTS="
 /usr/local/www/authgui.inc
 /usr/local/www/system_authservers.php
+/usr/local/opnsense/www/css/bootstrap-select.css
+/usr/local/opnsense/www/css/tokenize2.css
+/usr/local/opnsense/www/js/bootstrap-select.js
 /usr/local/opnsense/www/js/bootstrap.min.js
+/usr/local/opnsense/www/js/opnsense_ui.js
+/usr/local/opnsense/www/js/tokenize2.js
 /usr/local/opnsense/mvc/app/library/OPNsense/Auth/AuthenticationFactory.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Auth/Base.php
 /usr/local/opnsense/mvc/app/library/OPNsense/Auth/IAuthConnector.php

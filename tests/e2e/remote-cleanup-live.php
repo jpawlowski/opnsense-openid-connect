@@ -1,11 +1,6 @@
 #!/usr/local/bin/php
 <?php
 
-/*
- * Copyright (C) 2026 Julian Pawlowski
- * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
- */
-
 require_once('/usr/local/etc/inc/legacy_bindings.inc');
 
 use OPNsense\Core\Backend;

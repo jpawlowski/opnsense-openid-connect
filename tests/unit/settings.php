@@ -1,10 +1,5 @@
 <?php
 
-/*
- * Copyright (C) 2026 Julian Pawlowski
- * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
- */
-
 use OPNsense\Auth\OpenIDConnect;
 
 /** @return array{refid:string,descr:string,crt:string,prv:string} */

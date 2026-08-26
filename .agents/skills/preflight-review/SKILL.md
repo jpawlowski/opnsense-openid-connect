@@ -6,8 +6,6 @@ description: >-
   initially green; do not use as a replacement for the independent review.
 ---
 
-<!-- Copyright (C) 2026 Julian Pawlowski -->
-
 # Preflight review
 
 Find defects while the implementing agent still owns the branch. Treat green

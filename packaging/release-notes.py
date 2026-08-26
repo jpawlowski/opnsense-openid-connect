@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
 """Writes the note that goes on a release, out of the commits it contains.
 
     python3 packaging/release-notes.py --tag v1.2.3
