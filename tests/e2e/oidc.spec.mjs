@@ -55,6 +55,7 @@ async function normalizeDocumentationScreenshot(target) {
       [/\bRequest [0-9a-f]{20}\b/g, 'Request 0123456789abcdef0123'],
       [/\b\d{1,2}\/\d{1,2}\/\d{4}, \d{1,2}:\d{2}:\d{2} (?:AM|PM)\b/g, '1/15/2026, 10:30:00 AM'],
       [/\b\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})?\b/g, '2026-01-15 10:30:00'],
+      [/\(c\) 2014-\d{4}/g, '(c) 2014-2026'],
     ];
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
     let node = walker.nextNode();

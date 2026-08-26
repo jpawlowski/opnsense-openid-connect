@@ -85,6 +85,10 @@ done
 export E2E_KEYCLOAK_PORT E2E_BACKCHANNEL_PORT E2E_SSF_PORT
 
 if [ -n "$screenshots" ]; then
+  if [ -n "${E2E_AUDIT_EVIDENCE:-}" ]; then
+    printf '%s\n' 'Documentation screenshots cannot be combined with E2E_AUDIT_EVIDENCE.' >&2
+    exit 2
+  fi
   if [ "$selected_provider" != keycloak ]; then
     printf '%s\n' 'Documentation screenshots require --provider keycloak.' >&2
     exit 2

@@ -61,6 +61,62 @@ for path in [
 ]:
     check(path.stat().st_mode & 0o111, f"{path.relative_to(HERE)} is not executable")
 
+with tempfile.TemporaryDirectory() as temporary:
+    screenshot_directory = pathlib.Path(temporary) / "screenshots"
+    screenshot_directory.mkdir()
+    audit_evidence = pathlib.Path(temporary) / "audit.json"
+    audit_evidence.write_text("keep existing evidence\n", encoding="utf-8")
+    clean_environment = dict(os.environ)
+    for name in ("E2E_AUDIT_EVIDENCE", "E2E_DOCUMENTATION_SCREENSHOTS", "E2E_CLUSTER"):
+        clean_environment.pop(name, None)
+    conflicting = subprocess.run(
+        [str(HERE / "run-keycloak.sh")],
+        env={
+            **clean_environment,
+            "E2E_AUDIT_EVIDENCE": str(audit_evidence),
+            "E2E_DOCUMENTATION_SCREENSHOTS": str(screenshot_directory),
+        },
+        capture_output=True,
+        text=True,
+    )
+    check(conflicting.returncode == 2 and "cannot be used together" in conflicting.stderr,
+          "the Keycloak runner does not reject audit and screenshot output before setup")
+    check(audit_evidence.read_text(encoding="utf-8") == "keep existing evidence\n",
+          "a rejected screenshot run removes existing audit evidence")
+
+    wrong_cluster = subprocess.run(
+        [str(HERE / "run-keycloak.sh")],
+        env={
+            **clean_environment,
+            "E2E_CLUSTER": "public-inbound",
+            "E2E_DOCUMENTATION_SCREENSHOTS": str(screenshot_directory),
+        },
+        capture_output=True,
+        text=True,
+    )
+    check(wrong_cluster.returncode == 2 and "requires the direct cluster" in wrong_cluster.stderr,
+          "the Keycloak runner accepts screenshot mode outside the direct cluster")
+
+    inherited = subprocess.run(
+        [str(HERE / "local.sh"), "--suite", "core"],
+        env={**clean_environment, "E2E_DOCUMENTATION_SCREENSHOTS": str(screenshot_directory)},
+        capture_output=True,
+        text=True,
+    )
+    check(inherited.returncode == 2 and "use --screenshots instead" in inherited.stderr,
+          "an inherited screenshot environment silently shortens a normal local suite")
+
+    local_conflict = subprocess.run(
+        [str(HERE / "local.sh"), "--provider", "keycloak", "--screenshots", str(screenshot_directory)],
+        env={**clean_environment, "E2E_AUDIT_EVIDENCE": str(audit_evidence)},
+        capture_output=True,
+        text=True,
+    )
+    check(local_conflict.returncode == 2 and "cannot be combined" in local_conflict.stderr,
+          "the local wrapper starts a VM before rejecting audit screenshot mode")
+    check(audit_evidence.read_text(encoding="utf-8") == "keep existing evidence\n",
+          "the local screenshot refusal removes existing audit evidence")
+
 
 def module(name, relative):
     specification = importlib.util.spec_from_file_location(name, HERE / relative)

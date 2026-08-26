@@ -44,10 +44,9 @@ state pass:
         --screenshots "$(pwd)/docs/assets/screenshots"
 
 This mode uses stable synthetic labels such as `Company identity` and `alex`; it never exposes generated credentials.
-It still creates a fresh disposable VM overlay, randomly named containers and independent randomly allocated host
-ports, so another
-local E2E run cannot share its firewall, provider or logout callback. The output directory must be absolute. A
-successful run replaces `login-and-recovery.png`, `connection-health.png`, `test-sign-in.png`,
+It still creates a fresh disposable VM overlay, randomly named containers and randomly selected host ports, so parallel
+local E2E runs do not intentionally share its firewall, provider or logout callback. The output directory must be
+absolute. A successful run replaces `login-and-recovery.png`, `connection-health.png`, `test-sign-in.png`,
 `bound-identities.png` and `pending-approvals.png` at their exact paths. Captures remain staged in the disposable run
 directory until all five UI states pass, so a failed run leaves the maintained set untouched.
 
