@@ -375,6 +375,19 @@ with tempfile.TemporaryDirectory() as temporary:
         pass
     else:
         raise SystemExit("provider evidence importer accepted an unexercised direct capability")
+    apple_live = {
+        **raw,
+        "provider": "apple", "source": "live",
+        "subject": {"name": "apple", "revision": "service:2026-08-25"},
+        "configuration_profile": "apple", "results": [{"feature": "login", "outcome": "pass"}],
+    }
+    artifact.write_text(json.dumps(apple_live), encoding="utf-8")
+    try:
+        provider_import.load_result(artifact)
+    except ValueError:
+        pass
+    else:
+        raise SystemExit("provider evidence importer accepted an unexercised Apple live login")
 
 try:
     generator.result(
@@ -385,6 +398,15 @@ except ValueError:
     pass
 else:
     raise SystemExit("provider result generator accepted an unreviewed emulator revision")
+
+try:
+    generator.result(
+        "apple", "live", "direct", "apple", "service:2026-08-25", "apple", ["login=pass"], None,
+    )
+except ValueError:
+    pass
+else:
+    raise SystemExit("provider result generator accepted an unexercised Apple live login")
 
 with tempfile.TemporaryDirectory() as temporary:
     retained_root = pathlib.Path(temporary)

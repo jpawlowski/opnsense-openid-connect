@@ -53,7 +53,7 @@ CAPABILITIES = {
     },
     ("entra", "live", "direct"): {"login", "pkce"},
     ("okta", "live", "direct"): {"login", "pkce"},
-    ("apple", "live", "direct"): {"login", "pkce"},
+    ("apple", "live", "direct"): {"pkce"},
     ("entra", "live", "public-inbound"): {"back_logout"},
     ("okta", "live", "public-inbound"): {"shared_signals"},
 }
