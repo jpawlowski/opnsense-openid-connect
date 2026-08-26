@@ -34,6 +34,10 @@ EXPECTED = {
     ("okta", "live"): ("okta", "okta"),
     ("apple", "live"): ("apple", "apple"),
 }
+FIXED_REVISIONS = {
+    "entra-local": "version:0.1.0",
+    "vercel-labs-emulate": "version:0.10.0",
+}
 CAPABILITIES = {
     ("keycloak", "local", "direct"): {"login", "pkce", "rp_logout", "front_logout", "back_logout"},
     ("keycloak", "local", "public-inbound"): {"back_logout", "shared_signals"},
@@ -97,6 +101,8 @@ def result(provider, source, cluster, subject_name, subject_revision, profile, c
         raise ValueError("test subject or profile differs from the selected provider source")
     if not REVISION.fullmatch(subject_revision):
         raise ValueError("test subject revision is not pinned")
+    if subject_name in FIXED_REVISIONS and subject_revision != FIXED_REVISIONS[subject_name]:
+        raise ValueError("test subject revision differs from the reviewed emulator dependency")
     if not isinstance(subject_name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._+-]{0,79}", subject_name):
         raise ValueError("test subject name is not publishable")
     parsed = []

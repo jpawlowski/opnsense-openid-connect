@@ -359,6 +359,16 @@ with tempfile.TemporaryDirectory() as temporary:
     else:
         raise SystemExit("provider evidence importer accepted an unexercised direct capability")
 
+try:
+    generator.result(
+        "okta", "emulated", "direct", "vercel-labs-emulate", "version:99.0.0", "okta",
+        ["login=pass"], None,
+    )
+except ValueError:
+    pass
+else:
+    raise SystemExit("provider result generator accepted an unreviewed emulator revision")
+
 with tempfile.TemporaryDirectory() as temporary:
     retained_root = pathlib.Path(temporary)
     retained_catalog = retained_root / "tests" / "providers" / "capabilities.json"

@@ -568,6 +568,16 @@ def main():
               "📘" in rendered and "🧪" in rendered and "✅" not in rendered, True)
         check("published emulator evidence links back into tests/evidence/providers",
               "../../tests/evidence/providers/provider-result.json" in rendered, True)
+        emulator_artifact["subject"]["revision"] = "version:99.0.0"
+        emulator_record["emulator_revision"] = "version:99.0.0"
+        retained_artifact(evidence_root, emulator_artifact)
+        check("retained emulator evidence is pinned to the reviewed dependency", refused(
+            lambda: matrix.validate_emulator_evidence_record(
+                emulator_provider, "login", emulator_record, evidence_root
+            )
+        ), True)
+        emulator_artifact["subject"]["revision"] = "version:0.10.0"
+        emulator_record["emulator_revision"] = "version:0.10.0"
         emulator_artifact["results"] = [{"feature": "login", "outcome": "live"}]
         retained_artifact(evidence_root, emulator_artifact)
         check("an emulator artifact cannot invent a real-provider status", refused(

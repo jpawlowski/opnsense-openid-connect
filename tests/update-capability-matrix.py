@@ -76,17 +76,17 @@ class CatalogError(ValueError):
     pass
 
 
-def provider_result_capabilities():
+def provider_result_policy():
     path = ROOT / "tests" / "e2e" / "provider-result.py"
     spec = importlib.util.spec_from_file_location("matrix_provider_result", path)
     if spec is None or spec.loader is None:
         raise CatalogError("provider result capability policy cannot be loaded")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.CAPABILITIES
+    return module.CAPABILITIES, module.FIXED_REVISIONS
 
 
-PROVIDER_RESULT_CAPABILITIES = provider_result_capabilities()
+PROVIDER_RESULT_CAPABILITIES, FIXED_EMULATOR_REVISIONS = provider_result_policy()
 
 
 def read_json(path):
@@ -466,6 +466,9 @@ def validate_emulator_evidence_record(provider, feature_id, record, root=ROOT):
     revision = validate_record_text(record, "emulator_revision", label)
     if not PROVIDER_REVISION.fullmatch(revision):
         raise CatalogError(f"{label}: emulator revision is not pinned")
+    expected_subject = "entra-local" if provider["id"] == "entra" else "vercel-labs-emulate"
+    if revision != FIXED_EMULATOR_REVISIONS[expected_subject]:
+        raise CatalogError(f"{label}: emulator revision differs from the reviewed dependency")
     relative, artifact_path = repository_file(record.get("artifact"), label, root)
     if relative.parent != PROVIDER_EVIDENCE_DIRECTORY or relative.suffix != ".json":
         raise CatalogError(f"{label}: emulator evidence must be retained in tests/evidence/providers")
@@ -490,7 +493,6 @@ def validate_emulator_evidence_record(provider, feature_id, record, root=ROOT):
     ):
         raise CatalogError(f"{label}: emulator artifact is not bound to its sanitized test run")
     subject = artifact.get("subject")
-    expected_subject = "entra-local" if provider["id"] == "entra" else "vercel-labs-emulate"
     if (
         not isinstance(subject, dict) or set(subject) != {"name", "revision"}
         or subject.get("name") != expected_subject or subject.get("revision") != revision

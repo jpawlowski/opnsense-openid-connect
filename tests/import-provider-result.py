@@ -33,10 +33,6 @@ SUBJECTS = {
     "okta": ("okta", "live"),
     "apple": ("apple", "live"),
 }
-FIXED_REVISIONS = {
-    "entra-local": "version:0.1.0",
-    "vercel-labs-emulate": "version:0.10.0",
-}
 REVISION = re.compile(
     r"^(?:(?:version|release|commit):[A-Za-z0-9][A-Za-z0-9._+-]{0,111}|service:\d{4}-\d{2}-\d{2})$"
 )
@@ -103,7 +99,10 @@ def load_result(path):
         service_date = datetime.date.fromisoformat(subject["revision"].removeprefix("service:"))
         if service_date > tested_on:
             raise ValueError("hosted service revision cannot be later than the test")
-    if subject["name"] in FIXED_REVISIONS and subject["revision"] != FIXED_REVISIONS[subject["name"]]:
+    if (
+        subject["name"] in generator.FIXED_REVISIONS
+        and subject["revision"] != generator.FIXED_REVISIONS[subject["name"]]
+    ):
         raise ValueError("provider result emulator revision differs from the reviewed dependency")
     if source == "local":
         images = json.loads((ROOT / "tests" / "e2e" / "providers" / "images.json").read_text(encoding="utf-8"))
