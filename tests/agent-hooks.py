@@ -121,17 +121,36 @@ def main():
           hook.control_plane_only(("AGENTS.md", "src/example.php")), False)
     check("an empty or unclassified change fails closed to the full gate",
           (hook.control_plane_only(()), hook.control_plane_only(("README.md",))), (False, False))
+    check("contribution templates use the focused control-plane gate",
+          hook.control_plane_only((
+              ".github/PULL_REQUEST_TEMPLATE.md", ".github/ISSUE_TEMPLATE/change.yml",
+          )), True)
+    check("unknown automation formats fail closed to the full gate",
+          hook.control_plane_only((".agents/hooks/example.rb",)), False)
     focused_gate = (ROOT / ".agents" / "check-control-plane.sh").read_text(encoding="utf-8")
     check("the focused gate compiles Python without writing bytecode",
           "compile(path.read_text(encoding=\"utf-8\"), str(path), \"exec\")" in focused_gate
           and "ast.parse(" not in focused_gate, True)
+    check("the focused gate parses admitted shell, JavaScript and JSON automation trees",
+          all(value in focused_gate for value in (
+              "-name '*.json'", "-name '*.js'", "-name '*.sh'", "node --check", "python3 -m json.tool",
+          )), True)
     original_unrestricted_git_output = hook.unrestricted_git_output
-    hook.unrestricted_git_output = lambda *arguments: (
-        b"AGENTS.md\ndocs/README.md\n" if arguments[:2] == ("diff", "--name-only") else b""
-    )
-    check("gate selection inventories unclassified paths outside the Stop fingerprint",
-          (hook.validation_paths("base"), hook.control_plane_only(hook.validation_paths("base"))),
-          (("AGENTS.md", "docs/README.md"), False))
+    validation_calls = []
+    def validation_output(*arguments):
+        validation_calls.append(arguments)
+        if arguments[:2] == ("merge-base", "HEAD"):
+            return b"common\n"
+        if arguments[:2] == ("diff", "--name-only"):
+            return b"AGENTS.md\ndocs/README.md\n"
+        return b""
+    hook.unrestricted_git_output = validation_output
+    selected_paths = hook.validation_paths("moving-main")
+    check("gate selection inventories the branch diff from its merge base",
+          (selected_paths, hook.control_plane_only(selected_paths), validation_calls[:2]),
+          (("AGENTS.md", "docs/README.md"), False, [
+              ("merge-base", "HEAD", "moving-main"), ("diff", "--name-only", "common"),
+          ]))
     hook.unrestricted_git_output = original_unrestricted_git_output
     with tempfile.TemporaryDirectory() as temporary:
         state = pathlib.Path(temporary) / "existing-state.json"

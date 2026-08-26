@@ -39,6 +39,10 @@ CONTROL_PLANE_EXACT_PATHS = {
     "tests/convention.py",
     "tests/issue-hygiene.mjs",
     "tests/pull-request-labels.mjs",
+    ".github/PULL_REQUEST_TEMPLATE.md",
+    ".github/ISSUE_TEMPLATE/bug.yml",
+    ".github/ISSUE_TEMPLATE/change.yml",
+    ".github/ISSUE_TEMPLATE/config.yml",
 }
 CONTROL_PLANE_PREFIXES = (
     ".agents/",
@@ -47,6 +51,7 @@ CONTROL_PLANE_PREFIXES = (
     ".github/hooks/",
     ".github/scripts/",
 )
+CONTROL_PLANE_SUFFIXES = (".json", ".js", ".md", ".mjs", ".py", ".sh")
 START_FETCH_TTL = 5 * 60
 ACTIVE_FETCH_TTL = 5 * 60
 FETCH_TIMEOUT = 20
@@ -88,17 +93,23 @@ def unrestricted_git_output(*arguments):
 def validation_paths(base):
     if not base:
         return ()
-    # Gate selection is intentionally broader than the Stop fingerprint. An
-    # unknown path must force the full gate instead of disappearing behind the
-    # fingerprint's repository-owned pathspec.
-    changed = unrestricted_git_output("diff", "--name-only", base).decode().splitlines()
+    try:
+        merge_base = unrestricted_git_output("merge-base", "HEAD", base).decode().strip()
+    except subprocess.CalledProcessError:
+        merge_base = ""
+    if not merge_base:
+        return ()
+    # Compare the topic with its common ancestor so unrelated canonical progress
+    # cannot turn a control-plane-only branch into an apparent product change.
+    changed = unrestricted_git_output("diff", "--name-only", merge_base).decode().splitlines()
     untracked = unrestricted_git_output("ls-files", "--others", "--exclude-standard").decode().splitlines()
     return tuple(dict.fromkeys(path for path in changed + untracked if path))
 
 
 def control_plane_only(paths):
     return bool(paths) and all(
-        path in CONTROL_PLANE_EXACT_PATHS or path.startswith(CONTROL_PLANE_PREFIXES)
+        path in CONTROL_PLANE_EXACT_PATHS
+        or (path.startswith(CONTROL_PLANE_PREFIXES) and path.endswith(CONTROL_PLANE_SUFFIXES))
         for path in paths
     )
 
