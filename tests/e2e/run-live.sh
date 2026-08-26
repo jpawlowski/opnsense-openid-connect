@@ -27,6 +27,7 @@ run_id=$(openssl rand -hex 4)
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/opnsense-oidc-${provider}-live.XXXXXX")
 state_file="$work_dir/provider.json"
 remote_cleanup="/tmp/opnsense-oidc-e2e-live-cleanup-${run_id}.php"
+remote_user_state="/tmp/opnsense-oidc-e2e-live-users-${run_id}.json"
 remote_package="/tmp/os-openid-connect-e2e-${run_id}.pkg"
 public_state="$work_dir/public-inbound.json"
 session_state="$work_dir/live-session.json"
@@ -41,6 +42,7 @@ export E2E_OPNSENSE_USERNAME E2E_PROVIDER_STATE_FILE="$state_file"
 
 cleanup() {
   status=$?
+  cleanup_failed=0
   if [ "$E2E_KEEP" = 1 ]; then
     printf 'Live E2E resources retained in %s (exit %s).\n' "$work_dir" "$status" >&2
     exit "$status"
@@ -51,10 +53,11 @@ cleanup() {
       "$public_driver" cleanup >/dev/null 2>&1 || true
   fi
   python3 "$script_dir/public-inbound.py" stop --state "$public_state" >/dev/null 2>&1 || true
-  e2e_ssh "php '$remote_cleanup' '$server_name' '$application_code'" >/dev/null 2>&1 || true
-  e2e_ssh "rm -f '$remote_cleanup' '$remote_package'" >/dev/null 2>&1 || true
+  e2e_ssh "php '$remote_cleanup' cleanup '$server_name' '$application_code'" >/dev/null 2>&1 || cleanup_failed=1
+  e2e_ssh "rm -f '$remote_cleanup' '$remote_user_state' '$remote_package'" >/dev/null 2>&1 || true
   find "$work_dir" -type f -exec sh -c ': > "$1"' sh {} \; >/dev/null 2>&1 || true
   find "$work_dir" -depth -delete >/dev/null 2>&1 || true
+  [ "$status" -ne 0 ] || status=$cleanup_failed
   exit "$status"
 }
 trap cleanup EXIT HUP INT TERM
@@ -84,6 +87,7 @@ package="$repository/packaging/dist/os-openid-connect-0.0.0.e2e.pkg"
 e2e_scp_to "$script_dir/remote-cleanup-live.php" "$remote_cleanup"
 e2e_scp_to "$package" "$remote_package"
 e2e_ssh "chmod 600 '$remote_cleanup'; pkg add -f '$remote_package' && pkg check -s os-openid-connect"
+e2e_ssh "php '$remote_cleanup' snapshot '$server_name' '$application_code'" >/dev/null
 
 (cd "$script_dir" && npm ci --no-audit --no-fund >/dev/null && npx playwright install chromium >/dev/null)
 if [ "$E2E_CLUSTER" = public-inbound ]; then

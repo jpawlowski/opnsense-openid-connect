@@ -5,13 +5,16 @@
 
 """Host-independent consistency checks for the manual E2E harness."""
 
+import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import pathlib
 import re
 import subprocess
 import tempfile
+import types
 
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -140,6 +143,50 @@ check(public_inbound.SAFE_APPLICATION.fullmatch("stable-lab-code"),
       "public ingress rejects a bounded stable live application code")
 check(not public_inbound.SAFE_APPLICATION.fullmatch("unsafe/application"),
       "public ingress accepts an application code that escapes its path segment")
+check(public_inbound.proxy_host_arguments("opnsense.test", "") == [],
+      "prepared public-inbound labs no longer retain their DNS route")
+check(public_inbound.proxy_host_arguments("opnsense.test", "host-gateway")
+      == ["--add-host", "opnsense.test:host-gateway"],
+      "the local VM cannot route its public-inbound proxy through Docker's host gateway")
+check(public_inbound.proxy_host_arguments("opnsense.test", "192.0.2.10")
+      == ["--add-host", "opnsense.test:192.0.2.10"],
+      "a prepared lab cannot explicitly pin its Docker proxy route")
+try:
+    public_inbound.proxy_host_arguments("opnsense.test", "other.example")
+except ValueError:
+    pass
+else:
+    raise SystemExit("public ingress accepts an unsafe Docker target-address override")
+
+with tempfile.TemporaryDirectory() as temporary:
+    commands = []
+    original_run = public_inbound.run
+    original_image = public_inbound.image
+    original_resolver = public_inbound.socket.getaddrinfo
+
+    def fake_inbound_run(*arguments, **options):
+        commands.append(arguments)
+        output = "https://prepared-route.trycloudflare.com\n" if arguments[1] == "logs" else ""
+        return subprocess.CompletedProcess(arguments, 0, stdout=output, stderr="")
+
+    try:
+        public_inbound.run = fake_inbound_run
+        public_inbound.image = lambda name: f"fixture/{name}"
+        public_inbound.socket.getaddrinfo = lambda *arguments: [(None, None, None, None, None)]
+        inbound_state = pathlib.Path(temporary) / "state.json"
+        with contextlib.redirect_stdout(io.StringIO()):
+            public_inbound.start(types.SimpleNamespace(
+                run_id="deadbeef", application_code="fixture-code",
+                opnsense_url="https://prepared.example", target_address="",
+                work_dir=temporary, state=str(inbound_state),
+            ))
+    finally:
+        public_inbound.run = original_run
+        public_inbound.image = original_image
+        public_inbound.socket.getaddrinfo = original_resolver
+    proxy_command = next(command for command in commands if "opnsense-oidc-inbound-deadbeef-proxy" in command)
+    check("--add-host" not in proxy_command,
+          "prepared public-inbound startup still replaces its configured DNS route")
 
 canary_suite = selection.resolve("full", canary=True)
 check(not any(item["provider"] in {"okta", "apple"} for item in canary_suite["records"]),
@@ -335,6 +382,17 @@ check(live_runner.index('invoke_driver trigger') < live_runner.index('E2E_PUBLIC
 check('if [ "$provider" != apple ]; then' in live_runner
       and 'direct_capabilities="--capability login=pass $direct_capabilities"' in live_runner,
       "the reusable Apple live run still claims a WebGUI login without administrator approval")
+check(" snapshot '$server_name' '$application_code'" in live_runner
+      and " cleanup '$server_name' '$application_code'" in live_runner,
+      "live provider cleanup does not bracket the run with an account baseline")
+
+live_cleanup = (HERE / "remote-cleanup-live.php").read_text(encoding="utf-8")
+check("openidconnect_subject_bindings" in live_cleanup and "existing_uids" in live_cleanup,
+      "live cleanup does not constrain created-account removal to new bound UIDs")
+check("is_int($uid)" in live_cleanup and "$existingUids[(string)$uid]" in live_cleanup,
+      "live cleanup rejects numeric UIDs after its JSON baseline round trip")
+check("unset($root->system->user[$index])" in live_cleanup and "auth sync user" in live_cleanup,
+      "live cleanup leaves provider-created accounts or their system state behind")
 
 provider_spec = (HERE / "provider.spec.mjs").read_text(encoding="utf-8")
 live_direct = provider_spec[provider_spec.rindex("if (state.source === 'live') {"):]

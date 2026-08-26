@@ -86,9 +86,11 @@ E2E_OPNSENSE_PASSWORD=${E2E_OPNSENSE_PASSWORD:-opnsense}
 E2E_PROVIDER_HOST=${E2E_PROVIDER_HOST:-provider.opnsense.test}
 E2E_PROVIDER_BROWSER_IP=${E2E_PROVIDER_BROWSER_IP:-127.0.0.1}
 E2E_OPNSENSE_BROWSER_IP=${E2E_OPNSENSE_BROWSER_IP:-127.0.0.1}
+# Only the local VM reaches its forwarded WebGUI port through Docker's host gateway.
+E2E_OPNSENSE_PROXY_ADDRESS=host-gateway
 export E2E_OPNSENSE_URL E2E_OPNSENSE_SSH E2E_OPNSENSE_SSH_CONFIG
 export E2E_OPNSENSE_USERNAME E2E_OPNSENSE_PASSWORD E2E_PROVIDER_HOST E2E_PROVIDER_BROWSER_IP
-export E2E_OPNSENSE_BROWSER_IP
+export E2E_OPNSENSE_BROWSER_IP E2E_OPNSENSE_PROXY_ADDRESS
 
 # Arguments originate in the strict case statement above and contain no shell
 # metacharacters; word splitting preserves the underlying runner's POSIX CLI.

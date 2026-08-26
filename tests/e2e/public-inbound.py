@@ -6,7 +6,9 @@
 """Expose only the two provider-to-OPNsense POST routes through a Quick Tunnel."""
 
 import argparse
+import ipaddress
 import json
+import os
 import pathlib
 import re
 import socket
@@ -40,6 +42,17 @@ def image(name):
 def write(path, content, mode=0o600):
     path.write_text(content, encoding="utf-8")
     path.chmod(mode)
+
+
+def proxy_host_arguments(hostname, address):
+    if address == "":
+        return []
+    if address != "host-gateway":
+        try:
+            ipaddress.ip_address(address)
+        except ValueError as error:
+            raise ValueError("the public-inbound proxy address must be host-gateway or an IP address") from error
+    return ["--add-host", f"{hostname}:{address}"]
 
 
 def proxy_config(opnsense_url, authority, application):
@@ -93,6 +106,10 @@ def start(arguments):
     tunnel = f"{prefix}-cloudflared"
     authority = target.netloc
     application = arguments.application_code
+    try:
+        target_arguments = proxy_host_arguments(target.hostname, arguments.target_address)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     config = proxy_config(arguments.opnsense_url, authority, application)
     config_path = work / "public-inbound-nginx.conf"
     write(config_path, config, 0o644)
@@ -101,7 +118,7 @@ def start(arguments):
     try:
         run(
             "docker", "run", "-d", "--name", proxy, "--network", network,
-            "--add-host", f"{target.hostname}:host-gateway",
+            *target_arguments,
             "-v", f"{config_path}:/etc/nginx/nginx.conf:ro",
             image("nginx"), quiet=True,
         )
@@ -173,6 +190,7 @@ def main():
     create.add_argument("--run-id", required=True)
     create.add_argument("--application-code", required=True)
     create.add_argument("--opnsense-url", required=True)
+    create.add_argument("--target-address", default=os.environ.get("E2E_OPNSENSE_PROXY_ADDRESS", ""))
     create.add_argument("--work-dir", required=True)
     create.add_argument("--state", required=True)
     remove = commands.add_parser("stop")

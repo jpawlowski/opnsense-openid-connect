@@ -152,6 +152,9 @@ the visible browser remains available when MFA or consent needs a person. Apple
 normally uses `manual`. For `local.sh`, `webgui_port` makes the disposable VM use a stable callback origin that can be
 registered in advance. The callback is `https://opnsense.opnsense.test:<webgui_port>` plus
 `/api/openidconnect/auth/callback/<application_code>`. A prepared lab may supply its already stable origin directly.
+The public-inbound proxy retains that origin's DNS route by default. Set
+`E2E_OPNSENSE_PROXY_ADDRESS` to a literal reachable address only when the Docker runner needs an explicit override;
+the local VM wrapper supplies Docker's `host-gateway` mapping automatically.
 
 A live direct Entra or Okta result records `login=pass` only after the provider-backed flow reaches the WebGUI
 dashboard and rotates the PHP session. Apple's public profile deliberately requires administrator approval for a new
