@@ -343,6 +343,17 @@ check(live_direct.index('await testProviderSignIn(adminPage)')
       "live direct evidence does not establish a provider-backed WebGUI session")
 check("if (state.provider !== 'apple')" in live_direct,
       "the live session assertion ignores Apple's explicit administrator-approval boundary")
+check("await providerLogin(await emulatedSession.newPage())" in provider_spec,
+      "emulated login evidence does not establish a provider-backed WebGUI session")
+check("await queueAppleApproval" in provider_spec and "await approveAppleIdentity" in provider_spec,
+      "the Apple emulator bypasses its administrator-approval admission boundary")
+check("configured.or(page.getByRole('link', { name: 'Microsoft' }))" in provider_spec,
+      "the Entra session flow cannot select its fixed Microsoft login label")
+
+provider_config = (HERE / "provider.config.mjs").read_text(encoding="utf-8")
+check("liveHandoffTimeout * liveHandoffs" in provider_config
+      and "process.env.E2E_CLUSTER === 'direct' ? 2 : 1" in provider_config,
+      "the live direct timeout does not budget both manual provider handoffs")
 
 keycloak_runner = (HERE / "run-keycloak.sh").read_text(encoding="utf-8")
 ssf_transmitter = (HERE / "ssf-transmitter.mjs").read_text(encoding="utf-8")

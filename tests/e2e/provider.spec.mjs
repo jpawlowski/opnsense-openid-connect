@@ -50,6 +50,16 @@ async function selectNative(locator, value) {
   await locator.selectOption(value, { force: true });
 }
 
+function providerLoginLink(page) {
+  const configured = page.getByRole('link', { name: `Login using ${state.server_name}` });
+  // The named Entra profile deliberately presents the stable Microsoft brand
+  // label instead of leaking an administrator-defined server name into the
+  // login button. Generic and other provider profiles retain the latter.
+  return state.provider === 'entra'
+    ? configured.or(page.getByRole('link', { name: 'Microsoft' }))
+    : configured;
+}
+
 async function apiContext(extraHTTPHeaders = {}) {
   const localHostHeader = process.env.E2E_PROVIDER_BROWSER_IP ? { Host: state.authority } : {};
   return playwrightRequest.newContext({
@@ -366,7 +376,19 @@ async function providerLogin(page) {
       authorization = new URL(request.url());
     }
   });
-  await page.getByRole('link', { name: `Login using ${state.server_name}` }).click();
+  await providerLoginLink(page).click();
+  await localProviderInteraction(page);
+  await expect(page).toHaveURL(/\/ui\/core\/dashboard/, { timeout: 45_000 });
+  const after = (await page.context().cookies(origin)).find(cookie => cookie.name === 'PHPSESSID')?.value;
+  expect(authorization).toBeTruthy();
+  expect(authorization.searchParams.get('code_challenge_method')).toBe('S256');
+  expect(authorization.searchParams.get('state')).toBeTruthy();
+  expect(authorization.searchParams.get('nonce')).toBeTruthy();
+  expect(after).toBeTruthy();
+  expect(after).not.toBe(before);
+}
+
+async function localProviderInteraction(page) {
   if (state.login_mode === 'picker') {
     await page.getByRole('button', { name: new RegExp(state.username, 'i') }).click();
   } else if (state.provider !== 'pocketid') {
@@ -378,14 +400,58 @@ async function providerLogin(page) {
     const passkey = page.getByRole('button', { name: /passkey|sign in|log in/i }).first();
     if (await passkey.count()) await passkey.click();
   }
-  await expect(page).toHaveURL(/\/ui\/core\/dashboard/, { timeout: 45_000 });
-  const after = (await page.context().cookies(origin)).find(cookie => cookie.name === 'PHPSESSID')?.value;
-  expect(authorization).toBeTruthy();
-  expect(authorization.searchParams.get('code_challenge_method')).toBe('S256');
-  expect(authorization.searchParams.get('state')).toBeTruthy();
-  expect(authorization.searchParams.get('nonce')).toBeTruthy();
-  expect(after).toBeTruthy();
-  expect(after).not.toBe(before);
+}
+
+async function prepareAppleApprovalAccount(page) {
+  await page.goto(`${origin}/system_authservers.php`);
+  await page.getByRole('row', { name: new RegExp(state.server_name) })
+    .getByRole('link', { name: 'Edit' }).click();
+  await page.getByRole('button', { name: 'Manage identities' }).click();
+  const manager = page.getByRole('dialog');
+  await manager.getByRole('button', { name: 'Add identity binding' }).click();
+  const editor = manager.locator('.oidc-binding-editor');
+  const bootstrapSubject = `bootstrap-${state.run_id}`;
+  await editor.getByRole('textbox', { name: 'Paste the exact sub claim' }).fill(bootstrapSubject);
+  await editor.locator('select:not([multiple])').selectOption({ label: 'Create a new local account…' });
+  await editor.locator('.oidc-account-creation input').fill(state.username);
+  await editor.locator('select[multiple]').selectOption(['admins'], { force: true });
+  await editor.getByRole('button', { name: 'Save binding' }).click();
+  await expect(manager).toHaveAccessibleName('Manage identities');
+  const bootstrap = manager.locator('tbody tr').filter({ hasText: bootstrapSubject });
+  await expect(bootstrap).toHaveCount(1);
+  await bootstrap.getByRole('button', { name: 'Remove' }).click();
+  const remove = page.getByRole('dialog', { name: 'Remove identity binding' });
+  await remove.getByRole('button', { name: 'OK' }).click();
+  await expect(remove).toBeHidden();
+  await manager.getByRole('button', { name: 'Done' }).click();
+  await expect(manager).toBeHidden();
+}
+
+async function queueAppleApproval(page) {
+  const callback = page.waitForResponse(response => new URL(response.url()).pathname === callbackPath);
+  await page.goto(origin);
+  await providerLoginLink(page).click();
+  await localProviderInteraction(page);
+  const response = await callback;
+  expect(response.status()).toBe(403);
+  await expect(page.getByRole('heading', { name: 'WebGUI sign-in not completed' })).toBeVisible();
+}
+
+async function approveAppleIdentity(page) {
+  await page.goto(`${origin}/system_authservers.php`);
+  await page.getByRole('row', { name: new RegExp(state.server_name) })
+    .getByRole('link', { name: 'Edit' }).click();
+  await page.getByRole('button', { name: 'Manage identities' }).click();
+  const manager = page.getByRole('dialog');
+  await manager.getByRole('button', { name: /Pending administrator approvals/ }).click();
+  await expect(manager).toHaveAccessibleName('Pending administrator approvals');
+  const request = manager.locator('.oidc-approval-card');
+  await expect(request).toHaveCount(1);
+  await request.locator('select').selectOption({ label: state.username });
+  await request.getByRole('button', { name: 'Approve and bind' }).click();
+  await expect(manager).toContainText('There are no pending identities for this provider.');
+  await manager.getByRole('button', { name: 'Done' }).click();
+  await expect(manager).toBeHidden();
 }
 
 async function testProviderSignIn(page) {
@@ -450,7 +516,7 @@ async function establishLiveSession(page) {
       authorization = new URL(request.url());
     }
   });
-  await page.getByRole('link', { name: `Login using ${state.server_name}` }).click();
+  await providerLoginLink(page).click();
   await liveProviderInteraction(page);
   await expect(page).toHaveURL(/\/ui\/core\/dashboard/, { timeout: state.manual_timeout_seconds * 1000 });
   const after = (await page.context().cookies(origin)).find(cookie => cookie.name === 'PHPSESSID')?.value;
@@ -518,6 +584,16 @@ test(`OPNsense provider flow through ${state.provider}`, async ({ browser }) => 
 
   if (state.source === 'emulated') {
     await testProviderSignIn(adminPage);
+    if (state.provider === 'apple') {
+      await prepareAppleApprovalAccount(adminPage);
+      const approval = await browser.newContext({ ignoreHTTPSErrors: true });
+      await queueAppleApproval(await approval.newPage());
+      await approval.close();
+      await approveAppleIdentity(adminPage);
+    }
+    const emulatedSession = await browser.newContext({ ignoreHTTPSErrors: true });
+    await providerLogin(await emulatedSession.newPage());
+    await emulatedSession.close();
     await admin.close();
     return;
   }
