@@ -194,6 +194,27 @@ function selectPickerButton(locator) {
   );
 }
 
+async function tokenizerPalette(input) {
+  const picker = input.locator('xpath=following-sibling::select[contains(@class, "tokenize")]');
+  return picker.evaluate(select => {
+    const palette = 'rgb(18, 52, 86)';
+    const cell = select.closest('td');
+    const previous = cell.style.color;
+    cell.style.color = palette;
+    const container = select.parentElement.querySelector('.tokens-container');
+    const token = container.querySelector('.token');
+    const search = container.querySelector('.token-search input');
+    const result = {
+      containerBackground: getComputedStyle(container).backgroundColor,
+      containerColor: getComputedStyle(container).color,
+      searchColor: getComputedStyle(search).color,
+      tokenColor: token ? getComputedStyle(token).color : null,
+    };
+    cell.style.color = previous;
+    return result;
+  });
+}
+
 async function waitForOidcForm(page) {
   await page.locator('.oidc-revert-changes').waitFor({ state: 'attached' });
 }
@@ -379,6 +400,17 @@ async function configureServer(page) {
   await expect(restoreProfile).toBeDisabled();
   const scopesInput = page.locator('input[name="openidconnect_scopes"]');
   const scopesPicker = scopesInput.locator('xpath=following-sibling::select[contains(@class, "tokenize")]');
+  expect(await tokenizerPalette(scopesInput)).toEqual({
+    containerBackground: 'rgba(0, 0, 0, 0)',
+    containerColor: 'rgb(18, 52, 86)',
+    searchColor: 'rgb(18, 52, 86)',
+    tokenColor: 'rgb(18, 52, 86)',
+  });
+  expect(await tokenizerPalette(page.locator('input[name="openidconnect_redirect_urls"]'))).toMatchObject({
+    containerBackground: 'rgba(0, 0, 0, 0)',
+    containerColor: 'rgb(18, 52, 86)',
+    searchColor: 'rgb(18, 52, 86)',
+  });
   await scopesPicker.evaluate(select => {
     select.querySelector('option[value="name"]').selected = false;
     window.jQuery(select).trigger('tokenize:tokens:change');
@@ -500,8 +532,12 @@ async function configureServer(page) {
   const providerSetupSection = page.locator('[data-oidc-action-section="provider-setup"]');
   await expect(providerSetupSection).toBeVisible();
   const setupChannel = providerSetupSection.locator('select');
-  expect(await setupChannel.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThan(35);
   const logoutNotifications = page.locator('select[name="openidconnect_logout_notifications"]');
+  const [setupHeight, configuredHeight] = await Promise.all([
+    selectPickerButton(setupChannel).evaluate(element => element.getBoundingClientRect().height),
+    selectPickerButton(logoutNotifications).evaluate(element => element.getBoundingClientRect().height),
+  ]);
+  expect(Math.abs(setupHeight - configuredHeight)).toBeLessThanOrEqual(1);
   await expect(logoutNotifications).toHaveValue('backchannel');
   await selectNative(setupChannel, 'frontchannel');
   await expect(logoutNotifications).toHaveValue('frontchannel');
@@ -1515,6 +1551,15 @@ test('real OPNsense login, session binding and logout interoperability', async (
     expectPrivateResponseHeaders(await approvalListResponsePromise);
     const manager = page.locator('.oidc-identity-dialog');
     await expect(manager.getByRole('heading', { name: 'Bound identities' })).toBeVisible();
+    await expect(manager.locator('table')).not.toHaveClass(/table-striped/);
+    const iconButtons = manager.locator('.oidc-icon-button');
+    await expect(iconButtons).toHaveCount(4);
+    expect(await iconButtons.evaluateAll(buttons => buttons.flatMap(button => {
+      const icon = button.querySelector('.fa').getBoundingClientRect();
+      const label = button.querySelector('span:not(.badge)').getBoundingClientRect();
+      const aligned = Math.abs((icon.top + icon.bottom) / 2 - (label.top + label.bottom) / 2) <= 1;
+      return icon.right < label.left && aligned ? [] : [button.textContent.trim()];
+    }))).toEqual([]);
     await expect(manager.locator('tbody tr')).toHaveCount(1);
     await captureDocumentationScreenshot(
       page,
