@@ -57,6 +57,10 @@ sides of admission:
   provider sign-in but received no WebGUI session. They can be approved into a
   binding with an existing or newly created local account, or denied.
 
+![Bound external identities][bindings-screenshot]
+
+![Pending administrator approvals][approvals-screenshot]
+
 The raw storage representation is intentionally not exposed as a server-form
 field. Closing or saving the ordinary server form cannot overwrite a change
 made in the manager.
@@ -158,3 +162,6 @@ References: [OpenID Connect Core subject identifier](https://openid.net/specs/op
 [Google OpenID Connect claims](https://developers.google.com/identity/openid-connect/reference),
 [authentik subject modes](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/token_exchange/),
 and [ORCID authenticated iDs](https://info.orcid.org/documentation/integration-guide/orcid-oauth-sign-in-guidelines/).
+
+[bindings-screenshot]: ../assets/screenshots/bound-identities.png
+[approvals-screenshot]: ../assets/screenshots/pending-approvals.png

@@ -264,6 +264,8 @@ silent authorization check can validate only the public Client ID and callback;
 the result says plainly that only Test sign-in can validate the secret during a
 real code exchange.
 
+![Connection health results][health-screenshot]
+
 Validated runtime caches may still bridge provider outages for bounded periods,
 but they are not presented as a live health result. Discovery may remain usable
 for at most 24 hours and an already known signing key for at most one hour beyond
@@ -303,6 +305,8 @@ rejects the Client ID or callback there, the form shows the failure without a
 browser redirect. If it accepts authorization but rejects the confidential
 client during the token exchange, a dedicated diagnostic page explains the
 credential failure and returns to the exact saved server row.
+
+![Successful complete browser sign-in test][signin-screenshot]
 
 OPNsense's generic **System > Access > Tester** is built only for connectors
 which accept a username and password in one request. It always requires those
@@ -365,3 +369,6 @@ provider may control under **Assignable groups**; an empty list grants none.
 
 Continue with the [complete settings reference](settings-reference.md) or
 [troubleshooting](troubleshooting.md).
+
+[health-screenshot]: ../assets/screenshots/connection-health.png
+[signin-screenshot]: ../assets/screenshots/test-sign-in.png

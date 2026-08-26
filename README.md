@@ -20,6 +20,41 @@ The provider proves who the person is. OPNsense still decides which local
 account and permissions that identity receives. Unknown identities are refused
 by default or wait for explicit administrator approval.
 
+## See the safety checks before enabling sign-in
+
+The familiar local password form remains available beside the identity-provider
+button. An unavailable or misconfigured provider therefore does not remove the
+normal recovery path.
+
+![Local password and identity-provider sign-in][login-screenshot]
+
+**Connection health** checks the current form values against the live provider.
+Each result says whether OPNsense, the browser or the identity provider is
+involved and distinguishes a live request from metadata or configuration.
+
+![Connection health results][health-screenshot]
+
+**Test sign-in** completes the real browser authorization, code exchange, token
+and claim validation without creating a WebGUI session or changing a local
+account, identity binding or group membership.
+
+![Successful sign-in test][signin-screenshot]
+
+## Keep identity admission explicit
+
+Every accepted external identity is durably bound by its exact issuer and
+subject to a local OPNsense account. Administrators can review, add, edit or
+remove those bindings without exposing their storage in the ordinary server
+form.
+
+![Bound external identities][bindings-screenshot]
+
+With administrator approval, a valid but unknown identity receives no session.
+Its verified stable identity waits in a private queue until an administrator
+chooses an existing or new local account, or denies the request.
+
+![Pending administrator approval][approvals-screenshot]
+
 ## Is it a good fit?
 
 Choose this plugin when:
@@ -112,3 +147,9 @@ not remove its saved settings and does not disable local password login.
 BSD-2-Clause, see [LICENSE](LICENSE).
 
 Copyright (C) 2026 Julian Pawlowski. All rights reserved.
+
+[login-screenshot]: docs/assets/screenshots/login-and-recovery.png
+[health-screenshot]: docs/assets/screenshots/connection-health.png
+[signin-screenshot]: docs/assets/screenshots/test-sign-in.png
+[bindings-screenshot]: docs/assets/screenshots/bound-identities.png
+[approvals-screenshot]: docs/assets/screenshots/pending-approvals.png
