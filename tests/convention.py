@@ -274,7 +274,8 @@ def main():
               "pkg delete os-openid-connect" in stable_after_legacy_beta
               and "pkg add /tmp/os-openid-connect-1.0.0.pkg" in stable_after_legacy_beta
               and stable_after_legacy_beta.index("pkg delete") < stable_after_legacy_beta.index("pkg add")
-              and "v1.0.0-betaN" in stable_after_legacy_beta, True)
+              and "v1.0.0-betaN" in stable_after_legacy_beta
+              and "beta-based CI snapshot" in stable_after_legacy_beta, True)
         check("the legacy beta migration never leaves retired files behind",
               "pkg add -f" not in stable_after_legacy_beta, True)
         check("later stable notes retain the ordinary install command",

@@ -26,9 +26,10 @@ Their packages used the legacy version `1.0.0.betaN`, which `pkg` sorts after
 `1.0.0`. Development snapshots based on those tags retain the legacy
 `1.0.0.betaN.DISTANCE.gREVISION` spelling so they remain newer than the beta
 they test over. One beta also shipped a file that later left the package.
-Replacing any beta with the stable `v1.0.0` package therefore starts with
-`pkg delete os-openid-connect` and then uses a normal `pkg add`. Saved settings
-remain; later releases and all future pre-releases follow normal upgrade ordering.
+Replacing any beta or beta-based CI snapshot with the stable `v1.0.0` package
+therefore starts with `pkg delete os-openid-connect` and then uses a normal
+`pkg add`. Saved settings remain; later releases and all future pre-releases
+follow normal upgrade ordering.
 
 ## The note writes itself
 
@@ -123,8 +124,8 @@ provenance, release immutability and its checksum.
 
     pkg add os-openid-connect-<version>.pkg
 
-For the one-time move from a historical `v1.0.0-betaN` package to `v1.0.0`,
-delete the beta package first as explained above.
+For the one-time move from a historical `v1.0.0-betaN` package or beta-based CI
+snapshot to `v1.0.0`, delete the old package first as explained above.
 
 No restart, no service affected — PHP reads the files on the next request.
 Anyone signed in notices nothing; the session lives in PHP, not in the module.
