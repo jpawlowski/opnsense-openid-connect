@@ -14,9 +14,14 @@ attaches both. `.github/workflows/build.yml` remains valid Forgejo Actions
 syntax, but the Forgejo repository is a pull mirror and never publishes a
 release of its own.
 
-A tag with a suffix is a pre-release: `v1.0.0-beta1` becomes package version
-`1.0.0.beta1` — a hyphen is what `pkg` reads as the end of a package's name, so
-it cannot survive into a version — and the release is marked as one.
+A stable tag has the form `v1.2.3`. Future pre-releases use exactly
+`v1.2.3-alpha.1`, `v1.2.3-beta.1` or `v1.2.3-rc.1`, with a sequence beginning
+at one. GitHub keeps that readable SemVer tag while `build.py` emits the FreeBSD
+package versions `1.2.3.a1`, `1.2.3.b1` or `1.2.3.r1`. Under FreeBSD's
+[package version rules](https://docs.freebsd.org/en/books/porters-handbook/book/#makefile-versions),
+`pkg` sorts those before `1.2.3`, so a stable release is an upgrade from each of
+its pre-releases. Other release-tag suffixes are refused. The earlier immutable
+`v1.0.0-betaN` tags remain historical and are not renamed or reused.
 
 ## The note writes itself
 
@@ -65,7 +70,7 @@ on any machine. Which is exactly why an ordinary Linux CI runner can do it.
 ## Checking a package before installing it
 
 `pkg` verifies **nothing** about a file handed to it directly: native signatures
-are a property of a repository, and this beta does not come from one. Every
+are a property of a repository, and this package does not come from one. Every
 published package instead receives a keyless GitHub/Sigstore build-provenance
 attestation. It binds the exact package digest to this repository, its workflow
 and source commit; GitHub also locks the published tag and release assets.
@@ -123,10 +128,10 @@ missing.
 Settings survive either way: they live in `/conf/config.xml` under
 `<system><authserver>` and belong to no package.
 
-During the beta there is intentionally no third-party `pkg` repository and no
-automatic `pkg install` update path. Native repository fingerprints can be
+This standalone distribution intentionally has no third-party `pkg` repository
+or automatic `pkg install` update path. Native repository fingerprints can be
 introduced later without making that infrastructure part of the authentication
-plugin's first release boundary.
+plugin's release boundary.
 
 Release immutability is a one-time GitHub repository setting, not something the
 package can switch on. After the attesting workflow has reached the publishing

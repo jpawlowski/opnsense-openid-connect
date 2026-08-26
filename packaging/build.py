@@ -53,6 +53,25 @@ PREFIX = "/usr/local"
 TARGET = "usr/local/opnsense"
 SOURCE_URL = "https://github.com/jpawlowski/opnsense-openid-connect"
 
+SEMVER_NUMBER = r"(?:0|[1-9][0-9]*)"
+RELEASE_TAG = re.compile(
+    rf"^v(?P<version>{SEMVER_NUMBER}\.{SEMVER_NUMBER}\.{SEMVER_NUMBER})"
+    rf"(?:-(?P<stage>alpha|beta|rc)\.(?P<sequence>[1-9][0-9]*))?$"
+)
+PRERELEASE_DESCRIBE = re.compile(
+    rf"^v(?P<version>{SEMVER_NUMBER}\.{SEMVER_NUMBER}\.{SEMVER_NUMBER})"
+    rf"-(?P<stage>alpha|beta|rc)\.(?P<sequence>[1-9][0-9]*)"
+    rf"-(?P<distance>[1-9][0-9]*)-g(?P<revision>[0-9a-f]+)(?P<dirty>-dirty)?$"
+)
+# These immutable tags predate the canonical spelling. Only development
+# revisions based on them need translation; a newly created exact legacy tag is
+# still refused by release_pkg_version().
+LEGACY_PRERELEASE_DESCRIBE = re.compile(
+    rf"^v(?P<version>1\.0\.0)-beta(?P<sequence>[1-9][0-9]*)"
+    rf"-(?P<distance>[1-9][0-9]*)-g(?P<revision>[0-9a-f]+)(?P<dirty>-dirty)?$"
+)
+PRERELEASE_STAGE = {"alpha": "a", "beta": "b", "rc": "r"}
+
 # Outside the source tree: the watchdog and the nightly run that starts it.
 EXTRA = [
     ("watch/openid-connect-watch", "usr/local/sbin/openid-connect-watch", 0o755),
@@ -135,22 +154,49 @@ def git(*args, default=None):
         return default
 
 
+def release_pkg_version(tag):
+    """Return the FreeBSD package version for one canonical release tag."""
+    match = RELEASE_TAG.fullmatch(tag)
+    if match is None:
+        raise ValueError(
+            "release tags must use vMAJOR.MINOR.PATCH or "
+            "vMAJOR.MINOR.PATCH-(alpha|beta|rc).NUMBER"
+        )
+
+    version = match.group("version")
+    stage = match.group("stage")
+    if stage is not None:
+        version += f".{PRERELEASE_STAGE[stage]}{match.group('sequence')}"
+    return version
+
+
 def pkg_version(described):
-    """What `pkg` can carry, out of what git says.
+    """Return what `pkg` can carry for a release tag or development revision.
 
     A hyphen is what pkg reads as the boundary between a package's name and its
-    version, so `1.0.0-beta1` would make `pkg query %n-%v` and everything built
-    on it - the watchdog included - answer nonsense. Every character that is not
-    a digit, a letter or a dot becomes a dot:
+    version, so it must not survive into `pkg query %n-%v` or the watchdog.
+    Canonical release tags receive their deliberate FreeBSD version. Everything
+    else is a development revision whose separators are made package-safe:
 
-        v1.0.0-beta1        -> 1.0.0.beta1
+        v1.1.0-beta.1       -> 1.1.0.b1
         v1.0.0-3-gabc1234   -> 1.0.0.3.gabc1234
 
-    Note that pkg reads a longer version as the newer one, so 1.0.0.beta1 sorts
-    *after* 1.0.0 rather than before it. Nothing here depends on that ordering -
-    there is no repository to upgrade from, only `pkg add` by hand - but a
-    pre-release is a tag, not a package that overtakes its own release.
+    FreeBSD pkg treats `.aN`, `.bN` and `.rN` as versions before the otherwise
+    equal stable release. Keeping the readable SemVer spelling in Git while
+    translating only the package version preserves both contracts.
     """
+    if RELEASE_TAG.fullmatch(described):
+        return release_pkg_version(described)
+    for pattern in (PRERELEASE_DESCRIBE, LEGACY_PRERELEASE_DESCRIBE):
+        match = pattern.fullmatch(described)
+        if match is None:
+            continue
+        stage = match.groupdict().get("stage") or "beta"
+        version = (
+            f"{match.group('version')}.{PRERELEASE_STAGE[stage]}{match.group('sequence')}"
+            f".{match.group('distance')}.g{match.group('revision')}"
+        )
+        return version + (".dirty" if match.group("dirty") else "")
     return re.sub(r"[^0-9A-Za-z.]", ".", described.lstrip("v"))
 
 
@@ -162,7 +208,10 @@ def version_from_git():
     """
     exact = git("describe", "--tags", "--exact-match")
     if exact:
-        return pkg_version(exact)
+        try:
+            return release_pkg_version(exact)
+        except ValueError as error:
+            sys.exit(f"STOP: {error}: {exact}")
 
     described = git("describe", "--tags", "--always", "--dirty")
     if not described:

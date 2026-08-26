@@ -1,7 +1,7 @@
-# Install or remove the beta package
+# Install or remove the package
 
-The beta is a manually installed package. It does not add a package repository
-or enable automatic updates.
+This is a manually installed package. It does not add a package repository or
+enable automatic updates.
 
 ## Before installing
 
