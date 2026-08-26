@@ -142,7 +142,7 @@ def main():
         validation_calls.append(arguments)
         if arguments[:2] == ("merge-base", "HEAD"):
             return b"common\n"
-        if arguments[:2] == ("diff", "--name-only"):
+        if arguments[:3] == ("diff", "--no-renames", "--name-only"):
             return b"AGENTS.md\ndocs/README.md\n"
         return b""
     hook.unrestricted_git_output = validation_output
@@ -150,7 +150,8 @@ def main():
     check("gate selection inventories the branch diff from its merge base",
           (selected_paths, hook.control_plane_only(selected_paths), validation_calls[:2]),
           (("AGENTS.md", "docs/README.md"), False, [
-              ("merge-base", "HEAD", "moving-main"), ("diff", "--name-only", "common"),
+              ("merge-base", "HEAD", "moving-main"),
+              ("diff", "--no-renames", "--name-only", "common"),
           ]))
     hook.unrestricted_git_output = original_unrestricted_git_output
     with tempfile.TemporaryDirectory() as temporary:

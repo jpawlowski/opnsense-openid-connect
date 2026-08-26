@@ -101,7 +101,9 @@ def validation_paths(base):
         return ()
     # Compare the topic with its common ancestor so unrelated canonical progress
     # cannot turn a control-plane-only branch into an apparent product change.
-    changed = unrestricted_git_output("diff", "--name-only", merge_base).decode().splitlines()
+    # Keep both sides of a rename visible. A product file moved under an agent
+    # path still changed product/runtime scope and therefore needs the full gate.
+    changed = unrestricted_git_output("diff", "--no-renames", "--name-only", merge_base).decode().splitlines()
     untracked = unrestricted_git_output("ls-files", "--others", "--exclude-standard").decode().splitlines()
     return tuple(dict.fromkeys(path for path in changed + untracked if path))
 
