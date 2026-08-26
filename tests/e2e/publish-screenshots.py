@@ -39,7 +39,11 @@ def lock_path(output):
     return lock_root / f"{identity}.lock"
 
 
-def publish_screenshots(source, output, replace=os.replace):
+def remove(path):
+    path.unlink(missing_ok=True)
+
+
+def publish_screenshots(source, output, replace=os.replace, remove_path=remove):
     source = pathlib.Path(source)
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -53,6 +57,8 @@ def publish_screenshots(source, output, replace=os.replace):
     temporary = {}
     backups = {}
     published = set()
+    handled_signals = {signal.SIGHUP, signal.SIGINT, signal.SIGTERM}
+    previous_mask = None
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         try:
@@ -77,15 +83,19 @@ def publish_screenshots(source, output, replace=os.replace):
             for name in SCREENSHOTS:
                 published.add(name)
                 replace(temporary[name], output / name)
+            # A signal before this atomic mask change still enters the rollback
+            # handler with every backup available. Once masked, the complete new
+            # generation is the commit and only its obsolete backups remain.
+            previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, handled_signals)
         except BaseException as error:
             previous_handlers = {}
-            for handled_signal in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
+            for handled_signal in handled_signals:
                 previous_handlers[handled_signal] = signal.signal(handled_signal, signal.SIG_IGN)
             rollback_errors = []
             try:
                 for name in published:
                     try:
-                        (output / name).unlink(missing_ok=True)
+                        remove_path(output / name)
                     except OSError as rollback_error:
                         rollback_errors.append(rollback_error)
                 for name, backup in backups.items():
@@ -104,12 +114,22 @@ def publish_screenshots(source, output, replace=os.replace):
         else:
             for backup in backups.values():
                 try:
-                    backup.unlink(missing_ok=True)
+                    remove_path(backup)
                 except OSError:
                     pass
+            previous_handlers = {
+                handled_signal: signal.signal(handled_signal, signal.SIG_IGN)
+                for handled_signal in handled_signals
+            }
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+            previous_mask = None
+            for handled_signal, previous_handler in previous_handlers.items():
+                signal.signal(handled_signal, previous_handler)
         finally:
+            if previous_mask is not None:
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
             for path in temporary.values():
-                path.unlink(missing_ok=True)
+                remove_path(path)
             fcntl.flock(descriptor, fcntl.LOCK_UN)
     finally:
         os.close(descriptor)

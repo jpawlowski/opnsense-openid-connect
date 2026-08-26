@@ -14,6 +14,7 @@ import json
 import os
 import pathlib
 import re
+import signal
 import subprocess
 import tempfile
 import time
@@ -229,6 +230,28 @@ with tempfile.TemporaryDirectory() as temporary:
             {path.name for path in output.iterdir()} == set(screenshot_publisher.SCREENSHOTS),
             "failed screenshot publication leaves temporary or backup files behind",
         )
+
+    def signal_during_backup_cleanup(path):
+        should_signal = path.suffix == ".backup" and not signal_during_backup_cleanup.sent
+        if should_signal:
+            blocked = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+            check(
+                {signal.SIGHUP, signal.SIGINT, signal.SIGTERM}.issubset(blocked),
+                "handled signals are not masked while committed screenshot backups are removed",
+            )
+            os.kill(os.getpid(), signal.SIGTERM)
+            signal_during_backup_cleanup.sent = True
+        path.unlink(missing_ok=True)
+
+    signal_during_backup_cleanup.sent = False
+    screenshot_publisher.publish_screenshots(
+        sources[1], output, remove_path=signal_during_backup_cleanup
+    )
+    check(signal_during_backup_cleanup.sent, "the committed-cleanup signal regression did not reach a backup")
+    check(all(
+        (output / name).read_text(encoding="utf-8") == f"second:{name}\n"
+        for name in screenshot_publisher.SCREENSHOTS
+    ), "a signal during committed backup cleanup changes the published screenshot generation")
 
 
 selection = module("e2e_selection", "selection.py")
