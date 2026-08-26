@@ -461,8 +461,10 @@ mergeability hourly.
 A confirmed conflict after readiness returns the pull request to draft while it
 is resolved and validated. Restart the complete Codex cycle if the resolution
 materially changes reviewed behavior, interfaces or risk. If the resolution is
-demonstrably mechanical, record that judgment and mark the validated pull request
-ready again without another Codex review.
+demonstrably mechanical, record that judgment, skip replaying the prior review
+history and request one current-head Codex confirmation. Keep every new
+conflict-resolution head draft until that review reaches the normal stopping
+condition.
 
 ## Agent notice
 

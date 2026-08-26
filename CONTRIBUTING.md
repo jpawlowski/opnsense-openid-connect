@@ -172,8 +172,9 @@ exact delay of 180 through 480 seconds following each unchanged observation.
 After the PR is ready for human review, it checks mergeability hourly. A confirmed
 conflict returns the PR to draft during resolution and validation. The steward
 restarts the Codex cycle when that resolution materially changes reviewed
-behavior, interfaces or risk; a recorded, demonstrably mechanical resolution may
-return directly to ready after validation.
+behavior, interfaces or risk. For a recorded, demonstrably mechanical resolution,
+it may skip replaying the prior review history but still requests one current-head
+Codex confirmation before returning to ready.
 
 ## Issues and public conversation
 

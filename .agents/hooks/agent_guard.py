@@ -331,6 +331,15 @@ def _issue_helper(arguments):
     )
 
 
+def _review_wait_helper(arguments):
+    return (
+        _repository_helper(arguments, ".agents/review-requests.py", ("wait",))
+        and len(arguments) == 4
+        and arguments[1:3] == ["wait", "--phase"]
+        and arguments[3] in ("review", "ready")
+    )
+
+
 def _read_only_gh(arguments):
     if any(value.split("=", 1)[0] in ("--web", "-w") for value in arguments):
         return False
@@ -437,6 +446,8 @@ def _shell_invocation(command):
 def is_read_only_shell(command):
     """Accept a deliberately small grammar; ambiguity belongs in an isolated worktree."""
     literal_program, literal_arguments = _literal_shell_invocation(command)
+    if not _shell_hazard(command) and _review_wait_helper([literal_program, *literal_arguments]):
+        return True
     if (literal_program == "GIT_OPTIONAL_LOCKS=0" and literal_arguments
             and literal_arguments[0] == "git" and not _shell_hazard(command)):
         return _read_only_git(literal_arguments[1:])
@@ -458,7 +469,10 @@ def is_read_only_shell(command):
     if program == "gh":
         return _read_only_gh(arguments)
     if program in ("python", "python3"):
-        return _worktree_helper(arguments) or _hook_control(arguments) or _issue_helper(arguments)
+        return (
+            _worktree_helper(arguments) or _hook_control(arguments) or _issue_helper(arguments)
+            or _review_wait_helper(arguments)
+        )
     return False
 
 

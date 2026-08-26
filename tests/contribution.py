@@ -313,8 +313,9 @@ def main():
     check("active review jitter and ready-state mergeability polling are consistent",
           all("180 through 480 seconds" in text and "hourly" in text
               for text in (contribution_skill, agents, contributing)), True)
-    check("material conflict resolutions restart review while mechanical resolutions may skip it",
+    check("every conflict head is reviewed while mechanical resolutions skip the prior history",
           all("conflict" in text and "materially" in text and "mechanical" in text
+              and "current-head" in text and "prior review history" in text
               for text in review_hygiene), True)
     check("human and agent guidance distinguishes upstream branches from forks",
           all("without write access" in text.lower() and "opnsense-openid-connect:main" in text

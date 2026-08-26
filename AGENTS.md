@@ -316,8 +316,10 @@ scope or a direct user change returns it to draft before the next implementation
 change. A confirmed conflict after readiness also returns it to draft while the
 steward resolves and validates it. The steward restarts the complete Codex cycle
 when the resolution materially changes reviewed behavior, interfaces or risk;
-for a demonstrably mechanical resolution it records that judgment and may mark
-the validated pull request ready again without another Codex review.
+for a demonstrably mechanical resolution it records that judgment, skips replaying
+the prior review history and requests one current-head Codex confirmation. Every
+new conflict-resolution head remains draft until that review reaches the normal
+stopping condition.
 
 Before every external review request or final review handoff, read and follow
 the complete `preflight-review` skill against the exact final diff from the

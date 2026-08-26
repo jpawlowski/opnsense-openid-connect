@@ -508,6 +508,18 @@ def main():
           guard_module.is_read_only_shell("python3 /tmp/.agents/worktrees.py list"), False)
     check("the issue claim helper is an allowed coordination operation",
           guard_module.is_read_only_shell("python3 .agents/issues.py claim 42"), True)
+    check("the Python review-delay helper is read-only in the control checkout",
+          guard_module.is_read_only_shell(
+              "python3 .agents/review-requests.py wait --phase review",
+          ), True)
+    check("the directly executed review-delay helper is also read-only",
+          guard_module.is_read_only_shell(
+              ".agents/review-requests.py wait --phase ready",
+          ), True)
+    check("the review-delay helper rejects an executable trailing argument",
+          guard_module.is_read_only_shell(
+              ".agents/review-requests.py wait --phase review rm",
+          ), False)
     check("issue creation may bootstrap public coordination before a claim",
           guard_module.is_issue_bootstrap({
               "tool_name": "Bash", "tool_input": {"command": "gh issue create --title example"},
