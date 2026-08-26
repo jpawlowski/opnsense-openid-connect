@@ -6,6 +6,7 @@
 """Host-independent consistency checks for the manual E2E harness."""
 
 import contextlib
+import fcntl
 import hashlib
 import importlib.util
 import io
@@ -15,6 +16,7 @@ import pathlib
 import re
 import subprocess
 import tempfile
+import time
 import types
 
 
@@ -57,7 +59,7 @@ for path in [
     HERE / "run-live.sh", HERE / "selection.py", HERE / "public-inbound.py", HERE / "provider-result.py",
     HERE / "public-inbound-canary.py", HERE / "public-inbound-target.py", HERE / "live-config.py",
     HERE / "vm.py", HERE / "vm" / "bootstrap.exp", HERE / "providers" / "image.py",
-    HERE / "providers" / "stack.py",
+    HERE / "providers" / "stack.py", HERE / "publish-screenshots.py",
 ]:
     check(path.stat().st_mode & 0o111, f"{path.relative_to(HERE)} is not executable")
 
@@ -153,6 +155,80 @@ def module(name, relative):
     loaded = importlib.util.module_from_spec(specification)
     specification.loader.exec_module(loaded)
     return loaded
+
+
+screenshot_publisher = module("e2e_screenshot_publisher", "publish-screenshots.py")
+with tempfile.TemporaryDirectory() as temporary:
+    publication_root = pathlib.Path(temporary)
+    output = publication_root / "output"
+    output.mkdir()
+    sources = []
+    for generation in ("first", "second"):
+        source = publication_root / generation
+        source.mkdir()
+        for name in screenshot_publisher.SCREENSHOTS:
+            (source / name).write_text(f"{generation}:{name}\n", encoding="utf-8")
+        sources.append(source)
+
+    lock_descriptor = os.open(screenshot_publisher.lock_path(output), os.O_CREAT | os.O_RDWR, 0o600)
+    fcntl.flock(lock_descriptor, fcntl.LOCK_EX)
+    publishers = [
+        subprocess.Popen(
+            [
+                str(HERE / "publish-screenshots.py"), "--source", str(source), "--output", str(output),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for source in sources
+    ]
+    time.sleep(0.1)
+    check(all(process.poll() is None for process in publishers),
+          "a screenshot publisher does not wait for the output-directory lock")
+    fcntl.flock(lock_descriptor, fcntl.LOCK_UN)
+    os.close(lock_descriptor)
+    for process in publishers:
+        stdout, stderr = process.communicate(timeout=10)
+        check(process.returncode == 0, f"a serialized screenshot publisher failed: {stdout}{stderr}")
+    generations = {
+        (output / name).read_text(encoding="utf-8").split(":", 1)[0]
+        for name in screenshot_publisher.SCREENSHOTS
+    }
+    check(len(generations) == 1, "concurrent screenshot publishers leave a mixed generation")
+    check(
+        {path.name for path in output.iterdir()} == set(screenshot_publisher.SCREENSHOTS),
+        "serialized screenshot publication leaves temporary or backup files behind",
+    )
+
+    for simulated_failure in (
+        OSError("simulated publication failure"),
+        InterruptedError("simulated publication signal"),
+    ):
+        for name in screenshot_publisher.SCREENSHOTS:
+            (output / name).write_text(f"maintained:{name}\n", encoding="utf-8")
+        replacement_calls = [0]
+
+        def failing_replace(source, target):
+            replacement_calls[0] += 1
+            if replacement_calls[0] == len(screenshot_publisher.SCREENSHOTS) + 2:
+                raise simulated_failure
+            os.replace(source, target)
+
+        try:
+            screenshot_publisher.publish_screenshots(sources[0], output, replace=failing_replace)
+        except type(simulated_failure):
+            pass
+        else:
+            check(False, "the screenshot rollback regression did not reach its simulated failure")
+        check(all(
+            (output / name).read_text(encoding="utf-8") == f"maintained:{name}\n"
+            for name in screenshot_publisher.SCREENSHOTS
+        ), "a failed or interrupted screenshot publication does not restore the maintained generation")
+        check(
+            {path.name for path in output.iterdir()} == set(screenshot_publisher.SCREENSHOTS),
+            "failed screenshot publication leaves temporary or backup files behind",
+        )
 
 
 selection = module("e2e_selection", "selection.py")

@@ -69,8 +69,7 @@ public_inbound_state="$work_dir/public-inbound.json"
 
 E2E_RUN_ID=$run_id
 documentation_screenshot_output=${E2E_DOCUMENTATION_SCREENSHOTS:-}
-documentation_screenshot_names='login-and-recovery.png connection-health.png test-sign-in.png bound-identities.png pending-approvals.png'
-documentation_publish_phase=idle
+documentation_publisher_pid=
 if [ -n "${E2E_DOCUMENTATION_SCREENSHOTS:-}" ]; then
   case "$E2E_DOCUMENTATION_SCREENSHOTS" in
     /*) ;;
@@ -147,27 +146,9 @@ export E2E_KEYCLOAK_URL
 
 cleanup() {
   status=$?
-  if [ -n "$documentation_screenshot_output" ]; then
-    if [ "$documentation_publish_phase" = backing-up ]; then
-      for screenshot_name in $documentation_screenshot_names; do
-        screenshot_backup="$documentation_screenshot_output/.${screenshot_name}.${run_id}.backup"
-        if [ -e "$screenshot_backup" ]; then
-          mv "$screenshot_backup" "$documentation_screenshot_output/$screenshot_name" || true
-        fi
-      done
-    elif [ "$documentation_publish_phase" = publishing ]; then
-      for screenshot_name in $documentation_screenshot_names; do
-        screenshot_backup="$documentation_screenshot_output/.${screenshot_name}.${run_id}.backup"
-        rm -f "$documentation_screenshot_output/$screenshot_name" || true
-        if [ -e "$screenshot_backup" ]; then
-          mv "$screenshot_backup" "$documentation_screenshot_output/$screenshot_name" || true
-        fi
-      done
-    fi
-    for screenshot_name in $documentation_screenshot_names; do
-      rm -f "$documentation_screenshot_output/.${screenshot_name}.${run_id}.tmp" || true
-      rm -f "$documentation_screenshot_output/.${screenshot_name}.${run_id}.backup" || true
-    done
+  if [ -n "$documentation_publisher_pid" ]; then
+    kill -TERM "$documentation_publisher_pid" >/dev/null 2>&1 || true
+    wait "$documentation_publisher_pid" >/dev/null 2>&1 || true
   fi
   if [ "$E2E_KEEP" = "1" ]; then
     printf 'E2E resources retained for inspection in %s (exit %s).\n' "$work_dir" "$status" >&2
@@ -485,30 +466,9 @@ if [ -n "${E2E_PROVIDER_RESULT:-}" ]; then
 fi
 
 if [ -n "$documentation_screenshot_output" ]; then
-  for screenshot_name in $documentation_screenshot_names; do
-    test -s "$E2E_DOCUMENTATION_SCREENSHOTS/$screenshot_name"
-    cp "$E2E_DOCUMENTATION_SCREENSHOTS/$screenshot_name" \
-      "$documentation_screenshot_output/.${screenshot_name}.${run_id}.tmp"
-  done
-
-  # The five maintained images form one documentation artifact. Move every old
-  # member aside before publishing any new member, and let the EXIT/signal trap
-  # restore the complete old set if either phase stops part-way through.
-  documentation_publish_phase=backing-up
-  for screenshot_name in $documentation_screenshot_names; do
-    screenshot_target="$documentation_screenshot_output/$screenshot_name"
-    screenshot_backup="$documentation_screenshot_output/.${screenshot_name}.${run_id}.backup"
-    if [ -e "$screenshot_target" ]; then
-      mv "$screenshot_target" "$screenshot_backup"
-    fi
-  done
-  documentation_publish_phase=publishing
-  for screenshot_name in $documentation_screenshot_names; do
-    mv "$documentation_screenshot_output/.${screenshot_name}.${run_id}.tmp" \
-      "$documentation_screenshot_output/$screenshot_name"
-  done
-  documentation_publish_phase=published
-  for screenshot_name in $documentation_screenshot_names; do
-    rm -f "$documentation_screenshot_output/.${screenshot_name}.${run_id}.backup" || true
-  done
+  python3 "$script_dir/publish-screenshots.py" \
+    --source "$E2E_DOCUMENTATION_SCREENSHOTS" --output "$documentation_screenshot_output" &
+  documentation_publisher_pid=$!
+  wait "$documentation_publisher_pid"
+  documentation_publisher_pid=
 fi
