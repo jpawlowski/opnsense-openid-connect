@@ -10,6 +10,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -216,6 +217,22 @@ check(not any(item["provider"] in {"okta", "apple"} for item in canary_suite["re
       "the full canary suite still runs npm-emulated providers")
 check(len([message for message in canary_suite["skipped"] if "npm emulator" in message]) == 2,
       "the full canary suite does not explain both npm-emulator skips")
+with tempfile.TemporaryDirectory() as temporary:
+    for runner, arguments in (
+        ("run.sh", ["--provider", "authentik", "--canary"]),
+        ("run-provider.sh", ["--provider", "authentik", "--canary"]),
+    ):
+        canary_result = pathlib.Path(temporary) / f"{runner}.json"
+        canary_result.write_text("keep existing evidence\n", encoding="utf-8")
+        refused_canary_result = subprocess.run(
+            [str(HERE / runner), *arguments],
+            env={**os.environ, "E2E_PROVIDER_RESULT": str(canary_result)}, capture_output=True, text=True,
+        )
+        check(refused_canary_result.returncode == 2
+              and "cannot retain an unreviewed canary image" in refused_canary_result.stderr,
+              f"{runner} accepts retained evidence for an unreviewed canary image")
+        check(canary_result.read_text(encoding="utf-8") == "keep existing evidence\n",
+              f"the refused {runner} canary run removes the caller's existing provider evidence")
 
 live = module("live_config", "live-config.py")
 with tempfile.TemporaryDirectory() as temporary:

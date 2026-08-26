@@ -59,6 +59,10 @@ done
 if [ -n "$E2E_PROVIDER_RESULT" ]; then
   [ -n "$provider" ] || { printf 'E2E_PROVIDER_RESULT requires one explicit provider.\n' >&2; exit 2; }
   [ "$cluster" != all ] || { printf 'E2E_PROVIDER_RESULT requires one explicit cluster.\n' >&2; exit 2; }
+  [ "$canary" = 0 ] || {
+    printf 'E2E_PROVIDER_RESULT cannot retain an unreviewed canary image.\n' >&2
+    exit 2
+  }
   case "$E2E_PROVIDER_RESULT" in /*) ;; *) printf 'E2E_PROVIDER_RESULT must be absolute.\n' >&2; exit 2 ;; esac
   [ -d "$(dirname -- "$E2E_PROVIDER_RESULT")" ] || {
     printf 'The E2E provider result directory does not exist.\n' >&2

@@ -19,6 +19,10 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 case "$provider" in authentik|authelia|pocketid|entra|okta|apple) ;; *) exit 2 ;; esac
+[ "$canary" = 0 ] || [ -z "${E2E_PROVIDER_RESULT:-}" ] || {
+  printf 'E2E_PROVIDER_RESULT cannot retain an unreviewed canary image.\n' >&2
+  exit 2
+}
 
 : "${E2E_OPNSENSE_URL:?Set the HTTPS origin of the disposable OPNsense instance}"
 : "${E2E_OPNSENSE_SSH:?Set the certificate-authenticated SSH target}"

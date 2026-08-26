@@ -204,7 +204,8 @@ For any single provider and cluster, `E2E_PROVIDER_RESULT=/absolute/result.json`
 writes a separate mode-`0600` provider result. It binds provider/source/cluster,
 repository revision, harness digest, pinned test subject and capability outcomes
 without retaining tenant, account, host, cookie, token, claim or secret values.
-Import only deliberately reviewed cells:
+Canary runs refuse this output because their latest-release image is not a
+reviewed import subject. Import only deliberately reviewed cells:
 
     python3 tests/import-provider-result.py /absolute/result.json --feature login --feature pkce
 
