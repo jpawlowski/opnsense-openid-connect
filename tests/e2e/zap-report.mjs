@@ -1,8 +1,3 @@
-/*
- * Copyright (C) 2026 Julian Pawlowski
- * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
- */
-
 import { writeFile } from 'node:fs/promises';
 import { request } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';

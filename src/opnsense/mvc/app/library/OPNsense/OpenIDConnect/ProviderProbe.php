@@ -2,7 +2,28 @@
 
 /*
  * Copyright (C) 2026 Julian Pawlowski
- * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
  */
 
 namespace OPNsense\OpenIDConnect;
@@ -65,7 +86,8 @@ final class ProviderProbe
                 gettext('The JWKS endpoint contains supported signing material. Provider response: ')
                     . $keySet['response']->diagnosticSummary() . '.',
                 ['opnsense', 'idp'],
-                'live'
+                'live',
+                'signing-keys'
             );
         } catch (\Throwable $error) {
             $checks[] = self::check(
@@ -74,7 +96,8 @@ final class ProviderProbe
                 'error',
                 $error->getMessage(),
                 ['opnsense', 'idp'],
-                'live'
+                'live',
+                'signing-keys'
             );
         }
         $checks[] = $this->requestObjectCheck($settings, $metadata);
@@ -86,14 +109,16 @@ final class ProviderProbe
                 $authorization['status'],
                 $authorization['note'],
                 ['opnsense', 'idp'],
-                $authorization['verification']
+                $authorization['verification'],
+                'authorization-registration'
             );
         } catch (\Throwable $error) {
             $checks[] = self::failureCheck(
                 gettext('Authorization registration'),
                 $error->getMessage(),
                 ['opnsense', 'idp'],
-                'live'
+                'live',
+                'authorization-registration'
             );
         }
         $checks[] = $this->parCheck($settings, $metadata, $redirectUri);
@@ -144,7 +169,8 @@ final class ProviderProbe
                     ? gettext('Exact issuer URL, Client ID and the selected client credential are present.')
                     : gettext('Enter Exact issuer URL, Client ID and the selected client credential.'),
                 ['opnsense'],
-                'configuration'
+                'configuration',
+                'client-configuration'
             ),
             self::check(
                 gettext('WebGUI transport'),
@@ -156,7 +182,8 @@ final class ProviderProbe
                         ? gettext('The current WebGUI origin is not accepted by these form values.')
                         : $settings->webGuiTransportProblem()),
                 ['browser', 'opnsense'],
-                'configuration'
+                'configuration',
+                'webgui-transport'
             ),
             self::webGuiOriginsCheck($settings),
         ];
@@ -174,7 +201,8 @@ final class ProviderProbe
                 ? gettext('No browser origin is accepted for OpenID Connect sign-in.')
                 : gettext('OpenID Connect sign-in can start from exactly these browser origins.'),
             ['browser', 'opnsense'],
-            'configuration'
+            'configuration',
+            'webgui-origins'
         );
     }
 
@@ -191,7 +219,8 @@ final class ProviderProbe
                     ? gettext('Select and register a Request Object signing key before sign-in.')
                     : gettext('Select a registered OPNsense certificate to sign RFC 9101 Request Objects.'),
                 ['opnsense'],
-                'configuration'
+                'configuration',
+                'request-object'
             );
         }
         try {
@@ -202,7 +231,8 @@ final class ProviderProbe
                 'success',
                 sprintf(gettext('Request Objects use the selected certificate with kid %s.'), $key),
                 ['opnsense'],
-                'configuration'
+                'configuration',
+                'request-object'
             );
         } catch (\Throwable $error) {
             return self::check(
@@ -211,7 +241,8 @@ final class ProviderProbe
                 'error',
                 $error->getMessage(),
                 ['opnsense'],
-                'configuration'
+                'configuration',
+                'request-object'
             );
         }
     }
@@ -226,7 +257,8 @@ final class ProviderProbe
                 ($par['status'] ?? '') === 'success' ? 'success' : 'info',
                 gettext('The live PAR request used the selected client authentication method.'),
                 ['opnsense', 'idp'],
-                'live'
+                'live',
+                'client-credentials'
             );
         }
         return self::check(
@@ -235,7 +267,8 @@ final class ProviderProbe
             'info',
             gettext('This provider path did not use the credentials; Test sign-in exercises them with a code.'),
             ['opnsense', 'idp'],
-            'not-tested'
+            'not-tested',
+            'client-credentials'
         );
     }
 
@@ -244,7 +277,8 @@ final class ProviderProbe
         string $label,
         string $note,
         array $actors,
-        string $verification
+        string $verification,
+        string $guidance = 'provider-preflight'
     ): array {
         return self::check(
             $label,
@@ -252,7 +286,8 @@ final class ProviderProbe
             'error',
             $note,
             $actors,
-            $verification
+            $verification,
+            $guidance
         );
     }
 
@@ -315,7 +350,8 @@ final class ProviderProbe
                     . 'Content-Type: application/json.'
                 ),
                 ['opnsense', 'idp'],
-                'live'
+                'live',
+                'discovery'
             ),
             self::check(
                 gettext('Provider profile'),
@@ -323,7 +359,8 @@ final class ProviderProbe
                 'success',
                 gettext('Provider-specific defaults never relax protocol validation.'),
                 ['opnsense'],
-                'configuration'
+                'configuration',
+                'provider-profile'
             ),
             self::check(
                 gettext('Authorization endpoint'),
@@ -331,7 +368,8 @@ final class ProviderProbe
                 'success',
                 gettext('Discovery advertises this browser path; Test sign-in exercises it.'),
                 ['browser', 'idp'],
-                'not-tested'
+                'not-tested',
+                'authorization-endpoint'
             ),
             self::check(
                 gettext('Token endpoint'),
@@ -339,7 +377,8 @@ final class ProviderProbe
                 'success',
                 gettext('Discovery advertises this mandatory server path; Test sign-in exercises it with a code.'),
                 ['opnsense', 'idp'],
-                'not-tested'
+                'not-tested',
+                'token-endpoint'
             ),
             self::check(
                 gettext('UserInfo endpoint'),
@@ -351,7 +390,8 @@ final class ProviderProbe
                         ? gettext('The selected claims source requires UserInfo, but the provider does not offer it.')
                         : gettext('UserInfo is optional for the selected claims source.')),
                 ['opnsense', 'idp'],
-                'not-tested'
+                'not-tested',
+                'userinfo'
             ),
             self::check(
                 gettext('ID Token signatures'),
@@ -361,7 +401,8 @@ final class ProviderProbe
                     ? gettext('No supported asymmetric ID Token signature is advertised.')
                     : gettext('At least one supported asymmetric signature is advertised.'),
                 ['opnsense'],
-                'metadata'
+                'metadata',
+                'id-token-signatures'
             ),
             self::check(
                 gettext('Client authentication'),
@@ -371,7 +412,8 @@ final class ProviderProbe
                     ? ($authProblem ?? gettext('No usable token endpoint authentication method is available.'))
                     : gettext('At least one confidential-client authentication method is usable.'),
                 ['opnsense'],
-                'metadata'
+                'metadata',
+                'client-authentication'
             ),
             self::check(
                 gettext('Client assertion signatures'),
@@ -385,7 +427,8 @@ final class ProviderProbe
                         : gettext('Private-key JWT can negotiate one of these asymmetric signatures.'))
                     : gettext('Private-key JWT client authentication is not selected.'),
                 ['opnsense'],
-                'metadata'
+                'metadata',
+                'client-assertion-signatures'
             ),
             self::check(
                 gettext('Certificate-bound access tokens'),
@@ -396,7 +439,8 @@ final class ProviderProbe
                     ? gettext('The provider can bind access tokens to the mutual-TLS client certificate.')
                     : gettext('Certificate-bound access tokens cannot be required for this provider.'),
                 ['opnsense'],
-                'metadata'
+                'metadata',
+                'certificate-bound-tokens'
             ),
             self::check(
                 gettext('PKCE'),
@@ -408,7 +452,8 @@ final class ProviderProbe
                         'This client requires the provider to advertise PKCE S256; sign-in is refused without it.'
                     ),
                 ['opnsense'],
-                'metadata'
+                'metadata',
+                'pkce'
             ),
             self::check(
                 gettext('DPoP sender constraint'),
@@ -423,7 +468,8 @@ final class ProviderProbe
                         )
                         : gettext('Bearer access tokens remain in use unless the provider advertises ES256 DPoP.')),
                 ['opnsense'],
-                'metadata'
+                'metadata',
+                'dpop'
             ),
         ];
         if ($userInfo === null && $settings->claimsSource() !== 'userinfo') {
@@ -468,7 +514,8 @@ final class ProviderProbe
                     ? gettext('The selected response mode is advertised.')
                     : gettext('The selected response mode is not advertised.')),
             ['idp', 'browser', 'opnsense'],
-            'metadata'
+            'metadata',
+            'response-mode'
         );
         if (str_ends_with($responseMode, '.jwt')) {
             $jarmAlgorithms = array_values(array_intersect(
@@ -483,7 +530,8 @@ final class ProviderProbe
                     ? gettext('The provider advertises no supported asymmetric JARM signature.')
                     : gettext('The signed authorization response can use a supported asymmetric signature.'),
                 ['opnsense'],
-                'metadata'
+                'metadata',
+                'jarm'
             );
         }
         $tokenAuth = $settings->tokenAuthMethod();
@@ -497,7 +545,8 @@ final class ProviderProbe
                 ? gettext('The configured choice can use the provider metadata.')
                 : ($authProblem ?? gettext('The selected client authentication method is not usable.')),
             ['opnsense'],
-            'metadata'
+            'metadata',
+            'selected-authentication'
         );
         $issuerAdvertised = $metadata->authorizationResponseIssuerSupported();
         $issuerCheck = self::check(
@@ -508,7 +557,8 @@ final class ProviderProbe
                 ? gettext('The provider advertises RFC 9207 issuer identification.')
                 : gettext('The distinct callback and frozen metadata still protect this provider from mix-up.'),
             ['idp', 'browser', 'opnsense'],
-            'metadata'
+            'metadata',
+            'authorization-response-issuer'
         );
         if (!$issuerAdvertised) {
             $issuerCheck['section'] = 'unsupported';
@@ -524,7 +574,8 @@ final class ProviderProbe
                     : gettext('Provider sign-out is optional; local logout still works.'))
                 : gettext('RP-initiated provider sign-out is available.'),
             ['browser', 'idp'],
-            $metadata->endSessionEndpoint() === null ? 'metadata' : 'not-tested'
+            $metadata->endSessionEndpoint() === null ? 'metadata' : 'not-tested',
+            'provider-signout'
         );
         if ($metadata->endSessionEndpoint() === null && !$settings->redirectsLogoutMenu()) {
             $signOutCheck['section'] = 'unsupported';
@@ -538,7 +589,8 @@ final class ProviderProbe
                 ? gettext('Token revocation is optional and will be skipped.')
                 : gettext('Tokens can be revoked during provider-aware logout.'),
             ['opnsense', 'idp'],
-            $metadata->revocationEndpoint() === null ? 'metadata' : 'not-tested'
+            $metadata->revocationEndpoint() === null ? 'metadata' : 'not-tested',
+            'token-revocation'
         );
         if ($metadata->revocationEndpoint() === null) {
             $revocationCheck['section'] = 'unsupported';
@@ -551,7 +603,8 @@ final class ProviderProbe
                 'error',
                 gettext('Do not use common, organizations, consumers or v1 metadata with this profile.'),
                 ['opnsense'],
-                'configuration'
+                'configuration',
+                'entra-profile'
             );
         }
     }
@@ -571,7 +624,8 @@ final class ProviderProbe
                     ? gettext('The provider requires PAR, so it cannot be disabled.')
                     : gettext('No PAR request was sent because PAR is disabled.'),
                 ['opnsense', 'idp'],
-                'skipped'
+                'skipped',
+                'par'
             );
         }
         if ($endpoint === null) {
@@ -583,7 +637,8 @@ final class ProviderProbe
                     ? gettext('PAR is required locally but Discovery offers no endpoint.')
                     : gettext('Automatic mode uses a normal browser authorization request.'),
                 ['opnsense', 'idp'],
-                'metadata'
+                'metadata',
+                'par'
             );
             if ($mode !== 'required') {
                 $check['section'] = 'unsupported';
@@ -597,7 +652,8 @@ final class ProviderProbe
                 'warning',
                 gettext('Enter Client ID and the selected client credential to run the live PAR check.'),
                 ['opnsense', 'idp'],
-                'not-tested'
+                'not-tested',
+                'par'
             );
         }
         if ($redirectUri === null) {
@@ -607,7 +663,8 @@ final class ProviderProbe
                 'error',
                 gettext('The current WebGUI origin is not accepted by these form values.'),
                 ['opnsense'],
-                'configuration'
+                'configuration',
+                'par'
             );
         }
         $key = ProviderRuntimeState::parKey($settings, $metadata);
@@ -634,7 +691,8 @@ final class ProviderProbe
                     $response->diagnosticSummary()
                 )),
                 ['opnsense', 'idp'],
-                'live'
+                'live',
+                'par'
             );
             $check['credentials_exercised'] = $client->credentialsExercised();
             return $check;
@@ -647,7 +705,8 @@ final class ProviderProbe
                     'warning',
                     gettext('New logins use the browser authorization request while recovery runs in the background.'),
                     ['opnsense', 'idp'],
-                    'live'
+                    'live',
+                    'par'
                 );
                 $check['credentials_exercised'] = $client->credentialsExercised();
                 return $check;
@@ -658,7 +717,8 @@ final class ProviderProbe
                 'error',
                 $error->getMessage(),
                 ['opnsense', 'idp'],
-                'live'
+                'live',
+                'par'
             );
             $check['credentials_exercised'] = $client->credentialsExercised();
             return $check;
@@ -670,7 +730,8 @@ final class ProviderProbe
                 'error',
                 $error->getMessage(),
                 ['opnsense', 'idp'],
-                'live'
+                'live',
+                'par'
             );
             $check['credentials_exercised'] = $client->credentialsExercised();
             return $check;
@@ -694,9 +755,233 @@ final class ProviderProbe
         string $status,
         string $note,
         array $actors,
-        string $verification
+        string $verification,
+        string $guidance
     ): array {
-        return compact('label', 'value', 'status', 'note', 'actors', 'verification');
+        return compact('label', 'value', 'status', 'note', 'actors', 'verification')
+            + self::guidance($guidance);
+    }
+
+    /** @return array{purpose:string,standards:array<int,array{title:string,url:string}>} */
+    private static function guidance(string $topic): array
+    {
+        $standards = [
+            'oidc-discovery' => self::standard(
+                gettext('OpenID Connect Discovery 1.0, section 4.3'),
+                'https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderConfigurationValidation'
+            ),
+            'oidc-authorization' => self::standard(
+                gettext('OpenID Connect Core 1.0, section 3.1.2'),
+                'https://openid.net/specs/openid-connect-core-1_0.html#AuthorizationEndpoint'
+            ),
+            'oidc-auth-request' => self::standard(
+                gettext('OpenID Connect Core 1.0 — Authentication Request'),
+                'https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest'
+            ),
+            'oidc-token' => self::standard(
+                gettext('OpenID Connect Core 1.0, section 3.1.3'),
+                'https://openid.net/specs/openid-connect-core-1_0.html#TokenEndpoint'
+            ),
+            'oidc-id-token' => self::standard(
+                gettext('OpenID Connect Core 1.0 — ID Token Validation'),
+                'https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation'
+            ),
+            'oidc-userinfo' => self::standard(
+                gettext('OpenID Connect Core 1.0, section 5.3'),
+                'https://openid.net/specs/openid-connect-core-1_0.html#UserInfo'
+            ),
+            'oidc-client-auth' => self::standard(
+                gettext('OpenID Connect Core 1.0, section 9'),
+                'https://openid.net/specs/openid-connect-core-1_0.html#ClientAuthentication'
+            ),
+            'oidc-logout' => self::standard(
+                gettext('OpenID Connect RP-Initiated Logout 1.0, section 2'),
+                'https://openid.net/specs/openid-connect-rpinitiated-1_0.html#RPLogout'
+            ),
+            'rfc6749-client-auth' => self::standard(
+                gettext('RFC 6749, section 2.3 — Client Authentication'),
+                'https://www.rfc-editor.org/rfc/rfc6749.html#section-2.3'
+            ),
+            'rfc6749-tls' => self::standard(
+                gettext('RFC 6749 — Endpoint Request Confidentiality'),
+                'https://www.rfc-editor.org/rfc/rfc6749.html#section-3.1.2.' . '1'
+            ),
+            'rfc7009' => self::standard(
+                gettext('RFC 7009, section 2.1 — Revocation Request'),
+                'https://www.rfc-editor.org/rfc/rfc7009.html#section-2.1'
+            ),
+            'rfc7515' => self::standard(
+                gettext('RFC 7515, section 5.2 — JWS Validation'),
+                'https://www.rfc-editor.org/rfc/rfc7515.html#section-5.2'
+            ),
+            'rfc7517' => self::standard(
+                gettext('RFC 7517, section 5 — JWK Set Format'),
+                'https://www.rfc-editor.org/rfc/rfc7517.html#section-5'
+            ),
+            'rfc7523' => self::standard(
+                gettext('RFC 7523, section 2.2 — JWT Client Authentication'),
+                'https://www.rfc-editor.org/rfc/rfc7523.html#section-2.2'
+            ),
+            'rfc7636' => self::standard(
+                gettext('RFC 7636, section 4 — Protocol'),
+                'https://www.rfc-editor.org/rfc/rfc7636.html#section-4'
+            ),
+            'rfc8414' => self::standard(
+                gettext('RFC 8414, section 2 — Authorization Server Metadata'),
+                'https://www.rfc-editor.org/rfc/rfc8414.html#section-2'
+            ),
+            'rfc8705' => self::standard(
+                gettext('RFC 8705, section 3 — Certificate-Bound Access Tokens'),
+                'https://www.rfc-editor.org/rfc/rfc8705.html#section-3'
+            ),
+            'rfc9101' => self::standard(
+                gettext('RFC 9101, section 5 — JWT-Secured Authorization Requests'),
+                'https://www.rfc-editor.org/rfc/rfc9101.html#section-5'
+            ),
+            'rfc9126' => self::standard(
+                gettext('RFC 9126, section 2 — Pushed Authorization Request Endpoint'),
+                'https://www.rfc-editor.org/rfc/rfc9126.html#section-2'
+            ),
+            'rfc9207' => self::standard(
+                gettext('RFC 9207, section 2 — Authorization Response Issuer'),
+                'https://www.rfc-editor.org/rfc/rfc9207.html#section-2'
+            ),
+            'rfc9449' => self::standard(
+                gettext('RFC 9449, section 4 — DPoP Proof JWT Syntax'),
+                'https://www.rfc-editor.org/rfc/rfc9449.html#section-4'
+            ),
+            'rfc9700' => self::standard(
+                gettext('RFC 9700, section 2.1 — Protecting Redirect-Based Flows'),
+                'https://www.rfc-editor.org/rfc/rfc9700.html#section-2.1'
+            ),
+            'jarm' => self::standard(
+                gettext('JWT Secured Authorization Response Mode, section 2'),
+                'https://openid.net/specs/oauth-v2-jarm.html#section-2'
+            ),
+        ];
+        $guidance = [
+            'signing-keys' => [
+                gettext('These keys let OPNsense confirm that signed messages really came from this provider.'),
+                [$standards['rfc7517']],
+            ],
+            'authorization-registration' => [
+                gettext('This catches a wrong Client ID or return address before a user tries to sign in.'),
+                [$standards['oidc-auth-request']],
+            ],
+            'client-configuration' => [
+                gettext('These values identify OPNsense to the provider for protected server requests.'),
+                [$standards['rfc6749-client-auth']],
+            ],
+            'webgui-transport' => [
+                gettext('A trusted HTTPS address keeps sign-in responses on the intended firewall connection.'),
+                [$standards['rfc6749-tls']],
+            ],
+            'webgui-origins' => [
+                gettext('This limits which browser addresses are allowed to start a sign-in for this firewall.'),
+                [$standards['oidc-auth-request'], $standards['rfc9700']],
+            ],
+            'request-object' => [
+                gettext('A signed request lets the provider detect changed sign-in instructions.'),
+                [$standards['rfc9101']],
+            ],
+            'client-credentials' => [
+                gettext('Client credentials prove that a protected request comes from this OPNsense installation.'),
+                [$standards['rfc6749-client-auth']],
+            ],
+            'provider-preflight' => [
+                gettext('This confirms that OPNsense can securely reach and recognize the configured provider.'),
+                [$standards['oidc-discovery']],
+            ],
+            'discovery' => [
+                gettext('Discovery tells OPNsense which endpoints and security features belong to this provider.'),
+                [$standards['oidc-discovery'], $standards['rfc8414']],
+            ],
+            'provider-profile' => [
+                gettext('The profile supplies safe provider-specific defaults without weakening login checks.'),
+                [$standards['oidc-discovery']],
+            ],
+            'authorization-endpoint' => [
+                gettext('This is where the browser sends the user to sign in with the identity provider.'),
+                [$standards['oidc-authorization']],
+            ],
+            'token-endpoint' => [
+                gettext('This is where OPNsense exchanges the one-time sign-in code for tokens.'),
+                [$standards['oidc-token']],
+            ],
+            'userinfo' => [
+                gettext('UserInfo can provide the account details OPNsense needs after authentication.'),
+                [$standards['oidc-userinfo']],
+            ],
+            'id-token-signatures' => [
+                gettext('A supported signature lets OPNsense detect forged or changed identity tokens.'),
+                [$standards['oidc-id-token'], $standards['rfc7515']],
+            ],
+            'client-authentication' => [
+                gettext('This finds a method the provider accepts for recognizing OPNsense.'),
+                [$standards['oidc-client-auth'], $standards['rfc8414']],
+            ],
+            'client-assertion-signatures' => [
+                gettext('This lets OPNsense use a certificate instead of a shared secret to identify itself.'),
+                [$standards['rfc7523']],
+            ],
+            'certificate-bound-tokens' => [
+                gettext('Certificate binding makes a stolen access token unusable without the matching private key.'),
+                [$standards['rfc8705']],
+            ],
+            'pkce' => [
+                gettext('PKCE keeps an intercepted sign-in code from being redeemed by someone else.'),
+                [$standards['rfc7636']],
+            ],
+            'dpop' => [
+                gettext('DPoP makes a stolen access token unusable without the matching proof key.'),
+                [$standards['rfc9449']],
+            ],
+            'response-mode' => [
+                gettext('The response mode determines how the provider returns the sign-in result to OPNsense.'),
+                [$standards['oidc-auth-request']],
+            ],
+            'jarm' => [
+                gettext('JARM signs the browser response so OPNsense can detect changes before using it.'),
+                [$standards['jarm']],
+            ],
+            'selected-authentication' => [
+                gettext('This confirms that the configured way of identifying OPNsense is supported.'),
+                [$standards['oidc-client-auth'], $standards['rfc8414']],
+            ],
+            'authorization-response-issuer' => [
+                gettext('The issuer value helps reject a sign-in response that came from the wrong provider.'),
+                [$standards['rfc9207']],
+            ],
+            'provider-signout' => [
+                gettext('Provider sign-out can also end the provider session when a user leaves OPNsense.'),
+                [$standards['oidc-logout']],
+            ],
+            'token-revocation' => [
+                gettext('Revocation asks the provider to invalidate tokens that are no longer needed after logout.'),
+                [$standards['rfc7009']],
+            ],
+            'entra-profile' => [
+                gettext('A tenant-specific issuer keeps sign-ins tied to the intended Microsoft Entra directory.'),
+                [$standards['oidc-discovery']],
+            ],
+            'par' => [
+                gettext('PAR sends sign-in instructions directly to the provider so the browser cannot alter them.'),
+                [$standards['rfc9126']],
+            ],
+        ];
+        if (!array_key_exists($topic, $guidance)) {
+            throw new \LogicException('The provider probe check has no diagnostic guidance');
+        }
+        return [
+            'purpose' => $guidance[$topic][0],
+            'standards' => $guidance[$topic][1],
+        ];
+    }
+
+    /** @return array{title:string,url:string} */
+    private static function standard(string $title, string $url): array
+    {
+        return compact('title', 'url');
     }
 
     private static function clientConfigurationReady(OpenIDConnect $settings): bool

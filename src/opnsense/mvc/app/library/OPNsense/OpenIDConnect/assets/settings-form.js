@@ -1,6 +1,30 @@
 /*
- * Copyright (C) 2026 Julian Pawlowski - BSD-2-Clause, see LICENSE at the repository root.
+ * Copyright (C) 2026 Julian Pawlowski
+ * All rights reserved.
  *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
+/*
  * Browser side of the OpenID Connect settings, under System > Access > Servers.
  *
  * The form there renders every pluggable option as a single-line <input>; it knows text,
@@ -376,17 +400,42 @@
         var verification = Object.prototype.hasOwnProperty.call(verificationIcons, check.verification)
             ? check.verification : 'not-tested';
         var details = $('<div class="oidc-probe-check-details">');
+        if (check.purpose) {
+            details.append($('<p class="oidc-probe-purpose">')
+                .append($('<strong>').text((options.purposeLabel || 'Why this matters') + ': '))
+                .append($('<span>').text(check.purpose)));
+        }
         if (check.note) {
             details.append($('<p>').text(check.note));
         }
-        details.append($('<div class="oidc-probe-facts text-muted">')
+        var facts = $('<div class="oidc-probe-facts text-muted">')
             .append($('<p>')
                 .append($('<strong>').text((options.sourceLabel || 'Source') + ': '))
                 .append($('<span>').text(sources[verification] || verification)))
             .append($('<p>')
                 .append($('<i aria-hidden="true">').addClass('fa ' + verificationIcons[verification]), ' ')
                 .append($('<strong>').text((options.executionLabel || 'Execution') + ': '))
-                .append($('<span>').text(execution[verification] || verification))));
+                .append($('<span>').text(execution[verification] || verification)));
+        var references = Array.isArray(check.standards) ? check.standards.filter(function (reference) {
+            return reference && typeof reference.title === 'string' && typeof reference.url === 'string'
+                && /^https:\/\/(?:www\.rfc-editor\.org|openid\.net)\//.test(reference.url);
+        }) : [];
+        if (references.length) {
+            var standard = $('<p>').append($('<i class="fa fa-book" aria-hidden="true">'), ' ')
+                .append($('<strong>').text((options.standardLabel || 'Related standard') + ': '));
+            references.forEach(function (reference, index) {
+                if (index > 0) {
+                    standard.append(document.createTextNode(', '));
+                }
+                standard.append($('<a>').attr({
+                    href: reference.url,
+                    target: '_blank',
+                    rel: 'noopener noreferrer'
+                }).text(reference.title));
+            });
+            facts.append(standard);
+        }
+        details.append(facts);
         return details;
     }
 

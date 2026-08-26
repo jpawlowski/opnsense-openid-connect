@@ -1,10 +1,5 @@
 <?php
 
-/*
- * Copyright (C) 2026 Julian Pawlowski
- * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
- */
-
 use OPNsense\Mvc\Request;
 use OPNsense\OpenIDConnect\Api\DiscoveryController;
 use OPNsense\OpenIDConnect\Api\HealthController;
@@ -175,6 +170,17 @@ Checks::that('connection health shows the exact browser origins accepted for sig
         'note' => 'OpenID Connect sign-in can start from exactly these browser origins.',
         'actors' => ['browser', 'opnsense'],
         'verification' => 'configuration',
+        'purpose' => 'This limits which browser addresses are allowed to start a sign-in for this firewall.',
+        'standards' => [
+            [
+                'title' => 'OpenID Connect Core 1.0 — Authentication Request',
+                'url' => 'https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest',
+            ],
+            [
+                'title' => 'RFC 9700, section 2.1 — Protecting Redirect-Based Flows',
+                'url' => 'https://www.rfc-editor.org/rfc/rfc9700.html#section-2.1',
+            ],
+        ],
     ]);
 
 $discoveryController = new class(new Request(
@@ -343,6 +349,33 @@ Checks::that('every diagnostic check names how it was verified', count(array_fil
         true
     )
 )), count($draftChecks));
+$documentedChecks = array_merge(
+    ProviderProbe::healthReadiness($draft, null),
+    $draftChecks,
+    [ProviderProbe::credentialsCheck($draftChecks[array_key_last($draftChecks)])]
+);
+Checks::that('every diagnostic detail explains its purpose in one short sentence', count(array_filter(
+    $documentedChecks,
+    static fn(array $check): bool => is_string($check['purpose'] ?? null)
+        && str_ends_with($check['purpose'], '.')
+        && !str_contains($check['purpose'], "\n")
+        && str_word_count($check['purpose']) <= 20
+)), count($documentedChecks));
+Checks::that('every diagnostic detail links at least one named authoritative standard', count(array_filter(
+    $documentedChecks,
+    static fn(array $check): bool => is_array($check['standards'] ?? null)
+        && $check['standards'] !== []
+        && count(array_filter(
+            $check['standards'],
+            static fn(array $standard): bool => is_string($standard['title'] ?? null)
+                && $standard['title'] !== ''
+                && is_string($standard['url'] ?? null)
+                && preg_match(
+                    '#^https://(?:www\.rfc-editor\.org|openid\.net)/#',
+                    $standard['url']
+                ) === 1
+        )) === count($check['standards'])
+)), count($documentedChecks));
 Checks::that('diagnostic labels leave data flow to the secondary row', count(array_filter(
     $draftChecks,
     static fn(array $check): bool => str_contains((string)($check['label'] ?? ''), '→')
@@ -600,6 +633,11 @@ Checks::that('health rejects a current WebGUI origin outside the effective origi
     'note' => 'The current WebGUI origin is not accepted by these form values.',
     'actors' => ['browser', 'opnsense'],
     'verification' => 'configuration',
+    'purpose' => 'A trusted HTTPS address keeps sign-in responses on the intended firewall connection.',
+    'standards' => [[
+        'title' => 'RFC 6749 — Endpoint Request Confidentiality',
+        'url' => 'https://www.rfc-editor.org/rfc/rfc6749.html#section-3.1.2.1',
+    ]],
 ]);
 $credentials = ProviderProbe::credentialsCheck($par);
 Checks::that('health says when PAR exercised client credentials', $credentials['verification'], 'live');
@@ -692,6 +730,11 @@ Checks::that('an authorization transport failure remains attributed to registrat
         'note' => 'authorization transport failed',
         'actors' => ['opnsense', 'idp'],
         'verification' => 'live',
+        'purpose' => 'This catches a wrong Client ID or return address before a user tries to sign in.',
+        'standards' => [[
+            'title' => 'OpenID Connect Core 1.0 — Authentication Request',
+            'url' => 'https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest',
+        ]],
     ]);
 $jarm = ProviderProbe::settings([
     'openidconnect_provider_url' => $issuer,
@@ -719,6 +762,11 @@ Checks::that('signed response diagnostics retain the JARM capability check', $ja
     'note' => 'The signed authorization response can use a supported asymmetric signature.',
     'actors' => ['opnsense'],
     'verification' => 'metadata',
+    'purpose' => 'JARM signs the browser response so OPNsense can detect changes before using it.',
+    'standards' => [[
+        'title' => 'JWT Secured Authorization Response Mode, section 2',
+        'url' => 'https://openid.net/specs/oauth-v2-jarm.html#section-2',
+    ]],
 ]);
 $failedAnswer = ProviderProbe::answer(
     [ProviderProbe::failureCheck('Live provider preflight', 'unreachable', ['opnsense', 'idp'], 'live')],
@@ -734,4 +782,9 @@ Checks::that('a provider failure retains its actor and method details', $failedA
     'note' => 'unreachable',
     'actors' => ['opnsense', 'idp'],
     'verification' => 'live',
+    'purpose' => 'This confirms that OPNsense can securely reach and recognize the configured provider.',
+    'standards' => [[
+        'title' => 'OpenID Connect Discovery 1.0, section 4.3',
+        'url' => 'https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderConfigurationValidation',
+    ]],
 ]);

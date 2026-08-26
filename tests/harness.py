@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
 """The same very small harness harness.php is, for the checks written in Python.
 
 Not unittest, for the reason given over there: a name per check, a readable

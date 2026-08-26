@@ -146,8 +146,6 @@ not remove its saved settings and does not disable local password login.
 
 BSD-2-Clause, see [LICENSE](LICENSE).
 
-Copyright (C) 2026 Julian Pawlowski. All rights reserved.
-
 [login-screenshot]: docs/assets/screenshots/login-and-recovery.png
 [health-screenshot]: docs/assets/screenshots/connection-health.png
 [signin-screenshot]: docs/assets/screenshots/test-sign-in.png

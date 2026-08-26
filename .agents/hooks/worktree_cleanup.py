@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-#
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
+
 """Retire agent worktrees separately from their recoverable local branches."""
 
 import json

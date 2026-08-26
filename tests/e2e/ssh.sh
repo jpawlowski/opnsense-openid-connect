@@ -1,8 +1,5 @@
 #!/bin/sh
 
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
-
 # The local VM runner writes a short-lived OpenSSH configuration so ports,
 # host-key pinning and the generated test key never have to be flattened into
 # a shell string. Prepared lab firewalls keep using E2E_OPNSENSE_SSH directly.

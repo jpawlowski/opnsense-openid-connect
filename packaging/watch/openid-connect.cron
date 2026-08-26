@@ -1,7 +1,3 @@
-#
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
-#
 # Nightly run of the single sign-on watchdog.
 #
 # cron(8) reads this directory on FreeBSD 13 and later, and it is how the

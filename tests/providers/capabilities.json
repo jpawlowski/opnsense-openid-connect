@@ -1,5 +1,4 @@
 {
-  "copyright": "Copyright (C) 2026 Julian Pawlowski; BSD-2-Clause, see LICENSE at the repository root.",
   "schema_version": 1,
   "evidence_policy": {
     "live": "A retained live test passed for the named provider version or service revision and date.",

@@ -1,8 +1,5 @@
 #!/bin/sh
 
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
-
 # Runs provider stacks against an explicitly supplied disposable firewall. The
 # local VM wrapper supplies the same three OPNsense variables as a prepared lab.
 set -u

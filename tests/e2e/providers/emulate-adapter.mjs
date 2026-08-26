@@ -1,8 +1,3 @@
-/*
- * Copyright (C) 2026 Julian Pawlowski
- * All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
- */
-
 import { createServer } from 'node:http';
 
 const upstream = new URL(process.env.EMULATE_UPSTREAM);
