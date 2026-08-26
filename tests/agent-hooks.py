@@ -133,7 +133,8 @@ def main():
           and "ast.parse(" not in focused_gate, True)
     check("the focused gate parses admitted shell, JavaScript and JSON automation trees",
           all(value in focused_gate for value in (
-              "-name '*.json'", "-name '*.js'", "-name '*.sh'", "node --check", "python3 -m json.tool",
+              "Path(\".github/scripts\")", ".github/hooks .github/scripts -type f -name '*.json'",
+              "-name '*.js'", "-name '*.sh'", "node --check", "python3 -m json.tool",
           )), True)
     original_unrestricted_git_output = hook.unrestricted_git_output
     validation_calls = []

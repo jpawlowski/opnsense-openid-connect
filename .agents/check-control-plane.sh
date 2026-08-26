@@ -14,11 +14,14 @@ echo '== control-plane syntax =='
 python3 - <<'PY'
 from pathlib import Path
 
-for root in (Path(".agents"), Path(".codex"), Path("packaging"), Path("tests")):
+for root in (
+    Path(".agents"), Path(".claude"), Path(".codex"),
+    Path(".github/hooks"), Path(".github/scripts"), Path("packaging"), Path("tests"),
+):
     for path in root.rglob("*.py"):
         compile(path.read_text(encoding="utf-8"), str(path), "exec")
 PY
-find -L .agents .claude .codex .github/hooks -type f -name '*.json' -print0 |
+find -L .agents .claude .codex .github/hooks .github/scripts -type f -name '*.json' -print0 |
     xargs -0 -n1 python3 -m json.tool >/dev/null
 find -L .agents .claude .codex .github/hooks .github/scripts -type f \
     \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -r -n1 node --check
