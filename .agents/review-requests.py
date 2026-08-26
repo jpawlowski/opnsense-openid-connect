@@ -248,21 +248,22 @@ def request_review(arguments):
         confirmed_head, confirmed_viewer, _comments, confirmed_events, duplicates, confirmed_pending = review_state(
             arguments.pr, token, draft_required=True,
         )
+        delete_requests(
+            duplicates, arguments.pr, confirmed_head, confirmed_viewer, confirmed_events, token,
+            draft_required=True,
+        )
+        verify_remote_pull(arguments.pr, confirmed_head, token, draft_required=True)
+        if head_reviewed(confirmed_head, confirmed_events):
+            print(f"Codex already reviewed current head {confirmed_head[:12]}; no request remains")
+            return
+        if not confirmed_pending:
+            raise RuntimeError("the current-head review request could not be confirmed after publication")
     except RuntimeError as error:
         if not delete_published_request(published, viewer, body, token):
             raise RuntimeError(
                 f"{error}; the newly published review request could not be removed safely"
             ) from error
         raise
-    delete_requests(
-        duplicates, arguments.pr, confirmed_head, confirmed_viewer, confirmed_events, token,
-        draft_required=True,
-    )
-    if head_reviewed(confirmed_head, confirmed_events):
-        print(f"Codex already reviewed current head {confirmed_head[:12]}; no request remains")
-        return
-    if not confirmed_pending:
-        raise RuntimeError("the current-head review request could not be confirmed after publication")
     retained = confirmed_pending[0]
     print(f"requested Codex review for {confirmed_head[:12]}: {retained.get('html_url') or retained['id']}")
 

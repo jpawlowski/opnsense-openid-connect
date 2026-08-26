@@ -2083,7 +2083,7 @@ module.update_registry(repository, update)
     check("parallel request creation revalidates before posting and converges on the earliest trigger",
           actions,
           ["snapshot", ("delete", []), "verify", ("POST", "issues/91/comments"), "snapshot",
-           ("delete", [11])])
+           ("delete", [11]), "verify"])
 
     race_actions = []
     published_request = {
@@ -2116,6 +2116,35 @@ module.update_registry(repository, update)
     except RuntimeError:
         ready_transition_rejected = True
     check("a draft-to-ready race removes its newly published review trigger",
+          (ready_transition_rejected, race_actions),
+          (True, [
+              ("POST", "issues/91/comments"),
+              (None, "issues/comments/12"),
+              ("DELETE", "issues/comments/12"),
+          ]))
+
+    race_actions.clear()
+    cleanup_race_states = iter((
+        (current_head, "publisher", [], [], [], []),
+        (current_head, "publisher", [published_request], [], [], [published_request]),
+    ))
+    review_requests.review_state = lambda *_arguments, **_keywords: next(cleanup_race_states)
+    cleanup_calls = 0
+
+    def ready_during_duplicate_cleanup(*_arguments, **_keywords):
+        nonlocal cleanup_calls
+        cleanup_calls += 1
+        if cleanup_calls == 1:
+            return None
+        raise RuntimeError("automated Codex review requests require a draft pull request")
+
+    review_requests.delete_requests = ready_during_duplicate_cleanup
+    ready_transition_rejected = False
+    try:
+        review_requests.request_review(SimpleNamespace(pr=91, language="en"))
+    except RuntimeError:
+        ready_transition_rejected = True
+    check("a readiness race during post-publication cleanup removes the new trigger",
           (ready_transition_rejected, race_actions),
           (True, [
               ("POST", "issues/91/comments"),

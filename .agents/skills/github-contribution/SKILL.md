@@ -191,11 +191,13 @@ block until reconciled.
 
 Wait for a review submission to finish, inventory every thread and address one
 coherent batch. Synchronize relevant canonical drift at that same checkpoint,
-validate and push once, then request one current-head review with
-`.agents/review-requests.py request --pr N`. Do not post a raw `@codex review`
-comment. The helper removes fulfilled or stale request-only comments authored by
-the publishing account, retains at most one pending request for the exact head
-and never deletes a Codex review, finding, disposition reply or other discussion.
+validate and push once, then run another current-head local review. When a local
+reviewer is unavailable or public bot evidence was explicitly requested, use the
+GitHub fallback with `.agents/review-requests.py request --pr N`; do not post a
+raw `@codex review` comment. The helper removes fulfilled or stale request-only
+comments authored by the publishing account, retains at most one pending request
+for the exact head and never deletes a Codex review, finding, disposition reply
+or other discussion.
 `behind` is not a conflict. Do not change a head under active review merely to
 chase `main`; record a confirmed conflict and restore mergeability before initial
 review, after the review batch or at finalization.
@@ -431,8 +433,11 @@ review rounds.
 
 The review-request helper requires a draft pull request. Before readiness, wait
 for the local reviewer or GitHub Codex fallback to review the current head diff
-from the recorded canonical base. Compare any public reviewed commit with the
-pull request's current head. A review of an older head or base does not count.
+from the recorded canonical base. Local evidence is invalid when either recorded
+revision changes. Public GitHub evidence is bound to the reviewed head because
+the platform does not record its base: compare that commit with the pull request's
+current head, and repeat the fallback review only when later canonical progress
+materially changes the diff or requires a conflict-resolution head.
 
 Every P0 and P1 finding blocks the merge until it is fixed or technically
 rebutted in its review thread. Independently reproduce each P2: it blocks only
