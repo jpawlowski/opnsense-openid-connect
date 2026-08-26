@@ -163,16 +163,32 @@ with tempfile.TemporaryDirectory() as temporary:
     original_run = public_inbound.run
     original_image = public_inbound.image
     original_resolver = public_inbound.socket.getaddrinfo
+    original_monotonic = public_inbound.time.monotonic
+    original_sleep = public_inbound.time.sleep
+    clock = [0.0]
+    resolver_calls = []
 
     def fake_inbound_run(*arguments, **options):
         commands.append(arguments)
-        output = "https://prepared-route.trycloudflare.com\n" if arguments[1] == "logs" else ""
+        if arguments[1] == "logs":
+            output = "https://prepared-route.trycloudflare.com\n"
+        elif arguments[1] == "inspect":
+            output = "true\n"
+        else:
+            output = ""
         return subprocess.CompletedProcess(arguments, 0, stdout=output, stderr="")
 
     try:
         public_inbound.run = fake_inbound_run
         public_inbound.image = lambda name: f"fixture/{name}"
-        public_inbound.socket.getaddrinfo = lambda *arguments: [(None, None, None, None, None)]
+        public_inbound.time.monotonic = lambda: clock[0]
+        public_inbound.time.sleep = lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+
+        def resolve_after_warmup(*arguments):
+            resolver_calls.append(clock[0])
+            return [(None, None, None, None, None)]
+
+        public_inbound.socket.getaddrinfo = resolve_after_warmup
         inbound_state = pathlib.Path(temporary) / "state.json"
         with contextlib.redirect_stdout(io.StringIO()):
             public_inbound.start(types.SimpleNamespace(
@@ -184,9 +200,13 @@ with tempfile.TemporaryDirectory() as temporary:
         public_inbound.run = original_run
         public_inbound.image = original_image
         public_inbound.socket.getaddrinfo = original_resolver
+        public_inbound.time.monotonic = original_monotonic
+        public_inbound.time.sleep = original_sleep
     proxy_command = next(command for command in commands if "opnsense-oidc-inbound-deadbeef-proxy" in command)
     check("--add-host" not in proxy_command,
           "prepared public-inbound startup still replaces its configured DNS route")
+    check(resolver_calls and resolver_calls[0] >= public_inbound.DNS_WARMUP_SECONDS,
+          "public ingress still poisons the system resolver with an immediate Quick Tunnel lookup")
 
 canary_suite = selection.resolve("full", canary=True)
 check(not any(item["provider"] in {"okta", "apple"} for item in canary_suite["records"]),

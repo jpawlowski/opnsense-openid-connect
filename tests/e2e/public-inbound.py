@@ -24,6 +24,7 @@ SAFE_RUN = re.compile(r"^[a-f0-9]{8}$")
 # application codes and must not be forced into that disposable namespace.
 SAFE_APPLICATION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._~-]{0,63}$")
 QUICK_TUNNEL = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
+DNS_WARMUP_SECONDS = 10
 
 
 def run(*arguments, capture=False, quiet=False):
@@ -130,21 +131,28 @@ def start(arguments):
         )
         containers.append(tunnel)
         public_origin = ""
+        candidate = ""
+        dns_ready_after = 0.0
         for _ in range(90):
             logged = run("docker", "logs", tunnel, capture=True)
             logs = logged.stdout + logged.stderr
             match = QUICK_TUNNEL.search(logs)
             if match:
-                candidate = match.group(0)
-                try:
-                    socket.getaddrinfo(urllib.parse.urlsplit(candidate).hostname, 443)
-                except socket.gaierror:
-                    # Quick Tunnel occasionally logs its random name before the
-                    # corresponding public DNS record is visible to the runner.
-                    pass
-                else:
-                    public_origin = candidate
-                    break
+                discovered = match.group(0)
+                if discovered != candidate:
+                    candidate = discovered
+                    # Querying immediately can cache Cloudflare's transient NXDOMAIN
+                    # for longer than the whole run on macOS. Let the authoritative
+                    # record propagate before the system resolver sees the name once.
+                    dns_ready_after = time.monotonic() + DNS_WARMUP_SECONDS
+                if time.monotonic() >= dns_ready_after:
+                    try:
+                        socket.getaddrinfo(urllib.parse.urlsplit(candidate).hostname, 443)
+                    except socket.gaierror:
+                        pass
+                    else:
+                        public_origin = candidate
+                        break
             inspect = run("docker", "inspect", "-f", "{{.State.Running}}", tunnel, capture=True).stdout.strip()
             if inspect != "true":
                 raise RuntimeError("cloudflared stopped before publishing a Quick Tunnel URL")

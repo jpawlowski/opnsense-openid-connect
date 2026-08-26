@@ -95,14 +95,19 @@ Normal authorization redirects stay direct: the browser resolves the registered
 HTTPS origin to the disposable VM. A public listener exists only for a
 provider-originated POST that cannot reach the lab network. The Keycloak
 `local/public-inbound` run starts a pinned Cloudflare Quick Tunnel immediately
-before that cluster and removes it on success, failure or interruption.
+before that cluster and removes it on success, failure or interruption. A Quick
+Tunnel can log its random hostname shortly before the public DNS record exists;
+the harness therefore lets that record propagate before its first system DNS
+lookup instead of caching a transient negative answer for the whole run.
 
 The tunnel reaches a private, access-log-free nginx container rather than the
 WebGUI. That proxy accepts only exact `POST` requests to the selected
 back-channel logout and Shared Signals push routes. It rejects every other path
 or method and bounds request bodies, rates and timeouts. The random origin is
-never used as a general OIDC redirect URI. Microsoft Dev Tunnels remain an
-alternative, but their browser interstitial adds no value here.
+never used as a general OIDC redirect URI. [Microsoft Dev Tunnels](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/)
+remain an alternative. Their anti-phishing page does not intercept these
+provider-originated non-GET requests, but hosting still requires a signed-in
+CLI, so they add an account dependency without improving this ephemeral path.
 
 The Keycloak public cluster first proves the logout POST from Keycloak itself.
 It then starts a pinned, ephemeral local SSF transmitter with a per-run RSA key,

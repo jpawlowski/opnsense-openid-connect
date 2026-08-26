@@ -87,10 +87,14 @@ const server = createServer({
         redirect: 'manual',
         signal: AbortSignal.timeout(20_000),
       });
+      if (delivered.status !== 202) {
+        console.error(`SSF push returned HTTP ${delivered.status}`);
+      }
       respond(response, delivered.status === 202 ? 204 : 502);
-    } catch {
+    } catch (error) {
       // The caller needs only a bounded success/failure signal; endpoint and
       // transport detail could disclose the randomly generated tunnel origin.
+      console.error(`SSF push failed with ${error?.name || 'Error'}`);
       respond(response, 502);
     }
     return;
