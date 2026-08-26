@@ -1081,14 +1081,14 @@
             var toolbar = $('<div class="oidc-manager-toolbar">')
                 .append($('<h4>').text(options.bindingHeading || 'Bound identities'));
             var actions = $('<div class="btn-group oidc-manager-actions" role="group">');
-            var pending = $('<button class="btn btn-default" type="button">')
-                .append($('<i class="fa fa-clock-o" aria-hidden="true">'), ' ')
-                .append($('<span>').text(options.pendingHeading || 'Pending approvals'), ' ')
+            var pending = $('<button class="btn btn-default oidc-icon-button" type="button">')
+                .append($('<i class="fa fa-clock-o fa-fw" aria-hidden="true">'))
+                .append($('<span>').text(options.pendingHeading || 'Pending approvals'))
                 .append($('<span class="badge">').text(requests.length))
                 .on('click', function () { load(dialog, 'pending'); });
-            var add = $('<button class="btn btn-primary" type="button">')
+            var add = $('<button class="btn btn-primary oidc-icon-button" type="button">')
                 .prop('disabled', !answer.writable)
-                .append($('<i class="fa fa-plus" aria-hidden="true">'), ' ')
+                .append($('<i class="fa fa-plus fa-fw" aria-hidden="true">'))
                 .append($('<span>').text(options.bindingAdd || 'Add identity binding'))
                 .on('click', function () { editBinding(answer, dialog, null); });
             actions.append(pending, add);
@@ -1100,7 +1100,7 @@
                 ));
                 return;
             }
-            var table = $('<table class="table table-striped table-condensed">');
+            var table = $('<table class="table table-condensed">');
             table.append($('<thead>').append($('<tr>')
                 .append($('<th>').text(options.bindingSubject || 'Subject (sub)'))
                 .append($('<th>').text(options.bindingIssuer || 'Exact issuer'))
@@ -1120,14 +1120,14 @@
                         options.bindingUnavailable || 'Stored account is unavailable'
                     ));
                 }
-                var edit = $('<button class="btn btn-default btn-sm" type="button">')
+                var edit = $('<button class="btn btn-default btn-sm oidc-icon-button" type="button">')
                     .prop('disabled', !answer.writable)
-                    .append($('<i class="fa fa-pencil" aria-hidden="true">'), ' ')
+                    .append($('<i class="fa fa-pencil fa-fw" aria-hidden="true">'))
                     .append($('<span>').text(options.bindingEdit || 'Edit'))
                     .on('click', function () { editBinding(answer, dialog, binding); });
-                var remove = $('<button class="btn btn-danger btn-sm" type="button">')
+                var remove = $('<button class="btn btn-danger btn-sm oidc-icon-button" type="button">')
                     .prop('disabled', !answer.writable)
-                    .append($('<i class="fa fa-trash" aria-hidden="true">'), ' ')
+                    .append($('<i class="fa fa-trash fa-fw" aria-hidden="true">'))
                     .append($('<span>').text(options.bindingDelete || 'Remove'))
                     .on('click', function () {
                         BootstrapDialog.confirm({
@@ -1163,8 +1163,8 @@
             var accounts = Array.isArray(answer.accounts) ? answer.accounts : [];
             panel.append($('<div class="oidc-manager-toolbar">')
                 .append($('<h4>').text(options.pendingHeading || 'Pending administrator approvals'))
-                .append($('<button class="btn btn-default" type="button">')
-                    .append($('<i class="fa fa-chevron-left" aria-hidden="true">'), ' ')
+                .append($('<button class="btn btn-default oidc-icon-button" type="button">')
+                    .append($('<i class="fa fa-chevron-left fa-fw" aria-hidden="true">'))
                     .append($('<span>').text(options.bindingBack || 'Back to bound identities'))
                     .on('click', function () { load(dialog, 'bindings'); })));
             if (requests.length === 0) {
@@ -1348,8 +1348,11 @@
         }
         var supported = options.setupProfiles || ['authentik', 'keycloak'];
         var panel = $('<span class="oidc-provider-setup">');
-        var channel = $('<select class="form-control">')
-            .attr({ 'aria-label': options.setupChannelLabel || 'Logout channel' })
+        var channel = $('<select class="selectpicker">')
+            .attr({
+                'aria-label': options.setupChannelLabel || 'Logout channel',
+                'data-style': 'btn-default'
+            })
             .append($('<option value="backchannel">').text(
                 options.setupBackchannelLabel || 'Back-channel'
             ))
@@ -1490,9 +1493,11 @@
         $(receiver).on('change', function () {
             if (['backchannel', 'frontchannel'].indexOf(receiver.value) !== -1) {
                 channel.val(receiver.value);
+                refreshSelectPicker(channel[0]);
             }
         });
         panel.append(channel, button, guideButton);
+        channel.selectpicker({ width: 'auto' });
         var setupSection = formActionSection(
             'provider-setup', options.providerSetupActionsHeading || 'Provider setup'
         );
