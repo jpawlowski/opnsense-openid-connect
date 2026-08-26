@@ -15,7 +15,11 @@ while [ "$#" -gt 0 ]; do
     *) printf 'unknown provider-run argument: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
-case "$provider" in authentik|authelia|pocketid) ;; *) exit 2 ;; esac
+case "$provider" in authentik|authelia|pocketid|entra|okta|apple) ;; *) exit 2 ;; esac
+[ "$canary" = 0 ] || [ -z "${E2E_PROVIDER_RESULT:-}" ] || {
+  printf 'E2E_PROVIDER_RESULT cannot retain an unreviewed canary image.\n' >&2
+  exit 2
+}
 
 : "${E2E_OPNSENSE_URL:?Set the HTTPS origin of the disposable OPNsense instance}"
 : "${E2E_OPNSENSE_SSH:?Set the certificate-authenticated SSH target}"
@@ -30,6 +34,9 @@ case "$provider" in
   authentik) provider_port=${E2E_AUTHENTIK_PORT:-28443} ;;
   authelia) provider_port=${E2E_AUTHELIA_PORT:-38443} ;;
   pocketid) provider_port=${E2E_POCKETID_PORT:-58443} ;;
+  entra) provider_port=${E2E_ENTRA_PORT:-61443} ;;
+  okta) provider_port=${E2E_OKTA_PORT:-62443} ;;
+  apple) provider_port=${E2E_APPLE_PORT:-63443} ;;
 esac
 
 run_id=$(openssl rand -hex 4)
@@ -80,6 +87,7 @@ trap cleanup EXIT HUP INT TERM
 
 canary_argument=
 [ "$canary" = 0 ] || canary_argument=--canary
+(cd "$script_dir" && npm ci --no-audit --no-fund >/dev/null)
 python3 "$script_dir/providers/stack.py" start --provider "$provider" --run-id "$run_id" \
   --url "$provider_url" --work-dir "$work_dir" --state "$state_file" $canary_argument
 chmod 600 "$state_file"
@@ -95,5 +103,37 @@ package="$repository/packaging/dist/os-openid-connect-0.0.0.e2e.pkg"
 e2e_scp_to "$package" "$remote_package"
 e2e_ssh "pkg add -f '$remote_package' && pkg check -s os-openid-connect"
 
-(cd "$script_dir" && npm ci --no-audit --no-fund >/dev/null && npx playwright install chromium >/dev/null)
+(cd "$script_dir" && npx playwright install chromium >/dev/null)
 (cd "$script_dir" && npx playwright test --config provider.config.mjs)
+
+if [ -n "${E2E_PROVIDER_RESULT:-}" ]; then
+  if [ "$E2E_SOURCE" = emulated ]; then
+    subject_name=$(jq -r .emulator.name "$state_file")
+    subject_revision=$(jq -r .emulator.revision "$state_file")
+  else
+    subject_name=$provider
+    subject_revision="version:$(python3 "$script_dir/providers/image.py" "$provider" --metadata | jq -r .tag)"
+  fi
+  result_profile=$(jq -r .profile "$state_file")
+  result_adaptation=$(jq -r '.adaptation // empty' "$state_file")
+  result_capabilities='--capability login=pass --capability pkce=pass'
+  case "$provider" in
+    entra)
+      result_capabilities="$result_capabilities --capability tenant_issuer=pass --capability baseline_claims=pass"
+      ;;
+    okta)
+      result_capabilities="$result_capabilities --capability authorization_server_issuer=pass"
+      result_capabilities="$result_capabilities --capability form_post=pass --capability baseline_claims=pass"
+      ;;
+    apple)
+      result_capabilities="$result_capabilities --capability form_post=pass --capability string_claims=pass"
+      result_capabilities="$result_capabilities --capability private_relay=pass --capability first_login_data=pass"
+      ;;
+  esac
+  # shellcheck disable=SC2086 -- capability arguments are fixed above.
+  python3 "$script_dir/provider-result.py" --provider "$provider" --source "$E2E_SOURCE" \
+    --cluster "$E2E_CLUSTER" --subject-name "$subject_name" --subject-revision "$subject_revision" \
+    --profile "$result_profile" --adaptation "$result_adaptation" \
+    $result_capabilities \
+    --output "$E2E_PROVIDER_RESULT"
+fi

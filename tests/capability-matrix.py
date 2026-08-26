@@ -332,12 +332,14 @@ def main():
         lambda: matrix.validate_providers(adapted, standard_ids)
     ), True)
 
-    provider = {"id": "general", "guide": "docs/providers/general.md"}
+    provider = {"id": "keycloak", "guide": "docs/providers/keycloak.md"}
     dated_record = {
         "feature": "login",
         "tested_on": "2026-08-24",
         "provider_revision": "version:fixture-1",
         "artifact": "tests/evidence/providers/provider-result.json",
+        "source": "local",
+        "cluster": "direct",
     }
     blank = copy.deepcopy(dated_record)
     blank["tested_on"] = ""
@@ -362,6 +364,9 @@ def main():
     check("a live record rejects fields outside its publishable schema", refused(
         lambda: matrix.validate_live_evidence_record(provider, "login", "live", extra_record_field)
     ), True)
+
+    wrong_boundary = copy.deepcopy(dated_record)
+    wrong_boundary["cluster"] = "public-inbound"
 
     impossible_service_revision = copy.deepcopy(dated_record)
     impossible_service_revision["provider_revision"] = "service:2026-02-30"
@@ -395,11 +400,13 @@ def main():
             "schema_version": 1,
             "evidence_type": "provider_interoperability",
             "provider": "another-provider",
+            "source": "local",
+            "cluster": "direct",
             "provider_revision": "version:fixture-1",
             "tested_on": "2026-08-24",
             "configuration": {
-                "provider_profile": "general",
-                "guide": "docs/providers/general.md",
+                "provider_profile": "keycloak",
+                "guide": "docs/providers/keycloak.md",
                 "client_type": "confidential",
                 "flow": "authorization_code",
                 "feature_mode": "enabled",
@@ -422,13 +429,18 @@ def main():
                 provider, "login", "live", dated_record, evidence_root
             )
         ), True)
-        artifact["provider"] = "general"
+        artifact["provider"] = "keycloak"
         retained_artifact(evidence_root, artifact)
         check("a schema-bound provider result may become retained live evidence", refused(
             lambda: matrix.validate_live_evidence_record(
                 provider, "login", "live", dated_record, evidence_root
             )
         ), False)
+        check("a retained artifact cannot be relabeled as another network cluster", refused(
+            lambda: matrix.validate_live_evidence_record(
+                provider, "login", "live", wrong_boundary, evidence_root
+            )
+        ), True)
         artifact["results"] = [{"feature": "login", "status": "unavailable"}]
         retained_artifact(evidence_root, artifact)
         check("a negative provider result uses the same retained evidence schema", refused(
@@ -470,6 +482,134 @@ def main():
         check("an adapter artifact cannot hide an unnamed provider deviation", refused(
             lambda: matrix.validate_live_evidence_record(
                 provider, "login", "adapter", dated_record, evidence_root
+            )
+        ), True)
+
+        okta_provider = {"id": "okta", "guide": "docs/providers/okta.md"}
+        okta_record = {
+            "feature": "shared_signals",
+            "tested_on": "2026-08-24",
+            "provider_revision": "service:2026-08-24",
+            "artifact": "tests/evidence/providers/provider-result.json",
+            "source": "live",
+            "cluster": "direct",
+        }
+        okta_artifact = {
+            "schema_version": 1,
+            "evidence_type": "provider_interoperability",
+            "provider": "okta",
+            "source": "live",
+            "cluster": "direct",
+            "provider_revision": "service:2026-08-24",
+            "tested_on": "2026-08-24",
+            "configuration": {
+                "provider_profile": "okta",
+                "guide": "docs/providers/okta.md",
+                "client_type": "confidential",
+                "flow": "authorization_code",
+                "feature_mode": "enabled",
+            },
+            "results": [{"feature": "shared_signals", "status": "live"}],
+        }
+        retained_artifact(evidence_root, okta_artifact)
+        check("live evidence cannot relabel a public-inbound capability as direct", refused(
+            lambda: matrix.validate_live_evidence_record(
+                okta_provider, "shared_signals", "live", okta_record, evidence_root
+            )
+        ), True)
+        okta_record["cluster"] = "public-inbound"
+        okta_artifact["cluster"] = "public-inbound"
+        retained_artifact(evidence_root, okta_artifact)
+        check("live evidence accepts the exact exercised public-inbound selection", refused(
+            lambda: matrix.validate_live_evidence_record(
+                okta_provider, "shared_signals", "live", okta_record, evidence_root
+            )
+        ), False)
+
+        emulator_artifact = {
+            "schema_version": 1,
+            "evidence_type": "provider_test_run",
+            "repository_revision": "1" * 40,
+            "repository_dirty": False,
+            "harness_digest": "2" * 64,
+            "provider": "okta",
+            "source": "emulated",
+            "subject": {"name": "vercel-labs-emulate", "revision": "version:0.10.0"},
+            "cluster": "direct",
+            "tested_on": "2026-08-24",
+            "configuration_profile": "okta",
+            "provider_adaptation": None,
+            "results": [{"feature": "login", "outcome": "pass"}],
+        }
+        retained_artifact(evidence_root, emulator_artifact)
+        emulator_record = {
+            "feature": "login",
+            "tested_on": "2026-08-24",
+            "emulator_revision": "version:0.10.0",
+            "artifact": "tests/evidence/providers/provider-result.json",
+            "adaptation": None,
+            "source": "emulated",
+            "cluster": "direct",
+        }
+        emulator_provider = {"id": "okta"}
+        check("a pinned emulator run may be shown as additional evidence", refused(
+            lambda: matrix.validate_emulator_evidence_record(
+                emulator_provider, "login", emulator_record, evidence_root
+            )
+        ), False)
+        rendered = matrix.cell(
+            {"login": "unknown"}, {"okta": {"login": "https://example.test/documentation"}},
+            {"id": "okta", "capabilities": {"login": "documented"},
+             "emulator_evidence": [emulator_record]}, "login",
+        )
+        check("emulator evidence supplements documentation without turning the cell green",
+              "📘" in rendered and "🧪" in rendered and "✅" not in rendered, True)
+        check("published emulator evidence links back into tests/evidence/providers",
+              "../../tests/evidence/providers/provider-result.json" in rendered, True)
+        emulator_artifact["subject"]["revision"] = "version:99.0.0"
+        emulator_record["emulator_revision"] = "version:99.0.0"
+        retained_artifact(evidence_root, emulator_artifact)
+        check("retained emulator evidence is pinned to the reviewed dependency", refused(
+            lambda: matrix.validate_emulator_evidence_record(
+                emulator_provider, "login", emulator_record, evidence_root
+            )
+        ), True)
+        emulator_artifact["subject"]["revision"] = "version:0.10.0"
+        emulator_record["emulator_revision"] = "version:0.10.0"
+        emulator_artifact["results"] = [{"feature": "login", "outcome": "live"}]
+        retained_artifact(evidence_root, emulator_artifact)
+        check("an emulator artifact cannot invent a real-provider status", refused(
+            lambda: matrix.validate_emulator_evidence_record(
+                emulator_provider, "login", emulator_record, evidence_root
+            )
+        ), True)
+        emulator_artifact["results"] = [{"feature": "shared_signals", "outcome": "pass"}]
+        retained_artifact(evidence_root, emulator_artifact)
+        unexercised_record = copy.deepcopy(emulator_record)
+        unexercised_record["feature"] = "shared_signals"
+        check("an emulator artifact cannot retain a capability its selection never exercised", refused(
+            lambda: matrix.validate_emulator_evidence_record(
+                emulator_provider, "shared_signals", unexercised_record, evidence_root
+            )
+        ), True)
+        emulator_artifact["results"] = [
+            {"feature": "login", "outcome": "pass"},
+            {"feature": "login", "outcome": "pass"},
+        ]
+        retained_artifact(evidence_root, emulator_artifact)
+        check("an emulator artifact cannot retain duplicate capability outcomes", refused(
+            lambda: matrix.validate_emulator_evidence_record(
+                emulator_provider, "login", emulator_record, evidence_root
+            )
+        ), True)
+        emulator_artifact["results"] = [
+            {"feature": "login", "outcome": "pass"},
+            {"feature": ["shared_signals"], "outcome": "pass"},
+        ]
+        retained_artifact(evidence_root, emulator_artifact)
+        check("an emulator artifact rejects non-text capability identifiers", refused(
+            lambda: matrix.validate_emulator_evidence_record(
+                emulator_provider, "login", emulator_record, evidence_root
             )
         ), True)
 

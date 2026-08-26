@@ -2247,7 +2247,7 @@ module.update_registry(repository, update)
         emitted = []
         hook.emit = emitted.append
         hook.refresh({})
-        message = emitted[0]["systemMessage"]
+        message = emitted[0].get("systemMessage") or emitted[0].get("additionalContext", "")
         check("a refused main fast-forward surfaces its warning", "was not changed" in message, True)
         check("a refused main fast-forward is not called a safe mirror",
               "safe fast-forward mirror" in message, False)

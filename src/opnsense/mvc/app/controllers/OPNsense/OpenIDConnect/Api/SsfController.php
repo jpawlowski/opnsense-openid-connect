@@ -59,7 +59,7 @@ class SsfController extends ApiControllerBase
         );
         $contentType = strtolower(trim(explode(';', $this->request->getHeader('CONTENT_TYPE'))[0]));
         if ($dispatcher->getActionName() === 'push' && $this->request->isPost()
-            && !$this->isExternalClient() && $contentType === 'application/secevent+jwt') {
+            && $contentType === 'application/secevent+jwt') {
             /* The delivery secret and signed SET replace a WebGUI session and CSRF token for this endpoint. */
             return true;
         }

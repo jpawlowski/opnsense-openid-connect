@@ -107,12 +107,36 @@ $push = new SsfController(new Request(
     'signed',
     'POST'
 ));
-$push->beforeExecuteRoute(new class {
+$pushBoundary = $push->beforeExecuteRoute(new class {
     public function getActionName(): string
     {
         return 'push';
     }
 });
+Checks::that(
+    'a bearer-authenticated push bypasses core API-key and CSRF authentication',
+    $pushBoundary,
+    true
+);
+$wrongMediaPush = new SsfController(new Request(
+    'https',
+    'firewall.example.net',
+    [],
+    [],
+    ['CONTENT_TYPE' => 'application/json', 'AUTHORIZATION' => 'Bearer wrong'],
+    'signed',
+    'POST'
+));
+Checks::that(
+    'the public push bypass remains restricted to the SET delivery media type',
+    $wrongMediaPush->beforeExecuteRoute(new class {
+        public function getActionName(): string
+        {
+            return 'push';
+        }
+    }),
+    false
+);
 Checks::that('the public push boundary retains a private response policy', [
     $push->response->headers['Cache-Control'],
     $push->response->headers['Referrer-Policy'],

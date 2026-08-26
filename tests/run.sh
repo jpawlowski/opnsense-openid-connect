@@ -80,6 +80,7 @@ node tests/pull-request-labels.mjs
 echo
 echo '== what an agent task prepares =='
 python3 tests/agent-hooks.py
+python3 tests/test-impact.py
 
 echo
 echo '== the package that gets built =='

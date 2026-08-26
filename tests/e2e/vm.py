@@ -466,7 +466,12 @@ def start_vm(arguments):
         run(qemu_img(), "convert", "-O", "qcow2", str(base), str(overlay))
     else:
         run(qemu_img(), "create", "-q", "-f", "qcow2", "-F", "qcow2", "-b", str(base), str(overlay))
-    web_port, ssh_port, serial_port = free_port(), free_port(), free_port()
+    web_port = arguments.web_port or free_port()
+    ssh_port, serial_port = free_port(), free_port()
+    while ssh_port == web_port:
+        ssh_port = free_port()
+    while serial_port in {web_port, ssh_port}:
+        serial_port = free_port()
     state = {
         **launch(backend, overlay, run_directory, web_port, ssh_port, serial_port),
         "version": version, "run_directory": str(run_directory), "disk": str(overlay),
@@ -544,6 +549,7 @@ def main():
     start = subparsers.add_parser("start")
     start.add_argument("--backend", choices=("auto", "qemu", "utm"), default="auto")
     start.add_argument("--refresh", action="store_true")
+    start.add_argument("--web-port", type=int, choices=range(1024, 65536))
     stop = subparsers.add_parser("stop")
     stop.add_argument("--state", required=True)
     stop.add_argument("--keep", action="store_true")

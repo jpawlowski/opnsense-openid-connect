@@ -16,7 +16,12 @@ import urllib.request
 
 HERE = pathlib.Path(__file__).resolve().parent
 SAFE_ID = re.compile(r"^[a-f0-9]{8}$")
-PROVIDERS = {"authentik", "authelia", "pocketid"}
+PROVIDERS = {"authentik", "authelia", "pocketid", "entra", "okta", "apple"}
+EMULATOR_CAPABILITIES = {
+    "okta": ["authorization_code", "form_post", "groups", "pkce", "userinfo"],
+    "apple": ["authorization_code", "first_login_user", "form_post", "private_relay", "string_claims"],
+}
+ENTRA_TENANT = "11111111-1111-1111-1111-111111111111"
 
 
 def run(*arguments, capture=False, quiet=False):
@@ -200,6 +205,124 @@ def start_pocketid(state, canary):
     state["containers"].append(name)
 
 
+def start_entra(state, canary):
+    work = pathlib.Path(state["work_dir"])
+    name = f"{state['prefix']}-entra"
+    state["issuer"] = f"{state['url']}/{ENTRA_TENANT}/v2.0"
+    state["login_mode"] = "password"
+    state["scopes"] = ["openid", "email", "profile"]
+    environment = {
+        "PUBLIC_ORIGIN": state["url"],
+        "ISSUER": state["issuer"],
+        "TENANT_ID": ENTRA_TENANT,
+        "REQUIRE_PASSWORD": "true",
+        "TLS_CERT": "/tls/server.crt",
+        "TLS_KEY": "/tls/server.key",
+        "DB_PATH": "/data/entra-local.db",
+    }
+    volumes = [
+        (str(work / "server.crt"), "/tls/server.crt", "ro"),
+        (str(work / "server.key"), "/tls/server.key", "ro"),
+        (str(work / "entra-data"), "/data", "rw"),
+    ]
+    (work / "entra-data").mkdir(mode=0o700)
+    docker_run(name, state["network"], image("entra", canary), environment=environment, volumes=volumes)
+    state["upstream"] = f"https://{name}:8443"
+    state["readiness"] = "/health"
+    state["emulator"] = {"name": "entra-local", "revision": "version:0.1.0"}
+    state["containers"].append(name)
+
+
+def start_emulate(state):
+    work = pathlib.Path(state["work_dir"])
+    provider = state["provider"]
+    name = f"{state['prefix']}-emulate"
+    email = f"{state['username']}@example.com"
+    if provider == "okta":
+        state["issuer"] = f"{state['url']}/oauth2/default"
+        state["login_mode"] = "picker"
+        state["scopes"] = ["openid", "email", "profile", "groups"]
+        seed = {
+            "okta": {
+                "users": [{
+                    "login": state["username"], "email": email,
+                    "first_name": "OIDC", "last_name": "E2E",
+                }],
+                "oauth_clients": [{
+                    "client_id": state["client_id"], "client_secret": state["client_secret"],
+                    "name": state["server_name"], "redirect_uris": [state["callback"]],
+                    "auth_server_id": "default", "token_endpoint_auth_method": "client_secret_post",
+                }],
+            },
+        }
+        readiness = "/oauth2/default/.well-known/openid-configuration"
+    else:
+        # The production Apple profile deliberately fixes appleid.apple.com.
+        # A local emulator therefore uses the generic endpoint surface while
+        # retaining Apple's approval admission and Form Post assertions.
+        state["profile"] = "general"
+        state["adaptation"] = (
+            "Generic profile plus reviewed PKCE and Form Post discovery metadata missing from emulate 0.10.0"
+        )
+        state["issuer"] = state["url"]
+        state["login_mode"] = "picker"
+        state["scopes"] = ["openid", "email", "name"]
+        email = f"{state['username']}@privaterelay.appleid.com"
+        state["email"] = email
+        seed = {
+            "apple": {
+                "users": [{"email": email, "name": "OIDC E2E"}],
+                "oauth_clients": [{
+                    "client_id": state["client_id"], "team_id": "E2ETEAM01",
+                    "name": state["server_name"], "redirect_uris": [state["callback"]],
+                }],
+            },
+        }
+        readiness = "/.well-known/openid-configuration"
+    write(work / "emulate.json", json.dumps(seed, indent=2, sort_keys=True) + "\n")
+    volumes = [
+        (str(HERE.parent), "/e2e", "ro"),
+        (str(work / "emulate.json"), "/config/emulate.json", "ro"),
+    ]
+    docker_run(
+        name,
+        state["network"],
+        image("node"),
+        environment={"NODE_ENV": "test"},
+        volumes=volumes,
+        command=[
+            "/e2e/node_modules/.bin/emulate", "start", "--service", provider,
+            "--port", "4000", "--seed", "/config/emulate.json", "--base-url", state["url"],
+        ],
+    )
+    state["upstream"] = f"http://{name}:4000"
+    state["readiness"] = readiness
+    state["emulator"] = {"name": "vercel-labs-emulate", "revision": "version:0.10.0"}
+    state["containers"].append(name)
+    if provider == "apple":
+        adapter = f"{state['prefix']}-emulate-adapter"
+        docker_run(
+            adapter, state["network"], image("node"),
+            environment={"EMULATE_PROVIDER": provider, "EMULATE_UPSTREAM": f"http://{name}:4000"},
+            volumes=[(str(HERE / "emulate-adapter.mjs"), "/adapter/emulate-adapter.mjs", "ro")],
+            command=["node", "/adapter/emulate-adapter.mjs"],
+        )
+        state["upstream"] = f"http://{adapter}:4100"
+        state["containers"].append(adapter)
+
+
+def start_okta(state, canary):
+    if canary:
+        raise SystemExit("the reviewed npm lock, not a release canary, pins the Okta emulator")
+    start_emulate(state)
+
+
+def start_apple(state, canary):
+    if canary:
+        raise SystemExit("the reviewed npm lock, not a release canary, pins the Apple emulator")
+    start_emulate(state)
+
+
 def start_proxy(state):
     work = pathlib.Path(state["work_dir"])
     name = f"{state['prefix']}-tls"
@@ -212,6 +335,8 @@ http {{
     client_max_body_size 4m;
     location / {{
       proxy_pass {state['upstream']};
+      proxy_ssl_verify off;
+      proxy_ssl_server_name on;
       proxy_http_version 1.1;
       proxy_set_header Host $http_host;
       proxy_set_header X-Forwarded-Host $http_host;
@@ -276,7 +401,9 @@ def start(arguments):
     if provider_url.scheme != "https" or not provider_url.hostname or not provider_url.port:
         raise SystemExit("provider URL must be an explicit HTTPS origin with a port")
     state = {
-        "schema": 1, "provider": arguments.provider, "profile": arguments.provider,
+        "schema": 2, "provider": arguments.provider, "profile": arguments.provider,
+        "source": "emulated" if arguments.provider in {"entra", "okta", "apple"} else "local",
+        "cluster": os.environ.get("E2E_CLUSTER", "direct"),
         "run_id": arguments.run_id, "work_dir": str(work), "url": arguments.url.rstrip("/"),
         "host": provider_url.hostname, "port": provider_url.port, "authority": provider_url.netloc,
         "prefix": f"opnsense-oidc-{arguments.provider}-{arguments.run_id}",
@@ -290,23 +417,27 @@ def start(arguments):
         "session_secret": os.environ["E2E_SESSION_SECRET"],
         "storage_secret": os.environ["E2E_STORAGE_SECRET"],
         "oidc_secret": os.environ["E2E_OIDC_SECRET"],
-        "capabilities": json.loads(run(str(HERE / "image.py"), arguments.provider, "--metadata", capture=True).stdout)[
-            "capabilities"
-        ],
+        "login_mode": "password", "scopes": ["openid", "email", "profile"],
     }
+    if arguments.provider in EMULATOR_CAPABILITIES:
+        state["capabilities"] = EMULATOR_CAPABILITIES[arguments.provider]
+    else:
+        state["capabilities"] = json.loads(
+            run(str(HERE / "image.py"), arguments.provider, "--metadata", capture=True).stdout
+        )["capabilities"]
     create_certificate(work, state["host"])
     run("docker", "network", "create", state["network"])
     try:
         globals()[f"start_{arguments.provider}"](state, arguments.canary)
         start_proxy(state)
         wait_ready(state)
-    except Exception:
+        write(pathlib.Path(arguments.state), json.dumps(state, indent=2, sort_keys=True) + "\n")
+    except BaseException:
         for container in reversed(state["containers"]):
             subprocess.run(["docker", "rm", "-f", container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["docker", "network", "rm", state["network"]], stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL)
         raise
-    write(pathlib.Path(arguments.state), json.dumps(state, indent=2, sort_keys=True) + "\n")
 
 
 def stop(arguments):

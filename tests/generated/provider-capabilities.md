@@ -103,9 +103,9 @@ Informative only: `draft-ietf-oauth-v2-1-15` was reviewed 2026-08-24; no draft c
 
 ### Provider interoperability matrix
 
-The cells describe provider evidence, not plugin standards conformance: ✅ retained live test; 🟦 retained live test
-with a named adapter; 📘 vendor documentation only; ◇ conditional; ❌ unavailable; ⚠️ incompatible; ? unknown.
-A provider guide alone is never rendered green.
+The cells describe provider evidence, not plugin standards conformance: ✅ retained real-provider test; 🟦 retained
+real-provider test with a named adapter; 🧪 retained emulator test; 📘 vendor documentation only; ◇ conditional;
+❌ unavailable; ⚠️ incompatible; ? unknown. Emulator evidence is additional and never makes a cell green.
 
 | Provider | OIDC code login | PKCE S256 | PAR | Authorization issuer | Signed JARM | Token revocation | RP-initiated logout | Front-channel logout | Back-channel logout | Shared Signals | MFA evidence | Phishing-resistant evidence |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|

@@ -67,6 +67,12 @@ There are deliberately four test tiers:
 Only the first tier belongs in an automatic Stop hook. The other three require a
 deliberate decision and must never be started merely because an agent is done.
 
+For a change under review, `python3 .agents/test-impact.py` compares the changed
+paths with the canonical base and explains its minimum recommendation. It is
+read-only and starts nothing. Its path rules are deliberately conservative;
+the agent still identifies the real boundary and records the resulting tier,
+provider, source and network cluster in the issue validation plan.
+
 ## What is covered
 
 **`tests/unit/`** exercises the parts that decide things, through stand-ins for
