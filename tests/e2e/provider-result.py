@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 
-# Copyright (C) 2026 Julian Pawlowski
-# All rights reserved. BSD-2-Clause, see LICENSE at the repository root.
-
 """Write a sanitized, caller-owned result for one manual provider run."""
 
 import argparse
