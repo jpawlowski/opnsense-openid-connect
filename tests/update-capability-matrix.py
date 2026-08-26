@@ -388,6 +388,12 @@ def validate_live_evidence_record(provider, feature_id, status, record, root=ROO
         raise CatalogError(f"{label}: live evidence record names another feature")
     if record["source"] not in {"local", "live"} or record["cluster"] not in {"direct", "public-inbound"}:
         raise CatalogError(f"{label}: live evidence record has no valid source and cluster")
+    exercised = PROVIDER_RESULT_CAPABILITIES.get(
+        (provider["id"], record["source"], record["cluster"]),
+        set(),
+    )
+    if feature_id not in exercised:
+        raise CatalogError(f"{label}: live evidence selection does not exercise this capability")
     tested_on = validate_record_text(record, "tested_on", label)
     tested_date = historical_date(tested_on, f"{label}: tested_on")
     provider_revision = validate_record_text(record, "provider_revision", label)

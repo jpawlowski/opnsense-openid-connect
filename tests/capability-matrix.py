@@ -334,7 +334,7 @@ def main():
         lambda: matrix.validate_providers(adapted, standard_ids)
     ), True)
 
-    provider = {"id": "general", "guide": "docs/providers/general.md"}
+    provider = {"id": "keycloak", "guide": "docs/providers/keycloak.md"}
     dated_record = {
         "feature": "login",
         "tested_on": "2026-08-24",
@@ -407,8 +407,8 @@ def main():
             "provider_revision": "version:fixture-1",
             "tested_on": "2026-08-24",
             "configuration": {
-                "provider_profile": "general",
-                "guide": "docs/providers/general.md",
+                "provider_profile": "keycloak",
+                "guide": "docs/providers/keycloak.md",
                 "client_type": "confidential",
                 "flow": "authorization_code",
                 "feature_mode": "enabled",
@@ -431,7 +431,7 @@ def main():
                 provider, "login", "live", dated_record, evidence_root
             )
         ), True)
-        artifact["provider"] = "general"
+        artifact["provider"] = "keycloak"
         retained_artifact(evidence_root, artifact)
         check("a schema-bound provider result may become retained live evidence", refused(
             lambda: matrix.validate_live_evidence_record(
@@ -486,6 +486,47 @@ def main():
                 provider, "login", "adapter", dated_record, evidence_root
             )
         ), True)
+
+        okta_provider = {"id": "okta", "guide": "docs/providers/okta.md"}
+        okta_record = {
+            "feature": "shared_signals",
+            "tested_on": "2026-08-24",
+            "provider_revision": "service:2026-08-24",
+            "artifact": "tests/evidence/providers/provider-result.json",
+            "source": "live",
+            "cluster": "direct",
+        }
+        okta_artifact = {
+            "schema_version": 1,
+            "evidence_type": "provider_interoperability",
+            "provider": "okta",
+            "source": "live",
+            "cluster": "direct",
+            "provider_revision": "service:2026-08-24",
+            "tested_on": "2026-08-24",
+            "configuration": {
+                "provider_profile": "okta",
+                "guide": "docs/providers/okta.md",
+                "client_type": "confidential",
+                "flow": "authorization_code",
+                "feature_mode": "enabled",
+            },
+            "results": [{"feature": "shared_signals", "status": "live"}],
+        }
+        retained_artifact(evidence_root, okta_artifact)
+        check("live evidence cannot relabel a public-inbound capability as direct", refused(
+            lambda: matrix.validate_live_evidence_record(
+                okta_provider, "shared_signals", "live", okta_record, evidence_root
+            )
+        ), True)
+        okta_record["cluster"] = "public-inbound"
+        okta_artifact["cluster"] = "public-inbound"
+        retained_artifact(evidence_root, okta_artifact)
+        check("live evidence accepts the exact exercised public-inbound selection", refused(
+            lambda: matrix.validate_live_evidence_record(
+                okta_provider, "shared_signals", "live", okta_record, evidence_root
+            )
+        ), False)
 
         emulator_artifact = {
             "schema_version": 1,
