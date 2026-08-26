@@ -436,12 +436,15 @@ namespace OPNsense\Base {
     {
         public function beforeExecuteRoute($dispatcher)
         {
-            return true;
+            // Core interprets any Authorization header as a Local API key and
+            // rejects it before a public controller action can validate its
+            // own bearer credential.
+            return !$this->isExternalClient();
         }
 
         protected function isExternalClient(): bool
         {
-            return false;
+            return $this->request->getHeader('Authorization') !== '';
         }
     }
 }
