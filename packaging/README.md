@@ -23,9 +23,11 @@ package versions `1.2.3.a1`, `1.2.3.b1` or `1.2.3.r1`. Under FreeBSD's
 its pre-releases. Other release-tag suffixes are refused. The earlier immutable
 `v1.0.0-betaN` tags remain historical and are not renamed or reused.
 Their packages used the legacy version `1.0.0.betaN`, which `pkg` sorts after
-`1.0.0`. Replacing one of them with the stable `v1.0.0` package therefore uses
-`pkg add -f` once. The files and settings did not move; later releases and all
-future pre-releases follow normal upgrade ordering.
+`1.0.0`, and early betas shipped files that later left the package. Replacing
+one of them with the stable `v1.0.0` package therefore starts with
+`pkg delete os-openid-connect` and then uses a normal `pkg add`. Saved settings
+remain; later releases and all future pre-releases follow normal upgrade
+ordering.
 
 ## The note writes itself
 
@@ -120,8 +122,8 @@ provenance, release immutability and its checksum.
 
     pkg add os-openid-connect-<version>.pkg
 
-For the one-time move from a historical `v1.0.0-betaN` package to `v1.0.0`, use
-`pkg add -f` as explained above.
+For the one-time move from a historical `v1.0.0-betaN` package to `v1.0.0`,
+delete the beta package first as explained above.
 
 No restart, no service affected — PHP reads the files on the next request.
 Anyone signed in notices nothing; the session lives in PHP, not in the module.

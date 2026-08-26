@@ -89,7 +89,7 @@ def changes(entries, commit_url=""):
     return "\n".join(written).strip("\n")
 
 
-def installing(file, url, checksum, signed, repository="", legacy_beta_upgrade=False):
+def installing(file, url, checksum, signed, repository="", legacy_beta_migration=False):
     """The half of the note that is the same every time, and has to be right."""
     workstation = [
         "On an administrator workstation:",
@@ -115,16 +115,20 @@ def installing(file, url, checksum, signed, repository="", legacy_beta_upgrade=F
             f"      -signature /tmp/{file}.sig /tmp/{file}",
         ]
 
-    install_command = f"    pkg add /tmp/{file}"
+    install_commands = [f"    pkg add /tmp/{file}"]
     upgrade_note = []
-    if legacy_beta_upgrade:
-        install_command = f"    pkg add -f /tmp/{file}"
+    if legacy_beta_migration:
+        install_commands = [
+            "    pkg delete os-openid-connect",
+            "",
+            f"    pkg add /tmp/{file}",
+        ]
         upgrade_note = [
             "",
             "The historical 1.0.0 beta packages used a package-version spelling that",
-            "FreeBSD sorts after `1.0.0`. The forced install is therefore required once",
-            "when replacing any `v1.0.0-betaN` package; installed paths and settings are",
-            "unchanged.",
+            "FreeBSD sorts after `1.0.0`, and early betas shipped files later retired.",
+            "Delete any `v1.0.0-betaN` package before installing 1.0.0 so both the",
+            "version and file-set migrations are complete. Saved settings remain.",
         ]
 
     return "\n".join([
@@ -140,7 +144,7 @@ def installing(file, url, checksum, signed, repository="", legacy_beta_upgrade=F
         "",
         f"    sha256 -c {checksum} /tmp/{file}",
         "",
-        install_command,
+        *install_commands,
         *upgrade_note,
         "",
         "No restart, no service affected. Signing in locally with a username and",
@@ -180,7 +184,7 @@ def main():
             args.checksum,
             args.signed,
             args.repository,
-            legacy_beta_upgrade=args.tag == "v1.0.0",
+            legacy_beta_migration=args.tag == "v1.0.0",
         ), ""]
     note.append(
         f"{len(entries)} commit(s) since {earlier}." if earlier

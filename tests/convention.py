@@ -270,9 +270,13 @@ def main():
             capture_output=True,
             text=True,
         ).stdout
-        check("the first stable note forces the legacy beta migration exactly once",
-              "pkg add -f /tmp/os-openid-connect-1.0.0.pkg" in stable_after_legacy_beta
+        check("the first stable note removes a legacy beta before installing",
+              "pkg delete os-openid-connect" in stable_after_legacy_beta
+              and "pkg add /tmp/os-openid-connect-1.0.0.pkg" in stable_after_legacy_beta
+              and stable_after_legacy_beta.index("pkg delete") < stable_after_legacy_beta.index("pkg add")
               and "v1.0.0-betaN" in stable_after_legacy_beta, True)
+        check("the legacy beta migration never leaves retired files behind",
+              "pkg add -f" not in stable_after_legacy_beta, True)
         check("later stable notes retain the ordinary install command",
               "pkg add -f" not in rendered and "pkg add /tmp/os-openid-connect-1.1.0.pkg" in rendered,
               True)
