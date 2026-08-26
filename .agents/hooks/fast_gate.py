@@ -25,19 +25,31 @@ import worktree_cleanup  # noqa: E402
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-RELEVANT_PATHS = (
-    ".agents",
-    ".claude",
-    ".codex",
-    ".forgejo/workflows",
-    ".github/hooks",
-    ".github/scripts",
-    ".github/workflows",
-    "LICENSE",
-    "packaging",
-    "src",
-    "tests",
+CONTROL_PLANE_EXACT_PATHS = {
+    "AGENTS.md",
+    "CLAUDE.md",
+    "CONTRIBUTING.md",
+    ".gitmessage",
+    "packaging/commit-lint.py",
+    "packaging/contribution-lint.py",
+    "tests/agent-hooks.py",
+    "tests/contribution.py",
+    "tests/convention.py",
+    "tests/issue-hygiene.mjs",
+    "tests/pull-request-labels.mjs",
+    ".github/PULL_REQUEST_TEMPLATE.md",
+    ".github/ISSUE_TEMPLATE/bug.yml",
+    ".github/ISSUE_TEMPLATE/change.yml",
+    ".github/ISSUE_TEMPLATE/config.yml",
+}
+CONTROL_PLANE_PREFIXES = (
+    ".agents/",
+    ".claude/",
+    ".codex/",
+    ".github/hooks/",
+    ".github/scripts/",
 )
+CONTROL_PLANE_SUFFIXES = (".json", ".js", ".md", ".mjs", ".py", ".sh")
 START_FETCH_TTL = 5 * 60
 ACTIVE_FETCH_TTL = 5 * 60
 FETCH_TIMEOUT = 20
@@ -66,13 +78,46 @@ def state_paths(event):
     return directory / f"{key}.json", directory / f"{key}.log"
 
 
-def git_output(*arguments):
+def unrestricted_git_output(*arguments):
     return subprocess.run(
-        ("git", *arguments, "--", *RELEVANT_PATHS),
+        ("git", *arguments),
         cwd=REPOSITORY,
         check=True,
         stdout=subprocess.PIPE,
+        env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
     ).stdout
+
+
+def validation_paths(base):
+    if not base:
+        return ()
+    try:
+        merge_base = unrestricted_git_output("merge-base", "HEAD", base).decode().strip()
+    except subprocess.CalledProcessError:
+        merge_base = ""
+    if not merge_base:
+        return ()
+    # Compare the topic with its common ancestor so unrelated canonical progress
+    # cannot turn a control-plane-only branch into an apparent product change.
+    # Keep both sides of a rename visible. A product file moved under an agent
+    # path still changed product/runtime scope and therefore needs the full gate.
+    changed = unrestricted_git_output("diff", "--no-renames", "--name-only", merge_base).decode().splitlines()
+    untracked = unrestricted_git_output("ls-files", "--others", "--exclude-standard").decode().splitlines()
+    return tuple(dict.fromkeys(path for path in changed + untracked if path))
+
+
+def control_plane_only(paths):
+    return bool(paths) and all(
+        path in CONTROL_PLANE_EXACT_PATHS
+        or (path.startswith(CONTROL_PLANE_PREFIXES) and path.endswith(CONTROL_PLANE_SUFFIXES))
+        for path in paths
+    )
+
+
+def validation_command(base):
+    if control_plane_only(validation_paths(base)):
+        return (str(REPOSITORY / ".agents" / "check-control-plane.sh"),)
+    return (str(REPOSITORY / "tests" / "run.sh"),)
 
 
 def repository_git(repository, *arguments, check=True, timeout=None):
@@ -364,10 +409,10 @@ def synchronize_repository(repository, max_age, required=False):
 
 def fingerprint():
     digest = hashlib.sha256()
-    digest.update(git_output("status", "--porcelain=v1", "-z", "--untracked-files=all"))
-    digest.update(git_output("diff", "--binary", "--no-ext-diff", "HEAD"))
+    digest.update(unrestricted_git_output("status", "--porcelain=v1", "-z", "--untracked-files=all"))
+    digest.update(unrestricted_git_output("diff", "--binary", "--no-ext-diff", "HEAD"))
 
-    untracked = git_output("ls-files", "-z", "--others", "--exclude-standard")
+    untracked = unrestricted_git_output("ls-files", "-z", "--others", "--exclude-standard")
     for encoded_path in filter(None, untracked.split(b"\0")):
         path = REPOSITORY / os.fsdecode(encoded_path)
         digest.update(encoded_path)
@@ -951,9 +996,10 @@ def subagent(_event):
     })
 
 
-def failed_output(event, log_path, extra=""):
+def failed_output(event, log_path, command, extra=""):
+    display = " ".join(command)
     reason = (
-        "The fast host-independent checks failed. Fix the failure and run ./tests/run.sh again. "
+        f"The selected validation failed. Fix the failure and run `{display}` again. "
         f"The complete output is in {log_path}. Integration and browser E2E tests were not run."
     )
     reason = messages(extra, reason)
@@ -989,13 +1035,15 @@ def stop(event):
         return
 
     if current == state.get("failed"):
-        emit(failed_output(event, log_path, notice))
+        command = validation_command(synchronization.get("base_main"))
+        emit(failed_output(event, log_path, command, notice))
         return
 
+    command = validation_command(synchronization.get("base_main"))
     log_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with log_path.open("wb") as output:
         result = subprocess.run(
-            (str(REPOSITORY / "tests" / "run.sh"),),
+            command,
             cwd=REPOSITORY,
             stdout=output,
             stderr=subprocess.STDOUT,
@@ -1011,7 +1059,7 @@ def stop(event):
 
     state["failed"] = current
     save_state(state_path, state)
-    emit(failed_output(event, log_path, notice))
+    emit(failed_output(event, log_path, command, notice))
 
 
 def refresh(event):

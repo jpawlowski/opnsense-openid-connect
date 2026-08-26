@@ -30,7 +30,8 @@ separation is not decoration — keep it.
 
 ## Commands
 
-    ./tests/run.sh                                    fast host-independent gate; Stop hook and CI
+    ./tests/run.sh                                    fast host-independent product gate; CI
+    ./.agents/check-control-plane.sh                  focused agent-policy and automation gate
     python3 tests/update-security-report.py --update regenerate the unified security and conformance report
     php tests/run.php                                 the behaviour checks alone
     python3 packaging/build.py --check                does it still build
@@ -48,6 +49,14 @@ separation is not decoration — keep it.
 
 Installed integration and destructive browser E2E are deliberate manual runs;
 they never belong in an automatic agent Stop hook. See `tests/README.md`.
+
+When the complete diff changes only agent instructions, contribution policy,
+agent hooks or their focused tests, run `./.agents/check-control-plane.sh` and
+do not run `./tests/run.sh`. The Stop hook makes the same selection. The full
+host-independent gate is required when any product source, packaging/runtime
+logic or other unclassified path changes. A control-plane change still runs its
+own syntax, contribution and hook tests; "no full product suite" never means
+"no validation".
 
 Before finalizing a validation plan, run the read-only test-impact helper and
 then check its path-based recommendation against the semantic boundary actually
@@ -148,17 +157,44 @@ remain visible, but only review of the current head satisfies the merge gate. A
 remote head not contained locally remains an immediate coordination block and is
 reconciled only through the exact-SHA helper above.
 
-Wait for a review submission to finish before repairing its first comment.
-Inventory every thread, apply one coherent batch, synchronize canonical changes
-at the same checkpoint, validate once, push once and then request one current-head
-review. Branch lag is not conflict. While review of the current head is pending,
-record an actual conflict but do not rewrite the head merely to remove it. Restore
+Keep the pull request draft throughout the automatic review cycle. Prefer the
+execution surface's dedicated local read-only reviewer against the complete diff
+from the canonical base: Codex `/review` or `codex review --base BASE`, and Claude
+Code `/review`. A local result counts for the current head only when the worktree
+is clean and both `HEAD` and the canonical base remain the revisions recorded for
+that review. Use a GitHub-triggered Codex review only when no suitable local
+reviewer is available or a human explicitly requests public bot evidence.
+
+Wait for one review to finish before repairing its first finding. Inventory every
+finding or GitHub thread, apply one coherent batch, synchronize canonical changes
+at the same checkpoint, validate once, commit and push once, then automatically
+run another current-head local review or request the GitHub fallback. Repeat until
+the review reports no findings, or the steward records why every remaining
+non-blocking finding is too granular or immaterial to justify another code change.
+A technically rebutted finding with complete evidence and a resolved thread is
+also disposed without requiring a duplicate same-head review. P0, P1 and
+critical-path P2 findings can never be waived as granular or immaterial. Branch
+lag is not conflict. While a GitHub review of the current head is pending, record
+an actual conflict but do not rewrite the head merely to remove it. Restore
 mergeability before the first review, after a completed review batch, or during
 finalization. If `main` advances again during review, accumulate it until the next
 checkpoint instead of starting a live conflict-resolution loop.
 
+Native review-follow-up commands are implementation aids, not policy. If Codex
+exposes `/reviewfollowup`, use it to collect or recheck GitHub feedback; otherwise
+continue in the same review context or run a narrowly instructed review. Claude
+has no required named follow-up command: continue the PR-linked session or rerun
+`/review`. In every case the repository rules for exact revisions, severity,
+validation, thread disposition and Draft/Ready state remain authoritative.
+
 For a published PR, keep a read-only monitor active until an actionable event or
-terminal state. It reports only changed state or action needed and never comments,
+terminal state. A synchronous local review needs no GitHub polling. While a
+GitHub-triggered automatic review is pending, choose a new exact delay of 180
+through 480 seconds after every unchanged observation with
+`.agents/review-requests.py wait --phase review`, then arrange one platform wait
+or recurring wake-up for that delay. Once ready for human review, use
+`.agents/review-requests.py wait --phase ready` and observe mergeability hourly.
+The monitor reports only changed state or action needed and never comments,
 pushes, requests review or merges. A review, failing check, foreign head, confirmed
 conflict, predecessor transition, approval, merge or closure returns ownership to
 the steward. If the platform cannot retain a monitor, hand off the exact pending
@@ -319,15 +355,20 @@ language matching, short-body limits, maintained-detail-comment pattern, tone
 and authorship notice apply to every public message written in a contributor's
 name.
 
-A pull request becomes ready for review only when two separate gates are true:
-the human intent gate says its intended scope is complete, and the agent has
-proved it technically green. An agent-authored pull request remains draft until
-an explicit human instruction says it is ready for review; preparing it, keeping
-it mergeable or reporting green checks does not imply that instruction. New
-user-requested scope or a direct user change revokes readiness, so the steward
-returns the pull request to draft before the next implementation change. Fixes
-within an already authorized review batch do not revoke readiness. No agent
-automatically changes a draft back to ready.
+A pull request remains draft while implementation, validation and automatic
+independent review are in progress. The agent marks it ready for review automatically
+only when the intended scope is complete, the branch is technically green, the
+current-head review cycle has reached its stopping condition, every review thread
+has a disposition and the branch is mergeable. That transition is the handoff
+to human review, approval and an explicitly authorized merge. New user-requested
+scope or a direct user change returns it to draft before the next implementation
+change. A confirmed conflict after readiness also returns it to draft while the
+steward resolves and validates it. The steward restarts the complete review cycle
+when the resolution materially changes reviewed behavior, interfaces or risk;
+for a demonstrably mechanical resolution it records that judgment, skips replaying
+the prior review history and obtains one current-head reviewer confirmation. Every
+new conflict-resolution head remains draft until that review reaches the normal
+stopping condition.
 
 Before every external review request or final review handoff, read and follow
 the complete `preflight-review` skill against the exact final diff from the
@@ -335,7 +376,9 @@ canonical base. A green test gate is evidence, not completion. If the preflight
 changes code, rerun the affected validation and repeat its relevant checks on
 the new diff before requesting review.
 
-Do not merge a pull request until Codex has reviewed its current head commit.
+Do not merge a pull request until the execution surface's dedicated local
+reviewer, or the GitHub Codex fallback, has reviewed its current head diff from
+the recorded canonical base.
 P0 and P1 findings block the merge until fixed or technically rebutted in their
 thread. A P2 blocks only when it is independently reproducible and affects
 security, recoverability, worktree or issue ownership, remote or pull-request
@@ -343,14 +386,16 @@ freshness, publication correctness, or cleanup safety; other P2 and all P3
 findings are answered and tracked. The integrating agent owns every review
 thread through completion. Before requesting another review, it records every
 existing thread's disposition and resolves every addressed thread; it never
-leaves that cleanup to the reviewer. Review requests use
+leaves that cleanup to the reviewer. When the GitHub fallback is used, review requests use
 `.agents/review-requests.py request`, never a raw command-only comment. The helper
 removes fulfilled or stale request comments authored by the publishing account,
-refuses draft pull requests, retains at most one request for the current head and leaves Codex reviews,
+requires a draft pull request, retains at most one request for the current head and leaves Codex reviews,
 findings, dispositions and discussion untouched. After a review arrives, run
-`.agents/review-requests.py cleanup` to remove its fulfilled trigger. Once a
-current-head review has no blocking finding, do not request another review
-merely to obtain zero suggestions.
+`.agents/review-requests.py cleanup` to remove its fulfilled trigger. Automatically
+run or request another current-head review after each review batch until it has no
+findings, or until all remaining non-blocking findings have an explicit
+too granular or immaterial disposition. Never use that exception for a P0, P1 or
+critical-path P2.
 
 ## What this deliberately does not do
 

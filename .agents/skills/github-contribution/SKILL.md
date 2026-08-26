@@ -191,11 +191,13 @@ block until reconciled.
 
 Wait for a review submission to finish, inventory every thread and address one
 coherent batch. Synchronize relevant canonical drift at that same checkpoint,
-validate and push once, then request one current-head review with
-`.agents/review-requests.py request --pr N`. Do not post a raw `@codex review`
-comment. The helper removes fulfilled or stale request-only comments authored by
-the publishing account, retains at most one pending request for the exact head
-and never deletes a Codex review, finding, disposition reply or other discussion.
+validate and push once, then run another current-head local review. When a local
+reviewer is unavailable or public bot evidence was explicitly requested, use the
+GitHub fallback with `.agents/review-requests.py request --pr N`; do not post a
+raw `@codex review` comment. The helper removes fulfilled or stale request-only
+comments authored by the publishing account, retains at most one pending request
+for the exact head and never deletes a Codex review, finding, disposition reply
+or other discussion.
 `behind` is not a conflict. Do not change a head under active review merely to
 chase `main`; record a confirmed conflict and restore mergeability before initial
 review, after the review batch or at finalization.
@@ -408,27 +410,34 @@ not as a reason to recreate the pull request.
 
 ## Review before merge
 
-Review readiness has two independent gates. The human intent gate says the
-intended scope is complete; validation establishes that the branch is
-technically green. Keep an agent-authored pull request in draft until both are
-true. Only an explicit human instruction to make that pull request ready for
-review satisfies the first gate. Do not infer it from silence or from requests
-to prepare a pull request, keep it mergeable, fix reviews or report technical
-readiness.
+Keep an agent-authored pull request draft throughout implementation, validation
+and the complete automatic independent review cycle. Prefer the execution
+surface's dedicated local read-only reviewer against the complete diff from the
+canonical base: Codex `/review` or `codex review --base BASE`, and Claude Code
+`/review`. A local result is current only while its recorded `HEAD` and canonical
+base remain unchanged and the worktree is clean. Use the GitHub Codex path only
+when a suitable local reviewer is unavailable or a human explicitly requests
+public bot evidence. Mark it ready for review automatically only when all known
+scope is implemented, validation and checks prove the branch technically green
+and mergeable, the current-head review cycle has reached its
+stopping condition and every review thread has a disposition. Ready for review
+is the handoff to human review, approval and an explicitly authorized merge; it
+is not a prerequisite for an automated review request.
 
-New user-requested scope or a direct user change revokes the human intent gate.
-Before the next implementation change or push, refresh the remote view and
-return a ready pull request to draft with `gh pr ready N --undo`. A newly
-observed foreign head that carries such unfinished work also returns to draft
-after exact reconciliation. Fixes within an already authorized review batch do
-not revoke readiness. Once draft, the pull request never becomes ready again
-automatically; wait for another explicit human instruction. When authorized,
-mark it ready only after all known scope is implemented and technically green.
+New user-requested scope or a direct user change revokes readiness. Before the
+next implementation change or push, refresh the remote view and return a ready
+pull request to draft with `gh pr ready N --undo`. A newly observed foreign head
+that carries unfinished work also returns to draft after exact reconciliation.
+Keep review fixes in draft, and do not mark the pull request ready between
+review rounds.
 
-The review-request helper refuses draft pull requests. Before merging, wait for
-Codex to review the current head commit; compare the reviewed commit shown by
-Codex with the pull request's current head. A review of an older head does not
-count.
+The review-request helper requires a draft pull request. Before readiness, wait
+for the local reviewer or GitHub Codex fallback to review the current head diff
+from the recorded canonical base. Local evidence is invalid when either recorded
+revision changes. Public GitHub evidence is bound to the reviewed head because
+the platform does not record its base: compare that commit with the pull request's
+current head, and repeat the fallback review only when later canonical progress
+materially changes the diff or requires a conflict-resolution head.
 
 Every P0 and P1 finding blocks the merge until it is fixed or technically
 rebutted in its review thread. Independently reproduce each P2: it blocks only
@@ -439,10 +448,10 @@ finding: document its disposition in the thread, then resolve it. The ruleset's
 required thread resolution is the hard backstop, but it does not replace
 waiting for a late review or checking the reviewed commit.
 
-The integrating agent that owns the publishing branch owns every review thread
-through completion; the reviewing agent does not. After each review, first run
-`.agents/review-requests.py cleanup --pr N` to remove its fulfilled command-only
-trigger while retaining the review evidence. Then:
+The integrating agent that owns the publishing branch owns every review finding
+and GitHub thread through completion; the reviewing agent does not. After a
+GitHub review, first run `.agents/review-requests.py cleanup --pr N` to remove its
+fulfilled command-only trigger while retaining the review evidence. Then:
 
 1. Inventory every unresolved thread, including outdated threads from earlier
    heads.
@@ -453,12 +462,41 @@ trigger while retaining the review evidence. Then:
 5. Resolve the thread once that disposition is complete. Never leave this
    cleanup for the reviewer or silently resolve an unaddressed finding.
 
-Only after all existing threads have a disposition, all addressed threads are
-resolved, and no blocking finding remains unaddressed may the integrating agent
-request exactly one new review for the current head through the helper above.
-A new Codex review is a separate snapshot. It does not update or close an earlier review's threads.
-Once that current-head review has no blocking finding, stop: do not request
-another review merely to obtain zero suggestions.
+Only after all existing findings have a disposition, all addressed GitHub
+threads are resolved, and no blocking finding remains unaddressed may the
+integrating agent run a new local review or request exactly one GitHub review for
+the current head through the helper above. A new review is a separate snapshot.
+It does not update or close an earlier review's threads. Automatically repeat
+this fix, validate, commit, push and review sequence until the
+current-head review reports no findings. The steward may end the cycle with
+remaining non-blocking findings only by recording why every one is too granular
+or immaterial to justify another change. Never apply that exception to P0, P1 or
+a critical-path P2. A technically rebutted finding with complete evidence and a
+resolved thread is disposed; do not request a duplicate GitHub review of an
+unchanged head solely to make the reviewer repeat that conclusion.
+
+If the current Codex surface exposes `/reviewfollowup`, prefer it for collecting
+or rechecking GitHub feedback. It does not replace this skill's exact-revision,
+severity, validation, disposition, resolution or Draft/Ready requirements. When
+that command is absent, continue in the same review context or run a narrowly
+instructed local review. Claude has no required named follow-up command; continue
+the PR-linked session or rerun `/review` under the same rules.
+
+While a GitHub-triggered automatic review is pending, obtain a new delay after every unchanged
+observation with `.agents/review-requests.py wait --phase review`; it returns an
+exact, independently jittered value from 180 through 480 seconds. Arrange one
+platform wait or recurring wake-up for that delay, then run the read-only PR
+observer. Do not reuse a previous delay. Once the pull request is ready for human
+review, use `.agents/review-requests.py wait --phase ready` and observe
+mergeability hourly.
+
+A confirmed conflict after readiness returns the pull request to draft while it
+is resolved and validated. Restart the complete review cycle if the resolution
+materially changes reviewed behavior, interfaces or risk. If the resolution is
+demonstrably mechanical, record that judgment, skip replaying the prior review
+history and obtain one current-head reviewer confirmation. Keep every new
+conflict-resolution head draft until that review reaches the normal stopping
+condition.
 
 ## Agent notice
 

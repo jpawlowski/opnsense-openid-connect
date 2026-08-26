@@ -2,9 +2,17 @@
 
     ./tests/run.sh
 
+For changes limited to agent instructions, contribution policy, agent hooks and
+their focused tests, use this smaller gate instead:
+
+    ./.agents/check-control-plane.sh
+
 Syntax for every language in the tree, the behaviour checks, what a commit
 message may be, and checks on the package that gets built. No Composer, no
 PHPUnit, no network, no OPNsense. See [`tests/README.md`](tests/README.md).
+Do not run the full product gate for a control-plane-only diff. The focused gate
+still validates syntax, contribution policy and hook behavior. Any product
+source, packaging/runtime logic or unclassified path keeps the full gate.
 
 ## Pull requests
 
@@ -140,30 +148,48 @@ body locally:
         --body-file /path/to/pr-body.md \
         --repository jpawlowski/opnsense-openid-connect
 
-Review readiness has two gates. The human intent gate confirms that the intended
-scope is complete; green checks only prove that the branch is technically green.
-An agent-authored pull request remains draft until an explicit human instruction
-marks it ready for review. Preparing it, keeping it mergeable or reporting green
-checks is not that instruction. New user-requested scope or a direct user change
-returns it to draft before further implementation, while fixes within the
-already authorized review batch retain readiness. A draft never becomes ready
-again automatically.
+An agent-authored pull request remains draft throughout implementation,
+validation and automatic independent review. Prefer Codex `/review` (or
+`codex review --base BASE`) and Claude Code `/review` locally against the exact
+canonical-base diff. Use a GitHub Codex review only when no suitable local
+reviewer is available or a human explicitly requests public bot evidence. The
+agent marks it ready for review automatically only after the intended scope is
+complete, the branch is technically green and mergeable, the current-head review cycle is finished and
+every thread has a disposition. Ready for review is the handoff to human review,
+approval and an explicitly authorized merge. New user-requested scope or a direct
+user change returns it to draft before further implementation.
 
-Before merge, wait for Codex to review the current head commit, not an earlier revision. P0, P1 and P2
+Before merge, wait for the dedicated local reviewer or GitHub Codex fallback to
+review the current head diff from its recorded canonical base, not an earlier
+revision. P0, P1 and P2
 do not have one blanket disposition: P0 and P1 always block until fixed or
 technically rebutted. A P2 blocks when independently reproduced in a
 security-, recoverability-, ownership-, freshness-, publication-, or
 cleanup-critical path; other P2 and all P3 findings are answered and tracked.
 The pull request's author or integrating agent owns every review thread through
 completion: document its disposition and resolve it when addressed before
-requesting another review. Agents request no review while the pull request is draft and retain at most one
+requesting another review. Agents request GitHub reviews only while the pull request is draft and retain at most one
 machine-marked Codex review
 request for the current head. They remove their fulfilled or stale request-only
 comments before another request and after its review arrives, but retain every
-review, finding, disposition reply and other discussion. Once the current head
-has no blocking finding, do not repeat reviews merely to obtain zero suggestions. The required-thread rule
+review, finding, disposition reply and other discussion. After each coherent fix
+batch they automatically run or request another current-head review until it reports no
+findings. The steward may stop with remaining non-blocking findings only after
+recording why each is too granular or immaterial; P0, P1 and critical-path P2
+findings never qualify. A finding that is technically rebutted with complete
+evidence and a resolved thread needs no duplicate review of the unchanged head.
+The required-thread rule
 prevents unresolved findings from merging, while this wait prevents a late
 Codex review from arriving only after merge.
+
+While a GitHub review is pending, the steward observes the PR after a newly chosen
+exact delay of 180 through 480 seconds following each unchanged observation.
+After the PR is ready for human review, it checks mergeability hourly. A confirmed
+conflict returns the PR to draft during resolution and validation. The steward
+restarts the review cycle when that resolution materially changes reviewed
+behavior, interfaces or risk. For a recorded, demonstrably mechanical resolution,
+it may skip replaying the prior review history but still requests one current-head
+reviewer confirmation before returning to ready.
 
 ## Issues and public conversation
 

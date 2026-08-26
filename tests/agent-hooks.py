@@ -3,6 +3,7 @@
 """Checks the shared setup performed when a Codex or Claude task starts."""
 
 import importlib.util
+import inspect
 import io
 import json
 import os
@@ -106,8 +107,79 @@ def main():
     hook.execution_context = original_execution_context
     check("parallel sessions wait longer than two bounded fork fetches",
           hook.LOCK_TIMEOUT > hook.FETCH_TIMEOUT * 2, True)
-    check("classifier scripts participate in the Stop fingerprint",
-          ".github/scripts" in hook.RELEVANT_PATHS, True)
+    fingerprint_source = inspect.getsource(hook.fingerprint)
+    check("the Stop fingerprint observes every non-ignored path",
+          "unrestricted_git_output" in fingerprint_source
+          and "digest.update(git_output(" not in fingerprint_source, True)
+    check("pure agent-governance changes select the focused control-plane gate",
+          hook.control_plane_only((
+              "AGENTS.md", ".agents/hooks/fast_gate.py", "tests/agent-hooks.py",
+          )), True)
+    check("a product source change selects the full host-independent gate",
+          hook.control_plane_only(("AGENTS.md", "src/example.php")), False)
+    check("an empty or unclassified change fails closed to the full gate",
+          (hook.control_plane_only(()), hook.control_plane_only(("README.md",))), (False, False))
+    check("contribution templates use the focused control-plane gate",
+          hook.control_plane_only((
+              ".github/PULL_REQUEST_TEMPLATE.md", ".github/ISSUE_TEMPLATE/change.yml",
+          )), True)
+    check("unknown automation formats fail closed to the full gate",
+          hook.control_plane_only((".agents/hooks/example.rb",)), False)
+    focused_gate = (ROOT / ".agents" / "check-control-plane.sh").read_text(encoding="utf-8")
+    check("the focused gate compiles Python without writing bytecode",
+          "compile(path.read_text(encoding=\"utf-8\"), str(path), \"exec\")" in focused_gate
+          and "ast.parse(" not in focused_gate, True)
+    check("the focused gate parses admitted shell, JavaScript and JSON automation trees",
+          all(value in focused_gate for value in (
+              "Path(\".github/scripts\")", ".github/hooks .github/scripts -type f -name '*.json'",
+              "-name '*.js'", "-name '*.sh'", "node --check", "python3 -m json.tool",
+          )), True)
+    check("the focused gate exercises the test-impact decision fixtures",
+          "python3 tests/test-impact.py" in focused_gate, True)
+    check("the focused gate preserves repository-wide notice validation without building a package",
+          "python3 .agents/check-notice-roles.py" in focused_gate, True)
+    notice_roles = load_agent_module(
+        "notice_role_test", ROOT / ".agents" / "check-notice-roles.py",
+    )
+    with tempfile.TemporaryDirectory() as temporary:
+        notice_root = pathlib.Path(temporary)
+        (notice_root / ".agents").mkdir()
+        (notice_root / "packaging/watch").mkdir(parents=True)
+        (notice_root / "src/opnsense").mkdir(parents=True)
+        (notice_root / "LICENSE").write_text(
+            "Copyright (c) 2026, Example Holder\n", encoding="utf-8",
+        )
+        notice = "Copyright (C) 2026 Example Holder\n"
+        (notice_root / ".agents/policy.py").write_text(notice, encoding="utf-8")
+        (notice_root / "packaging/watch/openid-connect-refresh").write_text(notice, encoding="utf-8")
+        (notice_root / "src/opnsense/app.php").write_text(notice, encoding="utf-8")
+        tracked_notices = (
+            ".agents/policy.py", "LICENSE", "packaging/watch/openid-connect-refresh", "src/opnsense/app.php",
+        )
+        check("the fast notice check rejects a holder name in repository tooling",
+              notice_roles.notice_role_mismatches(notice_root, tracked_notices),
+              ([".agents/policy.py"], []))
+        (notice_root / ".agents/policy.py").write_text("policy\n", encoding="utf-8")
+        check("the fast notice check accepts only the central licence and installed application roles",
+              notice_roles.notice_role_mismatches(notice_root, tracked_notices), ([], []))
+    original_unrestricted_git_output = hook.unrestricted_git_output
+    validation_calls = []
+    def validation_output(*arguments):
+        validation_calls.append(arguments)
+        if arguments[:2] == ("merge-base", "HEAD"):
+            return b"common\n"
+        if arguments[:3] == ("diff", "--no-renames", "--name-only"):
+            return b"AGENTS.md\ndocs/README.md\n"
+        return b""
+    hook.unrestricted_git_output = validation_output
+    selected_paths = hook.validation_paths("moving-main")
+    check("gate selection inventories the branch diff from its merge base",
+          (selected_paths, hook.control_plane_only(selected_paths), validation_calls[:2]),
+          (("AGENTS.md", "docs/README.md"), False, [
+              ("merge-base", "HEAD", "moving-main"),
+              ("diff", "--no-renames", "--name-only", "common"),
+          ]))
+    hook.unrestricted_git_output = original_unrestricted_git_output
     with tempfile.TemporaryDirectory() as temporary:
         state = pathlib.Path(temporary) / "existing-state.json"
         state.write_text("{}", encoding="utf-8")
@@ -506,6 +578,18 @@ def main():
           guard_module.is_read_only_shell("python3 /tmp/.agents/worktrees.py list"), False)
     check("the issue claim helper is an allowed coordination operation",
           guard_module.is_read_only_shell("python3 .agents/issues.py claim 42"), True)
+    check("the Python review-delay helper is read-only in the control checkout",
+          guard_module.is_read_only_shell(
+              "python3 .agents/review-requests.py wait --phase review",
+          ), True)
+    check("the directly executed review-delay helper is also read-only",
+          guard_module.is_read_only_shell(
+              ".agents/review-requests.py wait --phase ready",
+          ), True)
+    check("the review-delay helper rejects an executable trailing argument",
+          guard_module.is_read_only_shell(
+              ".agents/review-requests.py wait --phase review rm",
+          ), False)
     check("issue creation may bootstrap public coordination before a claim",
           guard_module.is_issue_bootstrap({
               "tool_name": "Bash", "tool_input": {"command": "gh issue create --title example"},
@@ -1875,6 +1959,9 @@ module.update_registry(repository, update)
     review_requests = load_agent_module(
         "review_request_hygiene_test", ROOT / ".agents" / "review-requests.py",
     )
+    review_source = (ROOT / ".agents" / "review-requests.py").read_text(encoding="utf-8")
+    check("the read-only wait helper disables bytecode before importing local modules",
+          review_source.index("sys.dont_write_bytecode = True") < review_source.index("import github_watch"), True)
     current_head = "a" * 40
     old_head = "b" * 40
     rendered_request = review_requests.request_body(current_head)
@@ -1931,14 +2018,26 @@ module.update_registry(repository, update)
     except RuntimeError:
         mixed_head_rejected = True
     check("a changed remote head discards the request snapshot before mutation", mixed_head_rejected, True)
+    ready_pull = {"state": "open", "merged_at": None, "draft": False, "head": {"sha": current_head}}
+    review_requests.github_api = lambda *_arguments, **_keywords: ready_pull
+    ready_review_rejected = False
+    try:
+        review_requests.verify_remote_pull(91, current_head, "token", draft_required=True)
+    except RuntimeError:
+        ready_review_rejected = True
+    check("an automated Codex review cannot be requested after human-review readiness",
+          ready_review_rejected, True)
     draft_pull = {"state": "open", "merged_at": None, "draft": True, "head": {"sha": current_head}}
     review_requests.github_api = lambda *_arguments, **_keywords: draft_pull
-    draft_review_rejected = False
-    try:
-        review_requests.verify_remote_pull(91, current_head, "token", ready_required=True)
-    except RuntimeError:
-        draft_review_rejected = True
-    check("a draft cannot receive an agent-requested Codex review", draft_review_rejected, True)
+    review_requests.verify_local_pull = lambda pull: str(pull["head"]["sha"])
+    check("an automated Codex review is allowed while the pull request is draft",
+          review_requests.verify_remote_pull(91, current_head, "token", draft_required=True), current_head)
+    check("review waiting jitter includes its exact lower bound",
+          review_requests.wait_seconds("review", chooser=lambda _bound: 0), 180)
+    check("review waiting jitter includes its exact upper bound",
+          review_requests.wait_seconds("review", chooser=lambda bound: bound - 1), 480)
+    check("human-review readiness uses an hourly mergeability observation",
+          review_requests.wait_seconds("ready"), 3600)
 
     original_review_state = review_requests.review_state
     original_delete_requests = review_requests.delete_requests
@@ -2008,7 +2107,74 @@ module.update_registry(repository, update)
     check("parallel request creation revalidates before posting and converges on the earliest trigger",
           actions,
           ["snapshot", ("delete", []), "verify", ("POST", "issues/91/comments"), "snapshot",
-           ("delete", [11])])
+           ("delete", [11]), "verify"])
+
+    race_actions = []
+    published_request = {
+        "id": 12, "body": rendered_request, "user": {"login": "publisher"},
+        "html_url": "https://example.test/racing",
+    }
+    race_snapshots = iter(((current_head, "publisher", [], [], [], []),))
+
+    def ready_during_confirmation(*_arguments, **_keywords):
+        try:
+            return next(race_snapshots)
+        except StopIteration as error:
+            raise RuntimeError("automated Codex review requests require a draft pull request") from error
+
+    def race_github_api(path, _token, **keywords):
+        race_actions.append((keywords.get("method"), path))
+        if keywords.get("method") == "POST":
+            return published_request
+        if path == "issues/comments/12":
+            return published_request
+        return None
+
+    review_requests.review_state = ready_during_confirmation
+    review_requests.delete_requests = lambda *_arguments, **_keywords: None
+    review_requests.verify_remote_pull = lambda *_arguments, **_keywords: current_head
+    review_requests.github_api = race_github_api
+    ready_transition_rejected = False
+    try:
+        review_requests.request_review(SimpleNamespace(pr=91, language="en"))
+    except RuntimeError:
+        ready_transition_rejected = True
+    check("a draft-to-ready race removes its newly published review trigger",
+          (ready_transition_rejected, race_actions),
+          (True, [
+              ("POST", "issues/91/comments"),
+              (None, "issues/comments/12"),
+              ("DELETE", "issues/comments/12"),
+          ]))
+
+    race_actions.clear()
+    cleanup_race_states = iter((
+        (current_head, "publisher", [], [], [], []),
+        (current_head, "publisher", [published_request], [], [], [published_request]),
+    ))
+    review_requests.review_state = lambda *_arguments, **_keywords: next(cleanup_race_states)
+    cleanup_calls = 0
+
+    def ready_during_duplicate_cleanup(*_arguments, **_keywords):
+        nonlocal cleanup_calls
+        cleanup_calls += 1
+        if cleanup_calls == 1:
+            return None
+        raise RuntimeError("automated Codex review requests require a draft pull request")
+
+    review_requests.delete_requests = ready_during_duplicate_cleanup
+    ready_transition_rejected = False
+    try:
+        review_requests.request_review(SimpleNamespace(pr=91, language="en"))
+    except RuntimeError:
+        ready_transition_rejected = True
+    check("a readiness race during post-publication cleanup removes the new trigger",
+          (ready_transition_rejected, race_actions),
+          (True, [
+              ("POST", "issues/91/comments"),
+              (None, "issues/comments/12"),
+              ("DELETE", "issues/comments/12"),
+          ]))
     review_requests.github_api = original_github_api
     review_requests.verify_local_pull = original_verify_local_pull
     review_requests.review_state = original_review_state
