@@ -100,11 +100,24 @@ def git_output(*arguments):
     ).stdout
 
 
+def unrestricted_git_output(*arguments):
+    return subprocess.run(
+        ("git", *arguments),
+        cwd=REPOSITORY,
+        check=True,
+        stdout=subprocess.PIPE,
+        env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+    ).stdout
+
+
 def validation_paths(base):
     if not base:
         return ()
-    changed = git_output("diff", "--name-only", base).decode().splitlines()
-    untracked = git_output("ls-files", "--others", "--exclude-standard").decode().splitlines()
+    # Gate selection is intentionally broader than the Stop fingerprint. An
+    # unknown path must force the full gate instead of disappearing behind the
+    # fingerprint's repository-owned pathspec.
+    changed = unrestricted_git_output("diff", "--name-only", base).decode().splitlines()
+    untracked = unrestricted_git_output("ls-files", "--others", "--exclude-standard").decode().splitlines()
     return tuple(dict.fromkeys(path for path in changed + untracked if path))
 
 

@@ -6,12 +6,19 @@
 # Validate repository automation and contributor policy without exercising the
 # firewall product, package assembly or protocol conformance suite.
 set -eu
+export PYTHONDONTWRITEBYTECODE=1
 
 cd "$(dirname "$0")/.."
 
 echo '== control-plane syntax =='
-find .agents .codex packaging tests -name '*.py' -print0 |
-    xargs -0 -n1 python3 -m py_compile
+python3 - <<'PY'
+import ast
+from pathlib import Path
+
+for root in (Path(".agents"), Path(".codex"), Path("packaging"), Path("tests")):
+    for path in root.rglob("*.py"):
+        ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+PY
 python3 -m json.tool .codex/hooks.json >/dev/null
 for file in .agents/*.sh packaging/hooks/*; do
     [ -f "$file" ] && sh -n "$file"

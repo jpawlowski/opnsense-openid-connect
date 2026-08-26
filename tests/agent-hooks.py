@@ -120,6 +120,14 @@ def main():
           hook.control_plane_only(("AGENTS.md", "src/example.php")), False)
     check("an empty or unclassified change fails closed to the full gate",
           (hook.control_plane_only(()), hook.control_plane_only(("README.md",))), (False, False))
+    original_unrestricted_git_output = hook.unrestricted_git_output
+    hook.unrestricted_git_output = lambda *arguments: (
+        b"AGENTS.md\ndocs/README.md\n" if arguments[:2] == ("diff", "--name-only") else b""
+    )
+    check("gate selection inventories unclassified paths outside the Stop fingerprint",
+          (hook.validation_paths("base"), hook.control_plane_only(hook.validation_paths("base"))),
+          (("AGENTS.md", "docs/README.md"), False))
+    hook.unrestricted_git_output = original_unrestricted_git_output
     with tempfile.TemporaryDirectory() as temporary:
         state = pathlib.Path(temporary) / "existing-state.json"
         state.write_text("{}", encoding="utf-8")
