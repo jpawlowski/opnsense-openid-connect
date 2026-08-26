@@ -115,6 +115,8 @@ url_parts=$(node -e \
 keycloak_host=$(printf '%s\n' "$url_parts" | sed -n '1p')
 keycloak_port=$(printf '%s\n' "$url_parts" | sed -n '2p')
 keycloak_origin=$(printf '%s\n' "$url_parts" | sed -n '3p')
+dynamic_keycloak_port=0
+[ "$keycloak_port" != 0 ] || dynamic_keycloak_port=1
 opnsense_origin=$(node -e \
   'const u=new URL(process.argv[1]); if(u.protocol!=="https:") process.exit(2); console.log(u.origin)' \
   "$E2E_OPNSENSE_URL")
@@ -200,6 +202,39 @@ jq -n \
   }' \
   > "$work_dir/realm.json"
 
+keycloak_repository='quay.io/keycloak/keycloak'
+default_keycloak_image="${keycloak_repository}@sha256:831330513f55695572286e521f94fcd3c7e285250ed5b848090265a33192f669"
+keycloak_image=${E2E_KEYCLOAK_IMAGE:-$default_keycloak_image}
+keycloak_mapping="${keycloak_port}:8443"
+if [ "$dynamic_keycloak_port" = 1 ]; then
+  keycloak_mapping=8443
+fi
+docker run -d --name "$keycloak_container" -p "$keycloak_mapping" \
+  --entrypoint /bin/sh \
+  --add-host "${keycloak_host}:host-gateway" \
+  -e "KC_BOOTSTRAP_ADMIN_USERNAME=${E2E_KEYCLOAK_ADMIN_USERNAME}" \
+  -e "KC_BOOTSTRAP_ADMIN_PASSWORD=${E2E_KEYCLOAK_ADMIN_PASSWORD}" \
+  -e KC_TRUSTSTORE_PATHS=/opt/keycloak/conf/e2e-ca.crt \
+  -v "$work_dir:/e2e:ro" \
+  -v "$work_dir/server.crt:/opt/keycloak/conf/e2e-server.crt:ro" \
+  -v "$work_dir/server.key:/opt/keycloak/conf/e2e-server.key:ro" \
+  -v "$work_dir/ca.crt:/opt/keycloak/conf/e2e-ca.crt:ro" \
+  -v "$work_dir/realm.json:/opt/keycloak/data/import/${E2E_KEYCLOAK_REALM}-realm.json:ro" \
+  "$keycloak_image" -c \
+  'while [ ! -s /e2e/keycloak-origin ]; do sleep 0.05; done
+   exec /opt/keycloak/bin/kc.sh start-dev --import-realm \
+     --https-certificate-file=/opt/keycloak/conf/e2e-server.crt \
+     --https-certificate-key-file=/opt/keycloak/conf/e2e-server.key \
+     --hostname="$(cat /e2e/keycloak-origin)" --hostname-strict=true --http-enabled=false' >/dev/null
+if [ "$dynamic_keycloak_port" = 1 ]; then
+  keycloak_port=$(docker inspect -f \
+    '{{(index (index .NetworkSettings.Ports "8443/tcp") 0).HostPort}}' "$keycloak_container")
+fi
+keycloak_origin="https://${keycloak_host}:${keycloak_port}"
+printf '%s\n' "$keycloak_origin" > "$work_dir/keycloak-origin"
+E2E_KEYCLOAK_URL=$keycloak_origin
+export E2E_KEYCLOAK_URL
+
 if [ "${E2E_CLUSTER:-direct}" = public-inbound ]; then
   E2E_BACKCHANNEL_URL=$(python3 "$script_dir/public-inbound.py" start \
     --run-id "$run_id" --application-code "$E2E_APPLICATION_CODE" \
@@ -207,17 +242,22 @@ if [ "${E2E_CLUSTER:-direct}" = public-inbound ]; then
   python3 "$script_dir/public-inbound-canary.py" --origin "$E2E_BACKCHANNEL_URL" \
     --application-code "$E2E_APPLICATION_CODE"
 else
-  E2E_BACKCHANNEL_URL="https://${keycloak_host}:${E2E_BACKCHANNEL_PORT}"
+  E2E_BACKCHANNEL_URL=
+  if [ "$E2E_BACKCHANNEL_PORT" != 0 ]; then
+    E2E_BACKCHANNEL_URL="https://${keycloak_host}:${E2E_BACKCHANNEL_PORT}"
+  fi
 fi
 export E2E_BACKCHANNEL_URL
 
 if [ "${E2E_CLUSTER:-direct}" = public-inbound ]; then
-  E2E_SSF_ISSUER="https://${keycloak_host}:${E2E_SSF_PORT}/ssf"
   E2E_SSF_OIDC_ISSUER="${keycloak_origin}/realms/${E2E_KEYCLOAK_REALM}"
   E2E_SSF_PUSH_URL="${E2E_BACKCHANNEL_URL}/api/openidconnect/ssf/push/${E2E_APPLICATION_CODE}"
   ssf_image=$(python3 "$script_dir/providers/image.py" node)
-  docker run -d --name "$ssf_container" -p "${E2E_SSF_PORT}:4443" \
-    -e "E2E_SSF_ISSUER=${E2E_SSF_ISSUER}" \
+  ssf_mapping="${E2E_SSF_PORT}:4443"
+  if [ "$E2E_SSF_PORT" = 0 ]; then
+    ssf_mapping=4443
+  fi
+  docker run -d --name "$ssf_container" -p "$ssf_mapping" \
     -e "E2E_SSF_AUDIENCE=${E2E_SSF_AUDIENCE}" \
     -e "E2E_SSF_PUSH_SECRET=${E2E_SSF_PUSH_SECRET}" \
     -e "E2E_SSF_TRIGGER_SECRET=${E2E_SSF_TRIGGER_SECRET}" \
@@ -225,10 +265,20 @@ if [ "${E2E_CLUSTER:-direct}" = public-inbound ]; then
     -e "E2E_SSF_SUBJECT=${E2E_SSF_SUBJECT}" \
     -e "E2E_SSF_PUSH_URL=${E2E_SSF_PUSH_URL}" \
     -e E2E_SSF_CERTIFICATE=/tls/server.crt -e E2E_SSF_KEY=/tls/server.key \
+    -v "$work_dir:/e2e-state:ro" \
     -v "$work_dir/server.crt:/tls/server.crt:ro" \
     -v "$work_dir/server.key:/tls/server.key:ro" \
     -v "$script_dir/ssf-transmitter.mjs:/e2e/ssf-transmitter.mjs:ro" \
-    "$ssf_image" node /e2e/ssf-transmitter.mjs >/dev/null
+    "$ssf_image" sh -c \
+    'while [ ! -s /e2e-state/ssf-issuer ]; do sleep 0.05; done
+     export E2E_SSF_ISSUER="$(cat /e2e-state/ssf-issuer)"
+     exec node /e2e/ssf-transmitter.mjs' >/dev/null
+  if [ "$E2E_SSF_PORT" = 0 ]; then
+    E2E_SSF_PORT=$(docker inspect -f \
+      '{{(index (index .NetworkSettings.Ports "4443/tcp") 0).HostPort}}' "$ssf_container")
+  fi
+  E2E_SSF_ISSUER="https://${keycloak_host}:${E2E_SSF_PORT}/ssf"
+  printf '%s\n' "$E2E_SSF_ISSUER" > "$work_dir/ssf-issuer"
   attempt=0
   until keycloak_curl -ksSf --resolve \
       "${keycloak_host}:${E2E_SSF_PORT}:${E2E_PROVIDER_BROWSER_IP:-127.0.0.1}" \
@@ -262,33 +312,35 @@ http {
 EOF
 
 nginx_image='nginx@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236'
-proxy_publish=
-[ "${E2E_CLUSTER:-direct}" = public-inbound ] || proxy_publish="-p ${E2E_BACKCHANNEL_PORT}:8443"
-# shellcheck disable=SC2086 -- the optional publication is one numeric port mapping.
-docker run -d --name "$proxy_container" $proxy_publish \
-  --add-host "${opnsense_host}:host-gateway" \
-  -v "$work_dir/nginx.conf:/etc/nginx/nginx.conf:ro" \
-  -v "$work_dir/server.crt:/etc/nginx/tls/server.crt:ro" \
-  -v "$work_dir/server.key:/etc/nginx/tls/server.key:ro" \
-  "$nginx_image" >/dev/null
-
-keycloak_repository='quay.io/keycloak/keycloak'
-default_keycloak_image="${keycloak_repository}@sha256:831330513f55695572286e521f94fcd3c7e285250ed5b848090265a33192f669"
-keycloak_image=${E2E_KEYCLOAK_IMAGE:-$default_keycloak_image}
-docker run -d --name "$keycloak_container" -p "${keycloak_port}:8443" \
-  --add-host "${keycloak_host}:host-gateway" \
-  -e "KC_BOOTSTRAP_ADMIN_USERNAME=${E2E_KEYCLOAK_ADMIN_USERNAME}" \
-  -e "KC_BOOTSTRAP_ADMIN_PASSWORD=${E2E_KEYCLOAK_ADMIN_PASSWORD}" \
-  -e KC_TRUSTSTORE_PATHS=/opt/keycloak/conf/e2e-ca.crt \
-  -v "$work_dir/server.crt:/opt/keycloak/conf/e2e-server.crt:ro" \
-  -v "$work_dir/server.key:/opt/keycloak/conf/e2e-server.key:ro" \
-  -v "$work_dir/ca.crt:/opt/keycloak/conf/e2e-ca.crt:ro" \
-  -v "$work_dir/realm.json:/opt/keycloak/data/import/${E2E_KEYCLOAK_REALM}-realm.json:ro" \
-  "$keycloak_image" \
-  start-dev --import-realm \
-  --https-certificate-file=/opt/keycloak/conf/e2e-server.crt \
-  --https-certificate-key-file=/opt/keycloak/conf/e2e-server.key \
-  --hostname="$keycloak_origin" --hostname-strict=true --http-enabled=false >/dev/null
+dynamic_backchannel_port=0
+proxy_mapping=
+if [ "${E2E_CLUSTER:-direct}" != public-inbound ]; then
+  if [ "$E2E_BACKCHANNEL_PORT" = 0 ]; then
+    proxy_mapping=8443
+    dynamic_backchannel_port=1
+  else
+    proxy_mapping="${E2E_BACKCHANNEL_PORT}:8443"
+  fi
+fi
+start_proxy() {
+  docker run -d --name "$proxy_container" "$@" \
+    --add-host "${opnsense_host}:host-gateway" \
+    -v "$work_dir/nginx.conf:/etc/nginx/nginx.conf:ro" \
+    -v "$work_dir/server.crt:/etc/nginx/tls/server.crt:ro" \
+    -v "$work_dir/server.key:/etc/nginx/tls/server.key:ro" \
+    "$nginx_image" >/dev/null
+}
+if [ -n "$proxy_mapping" ]; then
+  start_proxy -p "$proxy_mapping"
+else
+  start_proxy
+fi
+if [ "$dynamic_backchannel_port" = 1 ]; then
+  E2E_BACKCHANNEL_PORT=$(docker inspect -f \
+    '{{(index (index .NetworkSettings.Ports "8443/tcp") 0).HostPort}}' "$proxy_container")
+  E2E_BACKCHANNEL_URL="https://${keycloak_host}:${E2E_BACKCHANNEL_PORT}"
+  export E2E_BACKCHANNEL_PORT E2E_BACKCHANNEL_URL
+fi
 
 attempt=0
 discovery_path="/realms/${E2E_KEYCLOAK_REALM}/.well-known/openid-configuration"

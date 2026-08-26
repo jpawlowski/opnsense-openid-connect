@@ -64,6 +64,16 @@ for path in [
 ]:
     check(path.stat().st_mode & 0o111, f"{path.relative_to(HERE)} is not executable")
 
+local_runner = (HERE / "local.sh").read_text(encoding="utf-8")
+keycloak_runner = (HERE / "run-keycloak.sh").read_text(encoding="utf-8")
+check("free_loopback_port" not in local_runner, "local E2E closes supposedly reserved ports before Docker binds")
+for name in ("E2E_KEYCLOAK_PORT", "E2E_BACKCHANNEL_PORT", "E2E_SSF_PORT"):
+    check(f"{name}=${{{name}:-0}}" in local_runner, f"local E2E does not request Docker allocation for {name}")
+check(keycloak_runner.count(".NetworkSettings.Ports") == 3,
+      "the Keycloak runner does not inspect all three Docker-allocated host ports")
+check("/e2e/keycloak-origin" in keycloak_runner and "/e2e-state/ssf-issuer" in keycloak_runner,
+      "a dynamic service can start before its Docker-allocated external URL is known")
+
 with tempfile.TemporaryDirectory() as temporary:
     screenshot_directory = pathlib.Path(temporary) / "screenshots"
     screenshot_directory.mkdir()

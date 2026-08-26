@@ -65,23 +65,12 @@ if [ -n "$inherited_screenshots" ]; then
   exit 2
 fi
 
-free_loopback_port() {
-  python3 -c \
-    'import socket; listener = socket.socket(); listener.bind(("127.0.0.1", 0)); print(listener.getsockname()[1])'
-}
-
-# The VM already receives its own overlay and random forwarded ports. Give the
-# provider and logout callback independent ports as well, so two local E2E runs
-# cannot attach to each other's disposable services.
-E2E_KEYCLOAK_PORT=${E2E_KEYCLOAK_PORT:-$(free_loopback_port)}
-E2E_BACKCHANNEL_PORT=${E2E_BACKCHANNEL_PORT:-$(free_loopback_port)}
-while [ "$E2E_BACKCHANNEL_PORT" = "$E2E_KEYCLOAK_PORT" ]; do
-  E2E_BACKCHANNEL_PORT=$(free_loopback_port)
-done
-E2E_SSF_PORT=${E2E_SSF_PORT:-$(free_loopback_port)}
-while [ "$E2E_SSF_PORT" = "$E2E_KEYCLOAK_PORT" ] || [ "$E2E_SSF_PORT" = "$E2E_BACKCHANNEL_PORT" ]; do
-  E2E_SSF_PORT=$(free_loopback_port)
-done
+# Zero asks Docker to allocate and retain each host port atomically when its
+# container starts. Explicit caller-supplied ports remain available for a
+# deliberately fixed external lab.
+E2E_KEYCLOAK_PORT=${E2E_KEYCLOAK_PORT:-0}
+E2E_BACKCHANNEL_PORT=${E2E_BACKCHANNEL_PORT:-0}
+E2E_SSF_PORT=${E2E_SSF_PORT:-0}
 export E2E_KEYCLOAK_PORT E2E_BACKCHANNEL_PORT E2E_SSF_PORT
 
 if [ -n "$screenshots" ]; then
