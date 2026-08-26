@@ -43,7 +43,7 @@ def remove(path):
     path.unlink(missing_ok=True)
 
 
-def publish_screenshots(source, output, replace=os.replace, remove_path=remove):
+def publish_screenshots(source, output, replace=os.replace, remove_path=remove, commit_marker=None):
     source = pathlib.Path(source)
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -120,6 +120,11 @@ def publish_screenshots(source, output, replace=os.replace, remove_path=remove):
                     remove_path(backup)
                 except OSError:
                     pass
+            if commit_marker is not None:
+                try:
+                    pathlib.Path(commit_marker).write_text("committed\n", encoding="utf-8")
+                except OSError:
+                    pass
             previous_handlers = {
                 handled_signal: signal.signal(handled_signal, signal.SIG_IGN)
                 for handled_signal in handled_signals
@@ -146,10 +151,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=pathlib.Path, required=True)
     parser.add_argument("--output", type=pathlib.Path, required=True)
+    parser.add_argument("--commit-marker", type=pathlib.Path)
     arguments = parser.parse_args()
     for handled_signal in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
         signal.signal(handled_signal, interrupted)
-    publish_screenshots(arguments.source, arguments.output)
+    publish_screenshots(arguments.source, arguments.output, commit_marker=arguments.commit_marker)
 
 
 if __name__ == "__main__":

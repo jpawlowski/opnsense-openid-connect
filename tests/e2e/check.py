@@ -73,8 +73,10 @@ check(keycloak_runner.count(".NetworkSettings.Ports") == 3,
       "the Keycloak runner does not inspect all three Docker-allocated host ports")
 check("/e2e/keycloak-origin" in keycloak_runner and "/e2e-state/ssf-issuer" in keycloak_runner,
       "a dynamic service can start before its Docker-allocated external URL is known")
-check("trap '' HUP INT TERM" in keycloak_runner and "documentation_publication_status" in keycloak_runner,
-      "the wrapper can report failure after the screenshot publisher has committed successfully")
+check('kill -s "$publisher_signal"' in keycloak_runner and "documentation_spawn_signal" in keycloak_runner,
+      "the wrapper discards a cancellation instead of forwarding it to the screenshot transaction")
+check("documentation_publication_status" in keycloak_runner,
+      "the wrapper can contradict the screenshot publisher's committed exit status")
 
 with tempfile.TemporaryDirectory() as temporary:
     screenshot_directory = pathlib.Path(temporary) / "screenshots"
@@ -273,10 +275,13 @@ with tempfile.TemporaryDirectory() as temporary:
         path.unlink(missing_ok=True)
 
     signal_during_backup_cleanup.sent = False
+    commit_marker = publication_root / "committed"
     screenshot_publisher.publish_screenshots(
-        sources[1], output, remove_path=signal_during_backup_cleanup
+        sources[1], output, remove_path=signal_during_backup_cleanup, commit_marker=commit_marker
     )
     check(signal_during_backup_cleanup.sent, "the committed-cleanup signal regression did not reach a backup")
+    check(commit_marker.read_text(encoding="utf-8") == "committed\n",
+          "a committed screenshot generation does not publish its wrapper status marker")
     check(all(
         (output / name).read_text(encoding="utf-8") == f"second:{name}\n"
         for name in screenshot_publisher.SCREENSHOTS

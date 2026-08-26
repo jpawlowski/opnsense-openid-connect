@@ -70,6 +70,8 @@ public_inbound_state="$work_dir/public-inbound.json"
 E2E_RUN_ID=$run_id
 documentation_screenshot_output=${E2E_DOCUMENTATION_SCREENSHOTS:-}
 documentation_publisher_pid=
+documentation_spawn_signal=
+documentation_commit_marker="$work_dir/documentation-published"
 if [ -n "${E2E_DOCUMENTATION_SCREENSHOTS:-}" ]; then
   case "$E2E_DOCUMENTATION_SCREENSHOTS" in
     /*) ;;
@@ -147,10 +149,22 @@ E2E_KEYCLOAK_URL=$keycloak_origin
 export E2E_KEYCLOAK_URL
 
 cleanup() {
-  status=$?
+  status=${1:-$?}
+  trapped_signal=${2:-}
+  trap - EXIT
+  trap '' HUP INT TERM
   if [ -n "$documentation_publisher_pid" ]; then
-    kill -TERM "$documentation_publisher_pid" >/dev/null 2>&1 || true
-    wait "$documentation_publisher_pid" >/dev/null 2>&1 || true
+    publisher_signal=${trapped_signal:-TERM}
+    kill -s "$publisher_signal" "$documentation_publisher_pid" >/dev/null 2>&1 || true
+    if wait "$documentation_publisher_pid"; then
+      status=0
+    else
+      status=$?
+    fi
+    documentation_publisher_pid=
+  fi
+  if [ -n "$documentation_screenshot_output" ] && [ -e "$documentation_commit_marker" ]; then
+    status=0
   fi
   if [ "$E2E_KEEP" = "1" ]; then
     printf 'E2E resources retained for inspection in %s (exit %s).\n' "$work_dir" "$status" >&2
@@ -167,7 +181,10 @@ cleanup() {
   rm -rf "$work_dir"
   exit "$status"
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'cleanup 129 HUP' HUP
+trap 'cleanup 130 INT' INT
+trap 'cleanup 143 TERM' TERM
 
 openssl req -x509 -newkey rsa:3072 -nodes -days 2 \
   -subj "/CN=OPNsense OIDC E2E ${run_id}" \
@@ -520,19 +537,32 @@ fi
 if [ -n "$documentation_screenshot_output" ]; then
   # The publisher owns signal semantics across the transaction: before its
   # commit it rolls back and exits nonzero; after its commit it finishes the
-  # masked backup cleanup and exits successfully. Defer the wrapper's traps so
-  # they cannot contradict that result after the new generation is committed.
-  trap '' HUP INT TERM
+  # masked backup cleanup and exits successfully. During the two-command spawn
+  # window, remember a signal until the child PID is available; afterwards the
+  # normal cleanup trap forwards it and adopts the publisher's transaction status.
+  trap 'documentation_spawn_signal=HUP' HUP
+  trap 'documentation_spawn_signal=INT' INT
+  trap 'documentation_spawn_signal=TERM' TERM
   python3 "$script_dir/publish-screenshots.py" \
-    --source "$E2E_DOCUMENTATION_SCREENSHOTS" --output "$documentation_screenshot_output" &
+    --source "$E2E_DOCUMENTATION_SCREENSHOTS" --output "$documentation_screenshot_output" \
+    --commit-marker "$documentation_commit_marker" &
   documentation_publisher_pid=$!
-  documentation_publication_status=0
+  trap 'cleanup 129 HUP' HUP
+  trap 'cleanup 130 INT' INT
+  trap 'cleanup 143 TERM' TERM
+  case "$documentation_spawn_signal" in
+    HUP) cleanup 129 HUP ;;
+    INT) cleanup 130 INT ;;
+    TERM) cleanup 143 TERM ;;
+  esac
   if wait "$documentation_publisher_pid"; then
-    :
+    documentation_publication_status=0
   else
     documentation_publication_status=$?
   fi
+  if [ -e "$documentation_commit_marker" ]; then
+    documentation_publication_status=0
+  fi
   documentation_publisher_pid=
-  trap cleanup HUP INT TERM
   [ "$documentation_publication_status" = 0 ] || exit "$documentation_publication_status"
 fi
