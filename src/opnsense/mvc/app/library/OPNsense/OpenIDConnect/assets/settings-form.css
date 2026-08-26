@@ -152,18 +152,37 @@
     gap: 0.65rem;
 }
 
-.oidc-provider-setup select.form-control {
-    max-width: 34rem;
-    width: auto;
+.oidc-provider-setup > .bootstrap-select {
+    width: auto !important;
 }
 
-.auth_openidconnect select.form-control,
 .oidc-dialog-large select.form-control {
     height: auto;
     line-height: 1.4;
     min-height: 2.7em;
     padding-bottom: 0.5em;
     padding-top: 0.5em;
+}
+
+/* Tokenize2's fallback stylesheet is loaded after this one and assumes a light
+ * page. The stronger form-scoped selectors keep the generated control on the
+ * surrounding OPNsense palette without guessing which theme supplied it. */
+.auth_openidconnect .tokenize > .tokens-container {
+    background-color: transparent;
+    color: inherit;
+}
+
+.auth_openidconnect .tokenize > .tokens-container > .token:not(.pending-delete) {
+    background-color: rgba(127, 127, 127, 0.14);
+    border-color: rgba(127, 127, 127, 0.35);
+    color: inherit;
+}
+
+.auth_openidconnect .tokenize > .tokens-container > .placeholder,
+.auth_openidconnect .tokenize > .tokens-container > .token-search,
+.auth_openidconnect .tokenize > .tokens-container > .token-search > input {
+    border-color: transparent;
+    color: inherit;
 }
 
 .oidc-dialog-large .modal-dialog {
@@ -299,6 +318,16 @@
     display: flex;
 }
 
+.oidc-icon-button {
+    align-items: center;
+    display: inline-flex;
+    gap: 0.35em;
+}
+
+.oidc-icon-button > .fa {
+    flex: 0 0 auto;
+}
+
 .oidc-binding-actions,
 .oidc-binding-actions .btn-group {
     white-space: nowrap;
@@ -393,9 +422,12 @@
         align-items: stretch;
     }
 
-    .oidc-provider-setup,
-    .oidc-provider-setup select.form-control {
+    .oidc-provider-setup {
         width: 100%;
+    }
+
+    .oidc-provider-setup > .bootstrap-select {
+        width: 100% !important;
     }
 
     .oidc-dialog-large .modal-dialog {
