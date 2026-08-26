@@ -10,12 +10,16 @@ set -u
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 suite=core
 provider=
+source=auto
+cluster=direct
 canary=0
 E2E_KEEP=${E2E_KEEP:-0}
 
 usage() {
   printf '%s\n' \
-    'usage: tests/e2e/run.sh [--suite core|full] [--provider NAME] [--canary] [--keep]' >&2
+    'usage: tests/e2e/run.sh [--suite core|full] [--provider NAME]' \
+    '                        [--source auto|local|emulated|live]' \
+    '                        [--cluster direct|public-inbound|all] [--canary] [--keep]' >&2
   exit 2
 }
 
@@ -31,6 +35,16 @@ while [ "$#" -gt 0 ]; do
       provider=$2
       shift 2
       ;;
+    --source)
+      [ "$#" -ge 2 ] || usage
+      source=$2
+      shift 2
+      ;;
+    --cluster)
+      [ "$#" -ge 2 ] || usage
+      cluster=$2
+      shift 2
+      ;;
     --canary) canary=1; shift ;;
     --keep) E2E_KEEP=1; shift ;;
     -h|--help)
@@ -41,19 +55,32 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-case "$suite" in core|full) ;; *) usage ;; esac
-case "$provider" in ''|keycloak|authentik|authelia|pocketid) ;; *) usage ;; esac
+: "${E2E_PROVIDER_RESULT:=}"
+if [ -n "$E2E_PROVIDER_RESULT" ]; then
+  [ -n "$provider" ] || { printf 'E2E_PROVIDER_RESULT requires one explicit provider.\n' >&2; exit 2; }
+  [ "$cluster" != all ] || { printf 'E2E_PROVIDER_RESULT requires one explicit cluster.\n' >&2; exit 2; }
+  [ "$canary" = 0 ] || {
+    printf 'E2E_PROVIDER_RESULT cannot retain an unreviewed canary image.\n' >&2
+    exit 2
+  }
+  case "$E2E_PROVIDER_RESULT" in /*) ;; *) printf 'E2E_PROVIDER_RESULT must be absolute.\n' >&2; exit 2 ;; esac
+  [ -d "$(dirname -- "$E2E_PROVIDER_RESULT")" ] || {
+    printf 'The E2E provider result directory does not exist.\n' >&2
+    exit 2
+  }
+  rm -f -- "$E2E_PROVIDER_RESULT"
+fi
+
 : "${E2E_OPNSENSE_URL:?Set the HTTPS origin of the disposable OPNsense instance}"
 : "${E2E_OPNSENSE_SSH:?Set the certificate-authenticated SSH target}"
 : "${E2E_OPNSENSE_PASSWORD:?Set the local WebGUI password}"
 
-if [ -n "$provider" ]; then
-  providers=$provider
-elif [ "$suite" = core ]; then
-  providers='keycloak authentik'
-else
-  providers='keycloak authentik authelia pocketid'
-fi
+selection_arguments="--suite $suite --source $source --cluster $cluster"
+[ -z "$provider" ] || selection_arguments="$selection_arguments --provider $provider"
+[ "$canary" = 0 ] || selection_arguments="$selection_arguments --canary"
+# Every value above is accepted only by selection.py's closed enumerations.
+# shellcheck disable=SC2086
+selections=$(python3 "$script_dir/selection.py" $selection_arguments --format words) || exit $?
 
 if [ -z "${E2E_PROVIDER_HOST:-}" ]; then
   if [ -n "${E2E_KEYCLOAK_URL:-}" ]; then
@@ -62,14 +89,27 @@ if [ -z "${E2E_PROVIDER_HOST:-}" ]; then
     E2E_PROVIDER_HOST=provider.opnsense.test
   fi
 fi
-export E2E_KEEP E2E_PROVIDER_HOST
+export E2E_KEEP E2E_PROVIDER_HOST E2E_PROVIDER_RESULT
 
 failures=
-for current in $providers; do
-  printf '\n== OIDC E2E: %s%s ==\n' "$current" "$( [ "$canary" = 1 ] && printf ' canary' )"
+for selection in $selections; do
+  previous_ifs=$IFS
+  IFS=:
+  set -- $selection
+  IFS=$previous_ifs
+  current=$1
+  current_source=$2
+  current_cluster=$3
+  printf '\n== OIDC E2E: %s / %s / %s%s ==\n' \
+    "$current" "$current_source" "$current_cluster" "$( [ "$canary" = 1 ] && printf ' canary' )"
   canary_argument=
   [ "$canary" = 0 ] || canary_argument=--canary
-  if [ "$current" = keycloak ]; then
+  E2E_SOURCE=$current_source
+  E2E_CLUSTER=$current_cluster
+  export E2E_SOURCE E2E_CLUSTER
+  if [ "$current_source" = live ]; then
+    "$script_dir/run-live.sh" --provider "$current" || status=$?
+  elif [ "$current" = keycloak ]; then
     E2E_KEYCLOAK_URL=${E2E_KEYCLOAK_URL:-"https://${E2E_PROVIDER_HOST}:${E2E_KEYCLOAK_PORT:-18443}"}
     E2E_KEYCLOAK_IMAGE=$(python3 "$script_dir/providers/image.py" keycloak $canary_argument)
     export E2E_KEYCLOAK_URL E2E_KEYCLOAK_IMAGE
@@ -79,7 +119,7 @@ for current in $providers; do
   fi
   status=${status:-0}
   if [ "$status" -ne 0 ]; then
-    failures="${failures}${failures:+ }${current}:${status}"
+    failures="${failures}${failures:+ }${current}/${current_source}/${current_cluster}:${status}"
     [ "$E2E_KEEP" = 0 ] || break
   fi
   unset status

@@ -1,0 +1,76 @@
+{
+  "copyright": "Copyright (C) 2026 Julian Pawlowski; BSD-2-Clause, see LICENSE at the repository root.",
+  "schema_version": 1,
+  "rules": [
+    {
+      "id": "canonical-provider-driver",
+      "paths": ["tests/e2e/run-keycloak.sh", "tests/e2e/oidc.spec.mjs"],
+      "content": [],
+      "validation": {"tier": "provider-e2e", "provider": "keycloak", "source": "local", "cluster": "direct"},
+      "reason": "The canonical browser/session driver changed, so its real local provider flow must prove that the harness still exercises the intended boundary."
+    },
+    {
+      "id": "public-inbound-boundary",
+      "paths": ["tests/e2e/public-inbound", "src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/AuthController.php", "src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/SsfController.php"],
+      "content": [],
+      "validation": {"tier": "provider-e2e", "provider": "keycloak", "source": "local", "cluster": "public-inbound"},
+      "reason": "The Internet-reachable receiver or its deny-by-default proxy changed; patch keywords cannot prove that this ingress boundary stayed intact."
+    },
+    {
+      "id": "public-inbound-harness",
+      "paths": ["tests/e2e/run-keycloak.sh", "tests/e2e/run-live.sh"],
+      "content": ["backchannel", "ssf/push", "public-inbound", "cloudflared"],
+      "validation": {"tier": "provider-e2e", "provider": "keycloak", "source": "local", "cluster": "public-inbound"},
+      "reason": "The change crosses an Internet-reachable provider-to-firewall POST boundary; direct browser redirection cannot exercise that ingress."
+    },
+    {
+      "id": "authentik-profile",
+      "paths": ["docs/providers/authentik.md", "src/opnsense/mvc/app/library/OPNsense/Auth/OpenIDConnect.php", "tests/e2e/providers/stack.py", "tests/e2e/provider.spec.mjs"],
+      "content": ["authentik", "Blueprint"],
+      "validation": {"tier": "provider-e2e", "provider": "authentik", "source": "local", "cluster": "direct"},
+      "reason": "The change names authentik-specific claims, Blueprint setup, or logout behavior that the canonical provider does not reproduce."
+    },
+    {
+      "id": "hosted-shared-signals",
+      "paths": ["docs/providers/okta.md", "src/opnsense/mvc/app/library/OPNsense/Auth/OpenIDConnect.php"],
+      "content": ["Shared Signals"],
+      "validation": {"tier": "live-provider", "provider": "okta", "source": "live", "cluster": "public-inbound"},
+      "reason": "Hosted Shared Signals requires a provider-to-firewall push through the public receiver; a direct browser run cannot exercise that boundary."
+    },
+    {
+      "id": "saas-only-behavior",
+      "paths": ["docs/providers/entra-id.md", "docs/providers/okta.md", "docs/providers/apple.md", "src/opnsense/mvc/app/library/OPNsense/Auth/OpenIDConnect.php"],
+      "content": ["MFA", "Conditional Access", "multitenant", "client secret", "consent"],
+      "validation": {"tier": "live-provider", "provider": "affected", "source": "live", "cluster": "direct"},
+      "reason": "The claim depends on hosted-provider behavior that the reviewed emulator intentionally does not implement."
+    },
+    {
+      "id": "saas-profile",
+      "paths": ["docs/providers/entra-id.md", "docs/providers/okta.md", "docs/providers/apple.md", "tests/e2e/providers/stack.py", "tests/e2e/providers/emulate-adapter.mjs", "tests/e2e/provider.spec.mjs"],
+      "content": ["entra", "okta", "apple", "emulate"],
+      "validation": {"tier": "provider-e2e", "provider": "affected", "source": "emulated", "cluster": "direct"},
+      "reason": "The changed provider profile or emulator adapter needs its provider-specific issuer, response mode, and claim shape exercised."
+    },
+    {
+      "id": "browser-session",
+      "paths": ["src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/AuthController.php", "src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/ApprovalController.php", "src/opnsense/mvc/app/controllers/OPNsense/OpenIDConnect/Api/TestController.php", "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/assets/settings-form.js", "src/opnsense/mvc/app/library/OPNsense/Auth/OpenIDConnect.php", "src/opnsense/mvc/app/library/OPNsense/Auth/SSOProviders/", "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/WebGuiAccess.php"],
+      "content": ["callback", "form_post", "session", "logout", "bootstrap", "approval", "redirect"],
+      "validation": {"tier": "provider-e2e", "provider": "keycloak", "source": "local", "cluster": "direct"},
+      "reason": "The change crosses the real browser, callback, local-session, JIT, WebGUI form, or logout boundary that host-only tests replace with doubles."
+    },
+    {
+      "id": "installed-runtime",
+      "paths": ["packaging/", "src/opnsense/mvc/app/config/", "src/opnsense/mvc/app/controllers/", "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/SessionRegistry.php", "src/opnsense/mvc/app/library/OPNsense/OpenIDConnect/Storage.php"],
+      "content": ["phpseclib", "session", "dispatcher", "configd", "install"],
+      "validation": {"tier": "installed-integration"},
+      "reason": "The change depends on OPNsense runtime, storage, dispatcher, session, or installation behavior unavailable on the host."
+    },
+    {
+      "id": "package-build",
+      "paths": ["packaging/", "src/"],
+      "content": [],
+      "validation": {"tier": "build-check"},
+      "reason": "Package-owned files changed, so the produced FreeBSD package must still assemble successfully."
+    }
+  ]
+}

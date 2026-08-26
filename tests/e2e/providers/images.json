@@ -32,6 +32,14 @@
       "release_repository": "pocket-id/pocket-id",
       "release_tag": "as-is",
       "capabilities": ["allowed_groups", "rp_logout", "webauthn"]
+    },
+    "entra": {
+      "image": "ghcr.io/cmaneu/entra-local",
+      "tag": "0.1.0",
+      "digest": "sha256:b29df9b2f8b406796316555e24dc31cd1d1d493b10c06e10c46389be7d1a9035",
+      "release_repository": "cmaneu/entra-local",
+      "release_tag": "strip-v",
+      "capabilities": ["authorization_code", "pkce", "tenant_issuer", "userinfo"]
     }
   },
   "support": {
@@ -44,6 +52,16 @@
       "image": "postgres",
       "tag": "16-alpine",
       "digest": "sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685"
+    },
+    "node": {
+      "image": "node",
+      "tag": "24.12.0-alpine3.22",
+      "digest": "sha256:4f4a059445c5a6ef2b9d169d9afde176301263178141fc05ba657dab1c84f9a7"
+    },
+    "cloudflared": {
+      "image": "cloudflare/cloudflared",
+      "tag": "2026.8.1",
+      "digest": "sha256:d9ff527dc19799e24d3689058161fb01e752a24be1823577bae54c9c2489275f"
     }
   }
 }
