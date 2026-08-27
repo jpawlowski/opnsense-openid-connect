@@ -249,6 +249,39 @@ def main():
         check("the optional offline signature is also checked before installation",
               signed.index("openssl dgst") < signed.index("pkg add"), True)
 
+        stable_after_legacy_beta = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "packaging" / "release-notes.py"),
+                "--repo",
+                str(repository),
+                "--tag",
+                "v1.0.0",
+                "--file",
+                "os-openid-connect-1.0.0.pkg",
+                "--url",
+                "https://example.net/releases/os-openid-connect-1.0.0.pkg",
+                "--checksum",
+                "0123456789abcdef",
+                "--repository",
+                "example/project",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        check("the first stable note removes a legacy beta before installing",
+              "pkg delete os-openid-connect" in stable_after_legacy_beta
+              and "pkg add /tmp/os-openid-connect-1.0.0.pkg" in stable_after_legacy_beta
+              and stable_after_legacy_beta.index("pkg delete") < stable_after_legacy_beta.index("pkg add")
+              and "v1.0.0-betaN" in stable_after_legacy_beta
+              and "beta-based CI snapshot" in stable_after_legacy_beta, True)
+        check("the legacy beta migration never leaves retired files behind",
+              "pkg add -f" not in stable_after_legacy_beta, True)
+        check("later stable notes retain the ordinary install command",
+              "pkg add -f" not in rendered and "pkg add /tmp/os-openid-connect-1.1.0.pkg" in rendered,
+              True)
+
     group("A release is attested and published only once")
     workflow = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
     checkout_sha = "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803"

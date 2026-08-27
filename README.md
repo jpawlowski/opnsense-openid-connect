@@ -91,7 +91,7 @@ known limitations.
 
 ## A safe first setup
 
-1. [Install the beta package](docs/setup/install.md).
+1. [Install the package](docs/setup/install.md).
 2. Open **System > Access > Servers** and add an **OpenID Connect** server.
 3. Select the provider profile and copy the displayed redirect addresses into
    a confidential web application at the provider.
@@ -132,10 +132,10 @@ requires the complete applicable normative inventory and traceable evidence.
 
 ## Current maturity
 
-This is a pre-release package for OPNsense Community Edition 26.1 and 26.7. It
-is installed manually and does not register an automatic package repository.
-The package includes a watchdog for relevant OPNsense core changes, but upgrades
-should still be tested before they reach the only administrative firewall.
+The package supports OPNsense Community Edition 26.1 and 26.7. It is installed
+manually and does not register an automatic package repository. The package
+includes a watchdog for relevant OPNsense core changes, but upgrades should
+still be tested before they reach the only administrative firewall.
 
 Keep at least one tested local administrator account. Removing the plugin does
 not remove its saved settings and does not disable local password login.

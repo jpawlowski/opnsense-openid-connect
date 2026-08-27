@@ -142,6 +142,14 @@ def check(what, actual, expected=True, detail=""):
         print(f"        {detail}")
 
 
+def refused(callable_):
+    try:
+        callable_()
+    except ValueError:
+        return True
+    return False
+
+
 def group(name):
     print(f"\n{name}")
 
@@ -171,14 +179,31 @@ def main():
     group("A version pkg can carry")
     build_py = load_build()
     check("a release tag", build_py.pkg_version("v1.2.3"), "1.2.3")
-    # a hyphen is what pkg reads as the end of a package's name, so `pkg query
-    # %n-%v` and the watchdog that uses it would answer nonsense
-    check("a pre-release tag", build_py.pkg_version("v1.0.0-beta1"), "1.0.0.beta1")
+    check("an alpha tag sorts through pkg's pre-release spelling",
+          build_py.pkg_version("v1.2.3-alpha.1"), "1.2.3.a1")
+    check("a beta tag sorts through pkg's pre-release spelling",
+          build_py.pkg_version("v1.2.3-beta.2"), "1.2.3.b2")
+    check("a release-candidate tag sorts through pkg's pre-release spelling",
+          build_py.pkg_version("v1.2.3-rc.3"), "1.2.3.r3")
+    invalid_release_tags = [
+        "1.2.3", "v1.2", "v01.2.3", "v1.2.3-beta", "v1.2.3-beta1",
+        "v1.2.3-beta.0", "v1.2.3-preview.1", "v1.2.3.4",
+    ]
+    check("non-canonical release tags are refused", [
+        tag for tag in invalid_release_tags
+        if not refused(lambda tag=tag: build_py.release_pkg_version(tag))
+    ], [])
+    check("work after a canonical beta remains below its stable release",
+          build_py.pkg_version("v1.2.3-beta.2-4-gabc1234"), "1.2.3.b2.4.gabc1234")
+    check("dirty work after a canonical release candidate stays identifiable",
+          build_py.pkg_version("v1.2.3-rc.3-4-gabc1234-dirty"), "1.2.3.r3.4.gabc1234.dirty")
+    check("work after an immutable legacy beta retains its monotonic package spelling",
+          build_py.pkg_version("v1.0.0-beta5-4-gabc1234"), "1.0.0.beta5.4.gabc1234")
     check("work in progress", build_py.pkg_version("v1.0.0-3-gabc1234"), "1.0.0.3.gabc1234")
     check("a dirty tree", build_py.pkg_version("v1.0.0-dirty"), "1.0.0.dirty")
     check(
         "nothing that would be read as a name boundary survives",
-        [v for v in ("v1.0.0-beta1", "v1.0.0-3-gabc1234") if "-" in build_py.pkg_version(v)],
+        [v for v in ("v1.0.0-beta.1", "v1.0.0-3-gabc1234") if "-" in build_py.pkg_version(v)],
         [],
     )
 

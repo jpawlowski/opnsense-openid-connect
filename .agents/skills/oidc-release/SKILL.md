@@ -49,10 +49,26 @@ an operator would. Things worth catching there:
 
     git tag -a v1.2.3 -m "..." && git push --tags
 
-`build.py` reads it and nothing else states it. A tag with a suffix is a
-pre-release: `v1.0.0-beta1` becomes package version `1.0.0.beta1` (a hyphen is
-what `pkg` reads as the end of a package's name, so it cannot survive), and
-the workflow marks the release itself as a pre-release on both forges.
+`build.py` reads it and nothing else states it. A stable tag uses
+`vMAJOR.MINOR.PATCH`. Future pre-releases use exactly one of these forms:
+
+    v1.2.3-alpha.1
+    v1.2.3-beta.1
+    v1.2.3-rc.1
+
+The readable SemVer tag becomes FreeBSD package version `1.2.3.a1`, `1.2.3.b1`
+or `1.2.3.r1`. `pkg` sorts those before `1.2.3`, so the stable package remains
+an upgrade from every pre-release. Number the first pre-release of each stage
+with `1`; zero and leading zeroes are refused along with every other release-tag
+suffix. The workflow marks an accepted suffixed tag as a GitHub pre-release.
+Earlier immutable tags that used `v1.0.0-betaN` remain historical; never rename,
+delete or reuse them. Their legacy package versions sort after `1.0.0`, so the
+development snapshots based on them retain the monotonic
+`1.0.0.betaN.DISTANCE.gREVISION` spelling. The
+generated `v1.0.0` release note must retain its one-time instruction to delete
+the beta package or beta-based CI snapshot before installing stable. That also
+removes the file retired after one beta; saved settings remain, and no later
+release needs this exception.
 
 Anything not sitting on a tag builds as `1.2.3.4.gabc1234`, so work in progress
 never looks like a release.

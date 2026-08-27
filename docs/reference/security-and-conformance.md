@@ -279,8 +279,8 @@ offline RSA verification before `pkg add`.
 OPNsense `pkg` does not understand GitHub attestations for a directly supplied
 file. Operators therefore verify provenance on an administrator workstation
 before copying the package to the firewall. A checksum alone is only a transfer
-integrity check. During beta there is deliberately no package repository,
-repository trust fingerprint or automatic `pkg install` update path.
+integrity check. The standalone distribution deliberately has no package
+repository, repository trust fingerprint or automatic `pkg install` update path.
 
 Do not publish client secrets, tokens, complete session files, or unredacted
 provider responses in issues. See [SECURITY.md](../../SECURITY.md).
