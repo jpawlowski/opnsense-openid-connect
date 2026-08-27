@@ -521,6 +521,10 @@ def is_issue_bootstrap(event):
     None of that is implementation, so demanding a work claim first would force an agent
     to announce implementation that is not starting. What stays outside are the operations
     that can move another task's claim: its labels, and rewriting an existing comment.
+
+    This admits a body edit without serializing it, because a command classifier cannot
+    read the issue. Not rewriting an issue that somebody else already owns is therefore a
+    rule in the contribution skill rather than something enforced here.
     """
     if str(event.get("tool_name") or "") != "Bash":
         return False

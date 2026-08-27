@@ -107,6 +107,12 @@ of the publishing account may be another worktree's claim marker. Labels,
 assignees, issue state, and every pull-request, coordination or review write
 also stay behind the claim.
 
+That admission is a command classification, not a lock: nothing serializes a
+body or title edit. Inspect the issue first and never rewrite one that carries a
+foreign `wip:*` label, an assignee or a linked pull request, because its scope is
+the accepted basis of somebody else's active work. Propose the change in a
+comment instead.
+
 Run `python3 .agents/issues.py claim N`. It requires label-management permission
 and first creates a fixed per-issue label definition through GitHub's atomic
 create operation. Only its owner proceeds to assign the publishing account,
