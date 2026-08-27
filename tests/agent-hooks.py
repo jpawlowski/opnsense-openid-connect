@@ -662,6 +662,18 @@ def main():
           guard_module.is_issue_bootstrap({
               "tool_name": "Bash", "tool_input": {"command": "gh pr comment 42 --body text"},
           }), False)
+    check("an option terminator is not an authoring option and fails closed",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash", "tool_input": {"command": "gh issue comment 42 -- --body text"},
+          }), False)
+    check("an issue title may quote a refused option as prose",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash", "tool_input": {"command": "gh issue create --title 'why --web is refused'"},
+          }), True)
+    check("a refused option outside authored text still stops issue creation",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash", "tool_input": {"command": "gh issue create --label x --web"},
+          }), False)
     check("shell redirection is not read-only", guard_module.is_read_only_shell("rg value . > result"), False)
     check("bounded sed line inspection remains read-only",
           guard_module.is_read_only_shell("sed -n 1,20p AGENTS.md"), True)

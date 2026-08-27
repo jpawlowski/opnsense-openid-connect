@@ -45,6 +45,8 @@ ISSUE_AUTHORING_OPTIONS = {
     "comment": ISSUE_BODY_OPTIONS,
     "edit": ISSUE_TEXT_OPTIONS,
 }
+# Options that hand control to another program or to a different repository.
+ISSUE_REFUSED_OPTIONS = {"--editor", "--repo", "--web", "-R", "-e", "-w"}
 
 
 def git(repository, *arguments, check=True):
@@ -503,10 +505,11 @@ def _issue_options(arguments):
             index += 1
             continue
         name = value.split("=", 1)[0]
-        attached = len(name) > 2 and not name.startswith("--") and name[:2] in ISSUE_TEXT_OPTIONS
-        option = name[:2] if attached else name
+        short_value = len(name) > 2 and not name.startswith("--") and name[:2] in ISSUE_TEXT_OPTIONS
+        option = name[:2] if short_value else name
         options.append(option)
-        index += 1 if attached or "=" in value or option not in ISSUE_TEXT_OPTIONS else 2
+        joined = short_value or "=" in value
+        index += 2 if option in ISSUE_TEXT_OPTIONS and not joined else 1
     return options
 
 
@@ -516,8 +519,8 @@ def is_issue_bootstrap(event):
     Opening the issue is how a task starts, and the contribution rules then require its
     maintained detail comment and, when the body was wrong, a correction of that body.
     None of that is implementation, so demanding a work claim first would force an agent
-    to announce implementation that is not starting. Labels stay outside this exception:
-    they carry the atomic cross-clone claim mutex, which only a real claim may move.
+    to announce implementation that is not starting. What stays outside are the operations
+    that can move another task's claim: its labels, and rewriting an existing comment.
     """
     if str(event.get("tool_name") or "") != "Bash":
         return False
@@ -528,10 +531,7 @@ def is_issue_bootstrap(event):
     if action not in ISSUE_AUTHORING_OPTIONS:
         return False
     options = _issue_options(arguments[2:])
-    if any(
-        option in ("--editor", "--repo", "--web", "-R", "-e", "-w") or option.startswith("-R")
-        for option in options
-    ):
+    if any(option in ISSUE_REFUSED_OPTIONS or option.startswith("-R") for option in options):
         return False
     allowed = ISSUE_AUTHORING_OPTIONS[action]
     if allowed is None:
