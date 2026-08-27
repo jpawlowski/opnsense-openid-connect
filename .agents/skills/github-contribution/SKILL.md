@@ -99,6 +99,14 @@ somebody is already working on it. Claim work only when implementation begins
 now, not when it is merely planned for later. The write guard requires a local
 record of the public claim before it permits source, build or Git mutations.
 
+Writing the issue itself is not implementation and needs no claim. The guard
+admits creating an issue, appending a comment to it, and editing its body and
+title, so an agent can publish the maintained detail comment and its link in one
+step. Rewriting an existing comment needs the claim, because the newest comment
+of the publishing account may be another worktree's claim marker. Labels,
+assignees, issue state, and every pull-request, coordination or review write
+also stay behind the claim.
+
 Run `python3 .agents/issues.py claim N`. It requires label-management permission
 and first creates a fixed per-issue label definition through GitHub's atomic
 create operation. Only its owner proceeds to assign the publishing account,

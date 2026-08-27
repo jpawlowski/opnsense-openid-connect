@@ -615,6 +615,53 @@ def main():
           guard_module.is_issue_bootstrap({
               "tool_name": "Bash", "tool_input": {"command": "gh issue create --editor"},
           }), False)
+    check("the required detail comment completes the same bootstrap",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash", "tool_input": {"command": "gh issue comment 42 --body '## Details'"},
+          }), True)
+    check("rewriting the newest comment could erase a foreign claim marker",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash",
+              "tool_input": {"command": "gh issue comment 42 --edit-last --body '## Details'"},
+          }), False)
+    check("bootstrap may correct the issue body it just published",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash", "tool_input": {"command": "gh issue edit 42 --body '### Where'"},
+          }), True)
+    check("authored prose beginning with a dash stays a value, not an option",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash", "tool_input": {"command": "gh issue comment 42 --body '--web'"},
+          }), True)
+    check("an attached short body option is the same authoring option",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash", "tool_input": {"command": "gh issue edit 42 -b## Details"},
+          }), True)
+    check("bootstrap cannot move the claim mutex label",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash",
+              "tool_input": {"command": "gh issue edit 42 --body text --add-label wip:1-a"},
+          }), False)
+    check("bootstrap cannot assign an issue without a claim",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash", "tool_input": {"command": "gh issue edit 42 --add-assignee someone"},
+          }), False)
+    check("a comment without authored text would open an editor",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash", "tool_input": {"command": "gh issue comment 42"},
+          }), False)
+    check("issue completion cannot target another repository",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash",
+              "tool_input": {"command": "gh issue comment 42 --repo other/project --body text"},
+          }), False)
+    check("closing an issue still needs a claim",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash", "tool_input": {"command": "gh issue close 42"},
+          }), False)
+    check("pull request comments stay outside the issue bootstrap",
+          guard_module.is_issue_bootstrap({
+              "tool_name": "Bash", "tool_input": {"command": "gh pr comment 42 --body text"},
+          }), False)
     check("shell redirection is not read-only", guard_module.is_read_only_shell("rg value . > result"), False)
     check("bounded sed line inspection remains read-only",
           guard_module.is_read_only_shell("sed -n 1,20p AGENTS.md"), True)
