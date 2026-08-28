@@ -27,8 +27,12 @@ LEASE_TTL = 30 * 60
 # expression. Bash expands that subscript, so `printf -v 'x[$(touch marker)]' foo`
 # runs the substitution while single quotes keep it away from the hazard check
 # below. A name that only looks like an argument is not one.
+# Every remaining entry was read against its manual page for an option that
+# writes a file or assigns a name: `cat`, `cmp`, `comm`, `cut`, `diff`, `grep`,
+# `head`, `jq`, `nl`, `tail`, `tr` and `wc` have none, and the rest only report.
+# `file` is not here because it needs an option check of its own, below.
 READ_ONLY_PROGRAMS = {
-    "basename", "cat", "cmp", "comm", "cut", "diff", "dirname", "echo", "file", "grep", "head",
+    "basename", "cat", "cmp", "comm", "cut", "diff", "dirname", "echo", "grep", "head",
     "id", "jq", "ls", "nl", "pwd", "realpath", "stat", "tail", "tr", "true", "uname", "wc",
     "which",
 }
@@ -308,6 +312,24 @@ def _read_only_find(arguments):
     return not any(argument.split("=", 1)[0] in dangerous for argument in arguments)
 
 
+def _read_only_file(arguments):
+    """Identify a type, but never compile a magic database.
+
+    `file -C -m ./magic` writes a compiled `magic.mgc` beside its input, which is
+    the same shape as `sort -o`: a write with no shell redirection to give it
+    away. Every other option only reports. Short options bundle, so the whole
+    cluster is inspected rather than only its first letter.
+    """
+    for value in arguments:
+        if value == "--":
+            break
+        if value == "--compile" or value.startswith("--compile="):
+            return False
+        if value.startswith("-") and not value.startswith("--") and "C" in value[1:]:
+            return False
+    return True
+
+
 def _read_only_sed(arguments):
     values = list(arguments)
     while values and values[0] in ("-n", "--quiet", "--silent"):
@@ -541,6 +563,8 @@ def _read_only_simple(command):
         return False
     if program in READ_ONLY_PROGRAMS:
         return True
+    if program == "file":
+        return _read_only_file(arguments)
     if program == "find":
         return _read_only_find(arguments)
     if program == "sed":

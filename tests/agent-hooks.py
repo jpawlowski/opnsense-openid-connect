@@ -712,6 +712,14 @@ def main():
     check("a builtin that assigns through an expanded name is not inspection",
           guard_module.is_read_only_shell("printf -v 'x[$(touch marker)]' foo"), False)
     check("printf is not inspection at all", guard_module.is_read_only_shell("printf %s value"), False)
+    check("identifying a file is inspection", guard_module.is_read_only_shell("file AGENTS.md"), True)
+    # `file -C` compiles a magic.mgc beside its input: a write with no redirection.
+    check("compiling a magic database is not inspection",
+          guard_module.is_read_only_shell("file -C -m ./magic"), False)
+    check("a bundled compile option is still a compile option",
+          guard_module.is_read_only_shell("file -bC -m ./magic"), False)
+    check("a long compile option cannot hide behind its value",
+          guard_module.is_read_only_shell("file --compile=./magic"), False)
     check("local editing needs no public work claim", guard_module.creates_durable_state({
         "tool_name": "Edit", "tool_input": {"file_path": "AGENTS.md"},
     }), False)
