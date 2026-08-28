@@ -720,14 +720,11 @@ def main():
           [name for name in ("basename", "cmp", "comm", "cut", "dirname", "echo", "id", "jq",
                              "nl", "realpath", "tr", "uname")
            if guard_module.is_read_only_shell(f"{name} value")], [])
-    check("identifying a file is inspection", guard_module.is_read_only_shell("file AGENTS.md"), True)
-    # `file -C` compiles a magic.mgc beside its input: a write with no redirection.
-    check("compiling a magic database is not inspection",
-          guard_module.is_read_only_shell("file -C -m ./magic"), False)
-    check("a bundled compile option is still a compile option",
-          guard_module.is_read_only_shell("file -bC -m ./magic"), False)
-    check("a long compile option cannot hide behind its value",
-          guard_module.is_read_only_shell("file --compile=./magic"), False)
+    # `file` has two: `-C` compiles a magic.mgc, and `-z` runs a decompressor off
+    # PATH. An allow-list entry that needs its own option audit does not belong.
+    check("file is not on the allow-list either",
+          [guard_module.is_read_only_shell(command) for command in (
+              "file AGENTS.md", "file -C -m ./magic", "file -z archive")], [False, False, False])
     check("local editing needs no public work claim", guard_module.creates_durable_state({
         "tool_name": "Edit", "tool_input": {"file_path": "AGENTS.md"},
     }), False)

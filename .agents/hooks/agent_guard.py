@@ -16,22 +16,23 @@ import worktree_cleanup
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 LEASE_TTL = 30 * 60
-# Output-only inspection, kept deliberately small. This list was widened once and
-# three separate escapes came out of it: `printf -v NAME` assigns through an
-# array subscript Bash expands, so `printf -v 'x[$(touch marker)]' foo` runs a
-# substitution that single quotes hid from the hazard check below; `file -C`
-# compiles a `magic.mgc` beside its input; and `diff --paginate` execs whatever
-# `pr` resolves to on PATH. An audit that claimed to have caught them all still
-# missed the third, which is the actual lesson: a program earns a place here by
-# having no option that writes, assigns or execs, and nobody can hold twenty of
-# those manual pages in their head at once.
+# Output-only inspection. An entry qualifies only when NO option of it runs
+# another program, writes a file, or assigns a name — and the test is the whole
+# manual page, not the options anybody happens to remember.
 #
-# The trade is worse than it looks, too. In an owned worktree nothing here is a
-# refusal — an unrecognized command falls through to the lease and runs — so the
-# list only buys convenience in the read-only control checkout. That is not worth
-# an entry whose manual page nobody has read. `sort -o`, `uniq INPUT OUTPUT`,
-# awk's `system()` and `date -s` are absent for the same reason.
-# `file` is checked by option below rather than trusted by name.
+# Widening this list produced four escapes in a row, each invisible on its own:
+# `printf -v NAME` assigns through an array subscript Bash expands, so
+# `printf -v 'x[$(touch marker)]' foo` runs a substitution that single quotes hid
+# from the hazard check below; `diff --paginate` execs whatever `pr` resolves to
+# on PATH; and `file` has two, `-C` compiling a `magic.mgc` and `-z` launching a
+# decompressor off PATH. `file` is gone rather than guarded, because an entry that
+# needs its own option audit is the thing this criterion rejects. `sort -o`,
+# `uniq INPUT OUTPUT`, awk's `system()` and `date -s` never qualified either.
+#
+# What is left reports text or metadata and takes no program name anywhere. The
+# trade also favours a short list: in an owned worktree nothing here is a refusal
+# — an unrecognized command falls through to the lease and runs — so this only
+# decides what may run in the read-only control checkout.
 READ_ONLY_PROGRAMS = {
     "cat", "grep", "head", "ls", "pwd", "stat", "tail", "true", "wc", "which",
 }
@@ -311,24 +312,6 @@ def _read_only_find(arguments):
     return not any(argument.split("=", 1)[0] in dangerous for argument in arguments)
 
 
-def _read_only_file(arguments):
-    """Identify a type, but never compile a magic database.
-
-    `file -C -m ./magic` writes a compiled `magic.mgc` beside its input, which is
-    the same shape as `sort -o`: a write with no shell redirection to give it
-    away. Every other option only reports. Short options bundle, so the whole
-    cluster is inspected rather than only its first letter.
-    """
-    for value in arguments:
-        if value == "--":
-            break
-        if value == "--compile" or value.startswith("--compile="):
-            return False
-        if value.startswith("-") and not value.startswith("--") and "C" in value[1:]:
-            return False
-    return True
-
-
 def _read_only_sed(arguments):
     values = list(arguments)
     while values and values[0] in ("-n", "--quiet", "--silent"):
@@ -562,8 +545,6 @@ def _read_only_simple(command):
         return False
     if program in READ_ONLY_PROGRAMS:
         return True
-    if program == "file":
-        return _read_only_file(arguments)
     if program == "find":
         return _read_only_find(arguments)
     if program == "sed":
