@@ -22,10 +22,15 @@ LEASE_TTL = 30 * 60
 # `sort -o`, `uniq INPUT OUTPUT`, awk's `system()` and `date -s` are why those
 # four are deliberately absent: each mutates without a shell redirection to give
 # it away, and `date` is not worth an exception for a clock nobody reads here.
+# `printf` is absent for a sharper reason: it is a shell builtin, and Bash's
+# `printf -v NAME` assigns to a shell variable whose NAME may be an indexed-array
+# expression. Bash expands that subscript, so `printf -v 'x[$(touch marker)]' foo`
+# runs the substitution while single quotes keep it away from the hazard check
+# below. A name that only looks like an argument is not one.
 READ_ONLY_PROGRAMS = {
     "basename", "cat", "cmp", "comm", "cut", "diff", "dirname", "echo", "file", "grep", "head",
-    "id", "jq", "ls", "nl", "printf", "pwd", "realpath", "stat", "tail", "tr", "true", "uname",
-    "wc", "which",
+    "id", "jq", "ls", "nl", "pwd", "realpath", "stat", "tail", "tr", "true", "uname", "wc",
+    "which",
 }
 READ_ONLY_GIT = {
     "describe", "diff", "grep", "log", "ls-files", "merge-base", "name-rev", "rev-list", "rev-parse",

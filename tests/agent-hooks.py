@@ -707,6 +707,11 @@ def main():
     # `sort -o` and `uniq INPUT OUTPUT` write a file with no redirection to show it.
     check("a writing sort is not inspection", guard_module.is_read_only_shell("sort -o out.txt in.txt"), False)
     check("a writing uniq is not inspection", guard_module.is_read_only_shell("uniq in.txt out.txt"), False)
+    # Bash expands an indexed-array subscript in `printf -v NAME`, so the single
+    # quotes that hide this substitution from the hazard check do not stop it.
+    check("a builtin that assigns through an expanded name is not inspection",
+          guard_module.is_read_only_shell("printf -v 'x[$(touch marker)]' foo"), False)
+    check("printf is not inspection at all", guard_module.is_read_only_shell("printf %s value"), False)
     check("local editing needs no public work claim", guard_module.creates_durable_state({
         "tool_name": "Edit", "tool_input": {"file_path": "AGENTS.md"},
     }), False)
