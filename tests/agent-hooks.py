@@ -1041,14 +1041,23 @@ def main():
         claimed_registry = hook.issue_claim.load_registry(linked)
         hook.issue_claim.save_registry(linked, {"version": 1, "claims": {}})
         emitted.clear()
+        # Not an issue write: those are the bootstrap exception, which returns
+        # before the claim is consulted at all.
         hook.guard({
             "session_id": "writer-one", "tool_name": "Bash",
-            "tool_input": {"command": "gh issue comment 42 --body note"},
+            "tool_input": {"command": "gh pr comment 42 --body note"},
         })
         check("an unclaimed publication is reminded, not refused",
               ("permissionDecision" not in (emitted[0].get("hookSpecificOutput") or {}),
                "without a registered issue claim" in emitted[0].get("systemMessage", "")),
               (True, True))
+        emitted.clear()
+        hook.guard({
+            "session_id": "writer-one", "tool_name": "Bash",
+            "tool_input": {"command": "gh issue comment 42 --body note"},
+        })
+        check("writing the issue itself is the bootstrap exception, so it is not reminded either",
+              emitted[0], {})
         hook.issue_claim.save_registry(linked, claimed_registry)
         hook.synchronize_repository = lambda repository, max_age, required=False: (
             (_ for _ in ()).throw(RuntimeError("canonical fetch failed")) if required else {

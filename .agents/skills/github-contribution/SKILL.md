@@ -103,10 +103,12 @@ inspection or editing, so the claim is your obligation rather than the hook's.
 Writing the issue itself is not implementation and needs no claim. The guard
 admits creating an issue, appending a comment to it, and editing its body and
 title, so an agent can publish the maintained detail comment and its link in one
-step. Rewriting an existing comment needs the claim, because the newest comment
-of the publishing account may be another worktree's claim marker. Labels,
-assignees, issue state, and every pull-request, coordination or review write
-also stay behind the claim.
+step, and it admits them even from the read-only control checkout or a detached
+worktree, which is what that exception is now for. Rewriting an existing comment
+is outside it, because the newest comment of the publishing account may be
+another worktree's claim marker. Labels, assignees, issue state, and every
+pull-request, coordination or review write are outside it too: those still need
+an owned worktree, and the guard reports a missing claim when it sees them.
 
 That admission is a command classification, not a lock: nothing serializes a
 body or title edit. Inspect the issue first and never rewrite one that carries a
