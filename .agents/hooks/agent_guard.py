@@ -39,6 +39,22 @@ KNOWN_GIT_SUBCOMMANDS = READ_ONLY_GIT | {
     "remote", "reset", "restore", "revert", "rm", "send-pack", "sparse-checkout", "stash", "submodule",
     "switch", "tag", "worktree",
 }
+# Options carrying authored text rather than a further instruction. Their separate
+# value is prose and must never be classified as an option of its own.
+ISSUE_TEXT_OPTIONS = {"--body", "-b", "--body-file", "-F", "--title", "-t"}
+ISSUE_BODY_OPTIONS = ISSUE_TEXT_OPTIONS - {"--title", "-t"}
+# `create` keeps its historic option surface, limited only by the refusals in
+# is_issue_bootstrap. `comment` and `edit` reach much further than the text, so
+# they are reduced to the authoring options alone. Appending a comment is allowed;
+# `--edit-last` is not, because it rewrites the newest comment of this account,
+# which may be another worktree's claim marker.
+ISSUE_AUTHORING_OPTIONS = {
+    "create": None,
+    "comment": ISSUE_BODY_OPTIONS,
+    "edit": ISSUE_TEXT_OPTIONS,
+}
+# Options that hand control to another program or to a different repository.
+ISSUE_REFUSED_OPTIONS = {"--editor", "--repo", "--web", "-R", "-e", "-w"}
 
 
 def git(repository, *arguments, check=True):
@@ -540,18 +556,61 @@ def _read_only_simple(command):
     return False
 
 
+def _issue_options(arguments):
+    """Return the real options of one issue command, skipping the authored text values.
+
+    A separate value belongs to the option before it, and authored prose may legitimately
+    begin with a dash. Classifying it as an option would refuse a body that merely quotes
+    one, so the text-carrying options consume their value here.
+    """
+    options = []
+    index = 0
+    while index < len(arguments):
+        value = arguments[index]
+        if not value.startswith("-") or value == "-":
+            index += 1
+            continue
+        name = value.split("=", 1)[0]
+        short_value = len(name) > 2 and not name.startswith("--") and name[:2] in ISSUE_TEXT_OPTIONS
+        option = name[:2] if short_value else name
+        options.append(option)
+        joined = short_value or "=" in value
+        index += 2 if option in ISSUE_TEXT_OPTIONS and not joined else 1
+    return options
+
+
 def is_issue_bootstrap(event):
-    """Allow the public coordination record to exist before repository writes begin."""
+    """Allow one public issue to be created and completed before repository writes begin.
+
+    Opening the issue is how a task starts, and the contribution rules then require its
+    maintained detail comment and, when the body was wrong, a correction of that body.
+    None of that is implementation, so demanding a work claim first would force an agent
+    to announce implementation that is not starting. What stays outside are the operations
+    that can move another task's claim: its labels, and rewriting an existing comment.
+
+    This admits a body edit without serializing it, because a command classifier cannot
+    read the issue. Not rewriting an issue that somebody else already owns is therefore a
+    rule in the contribution skill rather than something enforced here.
+    """
     if str(event.get("tool_name") or "") != "Bash":
         return False
     program, arguments = _shell_invocation(event_command(event))
-    return bool(program == "gh" and len(arguments) >= 2
-                and arguments[0] == "issue" and arguments[1] == "create"
-                and not any(
-                    value.split("=", 1)[0] in ("--editor", "--repo", "--web", "-R", "-e", "-w")
-                    or value.startswith("-R")
-                    for value in arguments[2:]
-                ))
+    if program != "gh" or len(arguments) < 2 or arguments[0] != "issue":
+        return False
+    action = arguments[1]
+    if action not in ISSUE_AUTHORING_OPTIONS:
+        return False
+    options = _issue_options(arguments[2:])
+    if any(option in ISSUE_REFUSED_OPTIONS or option.startswith("-R") for option in options):
+        return False
+    allowed = ISSUE_AUTHORING_OPTIONS[action]
+    if allowed is None:
+        return True
+    # Without authored text both commands would open the configured editor, which
+    # is the same handover to another program the refusals above prevent.
+    return all(option in allowed for option in options) and any(
+        option in ISSUE_TEXT_OPTIONS for option in options
+    )
 
 
 def is_main_acknowledgement(event):
