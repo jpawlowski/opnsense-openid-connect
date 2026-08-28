@@ -96,8 +96,9 @@ is unavailable; keep the gate open and an agent-authored pull request draft.
 Before starting, inspect the issue's assignees, Development links, and recent
 comments and `wip:*` labels. Coordinate instead of creating a second claim when
 somebody is already working on it. Claim work only when implementation begins
-now, not when it is merely planned for later. The write guard requires a local
-record of the public claim before it permits source, build or Git mutations.
+now, not when it is merely planned for later. The write guard reminds about a
+missing claim at a commit, a push or a GitHub write; it does not refuse local
+inspection or editing, so the claim is your obligation rather than the hook's.
 
 Run `python3 .agents/issues.py claim N`. It requires label-management permission
 and first creates a fixed per-issue label definition through GitHub's atomic

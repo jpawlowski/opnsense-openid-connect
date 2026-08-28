@@ -681,6 +681,24 @@ def pre_tool_context(message):
     }
 
 
+def refused_operation(event):
+    """Name what the guard actually saw, so a refusal can be acted on.
+
+    A message that describes the policy but not the command sends an agent
+    looking for the wrong cause: a refused `grep` used to read as a missing
+    issue claim, which is advice to publish an issue in order to get a shell.
+    """
+    tool = str(event.get("tool_name") or "a tool call")
+    if tool != "Bash":
+        return tool
+    command = " ".join(agent_guard.event_command(event).split())
+    if not command:
+        return "An empty Bash command"
+    if len(command) > 120:
+        command = f"{command[:117]}…"
+    return f"`{command}`"
+
+
 def acknowledge_event(event):
     if not agent_guard.is_main_acknowledgement(event):
         return None
@@ -885,8 +903,11 @@ def cleanup(event):
 def guard(event):
     tool = str(event.get("tool_name") or "")
     if tool in ("Agent", "Task"):
+        # The SubagentStart hook tells the subagent itself the same thing, and a
+        # marker missing from a prompt is a convention slip rather than a danger
+        # to this worktree, which the lease already owns. Remind, do not refuse.
         if not agent_guard.is_read_only_agent(event):
-            emit(agent_guard.blocked(
+            emit(pre_tool_context(
                 "Parallel subagents in this repository are read-only. Prefix the delegated task with "
                 "`[read-only]`, or start a separate app task in its own worktree for implementation."
             ))
@@ -914,26 +935,36 @@ def guard(event):
     branch = git_value(REPOSITORY, "symbolic-ref", "--short", "HEAD")
     if execution == "local" and (agent_guard.is_primary_worktree(REPOSITORY) or branch == "main"):
         emit(agent_guard.blocked(
-            "The local control checkout is read-only for agents. Start this implementation in the Codex Worktree "
-            "mode or run `python3 .agents/worktrees.py create <slug> --client codex|claude`."
+            f"{refused_operation(event)} is not recognized as inspection, and the local control checkout is "
+            "read-only for agents. Start this implementation in the Codex Worktree mode or run "
+            "`python3 .agents/worktrees.py create <slug> --client codex|claude`."
         ))
         return
     if execution == "local" and not branch and agent_guard.requires_topic_branch(event):
         emit(agent_guard.blocked(
-            "A Codex-managed worktree may stay detached while editing and testing, but it needs a topic branch "
-            "before a commit or publication. Create one with `git switch -c codex/<task-slug>`."
+            f"{refused_operation(event)} creates durable state. A Codex-managed worktree may stay detached while "
+            "editing and testing, but it needs a topic branch before a commit or publication. Create one with "
+            "`git switch -c codex/<task-slug>`."
         ))
         return
 
+    # The claim is a coordination convention, not a safety boundary: what keeps
+    # two agents apart is the worktree lease and the atomic label mutex the
+    # helper takes, and neither of those needs this hook to refuse anything.
+    # Enforcing it here made the guard block its own repair, and made reading
+    # the tree conditional on publishing an issue. Remind at the boundary where
+    # the claim actually means something - a commit, a push, a GitHub write -
+    # and leave local work alone.
     claim = issue_claim.current_claim(REPOSITORY)
-    if not claim or claim.get("status") not in ("active", "pr-linked"):
-        emit(agent_guard.blocked(
-            "No exclusive issue claim is registered for this implementation. Search open issues and pull requests "
-            "for the requested outcome. Reuse the matching issue or create one, then run "
-            "`python3 .agents/issues.py claim <N>`. Use `adopt-pr` only when the user explicitly asked to continue "
-            "an existing pull request."
-        ))
-        return
+    claim_notice = ""
+    if ((not claim or claim.get("status") not in ("active", "pr-linked"))
+            and agent_guard.creates_durable_state(event)):
+        claim_notice = (
+            "This creates durable public or Git state without a registered issue claim. Search open issues and "
+            "pull requests for the requested outcome, reuse the matching issue or create one, then run "
+            "`python3 .agents/issues.py claim <N>`. Use `adopt-pr` only when the user explicitly asked to "
+            "continue an existing pull request."
+        )
 
     reconciliation_sha = agent_guard.pull_reconciliation_sha(event)
     shell_publication = tool == "Bash" and agent_guard.requires_uncached_remote(event)
@@ -980,7 +1011,7 @@ def guard(event):
     if lease_refusal:
         emit(agent_guard.blocked(lease_refusal))
         return
-    emit(pre_tool_context(messages(synchronization["warning"], notice)))
+    emit(pre_tool_context(messages(synchronization["warning"], notice, claim_notice)))
 
 
 def subagent(_event):
