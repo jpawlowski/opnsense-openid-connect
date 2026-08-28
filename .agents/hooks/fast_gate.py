@@ -935,8 +935,8 @@ def guard(event):
     branch = git_value(REPOSITORY, "symbolic-ref", "--short", "HEAD")
     if execution == "local" and (agent_guard.is_primary_worktree(REPOSITORY) or branch == "main"):
         emit(agent_guard.blocked(
-            f"{refused_operation(event)} is not recognized as inspection, and the local control checkout is "
-            "read-only for agents. Start this implementation in the Codex Worktree mode or run "
+            f"{refused_operation(event)} would write here, and the local control checkout is read-only for "
+            "agents. Start this implementation in the Codex Worktree mode or run "
             "`python3 .agents/worktrees.py create <slug> --client codex|claude`."
         ))
         return
