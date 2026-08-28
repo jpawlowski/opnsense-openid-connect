@@ -16,25 +16,24 @@ import worktree_cleanup
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 LEASE_TTL = 30 * 60
-# Output-only inspection. Reading the tree is the most common thing an agent
-# does here, and a refusal for it costs a whole turn to work around, so the list
-# is as wide as it can be without letting a program write a file on its own.
-# `sort -o`, `uniq INPUT OUTPUT`, awk's `system()` and `date -s` are why those
-# four are deliberately absent: each mutates without a shell redirection to give
-# it away, and `date` is not worth an exception for a clock nobody reads here.
-# `printf` is absent for a sharper reason: it is a shell builtin, and Bash's
-# `printf -v NAME` assigns to a shell variable whose NAME may be an indexed-array
-# expression. Bash expands that subscript, so `printf -v 'x[$(touch marker)]' foo`
-# runs the substitution while single quotes keep it away from the hazard check
-# below. A name that only looks like an argument is not one.
-# Every remaining entry was read against its manual page for an option that
-# writes a file or assigns a name: `cat`, `cmp`, `comm`, `cut`, `diff`, `grep`,
-# `head`, `jq`, `nl`, `tail`, `tr` and `wc` have none, and the rest only report.
-# `file` is not here because it needs an option check of its own, below.
+# Output-only inspection, kept deliberately small. This list was widened once and
+# three separate escapes came out of it: `printf -v NAME` assigns through an
+# array subscript Bash expands, so `printf -v 'x[$(touch marker)]' foo` runs a
+# substitution that single quotes hid from the hazard check below; `file -C`
+# compiles a `magic.mgc` beside its input; and `diff --paginate` execs whatever
+# `pr` resolves to on PATH. An audit that claimed to have caught them all still
+# missed the third, which is the actual lesson: a program earns a place here by
+# having no option that writes, assigns or execs, and nobody can hold twenty of
+# those manual pages in their head at once.
+#
+# The trade is worse than it looks, too. In an owned worktree nothing here is a
+# refusal — an unrecognized command falls through to the lease and runs — so the
+# list only buys convenience in the read-only control checkout. That is not worth
+# an entry whose manual page nobody has read. `sort -o`, `uniq INPUT OUTPUT`,
+# awk's `system()` and `date -s` are absent for the same reason.
+# `file` is checked by option below rather than trusted by name.
 READ_ONLY_PROGRAMS = {
-    "basename", "cat", "cmp", "comm", "cut", "diff", "dirname", "echo", "grep", "head",
-    "id", "jq", "ls", "nl", "pwd", "realpath", "stat", "tail", "tr", "true", "uname", "wc",
-    "which",
+    "cat", "grep", "head", "ls", "pwd", "stat", "tail", "true", "wc", "which",
 }
 READ_ONLY_GIT = {
     "describe", "diff", "grep", "log", "ls-files", "merge-base", "name-rev", "rev-list", "rev-parse",

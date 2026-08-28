@@ -712,6 +712,14 @@ def main():
     check("a builtin that assigns through an expanded name is not inspection",
           guard_module.is_read_only_shell("printf -v 'x[$(touch marker)]' foo"), False)
     check("printf is not inspection at all", guard_module.is_read_only_shell("printf %s value"), False)
+    # `diff --paginate` pipes through whatever `pr` resolves to on PATH, which is
+    # the third escape this list produced. The answer was to stop widening it.
+    check("a paginating diff is not inspection", guard_module.is_read_only_shell("diff -l a b"), False)
+    check("diff is not on the allow-list at all", guard_module.is_read_only_shell("diff a b"), False)
+    check("convenience entries stay off the allow-list",
+          [name for name in ("basename", "cmp", "comm", "cut", "dirname", "echo", "id", "jq",
+                             "nl", "realpath", "tr", "uname")
+           if guard_module.is_read_only_shell(f"{name} value")], [])
     check("identifying a file is inspection", guard_module.is_read_only_shell("file AGENTS.md"), True)
     # `file -C` compiles a magic.mgc beside its input: a write with no redirection.
     check("compiling a magic database is not inspection",
