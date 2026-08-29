@@ -94,8 +94,10 @@ Parallel subagents are read-only and mark their delegated prompt with
 `[read-only]`. Parallel writing happens in separate top-level tasks and
 worktrees. One integrating agent owns a pull-request branch; supporting agents
 hand over findings, commits or patches instead of editing or pushing that
-branch. The shared PreToolUse hook enforces the control checkout, one writer
-lease per worktree and the read-only subagent marker. For a manual worktree use:
+branch. The shared PreToolUse hook enforces the two rules a second agent cannot
+work around: the read-only control checkout and one writer lease per worktree.
+It reminds about the read-only subagent marker rather than refusing the task.
+For a manual worktree use:
 
     python3 .agents/worktrees.py create task-slug --client codex
     python3 .agents/worktrees.py list
@@ -116,8 +118,10 @@ definitions. The pull request, branch and linked head ancestry then carry
 ownership, so no WIP label belongs on the pull request. Run
 `python3 .agents/issues.py release` when work stops before a pull request. Use
 `adopt-pr` only when the user explicitly asks to continue an existing pull
-request. The guard blocks implementation writes without one of these verified
-states.
+request. The claim is required, but the guard does not enforce it by refusing
+local work: it reminds at a commit, a push or a GitHub write, which is where the
+claim means anything. What actually keeps two agents apart is the worktree lease
+and the helper's atomic label mutex.
 
 The shared startup hook identifies the canonical base from the `origin` fetch
 URL. A direct clone uses `origin/main`; a GitHub fork keeps `origin` for

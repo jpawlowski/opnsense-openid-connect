@@ -693,6 +693,55 @@ def main():
           guard_module.is_read_only_shell("git remote -v add other example.invalid/repo"), False)
     check("a compound command fails closed", guard_module.is_read_only_shell("git status && git diff"), False)
     check("an unclassified test command fails closed", guard_module.is_read_only_shell("./tests/run.sh"), False)
+    check("ordinary text search is inspection", guard_module.is_read_only_shell("grep -n needle AGENTS.md"), True)
+    check("a pipeline of inspection commands is inspection",
+          guard_module.is_read_only_shell("grep -n needle AGENTS.md | head -5"), True)
+    check("a pipeline is only as read-only as its worst segment",
+          guard_module.is_read_only_shell("cat list | xargs rm"), False)
+    check("a pipe cannot smuggle a redirection past the segment split",
+          guard_module.is_read_only_shell("grep needle AGENTS.md | tee leaked.txt"), False)
+    check("an or-list is not a pipeline", guard_module.is_read_only_shell("ls missing || rm tracked"), False)
+    check("a trailing pipe is not a pipeline", guard_module.is_read_only_shell("ls |"), False)
+    check("a quoted pipe stays inside its argument",
+          guard_module.is_read_only_shell("grep -n 'a|b' AGENTS.md"), True)
+    # `sort -o` and `uniq INPUT OUTPUT` write a file with no redirection to show it.
+    check("a writing sort is not inspection", guard_module.is_read_only_shell("sort -o out.txt in.txt"), False)
+    check("a writing uniq is not inspection", guard_module.is_read_only_shell("uniq in.txt out.txt"), False)
+    # Bash expands an indexed-array subscript in `printf -v NAME`, so the single
+    # quotes that hide this substitution from the hazard check do not stop it.
+    check("a builtin that assigns through an expanded name is not inspection",
+          guard_module.is_read_only_shell("printf -v 'x[$(touch marker)]' foo"), False)
+    check("printf is not inspection at all", guard_module.is_read_only_shell("printf %s value"), False)
+    # `diff --paginate` pipes through whatever `pr` resolves to on PATH, which is
+    # the third escape this list produced. The answer was to stop widening it.
+    check("a paginating diff is not inspection", guard_module.is_read_only_shell("diff -l a b"), False)
+    check("diff is not on the allow-list at all", guard_module.is_read_only_shell("diff a b"), False)
+    check("convenience entries stay off the allow-list",
+          [name for name in ("basename", "cmp", "comm", "cut", "dirname", "echo", "id", "jq",
+                             "nl", "realpath", "tr", "uname")
+           if guard_module.is_read_only_shell(f"{name} value")], [])
+    # `file` has two: `-C` compiles a magic.mgc, and `-z` runs a decompressor off
+    # PATH. An allow-list entry that needs its own option audit does not belong.
+    check("file is not on the allow-list either",
+          [guard_module.is_read_only_shell(command) for command in (
+              "file AGENTS.md", "file -C -m ./magic", "file -z archive")], [False, False, False])
+    check("local editing needs no public work claim", guard_module.creates_durable_state({
+        "tool_name": "Edit", "tool_input": {"file_path": "AGENTS.md"},
+    }), False)
+    check("reading needs no public work claim", guard_module.creates_durable_state({
+        "tool_name": "Bash", "tool_input": {"command": "grep -n needle AGENTS.md"},
+    }), False)
+    check("a commit is where the public work claim earns its place",
+          guard_module.creates_durable_state({
+              "tool_name": "Bash", "tool_input": {"command": "git commit -m 'test: durable'"},
+          }), True)
+    check("a GitHub write is where the public work claim earns its place",
+          guard_module.creates_durable_state({
+              "tool_name": "Bash", "tool_input": {"command": "gh issue comment 42 --body note"},
+          }), True)
+    check("a handoff is a publication boundary", guard_module.creates_durable_state({
+        "tool_name": "Handoff", "tool_input": {},
+    }), True)
     check("Git push forces an uncached remote observation", guard_module.requires_uncached_remote({
         "tool_name": "Bash", "tool_input": {"command": "git push origin codex/topic"},
     }), True)
@@ -902,6 +951,15 @@ def main():
         hook.guard({"session_id": "primary", "tool_name": "apply_patch", "tool_input": {"command": "patch"}})
         check("a patch in the control checkout is blocked",
               emitted[0]["hookSpecificOutput"]["permissionDecision"], "deny")
+        check("the refusal names the operation it saw",
+              "apply_patch" in emitted[0]["hookSpecificOutput"]["permissionDecisionReason"], True)
+        emitted.clear()
+        hook.guard({"session_id": "primary", "tool_name": "Agent",
+                    "tool_input": {"prompt": "implement the protocol"}})
+        check("an unmarked subagent is reminded, not refused",
+              ("permissionDecision" not in (emitted[0].get("hookSpecificOutput") or {}),
+               "read-only" in emitted[0].get("systemMessage", "")),
+              (True, True))
         emitted.clear()
         hook.guard({
             "session_id": "primary", "tool_name": "Bash",
@@ -982,8 +1040,8 @@ def main():
               emitted[0]["hookSpecificOutput"]["permissionDecision"], "deny")
         emitted.clear()
         hook.guard({"session_id": "writer-one", "tool_name": "apply_patch", "tool_input": {"command": "patch"}})
-        check("an isolated writer without a public issue claim is blocked",
-              "No exclusive issue claim" in emitted[0]["hookSpecificOutput"]["permissionDecisionReason"], True)
+        check("local editing in an owned worktree does not wait for a public issue claim",
+              emitted[0], {})
         hook.issue_claim.save_registry(linked, {
             "version": 1,
             "claims": {str(linked.resolve()): {
@@ -998,6 +1056,27 @@ def main():
         check("a second worktree writer is blocked",
               emitted[1]["hookSpecificOutput"]["permissionDecision"], "deny")
         subprocess.run(("git", "switch", "-q", "codex/test"), cwd=linked, check=True)
+        claimed_registry = hook.issue_claim.load_registry(linked)
+        hook.issue_claim.save_registry(linked, {"version": 1, "claims": {}})
+        emitted.clear()
+        # Not an issue write: those are the bootstrap exception, which returns
+        # before the claim is consulted at all.
+        hook.guard({
+            "session_id": "writer-one", "tool_name": "Bash",
+            "tool_input": {"command": "gh pr comment 42 --body note"},
+        })
+        check("an unclaimed publication is reminded, not refused",
+              ("permissionDecision" not in (emitted[0].get("hookSpecificOutput") or {}),
+               "without a registered issue claim" in emitted[0].get("systemMessage", "")),
+              (True, True))
+        emitted.clear()
+        hook.guard({
+            "session_id": "writer-one", "tool_name": "Bash",
+            "tool_input": {"command": "gh issue comment 42 --body note"},
+        })
+        check("writing the issue itself is the bootstrap exception, so it is not reminded either",
+              emitted[0], {})
+        hook.issue_claim.save_registry(linked, claimed_registry)
         hook.synchronize_repository = lambda repository, max_age, required=False: (
             (_ for _ in ()).throw(RuntimeError("canonical fetch failed")) if required else {
                 "base_main": "base", "old_base": "base", "base_name": "origin/main",
