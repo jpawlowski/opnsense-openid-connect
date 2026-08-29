@@ -16,8 +16,21 @@ import worktree_cleanup
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 LEASE_TTL = 30 * 60
+# Output-only inspection. Reading the tree is the most common thing an agent
+# does here, and a refusal for it costs a whole turn to work around, so the list
+# is as wide as it can be without letting a program write a file on its own.
+# `sort -o`, `uniq INPUT OUTPUT`, awk's `system()` and `date -s` are why those
+# four are deliberately absent: each mutates without a shell redirection to give
+# it away, and `date` is not worth an exception for a clock nobody reads here.
+# `printf` is absent for a sharper reason: it is a shell builtin, and Bash's
+# `printf -v NAME` assigns to a shell variable whose NAME may be an indexed-array
+# expression. Bash expands that subscript, so `printf -v 'x[$(touch marker)]' foo`
+# runs the substitution while single quotes keep it away from the hazard check
+# below. A name that only looks like an argument is not one.
 READ_ONLY_PROGRAMS = {
-    "cat", "file", "head", "ls", "pwd", "stat", "tail", "true", "wc", "which",
+    "basename", "cat", "cmp", "comm", "cut", "diff", "dirname", "echo", "file", "grep", "head",
+    "id", "jq", "ls", "nl", "pwd", "realpath", "stat", "tail", "tr", "true", "uname", "wc",
+    "which",
 }
 READ_ONLY_GIT = {
     "describe", "diff", "grep", "log", "ls-files", "merge-base", "name-rev", "rev-list", "rev-parse",
@@ -391,6 +404,12 @@ def _read_only_gh(arguments):
     return False
 
 
+# One definition, because two walkers that disagree about what an operator is
+# would let a shape through the pipeline splitter that the hazard check refuses.
+CONTROL_CHARACTERS = "\r\n;&|<>!()"
+EXPANSION_CHARACTERS = "`$*?[]{}~"
+
+
 def _shell_hazard(command):
     """Return control or expansion for unquoted syntax that changes literal arguments."""
     quote = ""
@@ -412,9 +431,9 @@ def _shell_hazard(command):
             continue
         if value in "'\"":
             quote = value
-        elif value in "\r\n;&|<>!()":
+        elif value in CONTROL_CHARACTERS:
             return "control"
-        elif value in "`$*?[]{}~":
+        elif value in EXPANSION_CHARACTERS:
             return "expansion"
     return ""
 
@@ -457,8 +476,60 @@ def _shell_invocation(command):
     return program, arguments
 
 
+def _pipeline_segments(command):
+    """Split on unquoted pipes only; any other control operator gives up entirely.
+
+    `grep needle file | head` is one inspection, not a compound command, and
+    refusing it taught agents to avoid the shell rather than to read carefully.
+    Every other operator can still redirect, chain or subshell its way into a
+    write, so this returns nothing for them and the caller falls back to the
+    single-command grammar, which refuses them as before.
+    """
+    segments = []
+    current = []
+    quote = ""
+    escaped = False
+    for value in command:
+        if escaped:
+            current.append(value)
+            escaped = False
+            continue
+        if value == "\\" and quote != "'":
+            escaped = True
+            current.append(value)
+            continue
+        if quote:
+            current.append(value)
+            if value == quote:
+                quote = ""
+            continue
+        if value in "'\"":
+            quote = value
+            current.append(value)
+            continue
+        if value == "|":
+            segments.append("".join(current))
+            current = []
+            continue
+        if value in CONTROL_CHARACTERS:
+            return []
+        current.append(value)
+    if quote or escaped:
+        return []
+    segments.append("".join(current))
+    # An empty segment is `||`, a leading pipe or a trailing one: not a pipeline.
+    return segments if all(segment.strip() for segment in segments) else []
+
+
 def is_read_only_shell(command):
     """Accept a deliberately small grammar; ambiguity belongs in an isolated worktree."""
+    segments = _pipeline_segments(command)
+    if len(segments) > 1:
+        return all(_read_only_simple(segment) for segment in segments)
+    return _read_only_simple(command)
+
+
+def _read_only_simple(command):
     literal_program, literal_arguments = _literal_shell_invocation(command)
     if not _shell_hazard(command) and _review_wait_helper([literal_program, *literal_arguments]):
         return True
@@ -777,6 +848,18 @@ def requires_topic_branch(event):
         or _review_request_publication(program, arguments)
         or nested_durable
     )
+
+
+def creates_durable_state(event):
+    """Commits, publications and handoffs: where a public work claim earns its place.
+
+    Editing a file in an owned worktree is not one of these. The lease already
+    says who owns that tree, and a claim that had to exist before the first read
+    or the first edit only taught agents to publish an issue to get a shell.
+    """
+    if str(event.get("tool_name") or "").lower() == "handoff":
+        return True
+    return requires_topic_branch(event)
 
 
 def is_read_only_agent(event):
