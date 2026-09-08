@@ -203,16 +203,19 @@ separate mechanisms and only one of them is wanted.
 `unknown-repository` in the repository column, and the *Resolve plugin
 conflicts* menu left permanently visible. That word is core's own bookkeeping,
 not a verdict about the installation: `firmware.volt` prints it for every
-package that is installed but absent from `system.firmware.plugins`. Nothing in
-that menu changes it: two of its entries re-run exactly the registration
-described above, and the third only opens the plugin tab.
+package that is installed while core holds it unconfigured, which means absent
+from `system.firmware.plugins` and not flagged `automatic`. The manifest sets
+`automatic=0` on purpose, so the same flag that keeps `pkg autoremove` away
+also rules out the other way of counting as configured. Nothing in that menu
+changes any of it: two of its entries act on that registration, and the third
+only opens the plugin tab.
 
 **The Info button beside the row stays empty** one step further out.
 `details.sh` answers it with `pkg rquery` against the configured repositories,
 and a package installed from a file is in none of them. What the dialog would
-hold is the manifest's comment, description and maintainer; the per-version
-changelog other plugins show comes from *System > Firmware > Changelog* and is
-a repository feature, not package metadata.
+hold is the manifest's comment, description and maintainer. It never holds a
+changelog for any plugin: the changelog page beside it belongs to OPNsense's
+own releases, and a package's own history is not something core displays.
 
 Neither ends before this package is served from a repository, and that is a
 distribution decision rather than a display one.
