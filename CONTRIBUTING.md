@@ -62,134 +62,34 @@ overwritten. GitHub's Sync fork button and a current fork `main` are optional:
 create and push the topic branch through `origin`, but derive and refresh it
 from the canonical ref.
 
-The primary local checkout is read-only for agents. Pure inspection needs no
-extra worktree; every implementation, build or test that may write uses a
-dedicated worktree. Codex-managed worktrees may remain detached until a branch
-is needed, while manually created Codex, Claude and CLI worktrees start with a
-topic branch. Parallel subagents are read-only; parallel implementations use
-separate top-level tasks and worktrees. Cloud sessions already run in isolated
-checkouts and do not add another worktree. Claude Code cloud exposes
-`CLAUDE_CODE_REMOTE=true`; Codex cloud uses the repository-defined
-`AGENT_EXECUTION=codex-cloud`, and GitHub Copilot coding agent is recognized
-from its scoped `GITHUB_COPILOT_GIT_TOKEN` by the adapter under `.github/hooks/`.
-Regardless of vendor, a checkout without `origin` is treated as an isolated
-snapshot: it can test and create a handoff commit, but cannot claim remote
-freshness or a successful push. Do not place a personal access token in a cloud
-setup script. Use the platform's existing pull request update facility, or hand
-a commit and patch to the agent that owns the pull-request branch. Do not open
-a replacement pull request for the same work.
+### If an agent does the work
 
-Agent hooks refresh the canonical branch throughout active work and report
-path overlap with new `main` commits or other open pull requests. They also
-observe a published pull request by number, verify one coherent current-head
-snapshot, and include checks, submitted reviews, threads and merge state. They
-never merge or rebase automatically. A foreign remote head must be reconciled
-before another write or publication, and a changed head needs a new review.
+Most changes here are written by an agent, and the rules it follows are longer
+than the ones above: worktrees and writer leases, an exclusive issue claim,
+canonical-base freshness, stewardship of an open pull request, the review cycle
+and its severities, merge order between overlapping pull requests, and what a
+cloud checkout without a remote may claim to have done.
 
-Freshness does not require live synchronization. An agent may protect a costly
-or stateful operation until a named safe checkpoint while any number of `main`
-commits accumulate visibly. It then assesses the complete drift once. Branch
-lag alone is not a conflict, and a conflict found during review waits for the
-next review or finalization checkpoint rather than invalidating the running
-review immediately. A read-only monitor retains the PR number until review,
-failure, conflict, merge, closure or another actionable transition; it never
-comments, pushes, requests review or merges.
+Those rules live in [`AGENTS.md`](AGENTS.md) and, for everything that becomes
+public on GitHub, in the `github-contribution` skill under `.agents/skills/`.
+They are deliberately not repeated here. This file and `AGENTS.md` used to
+restate the same procedure, and three copies that were each only checked for
+containing the right keywords drifted apart without any test noticing.
 
-Material overlap between open PRs gets one machine-readable recommendation
-mirrored in each PR. It gives the human one exact merge order, never
-alternatives. The first complete recommendation remains authoritative while
-the same evidence produces the same order. Any steward may replace it when new
-observable evidence changes that deterministic order, regardless of who
-published it; another preference or reading of the same evidence does not.
-The successor names the new fact and affected criterion and is a new machine
-revision. Its publisher updates the existing maintained coordination comment in
-every PR, removes duplicates when groups join, and creates a comment only for a
-PR without an entry for the group. It owns all mirrored writes under the
-repository mutex; concurrent agents stand down and then adopt the completed
-revision. The later PR may keep working but does not merge first or chase
-the earlier PR's changing head; after its predecessor merges, it integrates
-once at a safe checkpoint. A replacement is also mirrored to PRs present only
-in the superseded order, preventing them from retaining obsolete coordination.
-Its marker retains that complete target set for retry and fulfillment even when
-one of those PRs closes. Active orders sharing any participant form one
-transitive group and must be replaced by a single order covering all of its open
-PRs; former participants remain mirroring targets but never re-enter the order.
-A predecessor closing unmerged invalidates that order immediately. Only
-repository-associated publishers are trusted. Visible coordination uses
-non-linking `PR N` names rather than hash-number
-references, Markdown links or pull-request URLs. Technical overlap alone does
-not justify reciprocal GitHub cross-reference events; numeric identities remain
-in the hidden machine marker and hash-number references in supplied explanations
-are normalized before publication. An interrupted mirroring resumes under its
-printed identifier by updating the
-remaining comments in place. Recommendation and fulfillment hold an atomic repository mutex across
-their remote snapshot and all mirrored writes; a concurrent publisher waits, and
-a lock left by a failed process is inspected rather than stolen. No agent merges, enables auto-merge or queues a
-merge without an explicit human instruction naming that PR. Review,
-coordination and making a PR ready do not imply merge permission.
+What matters when you review one of these pull requests is the visible part. An
+agent-authored pull request stays draft while it is implemented, validated and
+reviewed. It becomes ready for review only once it is finished, green, mergeable
+and every review thread has an answer — that transition is the handoff to you.
+No agent merges anything, enables auto-merge or queues a merge without an
+explicit instruction naming that pull request.
 
-Agent worktrees have an event-driven cleanup queue rather than a background
-scheduler. SessionEnd retains dirty work and open pull requests, while a clean
-finished worktree becomes eligible after a 24-hour grace period. A later
-session removes only
-a registered worktree with no lease, tracked, untracked or ignored files, open
-or closed-unmerged pull request, foreign head or unknown GitHub state. The local
-branch remains for a seven-day grace period and is deleted only when canonical
-`main`
-contains it or GitHub confirms that its exact head was merged. Remote branches
-are never deleted by this cleanup. `python3 .agents/worktrees.py audit` explains
-every retained or removable item before `retire` or `sweep` is used.
-
-Before opening a pull request, an agent validates the exact proposed title and
-body locally:
+Before opening a pull request an agent validates the exact proposed title and
+body locally, and you can run the same check yourself:
 
     python3 packaging/contribution-lint.py \
         --title "fix(auth): keep local login available" \
         --body-file /path/to/pr-body.md \
         --repository jpawlowski/opnsense-openid-connect
-
-An agent-authored pull request remains draft throughout implementation,
-validation and automatic independent review. Prefer Codex `/review` (or
-`codex review --base BASE`) and Claude Code `/review` locally against the exact
-canonical-base diff. Use a GitHub Codex review only when no suitable local
-reviewer is available or a human explicitly requests public bot evidence. The
-agent marks it ready for review automatically only after the intended scope is
-complete, the branch is technically green and mergeable, the current-head review cycle is finished and
-every thread has a disposition. Ready for review is the handoff to human review,
-approval and an explicitly authorized merge. New user-requested scope or a direct
-user change returns it to draft before further implementation.
-
-Before merge, wait for the dedicated local reviewer or GitHub Codex fallback to
-review the current head diff from its recorded canonical base, not an earlier
-revision. P0, P1 and P2
-do not have one blanket disposition: P0 and P1 always block until fixed or
-technically rebutted. A P2 blocks when independently reproduced in a
-security-, recoverability-, ownership-, freshness-, publication-, or
-cleanup-critical path; other P2 and all P3 findings are answered and tracked.
-The pull request's author or integrating agent owns every review thread through
-completion: document its disposition and resolve it when addressed before
-requesting another review. Agents request GitHub reviews only while the pull request is draft and retain at most one
-machine-marked Codex review
-request for the current head. They remove their fulfilled or stale request-only
-comments before another request and after its review arrives, but retain every
-review, finding, disposition reply and other discussion. After each coherent fix
-batch they automatically run or request another current-head review until it reports no
-findings. The steward may stop with remaining non-blocking findings only after
-recording why each is too granular or immaterial; P0, P1 and critical-path P2
-findings never qualify. A finding that is technically rebutted with complete
-evidence and a resolved thread needs no duplicate review of the unchanged head.
-The required-thread rule
-prevents unresolved findings from merging, while this wait prevents a late
-Codex review from arriving only after merge.
-
-While a GitHub review is pending, the steward observes the PR after a newly chosen
-exact delay of 180 through 480 seconds following each unchanged observation.
-After the PR is ready for human review, it checks mergeability hourly. A confirmed
-conflict returns the PR to draft during resolution and validation. The steward
-restarts the review cycle when that resolution materially changes reviewed
-behavior, interfaces or risk. For a recorded, demonstrably mechanical resolution,
-it may skip replaying the prior review history but still requests one current-head
-reviewer confirmation before returning to ready.
 
 ## Issues and public conversation
 

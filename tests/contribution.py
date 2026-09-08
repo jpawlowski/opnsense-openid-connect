@@ -283,104 +283,95 @@ def main():
           and claude.index("/simplify") < claude.index("preflight-review")
           and "behavior-preserving" in claude
           and "Rerun the affected validation" in claude, True)
+    # One document owns the pull-request procedure. AGENTS.md and CONTRIBUTING.md
+    # name it rather than restating it, so these assertions read the skill alone.
+    # Three copies that each had to contain the right keywords were never checked
+    # for agreeing with one another, and the triplication is what made the two
+    # always-on files 3,700 words each: on 2026-08-28 one change to what the write
+    # guard enforces had to be corrected separately in two of them, and was still
+    # wrong in the third. The delegation itself is asserted at the end of this
+    # block, so the copies cannot creep back.
     check("agent and contributor rules wait for a review of the current head",
-          all("current head" in text.lower() for text in (contribution_skill, agents, contributing)), True)
-    readiness = [re.sub(r"\s+", " ", text.lower()) for text in (contribution_skill, agents, contributing)]
+          "current head" in contribution_skill.lower(), True)
+    readiness = re.sub(r"\s+", " ", contribution_skill.lower())
     check("automatic independent review stays draft and readiness hands finished work to a human",
-          all("draft" in text and "automatically" in text and "technically green" in text
-              and "human review" in text and "mergeable" in text for text in readiness), True)
+          all(value in readiness for value in (
+              "draft", "automatically", "technically green", "human review", "mergeable")), True)
     check("native local review is preferred without making vendor helpers the policy",
-          all("local" in text and "/review" in text and "github" in text
-              for text in readiness)
+          all(value in readiness for value in ("local", "/review", "github"))
           and "/reviewfollowup" in contribution_skill
           and "does not replace this skill" in contribution_skill, True)
     check("Codex findings use one consistent risk-based merge threshold",
-          all("P0 and P1" in text and "P2" in text and "recoverability" in text
-              for text in (contribution_skill, agents, contributing)), True)
+          all(value in contribution_skill for value in ("P0 and P1", "P2", "recoverability")), True)
     check("Codex review repeats to zero findings unless only explicitly immaterial detail remains",
-          all("no findings" in text and "too granular" in text and "immaterial" in text
-              and "critical-path P2" in original
-              for original, text in zip((contribution_skill, agents, contributing), readiness)), True)
+          all(value in readiness for value in ("no findings", "too granular", "immaterial"))
+          and "critical-path P2" in contribution_skill, True)
     check("one integrating agent owns review findings and threads through completion",
-          all("owns every review" in text and "through completion" in text
-              for text in readiness), True)
+          "owns every review" in readiness and "through completion" in readiness, True)
     check("the agent closes old review threads before requesting another review",
           "Only after all existing findings have a disposition" in contribution_skill
           and "request exactly one GitHub review" in contribution_skill
           and "does not update or close an earlier review's threads" in contribution_skill, True)
-    review_hygiene = [re.sub(r"\s+", " ", text.lower()) for text in (contribution_skill, agents, contributing)]
     check("agents retain one temporary review trigger without deleting review evidence",
-          all("at most one" in text and "fulfilled" in text and "stale" in text
-              and "review" in text and "finding" in text and "disposition" in text
-              for text in review_hygiene), True)
+          all(value in readiness for value in (
+              "at most one", "fulfilled", "stale", "review", "finding", "disposition")), True)
     check("active review jitter and ready-state mergeability polling are consistent",
-          all("180 through 480 seconds" in text and "hourly" in text
-              for text in review_hygiene), True)
+          "180 through 480 seconds" in readiness and "hourly" in readiness, True)
     check("control-plane-only changes use focused validation instead of the product gate",
           all("check-control-plane.sh" in text and "full" in text
               for text in (agents.lower(), contributing.lower())), True)
     check("every conflict head is reviewed while mechanical resolutions skip the prior history",
-          all("conflict" in text and "materially" in text and "mechanical" in text
-              and "current-head" in text and "prior review history" in text
-              for text in review_hygiene), True)
+          all(value in readiness for value in (
+              "conflict", "materially", "mechanical", "current-head", "prior review history")), True)
     check("human and agent guidance distinguishes upstream branches from forks",
           all("without write access" in text.lower() and "opnsense-openid-connect:main" in text
               for text in (contribution_skill, contributing)), True)
     check("the agent resolves permission before choosing its push target",
           "viewerPermission" in contribution_skill and "<fork-owner>:<branch>" in contribution_skill, True)
     check("parallel agents refresh one shared remote view without automatic integration",
-          all("origin/main" in text and "worktree" in text.lower()
-              and ("never" in text.lower() or "without changing" in text.lower())
-              for text in (contribution_skill, agents, contributing)), True)
+          "origin/main" in contribution_skill and "worktree" in readiness and "never" in readiness, True)
     check("the primary checkout is read-only while managed detached worktrees remain valid",
           all("read-only" in text.lower() and "detached" in text.lower()
-              for text in (contribution_skill, agents, contributing)), True)
+              for text in (contribution_skill, agents)), True)
     check("parallel subagents stay read-only and writing moves to top-level tasks",
           all("subagent" in text.lower() and "top-level" in text.lower()
-              for text in (contribution_skill, agents, contributing)), True)
+              for text in (contribution_skill, agents)), True)
     check("agents observe canonical and pull-request drift without automatic integration",
-          all("remote head" in text.lower() and "overlap" in text.lower()
-              and "never" in text.lower() and "merge" in text.lower()
-              for text in (contribution_skill, agents, contributing)), True)
+          all(value in readiness for value in ("remote head", "overlap", "never", "merge")), True)
     check("waiting monitors retain the PR identity and remain read-only",
-          all("read-only" in text.lower() and "monitor" in text.lower() and "never" in text.lower()
-              and re.search(r"(?:pr|pull-request) number", text, re.I)
-              for text in (contribution_skill, agents, contributing)), True)
-    workflow_rules = [re.sub(r"\s+", " ", text.lower()) for text in (contribution_skill, agents, contributing)]
+          all(value in readiness for value in ("read-only", "monitor", "never"))
+          and bool(re.search(r"(?:pr|pull-request) number", contribution_skill, re.I)), True)
     check("costly work may batch any amount of canonical drift until a safe checkpoint",
-          all("safe checkpoint" in text and "any number" in text for text in workflow_rules), True)
+          "safe checkpoint" in readiness and "any number" in readiness, True)
     check("overlapping pull requests give humans one order without agent merge authority",
-          all("merge" in text and "order" in text and "explicit human" in text and "alternatives" in text
-              for text in workflow_rules), True)
+          all(value in readiness for value in ("merge", "order", "explicit human", "alternatives")), True)
     check("merge coordination avoids accidental GitHub cross-reference events",
-          all("hash-number" in text and "cross-reference" in text and "PR N" in original
-              and "hidden" in text and "marker" in text
-              for original, text in zip((contribution_skill, agents, contributing), workflow_rules)), True)
+          all(value in readiness for value in ("hash-number", "cross-reference", "hidden", "marker"))
+          and "PR N" in contribution_skill, True)
     check("any steward may replace an order only when new evidence changes it",
-          all("any steward" in text and "new observable evidence" in text
-              and "same evidence" in text and "same order" in text
-              for text in workflow_rules), True)
+          all(value in readiness for value in (
+              "any steward", "new observable evidence", "same evidence", "same order")), True)
     check("replacement records update one maintained entry and serialize competing publishers",
-          all("maintained" in text and "existing" in text and "comment" in text
-              and "stand down" in text and "adopt" in text for text in workflow_rules), True)
+          all(value in readiness for value in (
+              "maintained", "existing", "comment", "stand down", "adopt")), True)
     check("finished agent work has a conservative event-driven cleanup lifecycle",
-          all("24-hour" in text and "seven-day" in text
-              and "ignored" in text and "remote branch" in text
-              and "never" in text and "audit" in text
-              for text in (re.sub(r"\s+", " ", value.lower())
-                           for value in (contribution_skill, agents, contributing))), True)
+          all(value in readiness for value in (
+              "24-hour", "seven-day", "ignored", "remote branch", "never", "audit")), True)
     check("every final handoff reports its cleanup disposition",
-          all("cleanup" in text.lower() and ("handoff" in text.lower() or "audit" in text.lower())
-              for text in (contribution_skill, agents, contributing)), True)
+          "cleanup" in readiness and ("handoff" in readiness or "audit" in readiness), True)
     check("cloud agents keep one existing pull request and never invent credentials",
-          all("existing pull request" in text.lower()
-              and "personal" in text.lower() and "token" in text.lower()
-              and "patch" in text.lower() for text in (contribution_skill, agents, contributing)), True)
+          all(value in readiness for value in (
+              "existing pull request", "personal", "token", "patch")), True)
     check("Codex, Claude and Copilot cloud contexts have explicit recognition paths",
-          all("AGENT_EXECUTION=codex-cloud" in text
-              and "CLAUDE_CODE_REMOTE" in text
-              and "GITHUB_COPILOT_GIT_TOKEN" in text
-              for text in (contribution_skill, agents, contributing)), True)
+          all(value in contribution_skill for value in (
+              "AGENT_EXECUTION=codex-cloud", "CLAUDE_CODE_REMOTE", "GITHUB_COPILOT_GIT_TOKEN")), True)
+    # The tripwire for the rule above: the always-on files must point at the skill,
+    # and must not carry the procedure's own operational detail again.
+    check("the always-on rules delegate the pull-request procedure instead of restating it",
+          all("github-contribution" in text for text in (agents, contributing))
+          and "and only there" in agents
+          and not re.search(r"180 through 480|24-hour grace|hash-number", agents)
+          and not re.search(r"180 through 480|24-hour grace|hash-number", contributing), True)
     check("both paths use the permission-neutral Development link",
           all("Development link" in text and "Fixes #N" in text
               for text in (contribution_skill, contributing)), True)
