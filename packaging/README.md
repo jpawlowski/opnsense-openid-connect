@@ -199,9 +199,30 @@ everything registered. This package is in no repository, so that install would
 fail — once per plugin sync, for good. Named yes, registered no; the two are
 separate mechanisms and only one of them is wanted.
 
-**A side effect worth knowing:** the firmware health page counts packages that
-are in none of the configured repositories as orphaned. That is expected, not a
-fault — and it is the same page that now shows the package exists at all.
+**What the page then shows** is `os-openid-connect (misconfigured)` in bold,
+`unknown-repository` in the repository column, and the *Resolve plugin
+conflicts* menu left permanently visible. That word is core's own bookkeeping,
+not a verdict about the installation: `firmware.volt` prints it for every
+package that is installed but absent from `system.firmware.plugins`. Nothing in
+that menu changes it: two of its entries re-run exactly the registration
+described above, and the third only opens the plugin tab.
+
+**The Info button beside the row stays empty** one step further out.
+`details.sh` answers it with `pkg rquery` against the configured repositories,
+and a package installed from a file is in none of them. What the dialog would
+hold is the manifest's comment, description and maintainer; the per-version
+changelog other plugins show comes from *System > Firmware > Changelog* and is
+a repository feature, not package metadata.
+
+Neither ends before this package is served from a repository, and that is a
+distribution decision rather than a display one.
+
+*System > Firmware > Health* is quieter than the plugin list. `health.sh`
+prints installed plugins by name and version and verifies the files of every
+installed package; its repository and version comparisons walk the core package
+and core's own dependencies, which this package is not. An earlier version of
+this section claimed that page reports the package as orphaned. It does not,
+and that word belongs to the plugin list.
 
 ## The watchdog
 

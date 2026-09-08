@@ -42,6 +42,10 @@ with the normal command above. Those packages use versions that FreeBSD sorts
 after `1.0.0`, and one beta contained a file later retired. Removing the old
 package first completes both migrations; saved settings remain.
 
+*System > Firmware > Plugins* then marks the package `(misconfigured)` and
+offers no plugin details. Both are expected here and explained under
+[Troubleshooting](troubleshooting.md#the-firmware-page-marks-the-plugin-as-misconfigured).
+
 No restart is required. Continue with the [step-by-step setup](README.md) and
 keep the provider disabled until Discovery, sign-in and local recovery have all
 been tested.
