@@ -213,9 +213,9 @@ only opens the plugin tab.
 **The Info button beside the row stays empty** one step further out.
 `details.sh` answers it with `pkg rquery` against the configured repositories,
 and a package installed from a file is in none of them. What the dialog would
-hold is the manifest's comment, description and maintainer. It never holds a
-changelog for any plugin: the changelog page beside it belongs to OPNsense's
-own releases, and a package's own history is not something core displays.
+hold is the manifest's comment, description and maintainer, for this package as
+for any other. The *Changelog* tab beside it is not the same thing: it carries
+OPNsense's own releases.
 
 Neither ends before this package is served from a repository, and that is a
 distribution decision rather than a display one.
