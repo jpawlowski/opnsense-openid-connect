@@ -155,9 +155,9 @@ menu visible, and answers the Info button with "Sorry, plugin details are
 currently not available." None of that reports a problem with this package or
 with the sign-in configuration.
 
-OPNsense marks a plugin misconfigured when it is installed but not registered
-in the firmware plugin list, and it fills the details dialog from the package
-repositories. This package is deliberately registered nowhere and is served
+OPNsense marks this plugin misconfigured because it is installed without being
+registered in the firmware plugin list, and it fills the details dialog from
+the package repositories. This package is deliberately registered nowhere and is served
 from no repository, so both are permanent, and nothing in the conflict menu
 changes them. Why the package is built that way is in
 [packaging/README.md](../../packaging/README.md).
