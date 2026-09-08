@@ -147,6 +147,21 @@ disabled, expired, privileged and otherwise unusable local accounts receive the
 same page and a fresh same-shaped reference on every attempt; the administrator
 correlates it through the audit log.
 
+## The firmware page marks the plugin as misconfigured
+
+*System > Firmware > Plugins* shows `os-openid-connect (misconfigured)` in bold
+with `unknown-repository` as its repository, keeps a *Resolve plugin conflicts*
+menu visible, and answers the Info button with "Sorry, plugin details are
+currently not available." None of that reports a problem with this package or
+with the sign-in configuration.
+
+OPNsense marks this plugin misconfigured because it is installed without being
+registered in the firmware plugin list, and it fills the details dialog from
+the package repositories. This package is deliberately registered nowhere and is served
+from no repository, so both are permanent, and nothing in the conflict menu
+changes them. Why the package is built that way is in
+[packaging/README.md](../../packaging/README.md).
+
 ## Recovery
 
 Use local password login. From SSH or the console the package can also be
