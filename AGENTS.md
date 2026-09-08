@@ -211,6 +211,17 @@ Add to this list rather than to the rules whenever a tool wastes an hour.
 8. **Depending on core means watching core.** Core is somebody else's code and
    moves without warning. Anything newly depended on goes into `TOUCHPOINTS` in
    `packaging/watch/openid-connect-watch`.
+9. **A change that rebuilds a boundary carries nothing else.** PR 130 moved the
+   write guard's issue claim from a refusal to a report, and widened the
+   read-only allow-list in the same diff because the list sat next to the code
+   being changed. Review found four escapes, every one of them in the widening
+   and none in the boundary change: `printf -v NAME` assigning through an array
+   subscript Bash expands, `diff --paginate` and `file -z` running a program off
+   `PATH`, `file -C` writing a `magic.mgc`. Each was invisible on its own, none
+   needed a shell redirection to give it away, and the convenience bought
+   nothing — in an owned worktree an unrecognized command is not refused at all.
+   When a diff changes what may pass a boundary, it contains only that, and
+   everything else waits for its own change where a reviewer can see it alone.
 
 ## Style
 
