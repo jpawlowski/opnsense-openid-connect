@@ -16,21 +16,25 @@ import worktree_cleanup
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 LEASE_TTL = 30 * 60
-# Output-only inspection. Reading the tree is the most common thing an agent
-# does here, and a refusal for it costs a whole turn to work around, so the list
-# is as wide as it can be without letting a program write a file on its own.
-# `sort -o`, `uniq INPUT OUTPUT`, awk's `system()` and `date -s` are why those
-# four are deliberately absent: each mutates without a shell redirection to give
-# it away, and `date` is not worth an exception for a clock nobody reads here.
-# `printf` is absent for a sharper reason: it is a shell builtin, and Bash's
-# `printf -v NAME` assigns to a shell variable whose NAME may be an indexed-array
-# expression. Bash expands that subscript, so `printf -v 'x[$(touch marker)]' foo`
-# runs the substitution while single quotes keep it away from the hazard check
-# below. A name that only looks like an argument is not one.
+# Output-only inspection. An entry qualifies only when NO option of it runs
+# another program, writes a file, or assigns a name — and the test is the whole
+# manual page, not the options anybody happens to remember.
+#
+# Widening this list produced four escapes in a row, each invisible on its own:
+# `printf -v NAME` assigns through an array subscript Bash expands, so
+# `printf -v 'x[$(touch marker)]' foo` runs a substitution that single quotes hid
+# from the hazard check below; `diff --paginate` execs whatever `pr` resolves to
+# on PATH; and `file` has two, `-C` compiling a `magic.mgc` and `-z` launching a
+# decompressor off PATH. `file` is gone rather than guarded, because an entry that
+# needs its own option audit is the thing this criterion rejects. `sort -o`,
+# `uniq INPUT OUTPUT`, awk's `system()` and `date -s` never qualified either.
+#
+# What is left reports text or metadata and takes no program name anywhere. The
+# trade also favours a short list: in an owned worktree nothing here is a refusal
+# — an unrecognized command falls through to the lease and runs — so this only
+# decides what may run in the read-only control checkout.
 READ_ONLY_PROGRAMS = {
-    "basename", "cat", "cmp", "comm", "cut", "diff", "dirname", "echo", "file", "grep", "head",
-    "id", "jq", "ls", "nl", "pwd", "realpath", "stat", "tail", "tr", "true", "uname", "wc",
-    "which",
+    "cat", "grep", "head", "ls", "pwd", "stat", "tail", "true", "wc", "which",
 }
 READ_ONLY_GIT = {
     "describe", "diff", "grep", "log", "ls-files", "merge-base", "name-rev", "rev-list", "rev-parse",

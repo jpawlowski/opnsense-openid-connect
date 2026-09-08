@@ -712,6 +712,19 @@ def main():
     check("a builtin that assigns through an expanded name is not inspection",
           guard_module.is_read_only_shell("printf -v 'x[$(touch marker)]' foo"), False)
     check("printf is not inspection at all", guard_module.is_read_only_shell("printf %s value"), False)
+    # `diff --paginate` pipes through whatever `pr` resolves to on PATH, which is
+    # the third escape this list produced. The answer was to stop widening it.
+    check("a paginating diff is not inspection", guard_module.is_read_only_shell("diff -l a b"), False)
+    check("diff is not on the allow-list at all", guard_module.is_read_only_shell("diff a b"), False)
+    check("convenience entries stay off the allow-list",
+          [name for name in ("basename", "cmp", "comm", "cut", "dirname", "echo", "id", "jq",
+                             "nl", "realpath", "tr", "uname")
+           if guard_module.is_read_only_shell(f"{name} value")], [])
+    # `file` has two: `-C` compiles a magic.mgc, and `-z` runs a decompressor off
+    # PATH. An allow-list entry that needs its own option audit does not belong.
+    check("file is not on the allow-list either",
+          [guard_module.is_read_only_shell(command) for command in (
+              "file AGENTS.md", "file -C -m ./magic", "file -z archive")], [False, False, False])
     check("local editing needs no public work claim", guard_module.creates_durable_state({
         "tool_name": "Edit", "tool_input": {"file_path": "AGENTS.md"},
     }), False)
